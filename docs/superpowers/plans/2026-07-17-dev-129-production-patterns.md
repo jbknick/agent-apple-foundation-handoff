@@ -73,7 +73,8 @@ Record `test -e`, `find`, `git ls-tree`, and focused source excerpts that prove:
   UI/activation metadata, and the root reference-file observation;
 - the distinction between documented entry-point requirements, optional rich
   fields, and the pinned official validator's stricter creation policy;
-- plugin `interface` fields versus marketplace-only policy/category fields;
+- required `plugin.json.interface.category` versus marketplace-only
+  `plugins[].policy` and `plugins[].category`;
 - per-skill `agents/openai.yaml` UI/activation metadata versus the unvalidated
   root reference file;
 - full loader recognition order and root `.`/`./` marketplace source handling,
@@ -279,13 +280,14 @@ The adopt/adapt/reject matrix must cover at least:
 - capability claims from discovery/install alone.
 
 It must define the generator inputs precisely: Claude metadata owns shared
-identity, while a separate Codex-only input owns plugin `interface` and
-marketplace source/order/policy/category. Generated Codex outputs are not
-hand-edited. It must distinguish the documented required entry point and
-optional rich fields from the pinned validator's stricter creation policy,
-keep marketplace-only fields out of `plugin.json`, apply the precise Claude
-symlink rules, and leave repository-root versus `plugins/<name>` placement for
-DEV-132.
+identity, while a separate Codex-only input owns plugin `interface`, including
+required `plugin.json.interface.category`, and marketplace source/order plus
+the distinct marketplace-entry `plugins[].policy` and `plugins[].category`.
+Generated Codex outputs are not hand-edited. It must distinguish the documented
+required entry point and optional rich fields from the pinned validator's
+stricter creation policy, keep only `plugins[].policy` and
+`plugins[].category` marketplace-only, apply the precise Claude symlink rules,
+and leave repository-root versus `plugins/<name>` placement for DEV-132.
 
 Each row requires classification, exact pinned path(s), rationale, and
 downstream issue impact. Link the transcript relatively. State that current

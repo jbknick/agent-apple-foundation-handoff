@@ -36,9 +36,11 @@ with host metadata generated where the host contracts differ.
 - Claude metadata is the canonical input for shared identity fields such as
   name, version, description, author, project links, license, and keywords.
 - A separate generator input owns Codex-only plugin `interface` presentation
-  data and Codex marketplace data, including entry policy, category, ordering,
-  and source path. Marketplace `policy` and `category` are marketplace-entry
-  fields; they are not fields in `.codex-plugin/plugin.json`.
+  data, including `plugin.json.interface.category`, and Codex marketplace data,
+  including entry ordering, source path, `plugins[].policy`, and
+  `plugins[].category`. Marketplace `plugins[].policy` and
+  `plugins[].category` exist only in `marketplace.json`; the distinct
+  `plugin.json.interface.category` belongs to the Codex presentation input.
 - The generator combines those two authored inputs into explicit Codex
   manifest and marketplace outputs. Generated outputs are never hand-edited.
 - Generated Codex artifacts never own or duplicate the skill corpus.
@@ -50,7 +52,8 @@ The current OpenAI build documentation identifies
 `.codex-plugin/plugin.json` as the required entry point and describes its other
 manifest fields as optional. The pinned official `validate_plugin.py` applies
 a stricter creation policy: it requires shared identity fields and a complete
-`interface`, including long description, capabilities, and a default prompt.
+`interface`, including long description, presentation category, capabilities,
+and a default prompt.
 This project will satisfy the pinned stricter validator while recording that
 the requirement comes from the validator, not overstating every rich field as
 a loader-level requirement.

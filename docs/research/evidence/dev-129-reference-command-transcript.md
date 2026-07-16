@@ -108,9 +108,11 @@ tree rather than an assumption.
   Adopt its shared physical tree and generation direction; adapt the output to
   the current rich Codex schema. For this fork, the precise canonical inputs
   are the Claude manifest's shared identity fields plus a separate authored
-  generator input for Codex-only plugin `interface` data and marketplace
-  source, ordering, policy, and category. The generator owns explicit Codex
-  manifest and marketplace outputs, which must not be hand-edited.
+  generator input for Codex-only plugin `interface` data, including
+  `plugin.json.interface.category`, and marketplace source/order plus the
+  distinct `plugins[].policy` and `plugins[].category` entry fields. The
+  generator owns explicit Codex manifest and marketplace outputs, which must
+  not be hand-edited.
 - The official Codex example uses a rich
   [`.codex-plugin/plugin.json`](https://github.com/openai/plugins/blob/11c74d6ba24d3a6d48f54a194cd00ef3beea18f9/plugins/build-ios-apps/.codex-plugin/plugin.json)
   with paths and detailed `interface` fields. Current
@@ -119,11 +121,13 @@ tree rather than an assumption.
   manifest fields are optional. In contrast, the pinned
   [`validate_plugin.py`](https://github.com/openai/codex/blob/693b8c2ba4396772eeb82ce2982acad19dd960f5/codex-rs/skills/src/assets/samples/plugin-creator/scripts/validate_plugin.py)
   enforces a stricter plugin-creation policy: shared identity fields and a
-  complete `interface`, including `longDescription`, `capabilities`, and
-  `defaultPrompt`. This project can adopt the stricter validator without
-  mislabeling all rich fields as loader-level requirements. Marketplace-entry
-  `policy` and `category` belong in `marketplace.json`; they are not
-  `plugin.json` fields. The example's
+  complete `interface`, including `longDescription`, `category`,
+  `capabilities`, and `defaultPrompt`. This project can adopt the stricter
+  validator without mislabeling all rich fields as loader-level requirements.
+  Marketplace-entry `plugins[].policy` and `plugins[].category` belong only in
+  `marketplace.json`. The similarly named but distinct
+  `plugin.json.interface.category` belongs to the Codex presentation input and
+  is required by the pinned validator. The example's
   [`agents/openai.yaml`](https://github.com/openai/plugins/blob/11c74d6ba24d3a6d48f54a194cd00ef3beea18f9/plugins/build-ios-apps/agents/openai.yaml)
   contains plugin-presentation-like fields, but the pinned validator neither
   defines nor validates that root file as the current contract. It does
