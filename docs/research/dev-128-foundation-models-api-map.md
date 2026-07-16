@@ -315,7 +315,7 @@ as a struct with this complete public data/initializer surface:
 | `LanguageModelSession.ToolCallError` | `var tool: any Tool` |
 | `LanguageModelSession.ToolCallError` | `var underlyingError: any Error` |
 | `LanguageModelSession.ToolCallError` | `init(tool: any Tool, underlyingError: any Error)` |
-| `LanguageModelSession.ToolCallError` | `var errorDescription: String?` |
+| `LanguageModelSession.ToolCallError` | `var errorDescription: String? { get }` |
 
 These complete case and property signatures are **Official OS 27 beta, locally
 unverified**. The unqualified `Error` and `Tool` spellings in the ToolCallError
