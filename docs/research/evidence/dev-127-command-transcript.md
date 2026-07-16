@@ -216,7 +216,7 @@ xcode-select: error: tool 'xcodebuild' requires Xcode, but active developer dire
 
 Exit status: `1`.
 
-For supporting command-line inspection, `jq` was present at
+**Established.** For supporting command-line inspection, `jq` was present at
 `/opt/homebrew/bin/jq`; `bats` was absent. **Not established:** these host-tool
 observations do not establish repository-native validation or generation
 commands because the authoritative fork contains no corresponding setup.
@@ -330,8 +330,8 @@ configuration was captured. A broader claim that every user-level Codex
 configuration file remained unchanged is therefore not established by this
 transcript.
 
-The two isolated loading demonstrations establish only that the installed
-Claude Code and Codex CLIs can load a representative plugin with the pinned
-upstream structure. **Not established:** the current fork does not thereby
-gain a plugin, cross-host loading implementation, or the upstream
+**Reference only.** The two isolated loading demonstrations establish only
+that the installed Claude Code and Codex CLIs can load a representative plugin
+with the pinned upstream structure. **Not established:** the current fork does
+not thereby gain a plugin, cross-host loading implementation, or the upstream
 canonical-versus-generated file model.
