@@ -205,6 +205,19 @@ Target: arm64-apple-macosx26.0
 
 Exit status: `0`.
 
+**Established.** A bare `FoundationModels` module import type-checked with
+`swiftc` using the installed Command Line Tools SDK.
+
+```console
+$ printf 'import FoundationModels\n' | swiftc -typecheck -
+```
+
+Exit status: `0`; no standard output.
+
+This establishes only that the installed Command Line Tools SDK exposes a
+module that accepts a bare import. **Not established:** compilation of project
+examples, because the authoritative fork contains no examples to compile.
+
 **Blocked.** Full-Xcode validation is unavailable because the active developer
 directory is the Command Line Tools installation rather than a full Xcode
 installation.

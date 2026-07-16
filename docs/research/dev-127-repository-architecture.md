@@ -44,6 +44,10 @@ of an upstream plugin do not fill those repository gaps.
 checks demonstrate one possible production structure, not a structure adopted
 by this fork.
 
+**Established.** A bare `import FoundationModels` type-checked with `swiftc`
+using the installed Command Line Tools SDK. No project examples exist, so
+example compilation remains **Not established**.
+
 **Blocked.** Full-Xcode validation could not run because the active developer
 directory is the Command Line Tools installation rather than a full Xcode
 installation.
@@ -93,7 +97,9 @@ their canonical source, generation direction, drift check, and edit policy.
 | Generation and drift control | **Not established** | There are no generators, generated outputs, sync scripts, or drift checks. |
 | Claude Code loading of this fork | **Not established** | The fork has no Claude plugin to validate, discover, install, enable, or exercise. |
 | Codex loading of this fork | **Not established** | The fork has no Codex plugin to discover, install, enable, or exercise. |
-| Apple SDK compilation | **Blocked** | Full-Xcode validation is unavailable with the active Command Line Tools developer directory. The observed Swift CLI alone does not prove examples that do not yet exist. |
+| `FoundationModels` module import | **Established** | `printf 'import FoundationModels\n' \| swiftc -typecheck -` exited `0` using the installed Command Line Tools SDK. This proves only a bare module import. |
+| Swift example compilation | **Not established** | The authoritative fork contains no Swift examples to compile. |
+| Full-Xcode validation | **Blocked** | `xcodebuild` is unavailable with the active Command Line Tools developer directory. |
 
 The absence of these capabilities is an architecture constraint, not permission
 to fabricate defaults. Downstream issues must make and record the relevant
@@ -124,8 +130,10 @@ recorded and implemented.
 ## Cross-host loading evidence
 
 **Established.** The audit host had Claude Code `2.1.91`, Codex CLI `0.144.5`,
-and Apple Swift `6.3.2` available when evidence was collected. This establishes
-the observed host-tool versions only.
+and Apple Swift `6.3.2` available when evidence was collected. In addition to
+those version observations, the bare `FoundationModels` import type-check
+establishes module availability through the installed Command Line Tools SDK;
+it does not establish compilation of absent project examples.
 
 **Reference only.** Using temporary configuration directories, Claude Code
 validated, discovered, installed, and enabled the representative upstream
@@ -198,8 +206,8 @@ later report-validation gates.
 
 Passing document semantics and branch-scope checks validates this audit
 revision only. It does not establish plugin loading, generated-artifact
-freshness, Apple API correctness, Swift compilation, or cross-host behavioral
-equivalence. Any tree change that introduces a plugin, runtime, generator,
-schema, test, or adapter requires a new capability-specific validation contract
-and must update this classification instead of relying on the old absence
-evidence.
+freshness, Apple API behavioral correctness, Swift example compilation,
+full-Xcode validation, or cross-host behavioral equivalence. Any tree change
+that introduces a plugin, runtime, generator, schema, test, or adapter requires
+a new capability-specific validation contract and must update this
+classification instead of relying on the old absence evidence.

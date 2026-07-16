@@ -269,8 +269,14 @@ Run:
 git status --short --branch
 git diff --check origin/main...HEAD
 git diff --name-only origin/main...HEAD
-test "$(git diff --name-only origin/main...HEAD | wc -l | tr -d ' ')" -eq 4
-test "$(git diff --name-only origin/main...HEAD | rg -v '^docs/(research|superpowers)/(evidence/|plans/|specs/|dev-127-)' | wc -l | tr -d ' ')" -eq 0
+expected_paths="$(printf '%s\n' \
+  'docs/research/dev-127-repository-architecture.md' \
+  'docs/research/evidence/dev-127-command-transcript.md' \
+  'docs/superpowers/plans/2026-07-16-dev-127-repository-audit.md' \
+  'docs/superpowers/specs/2026-07-16-dev-127-repository-audit-design.md' |
+  sort)"
+actual_paths="$(git diff --name-only origin/main...HEAD | sort)"
+test "$actual_paths" = "$expected_paths"
 ```
 
 Expected: clean branch; exactly four DEV-127 documentation files; no out-of-scope paths.
