@@ -189,8 +189,12 @@ reproduced by:
    at that revision;
 3. confirming the pinned upstream identity before using any upstream result as
    **Reference only**; and
-4. running the report's semantic and branch-scope gates recorded in the linked
-   command transcript and DEV-127 implementation plan.
+4. running the report's semantic and branch-scope gates defined in the
+   [DEV-127 implementation plan](../superpowers/plans/2026-07-16-dev-127-repository-audit.md).
+
+Results from those gates belong in the completion evidence and Linear handoff.
+The linked command transcript records the audit inputs; it does not record the
+later report-validation gates.
 
 Passing document semantics and branch-scope checks validates this audit
 revision only. It does not establish plugin loading, generated-artifact

@@ -208,9 +208,22 @@ Run:
 ```bash
 report=docs/research/dev-127-repository-architecture.md
 test -s "$report"
-for heading in +  'Scope and authority' +  'Executive finding' +  'Authoritative tracked-file inventory' +  'Canonical, generated, and adapter classification' +  'Repository capabilities and gaps' +  'Pinned upstream bstack comparison' +  'Cross-host loading evidence' +  'Downstream decisions still required' +  'Files downstream must not edit directly' +  'Validation contract for this revision'; do
+headings=(
+  'Scope and authority'
+  'Executive finding'
+  'Authoritative tracked-file inventory'
+  'Canonical, generated, and adapter classification'
+  'Repository capabilities and gaps'
+  'Pinned upstream bstack comparison'
+  'Cross-host loading evidence'
+  'Downstream decisions still required'
+  'Files downstream must not edit directly'
+  'Validation contract for this revision'
+)
+for heading in "${headings[@]}"; do
   rg -q "^## ${heading}$" "$report"
 done
+test "$(rg '^## ' "$report" | wc -l | tr -d ' ')" -eq 10
 rg -q '7ec92734127236e29ab88d66c1b41f663149ce0e' "$report"
 rg -q '34a04e16b8582d9ddc605563fea1f868732cca4e' "$report"
 rg -q 'not established' "$report"

@@ -59,10 +59,14 @@ tracked-file inventory, clean-status verification, `git diff --check`, and
 explicit confirmation that no validation/generation command exists.
 
 Installed `claude` and `codex` CLIs will be inspected using their help and
-version surfaces. The audit will not modify global host configuration or install
-a plugin. With no local plugin artifact to load, the required existing-plugin
-loading demonstration is expected to be recorded as a reproducible scope
-blocker unless a safe, already-installed representative can be verified.
+version surfaces. The audit must not mutate ordinary Claude Code or Codex
+configuration. It may use an isolated temporary `CLAUDE_CONFIG_DIR` and
+`CODEX_HOME` to install the representative plugin from the exact pinned upstream
+revision solely as **Reference only** host-loading evidence. That isolated
+installation neither installs nor proves the current fork. If safe isolation or
+a required host check cannot be demonstrated, including full-Xcode validation,
+the transcript must record the command, exit status, and explicit **Blocked**
+reason rather than claim a pass.
 
 ## Downstream contract
 
