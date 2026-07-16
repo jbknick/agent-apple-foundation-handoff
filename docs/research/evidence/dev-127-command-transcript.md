@@ -1,6 +1,6 @@
 # DEV-127 Repository Audit Command Transcript
 
-Retrieval date: `2026-07-16`
+Evidence collection range: `2026-07-16` through `2026-07-17`
 
 This transcript normalizes the evidence gathered for DEV-127. Temporary
 directories are represented as `<temporary-directory>`. The host-loading

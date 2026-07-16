@@ -91,10 +91,15 @@ Run:
 claude --version
 codex --version
 swift --version
+printf 'import FoundationModels\n' | swiftc -typecheck -
 xcodebuild -version
 ```
 
-Expected: Claude Code `2.1.91`, Codex `0.144.5`, Apple Swift `6.3.2`; `xcodebuild` exits 1 because the active developer directory is CommandLineTools rather than full Xcode.
+Expected: Claude Code `2.1.91`, Codex `0.144.5`, Apple Swift `6.3.2`; the
+bare `FoundationModels` import exits 0 using the installed Command Line Tools
+SDK, which does not establish compilation of absent project examples;
+`xcodebuild` exits 1 because the active developer directory is CommandLineTools
+rather than full Xcode.
 
 - [ ] **Step 5: Prove isolated Claude Code discovery and installation using the pinned upstream reference**
 
