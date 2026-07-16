@@ -3,8 +3,10 @@
 Retrieval date: `2026-07-16`
 
 This transcript normalizes the evidence gathered for DEV-127. Temporary
-directories are represented as `<temporary-directory>`. No user-level Claude
-Code or Codex configuration was modified.
+directories are represented as `<temporary-directory>`. The host-loading
+commands were scoped to temporary configuration directories; the limits of the
+available configuration-nonmutation evidence are classified in the relevant
+sections below.
 
 Evidence labels have the following meanings:
 
@@ -12,6 +14,8 @@ Evidence labels have the following meanings:
   host tools.
 - **Reference only:** observed in the pinned upstream bstack revision and not
   authoritative for this fork.
+- **Not established:** not demonstrated by authoritative fork evidence and
+  reserved for an explicit downstream decision or additional proof.
 - **Blocked:** the requested check could not run successfully on this host.
 
 ## Authoritative fork
@@ -97,6 +101,16 @@ ABSENT .github/workflows
 ```
 
 Exit status: `0`.
+
+**Not established.** Repository-native validation and generation commands are
+not established for this fork. The authoritative tree contains only the three
+documents listed above, with no package definition, scripts, tests, schemas, or
+workflow configuration from which such commands could be derived.
+
+**Not established.** The current fork has no plugin artifacts, so neither a
+plugin architecture nor a canonical-versus-generated artifact model is
+established. The upstream model documented below remains reference material
+until a downstream issue explicitly selects and implements an architecture.
 
 ## Pinned upstream reference
 
@@ -203,9 +217,9 @@ xcode-select: error: tool 'xcodebuild' requires Xcode, but active developer dire
 Exit status: `1`.
 
 For supporting command-line inspection, `jq` was present at
-`/opt/homebrew/bin/jq`; `bats` was absent. These observations do not establish
-repository-native validation because the authoritative fork contains no test
-or validation setup.
+`/opt/homebrew/bin/jq`; `bats` was absent. **Not established:** these host-tool
+observations do not establish repository-native validation or generation
+commands because the authoritative fork contains no corresponding setup.
 
 ## Claude Code isolated loading
 
@@ -215,16 +229,44 @@ an isolated configuration directory.
 
 ```console
 $ claude_home="$(mktemp -d /tmp/dev127-claude-home.XXXXXX)"
+```
+
+Exit status: `0`. Normalized value of `claude_home`:
+`<temporary-directory>`.
+
+```console
 $ CLAUDE_CONFIG_DIR="$claude_home" claude plugin validate "$upstream_dir/plugins/me"
 Validation passed
+```
+
+Exit status: `0`.
+
+```console
 $ CLAUDE_CONFIG_DIR="$claude_home" claude plugin marketplace add "$upstream_dir" --scope user
+```
+
+Exit status: `0`. Normalized result: the pinned upstream marketplace was added
+inside the isolated Claude Code configuration directory.
+
+```console
 $ CLAUDE_CONFIG_DIR="$claude_home" claude plugin list --available --json |
 >   jq -e '.available[] | select(.pluginId == "me@bstack")'
 {
   "pluginId": "me@bstack",
   "version": "17.32.1"
 }
+```
+
+Exit status: `0` for the pipeline.
+
+```console
 $ CLAUDE_CONFIG_DIR="$claude_home" claude plugin install me@bstack --scope user
+```
+
+Exit status: `0`. Normalized result: `me@bstack` was installed inside the
+isolated Claude Code configuration directory.
+
+```console
 $ CLAUDE_CONFIG_DIR="$claude_home" claude plugin list --json |
 >   jq -e '.[] | select(.id == "me@bstack" and .enabled == true)'
 {
@@ -233,9 +275,14 @@ $ CLAUDE_CONFIG_DIR="$claude_home" claude plugin list --json |
 }
 ```
 
-Exit status: `0` for each command and pipeline. Normalized values of
-`claude_home` and `upstream_dir`: `<temporary-directory>`. User-level Claude
-Code configuration was not modified.
+Exit status: `0` for the pipeline. Normalized value of `upstream_dir`:
+`<temporary-directory>`.
+
+**Not established.** Setting `CLAUDE_CONFIG_DIR` scoped the observed commands
+to the temporary directory, but no before-and-after diff of the ordinary host
+configuration was captured. A broader claim that every user-level Claude Code
+configuration file remained unchanged is therefore not established by this
+transcript.
 
 ## Codex isolated loading
 
@@ -275,11 +322,16 @@ $ CODEX_HOME="$codex_home" codex plugin list --json |
 ```
 
 Exit status: `0` for each command and pipeline. Normalized values of
-`codex_home` and `upstream_dir`: `<temporary-directory>`. User-level Codex
-configuration was not modified.
+`codex_home` and `upstream_dir`: `<temporary-directory>`.
+
+**Not established.** Setting `CODEX_HOME` scoped the observed commands to the
+temporary directory, but no before-and-after diff of the ordinary host
+configuration was captured. A broader claim that every user-level Codex
+configuration file remained unchanged is therefore not established by this
+transcript.
 
 The two isolated loading demonstrations establish only that the installed
 Claude Code and Codex CLIs can load a representative plugin with the pinned
-upstream structure. They do **not** establish that this authoritative fork
-already contains a plugin, implements cross-host loading, or has adopted the
-upstream canonical-versus-generated file model.
+upstream structure. **Not established:** the current fork does not thereby
+gain a plugin, cross-host loading implementation, or the upstream
+canonical-versus-generated file model.
