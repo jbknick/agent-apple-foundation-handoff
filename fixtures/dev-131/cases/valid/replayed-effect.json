@@ -1,0 +1,158 @@
+{
+  "schemaVersion": "1.0",
+  "caseId": "replayed-effect",
+  "workflow": "recovery-aware-effect",
+  "policy": {
+    "route": {
+      "requiredDestination": "execute",
+      "allowedDestinations": [
+        "execute"
+      ]
+    },
+    "finalOwner": "reviewer",
+    "allowedEdges": [
+      [
+        "stable",
+        "proposed"
+      ],
+      [
+        "proposed",
+        "executing"
+      ],
+      [
+        "executing",
+        "recoveryRequired"
+      ],
+      [
+        "recoveryRequired",
+        "complete"
+      ]
+    ],
+    "transitionBudget": 5,
+    "toolAllowlist": {
+      "reviewer": [
+        "commit_effect"
+      ]
+    },
+    "toolBudget": 2,
+    "contextPolicy": {
+      "declared": true,
+      "required": [
+        "request",
+        "constraints"
+      ],
+      "forbidden": [
+        "private_user_data"
+      ]
+    },
+    "stateVersion": 7,
+    "policyVersion": 3,
+    "validPhaseEvents": {
+      "stable": [
+        "propose"
+      ],
+      "proposed": [
+        "approve"
+      ],
+      "executing": [
+        "execute"
+      ],
+      "recoveryRequired": [
+        "reconcile"
+      ],
+      "complete": [
+        "finalize"
+      ]
+    },
+    "allowedFallbacks": [
+      "return_to_owner"
+    ]
+  },
+  "result": {
+    "destination": "execute",
+    "responses": [
+      {
+        "actor": "reviewer",
+        "final": true
+      }
+    ],
+    "transitions": [
+      {
+        "from": "stable",
+        "to": "proposed"
+      },
+      {
+        "from": "proposed",
+        "to": "executing"
+      },
+      {
+        "from": "executing",
+        "to": "recoveryRequired"
+      },
+      {
+        "from": "recoveryRequired",
+        "to": "complete"
+      }
+    ],
+    "toolCalls": [
+      {
+        "actor": "reviewer",
+        "tool": "commit_effect"
+      }
+    ],
+    "context": {
+      "included": [
+        "request",
+        "constraints"
+      ],
+      "excluded": [
+        "private_user_data"
+      ]
+    },
+    "grant": {
+      "stateVersion": 7,
+      "policyVersion": 3
+    },
+    "events": [
+      {
+        "phase": "stable",
+        "event": "propose"
+      },
+      {
+        "phase": "proposed",
+        "event": "approve"
+      },
+      {
+        "phase": "executing",
+        "event": "execute"
+      },
+      {
+        "phase": "recoveryRequired",
+        "event": "reconcile"
+      },
+      {
+        "phase": "complete",
+        "event": "finalize"
+      }
+    ],
+    "effects": [
+      {
+        "effectId": "effect-commit-1",
+        "ledgerEntryCount": 1,
+        "replayExecutorCommandCount": 0,
+        "uncertainCommit": true,
+        "retryAttempted": true,
+        "reconciledBeforeRetry": true
+      }
+    ],
+    "fallback": "return_to_owner",
+    "evidence": {
+      "includedPaths": [
+        "summary.md"
+      ],
+      "redacted": true,
+      "hashesVerified": true,
+      "containsRawTrace": false
+    }
+  }
+}

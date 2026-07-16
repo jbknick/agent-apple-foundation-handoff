@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "1.0",
+  "issue": "DEV-131",
+  "runId": "synthetic-offline-proof-1",
+  "commit": "recorded-by-linear-handoff",
+  "files": [
+    {"path":"summary.md","sha256":"b03c900e5c74af4c66828b191241f47032d3225c7cdb032df708d280d83c124c","classification":"redacted-summary"},
+    {"path":"checks.json","sha256":"7f49c5b64560240409188a813cc4d77df84db860700de9c6936473cc12bb7c2e","classification":"derived-check"},
+    {"path":"commands.jsonl","sha256":"29cff498fd8afc04f5aff86696b3fb4c75ad9c56777016753953415985af402d","classification":"normalized"},
+    {"path":"environment.json","sha256":"e7e661436aaab742d3353cff014e8981b2fe9f699145e0d361372b94082e8538","classification":"capability-fact"},
+    {"path":"host-matrix.json","sha256":"ffc5fdfaa465b7880d0ee2b376c18675d6aaab4611d9970f7970cf54477ae8ec","classification":"capability-fact"},
+    {"path":"rubric/architecture-response.synthetic.md","sha256":"ff25709cf4bec5e3a9190dd40e191c1a3007a0418c20872a6f547b062c807b69","classification":"synthetic"},
+    {"path":"rubric/assessment.json","sha256":"a62f318ccef66a96bfd735a44dca085eb39a0874b304e4378e73d4be1a622218","classification":"synthetic"},
+    {"path":"rubric/assessment.invalid.json","sha256":"86de9638efcb7eeccb6fe1e1672f867f16ab8c0f367025b4e7c53b8dcf22858b","classification":"synthetic"}
+  ]
+}

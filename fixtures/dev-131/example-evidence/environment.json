@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "1.0",
+  "fixtureClass": "synthetic",
+  "pythonRequirement": "Python 3 standard library",
+  "networkRequired": false,
+  "credentialsRequired": false,
+  "modelRequired": false,
+  "paidServiceRequired": false,
+  "appleRuntimeRequired": false
+}

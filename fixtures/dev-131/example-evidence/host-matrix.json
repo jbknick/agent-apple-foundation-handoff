@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "1.0",
+  "rows": [
+    {"layer":"offline-contract","status":"pass","evidence":"stable-check-results"},
+    {"layer":"claude-code-activation","status":"blocked","reason":"not executed by the offline fixture"},
+    {"layer":"codex-activation","status":"blocked","reason":"not executed by the offline fixture"},
+    {"layer":"apple-evaluations","status":"blocked","reason":"requires a separately evidenced compatible full-Xcode host"},
+    {"layer":"apple-instruments","status":"blocked","reason":"requires a separately evidenced compatible full-Xcode host"}
+  ]
+}
