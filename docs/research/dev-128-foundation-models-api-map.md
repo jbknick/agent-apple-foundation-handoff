@@ -256,36 +256,73 @@ of names across both versions would hide deployment and migration mistakes.
 ### Stable SDK 26.5 errors
 
 `LanguageModelSession.GenerationError` in the pinned installed interface has
-exactly these cases:
+these complete case signatures, including associated-value types:
 
-| Exact case | Stable meaning boundary |
+| Exact installed case signature | Stable meaning boundary |
 | --- | --- |
-| `exceededContextWindowSize` | Session input exceeded the installed model context window |
-| `assetsUnavailable` | Required model assets are unavailable |
-| `guardrailViolation` | Input or output triggered guardrails |
-| `unsupportedGuide` | A generation guide is unsupported |
-| `unsupportedLanguageOrLocale` | Requested language or locale is unsupported |
-| `decodingFailure` | Generated content could not be decoded as requested |
-| `rateLimited` | Stable session request was rate limited |
-| `concurrentRequests` | More than one request used the session concurrently |
-| `refusal` | The model refused, with its stable refusal/context payloads |
+| `case exceededContextWindowSize(FoundationModels.LanguageModelSession.GenerationError.Context)` | Session input exceeded the installed model context window |
+| `case assetsUnavailable(FoundationModels.LanguageModelSession.GenerationError.Context)` | Required model assets are unavailable |
+| `case guardrailViolation(FoundationModels.LanguageModelSession.GenerationError.Context)` | Input or output triggered guardrails |
+| `case unsupportedGuide(FoundationModels.LanguageModelSession.GenerationError.Context)` | A generation guide is unsupported |
+| `case unsupportedLanguageOrLocale(FoundationModels.LanguageModelSession.GenerationError.Context)` | Requested language or locale is unsupported |
+| `case decodingFailure(FoundationModels.LanguageModelSession.GenerationError.Context)` | Generated content could not be decoded as requested |
+| `case rateLimited(FoundationModels.LanguageModelSession.GenerationError.Context)` | Stable session request was rate limited |
+| `case concurrentRequests(FoundationModels.LanguageModelSession.GenerationError.Context)` | More than one request used the session concurrently |
+| `case refusal(FoundationModels.LanguageModelSession.GenerationError.Refusal, FoundationModels.LanguageModelSession.GenerationError.Context)` | The model refused, with distinct refusal and context payloads |
 
-`LanguageModelSession.ToolCallError` separately exposes the tool and underlying
-error. These are **Interface-verified SDK 26.5** declarations.
+The same installed interface declares these complete supporting payload and
+error-property signatures:
+
+| Installed type | Exact installed property or initializer signature |
+| --- | --- |
+| `LanguageModelSession.GenerationError.Context` | `public let debugDescription: Swift.String` |
+| `LanguageModelSession.GenerationError.Context` | `public init(debugDescription: Swift.String)` |
+| `LanguageModelSession.GenerationError.Refusal` | `public init(transcriptEntries: [FoundationModels.Transcript.Entry])` |
+| `LanguageModelSession.GenerationError.Refusal` | `public var explanation: FoundationModels.LanguageModelSession.Response<Swift.String> { get async throws }` |
+| `LanguageModelSession.GenerationError.Refusal` | `public var explanationStream: FoundationModels.LanguageModelSession.ResponseStream<Swift.String> { get }` |
+| `LanguageModelSession.GenerationError` | `public var errorDescription: Swift.String? { get }` |
+| `LanguageModelSession.GenerationError` | `public var recoverySuggestion: Swift.String? { get }` |
+| `LanguageModelSession.GenerationError` | `public var failureReason: Swift.String? { get }` |
+
+`LanguageModelSession.ToolCallError` is not an enum. Its complete installed
+public data/initializer surface is:
+
+| Installed type | Exact installed property or initializer signature |
+| --- | --- |
+| `LanguageModelSession.ToolCallError` | `public var tool: any FoundationModels.Tool` |
+| `LanguageModelSession.ToolCallError` | `public var underlyingError: any Swift.Error` |
+| `LanguageModelSession.ToolCallError` | `public init(tool: any FoundationModels.Tool, underlyingError: any Swift.Error)` |
+| `LanguageModelSession.ToolCallError` | `public var errorDescription: Swift.String? { get }` |
+
+All signatures in these three tables are **Interface-verified SDK 26.5** from
+the pinned installed interface; no OS 27 name is substituted into them.
 
 ### Official OS 27 beta errors
 
-| Exact type | Exact current cases |
+| Exact current type | Complete current Apple DocC case signatures |
 | --- | --- |
-| [`LanguageModelError`](https://developer.apple.com/documentation/foundationmodels/languagemodelerror) | `contextSizeExceeded`, `rateLimited`, `refusal`, `timeout`, `guardrailViolation`, `unsupportedCapability`, `unsupportedTranscriptContent`, `unsupportedGenerationGuide`, `unsupportedLanguageOrLocale` |
-| [`LanguageModelSession.Error`](https://developer.apple.com/documentation/foundationmodels/languagemodelsession/error) | `concurrentRequests`, `transcriptMutationWhileResponding` |
-| [`SystemLanguageModel.Error`](https://developer.apple.com/documentation/foundationmodels/systemlanguagemodel/error) | `assetsUnavailable` |
-| [`PrivateCloudComputeLanguageModel.Error`](https://developer.apple.com/documentation/foundationmodels/privatecloudcomputelanguagemodel/error) | `quotaLimitReached`, `networkFailure`, `serviceUnavailable` |
-| `LanguageModelSession.ToolCallError` | Continues to wrap a tool and its underlying error |
+| [`LanguageModelError`](https://developer.apple.com/documentation/foundationmodels/languagemodelerror) | `case contextSizeExceeded(LanguageModelError.ContextSizeExceeded)`<br>`case rateLimited(LanguageModelError.RateLimited)`<br>`case refusal(LanguageModelError.Refusal)`<br>`case timeout(LanguageModelError.Timeout)`<br>`case guardrailViolation(LanguageModelError.GuardrailViolation)`<br>`case unsupportedCapability(LanguageModelError.UnsupportedCapability)`<br>`case unsupportedTranscriptContent(LanguageModelError.UnsupportedTranscriptContent)`<br>`case unsupportedGenerationGuide(LanguageModelError.UnsupportedGenerationGuide)`<br>`case unsupportedLanguageOrLocale(LanguageModelError.UnsupportedLanguageOrLocale)` |
+| [`LanguageModelSession.Error`](https://developer.apple.com/documentation/foundationmodels/languagemodelsession/error) | `case concurrentRequests`<br>`case transcriptMutationWhileResponding` |
+| [`SystemLanguageModel.Error`](https://developer.apple.com/documentation/foundationmodels/systemlanguagemodel/error) | `case assetsUnavailable(SystemLanguageModel.Error.AssetsUnavailable)` |
+| [`PrivateCloudComputeLanguageModel.Error`](https://developer.apple.com/documentation/foundationmodels/privatecloudcomputelanguagemodel/error) | `case quotaLimitReached(PrivateCloudComputeLanguageModel.Error.QuotaLimitReached)`<br>`case networkFailure(PrivateCloudComputeLanguageModel.Error.NetworkFailure)`<br>`case serviceUnavailable(PrivateCloudComputeLanguageModel.Error.ServiceUnavailable)` |
 
-These names are **Official OS 27 beta, locally unverified**. Current Apple docs
-deprecate stable `GenerationError` in favor of the split taxonomy; local SDK
-26.5 compilation cannot validate that migration.
+Current Apple DocC publishes
+[`LanguageModelSession.ToolCallError`](https://developer.apple.com/documentation/foundationmodels/languagemodelsession/toolcallerror)
+as a struct with this complete public data/initializer surface:
+
+| Current Apple DocC type | Exact current Apple DocC declaration tokens |
+| --- | --- |
+| `LanguageModelSession.ToolCallError` | `var tool: any Tool` |
+| `LanguageModelSession.ToolCallError` | `var underlyingError: any Error` |
+| `LanguageModelSession.ToolCallError` | `init(tool: any Tool, underlyingError: any Error)` |
+| `LanguageModelSession.ToolCallError` | `var errorDescription: String?` |
+
+These complete case and property signatures are **Official OS 27 beta, locally
+unverified**. The unqualified `Error` and `Tool` spellings in the ToolCallError
+table intentionally reproduce Apple's current DocC declaration tokens; they
+are not rewritten from the SDK 26.5 interface. Current Apple docs deprecate
+stable `GenerationError` in favor of the split taxonomy; local SDK 26.5
+compilation cannot validate that migration.
 
 Cancellation must be treated as a state transition, not merely a thrown value.
 A Swift task or tool can be cancelled, and a tool may deliberately throw
