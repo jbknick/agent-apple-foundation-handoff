@@ -78,7 +78,7 @@ available on every machine.
 | Dynamic profiles | `LanguageModelSession.DynamicProfile`, `Profile`, `init(profile:history:)`, model/configuration/history/lifecycle modifiers | Official OS 27 beta, locally unverified | The negative fixture matches missing profile and initializer diagnostics independently. |
 | Tools | `Tool<Arguments, Output>`, schema/name/description properties, `includesSchemaInInstructions`, and async `call(arguments:)`; OS 27 adds session properties and tool-calling mode | Stable core plus beta additions | A deterministic `GeneratedContent`-arguments tool type-checks. Model-selected invocation remains probabilistic. |
 | Static structured output | `@Generable`, `@Guide`, `Generable`, `GenerationSchema`, and `GeneratedContent` | Stable SDK 26 declarations | Blocked locally because Command Line Tools lacks `FoundationModelsMacros`; compatible full Xcode is required for macro compilation. |
-| Runtime schema | `DynamicGenerationSchema`, `GenerationSchema(root:dependencies:)`, schema response, and schema streaming overloads | Stable SDK 26.5; explicit-null additions are 26.4 | Compiled SDK 26.5 without the macro plugin. |
+| Runtime schema | `DynamicGenerationSchema`, `GenerationSchema(root:dependencies:)`, schema response, and schema streaming overloads | Stable SDK 26.5; explicit-null additions are 26.4 | Runtime schema construction is Compiled SDK 26.5 without the macro plugin; schema-based response and streaming overloads are Interface-verified SDK 26.5 only. |
 | Transcript | `Transcript` as a collection and `Codable`; instruction, prompt, tool-call, tool-output, and response entries; session rehydration | Stable SDK 26.5 | Offline Codable round-trip and destination-session rehydration run successfully. Mechanics do not establish authorization to transfer content. |
 | History mutation | SDK 26 session transcript is get-only; OS 27 makes transcript mutable and adds `SessionPropertyValues.history`, history transforms, and lifecycle modifiers | Official OS 27 beta for mutation | Missing locally. Mutation while responding is a beta session error. |
 | Streaming | `LanguageModelSession.ResponseStream<Content>` as `AsyncSequence`, snapshot `content`/`rawContent`, and `collect()` | Stable SDK 26.5 | Type-checked only; no live stream is consumed by default. |
@@ -123,8 +123,10 @@ let schema = try GenerationSchema(root: dynamic, dependencies: [])
 
 This reduced excerpt is backed by
 [`fixtures/dev-128/compiled/stable-surface.swift`](../../fixtures/dev-128/compiled/stable-surface.swift),
-which also type-checks all five token-count overloads, response/streaming APIs,
-transcript copying, and generation options. The response function is not run.
+which also type-checks all five token-count overloads, text response/streaming
+APIs, transcript copying, and generation options. The response function is not
+run. Schema-based response and streaming overloads are present in the pinned
+interface but are not exercised by the fixture.
 
 `SystemLanguageModel.Availability` is `.available` or `.unavailable(reason)`;
 the installed reasons are `.deviceNotEligible`,
@@ -275,10 +277,10 @@ error. These are **Interface-verified SDK 26.5** declarations.
 
 | Exact type | Exact current cases |
 | --- | --- |
-| `LanguageModelError` | `contextSizeExceeded`, `rateLimited`, `refusal`, `timeout`, `guardrailViolation`, `unsupportedCapability`, `unsupportedTranscriptContent`, `unsupportedGenerationGuide`, `unsupportedLanguageOrLocale` |
-| `LanguageModelSession.Error` | `concurrentRequests`, `transcriptMutationWhileResponding` |
-| `SystemLanguageModel.Error` | `assetsUnavailable` |
-| `PrivateCloudComputeLanguageModel.Error` | `quotaLimitReached`, `networkFailure`, `serviceUnavailable` |
+| [`LanguageModelError`](https://developer.apple.com/documentation/foundationmodels/languagemodelerror) | `contextSizeExceeded`, `rateLimited`, `refusal`, `timeout`, `guardrailViolation`, `unsupportedCapability`, `unsupportedTranscriptContent`, `unsupportedGenerationGuide`, `unsupportedLanguageOrLocale` |
+| [`LanguageModelSession.Error`](https://developer.apple.com/documentation/foundationmodels/languagemodelsession/error) | `concurrentRequests`, `transcriptMutationWhileResponding` |
+| [`SystemLanguageModel.Error`](https://developer.apple.com/documentation/foundationmodels/systemlanguagemodel/error) | `assetsUnavailable` |
+| [`PrivateCloudComputeLanguageModel.Error`](https://developer.apple.com/documentation/foundationmodels/privatecloudcomputelanguagemodel/error) | `quotaLimitReached`, `networkFailure`, `serviceUnavailable` |
 | `LanguageModelSession.ToolCallError` | Continues to wrap a tool and its underlying error |
 
 These names are **Official OS 27 beta, locally unverified**. Current Apple docs
