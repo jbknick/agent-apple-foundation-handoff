@@ -167,7 +167,11 @@ swiftc -typecheck -target arm64-apple-macos27.0 -sdk "$SDK" \
 beta_rc=$?
 set -e
 test "$beta_rc" -ne 0
-rg -q "DynamicProfile.*not a member type|has no member 'Profile'|toolCallingMode" \
+rg -q "DynamicProfile.*not a member type|has no member 'Profile'" \
+  /tmp/dev-128-beta.out
+rg -q "extra arguments at positions #1, #2 in call" \
+  /tmp/dev-128-beta.out
+rg -q "extra argument 'toolCallingMode' in call" \
   /tmp/dev-128-beta.out
 
 set +e
