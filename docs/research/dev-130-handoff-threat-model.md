@@ -426,11 +426,11 @@ private/sensitive using Apple logging privacy controls. Hashes must not be used
 for low-entropy secrets or as a claim of anonymization. Audit strings must never
 interpolate classified field values.
 
-Foundation Models `.trace` files can contain unencrypted prompts and responses.
-They and `.xcresult` bundles are not committed. Explicit host-assisted capture,
-if later approved, stays outside the repository with named access, retention,
-deletion, and disclosure rules. Production logging being normally off does not
-make a trace safe.
+Foundation Models `.trace` files can capture prompt and response data that may
+be sensitive and therefore require safe handling. They and `.xcresult` bundles
+are not committed. Explicit host-assisted capture, if later approved, stays
+outside the repository with named access, retention, deletion, and disclosure
+rules. Production logging being normally off does not make a trace safe.
 
 The deterministic fixture uses synthetic data, no network, no live model, no
 PCC/custom provider, no credentials, no entitlement, and no paid service.
@@ -481,12 +481,12 @@ These requirements bind the named follow-on issues:
 | Issue | Binding DEV-130 contract |
 | --- | --- |
 | DEV-132 | Architecture must keep the deterministic reducer authoritative, model proposals untrusted, baton-pass distinct from isolated consultation, and one stable active profile/provider. |
-| DEV-134 | Context transfer must implement C0–C3 classification, provenance attributes, atomic fail-closed envelopes, target-necessary history, destination grants, and PCC/custom-provider truth. |
-| DEV-136 | Tooling must enforce semantic argument/recipient/resource checks, immediate bound confirmation, auth revalidation, provenance-valid results, idempotency, and application-controlled at-most-once execution. |
-| DEV-137 | State orchestration must keep `stateVersion` and `policyVersion` independent, phase-gate before budget mutation, serialize authority changes, enforce finite budgets, and ignore late failure/cancellation outside transition. |
-| DEV-138 | The fixture suite must execute all deterministic downstream rows above, retain exact output contracts, remain offline/synthetic, and never treat optional host blockers as passes. |
-| DEV-139 | Transcript handling must default to checkpoint recovery, separate pre-commit rollback from uncertain effects, block inference during repair, validate balanced provenance, and treat summaries as untrusted. |
-| DEV-141 | Observability/evidence must be metadata-only by default, scan for leaks and forbidden artifacts, keep raw traces outside the repository, and label Apple facts, Xcode 27 beta guidance, and plugin policy separately. |
+| DEV-134 | The skill design and output contract must require C0–C3 classification with provenance, atomic fail-closed envelopes, target-necessary baton-pass history, minimized isolated-consultation context, destination-bound grants, and truthful PCC/custom-provider labels. |
+| DEV-136 | The production `SKILL.md` workflow guidance must direct generated handoff work to specify semantic argument/recipient/resource checks, immediate bound confirmation, auth revalidation, provenance-valid results, idempotency, and application-controlled at-most-once behavior; it must not claim the skill itself provides an app runtime enforcement layer. |
+| DEV-137 | The reference library must distinguish installed Apple facts, official Xcode 27 beta guidance, mandatory plugin policy, and recommendations while documenting independent `stateVersion`/`policyVersion`, phase-before-budget, single-active state, finite budgets, pre-commit rollback, uncertain-effect recovery, cancellation, transcript repair, and safe fallback. |
+| DEV-138 | The deterministic fixture suite must prove all downstream adversarial rows, retain exact output and repeated-run contracts, remain offline/synthetic, and never treat optional host blockers as passes. |
+| DEV-139 | The cross-host harness must assert the security contract through real Claude and Codex task invocations and evidence scans: metadata-only outputs, no forbidden sentinels or trace/result artifacts, honest executed-versus-blocked labels, and no silent loss of the documented confirmation, recovery, provider, and fallback rules. It does not own runtime transcript handling. |
+| DEV-141 | The final acceptance and release-readiness gate must reject release when source/version labels drift, deterministic or cross-host security assertions fail, downstream-only scenarios are claimed as executed, blockers are represented as passes, required policy/recovery behavior is absent, or evidence contains sensitive/raw trace material. |
 
 All downstream code and guidance must preserve the installed SDK 26.5 versus
 official Xcode 27 beta boundary. A changed SDK, Xcode, OS, provider, tool set, or
