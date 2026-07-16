@@ -106,15 +106,32 @@ tree rather than an assumption.
   the drift gate is
   [`check-codex-artifacts.sh`](https://github.com/baleen37/bstack/blob/34a04e16b8582d9ddc605563fea1f868732cca4e/scripts/check-codex-artifacts.sh).
   Adopt its shared physical tree and generation direction; adapt the output to
-  the current rich Codex schema.
+  the current rich Codex schema. For this fork, the precise canonical inputs
+  are the Claude manifest's shared identity fields plus a separate authored
+  generator input for Codex-only plugin `interface` data and marketplace
+  source, ordering, policy, and category. The generator owns explicit Codex
+  manifest and marketplace outputs, which must not be hand-edited.
 - The official Codex example uses a rich
   [`.codex-plugin/plugin.json`](https://github.com/openai/plugins/blob/11c74d6ba24d3a6d48f54a194cd00ef3beea18f9/plugins/build-ios-apps/.codex-plugin/plugin.json)
-  with paths and detailed `interface` fields. Its
-  [`agents/openai.yaml`](https://github.com/openai/plugins/blob/11c74d6ba24d3a6d48f54a194cd00ef3beea18f9/plugins/build-ios-apps/agents/openai.yaml)
-  contains presentation and activation metadata; it is not a plugin-local
-  worker definition. The validator and pinned format reference are
+  with paths and detailed `interface` fields. Current
+  [OpenAI build documentation](https://developers.openai.com/codex/plugins/build)
+  calls `.codex-plugin/plugin.json` the required entry point and says the other
+  manifest fields are optional. In contrast, the pinned
   [`validate_plugin.py`](https://github.com/openai/codex/blob/693b8c2ba4396772eeb82ce2982acad19dd960f5/codex-rs/skills/src/assets/samples/plugin-creator/scripts/validate_plugin.py)
-  and
+  enforces a stricter plugin-creation policy: shared identity fields and a
+  complete `interface`, including `longDescription`, `capabilities`, and
+  `defaultPrompt`. This project can adopt the stricter validator without
+  mislabeling all rich fields as loader-level requirements. Marketplace-entry
+  `policy` and `category` belong in `marketplace.json`; they are not
+  `plugin.json` fields. The example's
+  [`agents/openai.yaml`](https://github.com/openai/plugins/blob/11c74d6ba24d3a6d48f54a194cd00ef3beea18f9/plugins/build-ios-apps/agents/openai.yaml)
+  contains plugin-presentation-like fields, but the pinned validator neither
+  defines nor validates that root file as the current contract. It does
+  validate per-skill `skills/<skill>/agents/openai.yaml` files as skill UI and
+  activation metadata, for example
+  [`ios-simulator-browser/agents/openai.yaml`](https://github.com/openai/plugins/blob/11c74d6ba24d3a6d48f54a194cd00ef3beea18f9/plugins/build-ios-apps/skills/ios-simulator-browser/agents/openai.yaml).
+  Plugin presentation belongs in `plugin.json.interface`; neither YAML file is
+  a plugin-local worker definition. The pinned format reference is
   [`plugin-json-spec.md`](https://github.com/openai/codex/blob/693b8c2ba4396772eeb82ce2982acad19dd960f5/codex-rs/skills/src/assets/samples/plugin-creator/references/plugin-json-spec.md).
 
 ### Loader and marketplace compatibility
@@ -123,16 +140,40 @@ tree rather than an assumption.
   recognizes manifests in this order: `.codex-plugin/plugin.json`,
   `.claude-plugin/plugin.json`, `.cursor-plugin/plugin.json`.
 - [`marketplace.rs`](https://github.com/openai/codex/blob/693b8c2ba4396772eeb82ce2982acad19dd960f5/codex-rs/core-plugins/src/marketplace.rs)
-  checks `.agents/plugins/marketplace.json` before legacy-compatible
-  `.claude-plugin/marketplace.json`, and its local-source resolver explicitly
-  accepts `.` and `./` as the marketplace root.
+  checks marketplaces in this full order:
+  `.agents/plugins/marketplace.json`,
+  `.agents/plugins/api_marketplace.json`,
+  `.claude-plugin/marketplace.json`, then
+  `.cursor-plugin/marketplace.json`. Its local-source resolver explicitly
+  accepts `.` and `./` as the marketplace root. The pinned source proves that
+  support at revision `693b8c2`; it does not establish when it was introduced.
 - [`loader.rs`](https://github.com/openai/codex/blob/693b8c2ba4396772eeb82ce2982acad19dd960f5/codex-rs/core-plugins/src/loader.rs)
   defines default paths for `skills/`, `hooks/hooks.json`, `.mcp.json`, and
   `.app.json` when capabilities are not explicitly redirected.
 
 This compatibility evidence describes the pinned Codex runtime. It does not
 replace explicit production Codex metadata or justify adding optional hooks,
-MCP servers, apps, or other runtime surface.
+MCP servers, apps, or other runtime surface. It also leaves the final
+repository-root versus `plugins/<name>` production location open for DEV-132.
+
+### Claude cache and symlink rules
+
+Anthropic's [official plugin reference](https://code.claude.com/docs/en/plugins-reference#share-files-within-a-marketplace-with-symlinks)
+documents rules narrower than a blanket symlink rejection:
+
+- a marketplace install preserves a relative symlink whose target is inside
+  the plugin directory;
+- a marketplace install dereferences a target elsewhere inside the same
+  marketplace and copies the target content into the plugin cache;
+- a marketplace install skips a target outside the marketplace;
+- `--plugin-dir` and local-path loads preserve only targets inside the plugin
+  directory and skip all other symlinks; and
+- ordinary path traversal such as `../shared-utils` does not work after
+  installation because files outside the plugin are not copied.
+
+The one-physical-tree design must be evaluated against the exact loading mode;
+the evidence does not require rejecting all symlinks, and it does not approve
+an adapter that resolves outside its packaged boundary.
 
 ### Narrow skills and progressive disclosure
 
@@ -173,10 +214,40 @@ The Duyet validator covered 23 Claude manifests, 23 Codex manifests, one
 Antigravity manifest, cross-manifest parity, and marketplaces: 49/49 checks
 passed. No pinned-reference dependency blocker occurred.
 
+The same pinned official validator was also reproduced against the two
+third-party reference plugins. Both expected nonzero results are recorded as
+current official-policy diagnostics, separately from their native validation
+passes:
+
+```text
+$ python3 <reference-root>/openai-codex/.../validate_plugin.py \
+    <reference-root>/bstack/plugins/me
+Plugin validation failed:
+- plugin.json field `interface` must be an object
+exit 1
+
+$ python3 <reference-root>/openai-codex/.../validate_plugin.py \
+    <reference-root>/duyet/build-ios-apps
+Plugin validation failed:
+- plugin.json field `agents` is not accepted by plugin validation
+- plugin.json field `interface.links` is not accepted by plugin validation
+- plugin.json field `interface.longDescription` must be a non-empty string
+- plugin.json field `interface.defaultPrompt` or `interface.default_prompt` is required
+exit 1
+```
+
+Exact nonzero-status and diagnostic-content gates passed. These results show
+why bstack's copy-plus-skills generator must be adapted and why Duyet's rich
+manifest cannot be copied unchanged. They do not contradict the native 49/49
+or no-drift results: those validators enforce different repository-local
+contracts.
+
 ## Installed host workflow evidence
 
-Claude's installed CLI and [official plugin reference](https://code.claude.com/docs/en/plugins-reference)
-define its host-local path. The following selected output was observed:
+The installed Claude CLI defines the behavior this project can rely on;
+[official documentation](https://code.claude.com/docs/en/plugins-reference)
+provides additional context but may describe features added after `2.1.91`.
+The following selected output was observed:
 
 ```text
 $ claude --version
@@ -196,7 +267,9 @@ Validation passed
 ```
 
 All Claude gates exited `0`. Session-only `claude --plugin-dir <path>` is a
-supported local-development workflow for Claude Code `2.1.91`.
+supported local-development workflow for installed Claude Code `2.1.91`.
+Version-labelled documentation for later Claude releases is not treated as
+installed-host behavior until this host is upgraded and reverified.
 
 Codex's installed CLI and the pinned OpenAI loader source establish a different
 workflow:
@@ -265,10 +338,22 @@ credentials or paid provider.
   skill. Real Claude and Codex task invocations remain a DEV-139 gate.
 - The pinned Codex loader's Claude-compatible fallbacks do not establish that
   Claude-only metadata is the forward production contract. The selected
-  direction remains explicit, rich, generated Codex artifacts over one shared
-  physical skill/reference tree.
-- `agents/openai.yaml` does not establish a need for a plugin-local custom
-  agent; it is presentation/activation metadata in the official example.
+  direction remains explicit generated Codex artifacts over one shared
+  physical skill/reference tree, using Claude shared identity and a separate
+  Codex-only presentation/marketplace input. DEV-132 still owns the final root
+  versus `plugins/<name>` location.
+- Root `.`/`./` marketplace-source support at the pinned Codex revision does
+  not establish when the behavior was introduced or guarantee it in another
+  host version.
+- Per-skill `agents/openai.yaml` is skill UI/activation metadata, not a custom
+  worker. The root file in the pinned reference is not validated as the current
+  contract and does not establish a second presentation source; plugin
+  presentation belongs in `plugin.json.interface`.
+- The current OpenAI documentation's optional rich manifest fields and the
+  pinned validator's stricter creation policy are different contract layers.
+  Passing or failing one must not be reported as passing or failing the other.
+- Claude documentation that postdates installed `2.1.91` does not establish
+  that a newer-version-only feature is available on this host.
 - The presence of hooks, MCP, app, command, or agent loader surfaces does not
   approve those capabilities for this project.
 - None of the five repositories establishes Apple Foundation Models API

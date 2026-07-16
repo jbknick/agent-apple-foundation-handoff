@@ -69,8 +69,16 @@ Record `test -e`, `find`, `git ls-tree`, and focused source excerpts that prove:
 - Claude/Codex manifests and marketplaces;
 - canonical/shared versus mirrored skill trees;
 - generator, sync, drift, validator, and workflow paths;
-- official Codex rich manifest and `agents/openai.yaml` presentation metadata;
-- loader recognition order and root marketplace source handling; and
+- official Codex plugin `interface`, per-skill `agents/openai.yaml`
+  UI/activation metadata, and the root reference-file observation;
+- the distinction between documented entry-point requirements, optional rich
+  fields, and the pinned official validator's stricter creation policy;
+- plugin `interface` fields versus marketplace-only policy/category fields;
+- per-skill `agents/openai.yaml` UI/activation metadata versus the unvalidated
+  root reference file;
+- full loader recognition order and root `.`/`./` marketplace source handling,
+  without claiming when root support was introduced;
+- precise Claude marketplace/local-path symlink handling; and
 - concise skill descriptions plus progressive `references/`/`scripts/`.
 
 Every conclusion in the final report must be traceable to one pinned path.
@@ -90,9 +98,31 @@ bash "$refs_root/bstack/scripts/check-codex-artifacts.sh"
 
 python3 "$refs_root/openai-codex/codex-rs/skills/src/assets/samples/plugin-creator/scripts/validate_plugin.py" \
   "$refs_root/openai-plugins/plugins/build-ios-apps"
+
+set +e
+python3 "$refs_root/openai-codex/codex-rs/skills/src/assets/samples/plugin-creator/scripts/validate_plugin.py" \
+  "$refs_root/bstack/plugins/me" >/tmp/dev129-openai-bstack-policy.out 2>&1
+bstack_policy_rc=$?
+python3 "$refs_root/openai-codex/codex-rs/skills/src/assets/samples/plugin-creator/scripts/validate_plugin.py" \
+  "$refs_root/duyet/build-ios-apps" >/tmp/dev129-openai-duyet-policy.out 2>&1
+duyet_policy_rc=$?
+set -e
+test "$bstack_policy_rc" -ne 0
+test "$duyet_policy_rc" -ne 0
+rg -q 'interface.*must be an object' /tmp/dev129-openai-bstack-policy.out
+for diagnostic in \
+  'field `agents` is not accepted' \
+  'field `interface.links` is not accepted' \
+  'field `interface.longDescription` must be a non-empty string' \
+  'field `interface.defaultPrompt` or `interface.default_prompt` is required'; do
+  rg -Fq "$diagnostic" /tmp/dev129-openai-duyet-policy.out
+done
 ```
 
-Expected: all exit `0`. If a pinned reference has drifted because its command
+Expected: native validators and the official example validation exit `0`.
+The pinned official validator exits nonzero for bstack and Duyet with the
+exact current-policy diagnostics above. Record those expected policy gaps
+separately from the references' native validator passes. If a command instead
 needs an unavailable dependency, record the exact blocker; do not patch the
 reference or weaken validation.
 
@@ -117,8 +147,9 @@ test "$codex_plugin_dir_rc" -ne 0
 rg -q "unexpected argument.*--plugin-dir" /tmp/dev129-codex-plugin-dir.out
 ```
 
-The transcript must record that Claude supports session-only `--plugin-dir`
-and Codex `0.144.5` rejects it.
+The transcript must record that installed Claude `2.1.91` supports session-only
+`--plugin-dir`, Codex `0.144.5` rejects it, and relied host features are based
+on installed behavior rather than possibly newer documentation.
 
 ### Step 6: Run isolated representative loading
 
@@ -190,6 +221,10 @@ rg -q 'no drift|No drift' "$transcript"
 rg -q 'unexpected argument.*--plugin-dir' "$transcript"
 rg -q 'me@bstack' "$transcript"
 rg -qi 'not.*capability E2E|does not establish.*capability' "$transcript"
+rg -q 'api_marketplace.json' "$transcript"
+rg -q 'interface.*must be an object' "$transcript"
+rg -q 'interface.longDescription' "$transcript"
+rg -qi 'symlink' "$transcript"
 ! rg -n 'TBD|TODO|FIXME|fill in details|implement later' "$transcript"
 git diff --check
 git add "$transcript"
@@ -242,6 +277,15 @@ The adopt/adapt/reject matrix must cover at least:
 - `codex --plugin-dir`;
 - unapproved hooks/MCP/commands/dependencies; and
 - capability claims from discovery/install alone.
+
+It must define the generator inputs precisely: Claude metadata owns shared
+identity, while a separate Codex-only input owns plugin `interface` and
+marketplace source/order/policy/category. Generated Codex outputs are not
+hand-edited. It must distinguish the documented required entry point and
+optional rich fields from the pinned validator's stricter creation policy,
+keep marketplace-only fields out of `plugin.json`, apply the precise Claude
+symlink rules, and leave repository-root versus `plugins/<name>` placement for
+DEV-132.
 
 Each row requires classification, exact pinned path(s), rationale, and
 downstream issue impact. Link the transcript relatively. State that current

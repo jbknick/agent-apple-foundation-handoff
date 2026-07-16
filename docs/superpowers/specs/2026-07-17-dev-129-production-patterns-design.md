@@ -33,18 +33,34 @@ Version-sensitive conclusions must be revalidated when either host changes.
 The selected direction is one physical canonical skill/reference/script tree
 with host metadata generated where the host contracts differ.
 
-- Claude metadata is a practical canonical input for shared core fields.
-- Codex metadata must be generated into the current rich production shape,
-  including interface/policy/path requirements, rather than merely copying a
-  Claude manifest and appending a skills path.
+- Claude metadata is the canonical input for shared identity fields such as
+  name, version, description, author, project links, license, and keywords.
+- A separate generator input owns Codex-only plugin `interface` presentation
+  data and Codex marketplace data, including entry policy, category, ordering,
+  and source path. Marketplace `policy` and `category` are marketplace-entry
+  fields; they are not fields in `.codex-plugin/plugin.json`.
+- The generator combines those two authored inputs into explicit Codex
+  manifest and marketplace outputs. Generated outputs are never hand-edited.
 - Generated Codex artifacts never own or duplicate the skill corpus.
 - Deterministic generation and drift checks must validate field parity,
   ordering, paths, schema/interface requirements, and untracked generated
   files.
 
+The current OpenAI build documentation identifies
+`.codex-plugin/plugin.json` as the required entry point and describes its other
+manifest fields as optional. The pinned official `validate_plugin.py` applies
+a stricter creation policy: it requires shared identity fields and a complete
+`interface`, including long description, capabilities, and a default prompt.
+This project will satisfy the pinned stricter validator while recording that
+the requirement comes from the validator, not overstating every rich field as
+a loader-level requirement.
+
 Current Codex loader compatibility with Claude-only metadata is evidence about
 the pinned runtime, not the forward production packaging contract. The project
-will keep explicit Codex artifacts.
+will keep explicit Codex artifacts. The pinned loader explicitly accepts local
+marketplace source `.` and `./`; this research does not claim when that support
+was introduced. DEV-132 must choose the final repository-root versus
+`plugins/<name>` production path using the complete research set.
 
 ## Skill and reference topology
 
@@ -57,25 +73,40 @@ Reject both a giant catch-all skill and provider-specific copies of the same
 domain workflow. Thin wrappers are justified only when the host invocation
 surface genuinely differs.
 
-No plugin-local agent is approved by default. Official `agents/openai.yaml` is
-presentation and activation metadata, not proof that a custom worker is
-required. A future issue may add a custom agent only for a separately approved
-role with distinct context, tools, and responsibilities.
+No plugin-local agent is approved by default. The pinned official validator
+recognizes per-skill `skills/<skill>/agents/openai.yaml` as skill UI and
+activation metadata. Plugin presentation belongs in the plugin manifest's
+`interface` object. Although the pinned `build-ios-apps` reference also has a
+root `agents/openai.yaml` containing presentation-like fields, the pinned
+validator does not define or validate that root file as the current contract.
+Neither file is proof that a custom worker is required. A future issue may add
+a custom agent only for a separately approved role with distinct context,
+tools, and responsibilities.
 
 ## Repository guidance topology
 
 Keep one provider-neutral guidance source. Root `AGENTS.md` should be a thin or
 generated Codex adapter rather than an independently maintained full copy.
-Do not rely on an absent adapter, and do not use an external-resolving symlink
-as the packaged compatibility mechanism.
+Do not rely on an absent adapter. Apply Claude's precise cache rules instead of
+a blanket symlink prohibition: marketplace installs preserve relative links
+inside the plugin, dereference targets elsewhere inside the same marketplace,
+and skip targets outside the marketplace; `--plugin-dir` and local-path loads
+preserve only targets inside the plugin and skip all others. Ordinary `../`
+path traversal outside an installed plugin does not work. The final adapter
+must remain valid under the selected packaging workflow.
 
 ## Host-local workflows
 
-Claude Code supports:
+Installed Claude Code `2.1.91` directly demonstrates:
 
 - `claude plugin validate <path>` for structural validation;
 - session-only `claude --plugin-dir <path>` loading; and
 - isolated marketplace/install workflows when packaging is under test.
+
+Those installed observations are authoritative for features this project
+relies on. Current Anthropic documentation may describe behavior added after
+`2.1.91`; newer-version-only behavior is context, not a supported project
+assumption until the installed host is upgraded and reverified.
 
 Codex `0.144.5` does not support `codex --plugin-dir`. Its isolated local
 workflow is:
