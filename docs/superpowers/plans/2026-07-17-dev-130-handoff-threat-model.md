@@ -116,7 +116,7 @@ enum Provider: Hashable { case onDevice, pcc, custom(String) }
 struct ContextField: Equatable { let name: String; let value: String; let classification: DataClass; let source: String; let subject: String; let purpose: String; let retention: String; let redacted: Bool }
 struct BoundaryGrant: Equatable { let destination: Provider; let purpose: String; let allowedClasses: Set<DataClass>; let allowedFieldNames: Set<String>; let policyVersion: Int }
 struct TransitionEdge: Hashable { let sourceProfile: String; let destinationProfile: String }
-struct TransitionProposal: Equatable { let destinationProfile: String; let destinationProvider: Provider; let purpose: String; let fields: [ContextField]; let grant: BoundaryGrant?; let policyVersion: Int }
+struct TransitionProposal: Equatable { let destinationProfile: String; let destinationProvider: Provider; let purpose: String; let fields: [ContextField]; let grant: BoundaryGrant?; let sourceStateVersion: Int; let policyVersion: Int }
 enum EffectCommitStatus: Equatable { case notCommitted; case uncertain(effectID: String) }
 enum Phase: Equatable { case stable; case transitioning; case recoveryRequired; case terminated(String) }
 struct ExecutorCommand: Equatable { let kind: String; let destination: Provider }
@@ -125,21 +125,25 @@ enum SecurityEvent: Equatable { case untrustedContext(source: String, text: Stri
 struct HandoffSecurityPolicy { static func reduce(state: HandoffState, event: SecurityEvent) -> ReducerDecision }
 ```
 
-`HandoffState` must carry `activeProfile`, `provider`, `version`,
+`HandoffState` must carry `activeProfile`, `provider`, `stateVersion`, `policyVersion`,
 `transitionCount`, `maxTransitions`, `phase`, `pendingTransition`,
 `checkpoint`, `allowedEdges`, `executorCommandCount`, `effectLedger`, and
-`audit`. Implement only the behavior required by the seven assertions:
+`audit`. Implement only the behavior required by the adversarial assertions:
 
 - untrusted context appends metadata-only audit and never creates a command;
-- transition proposals fail closed for invalid edges, missing/mismatched grants,
-  unapproved fields/classes, or any `C3` field;
+- transition proposals are phase gated before budget evaluation and fail closed
+  for stale source state, policy-version mismatch, invalid edges,
+  missing/mismatched grants, unapproved fields/classes, or any `C3` field;
 - a valid proposal captures a checkpoint, increments the transition count and
   command count, and serializes only approved field values;
-- commit selects the destination and clears the checkpoint/pending transition;
+- commit selects the destination, increments only `stateVersion`, and clears the
+  checkpoint/pending transition while leaving `policyVersion` stable;
 - pre-commit failure/cancel restores the checkpoint without changing the effect
   ledger;
 - uncertain failure/cancel records the synthetic effect ID once and enters
-  recovery without another command; and
+  recovery without another command; late failure/cancel events outside
+  `transitioning` preserve authority, phase, pending state, checkpoint, and
+  ledger; and
 - a proposal after the transition budget is exhausted terminates with exact
   reason `transitionBudgetExceeded` and emits no command.
 

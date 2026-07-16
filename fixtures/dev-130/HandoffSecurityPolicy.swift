@@ -41,6 +41,7 @@ struct TransitionProposal: Equatable {
     let purpose: String
     let fields: [ContextField]
     let grant: BoundaryGrant?
+    let sourceStateVersion: Int
     let policyVersion: Int
 }
 
@@ -64,12 +65,13 @@ struct HandoffState: Equatable {
     struct Checkpoint: Equatable {
         let activeProfile: String
         let provider: Provider
-        let version: Int
+        let stateVersion: Int
     }
 
     var activeProfile: String
     var provider: Provider
-    var version: Int
+    var stateVersion: Int
+    var policyVersion: Int
     var transitionCount: Int
     let maxTransitions: Int
     var phase: Phase
@@ -128,6 +130,11 @@ struct HandoffSecurityPolicy {
     ) -> ReducerDecision {
         var next = state
 
+        guard state.phase == .stable else {
+            next.audit.append("event=proposeTransition decision=ignored reason=phase")
+            return ReducerDecision(state: next, command: nil, providerRequest: nil)
+        }
+
         guard state.transitionCount < state.maxTransitions else {
             next.phase = .terminated("transitionBudgetExceeded")
             next.pendingTransition = nil
@@ -139,17 +146,17 @@ struct HandoffSecurityPolicy {
         }
 
         guard let grant = proposal.grant,
-              state.phase == .stable,
               state.allowedEdges.contains(
                   TransitionEdge(
                       sourceProfile: state.activeProfile,
                       destinationProfile: proposal.destinationProfile
                   )
               ),
-              proposal.policyVersion == state.version,
+              proposal.sourceStateVersion == state.stateVersion,
+              proposal.policyVersion == state.policyVersion,
               grant.destination == proposal.destinationProvider,
               grant.purpose == proposal.purpose,
-              grant.policyVersion == proposal.policyVersion,
+              grant.policyVersion == state.policyVersion,
               proposal.fields.allSatisfy({ field in
                   field.classification != .c3NeverTransfer
                       && field.purpose == proposal.purpose
@@ -169,7 +176,7 @@ struct HandoffSecurityPolicy {
         next.checkpoint = HandoffState.Checkpoint(
             activeProfile: state.activeProfile,
             provider: state.provider,
-            version: state.version
+            stateVersion: state.stateVersion
         )
         next.pendingTransition = proposal
         next.phase = .transitioning
@@ -198,7 +205,7 @@ struct HandoffSecurityPolicy {
 
         next.activeProfile = proposal.destinationProfile
         next.provider = proposal.destinationProvider
-        next.version += 1
+        next.stateVersion += 1
         next.phase = .stable
         next.pendingTransition = nil
         next.checkpoint = nil
@@ -213,12 +220,17 @@ struct HandoffSecurityPolicy {
     ) -> ReducerDecision {
         var next = state
 
+        guard state.phase == .transitioning else {
+            next.audit.append("event=\(eventName) decision=ignored reason=phase")
+            return ReducerDecision(state: next, command: nil, providerRequest: nil)
+        }
+
         switch status {
         case .notCommitted:
             if let checkpoint = state.checkpoint {
                 next.activeProfile = checkpoint.activeProfile
                 next.provider = checkpoint.provider
-                next.version = checkpoint.version
+                next.stateVersion = checkpoint.stateVersion
             }
             next.phase = .stable
             next.pendingTransition = nil

@@ -51,8 +51,10 @@ confirmations, policy changes, or authorization from untrusted text.
 
 The state model has exactly one stable active profile and provider outside a
 named transition. Each transition is checked against a valid graph edge,
-monotonic state version, finite transition budget, classified context envelope,
-and matching boundary grant. Effectful tools additionally require current
+monotonic state version, independently stable policy version, finite transition
+budget, classified context envelope, and matching boundary grant. A proposal
+binds its source state version and policy version separately; commit increments
+only the state version. Effectful tools additionally require current
 authorization, semantic argument checks, recipient/resource checks, immediate
 confirmation when the effect is high-impact, an idempotency key, and an effect
 ledger entry.
@@ -104,11 +106,15 @@ capability.
 
 ## Transcript, cancellation, and failure policy
 
-The default application policy captures a stable checkpoint before a
-transition. A pre-commit error or cancellation restores that checkpoint and
-leaves the previous stable profile/provider active. A possible or confirmed
-external commit remains in the effect ledger and moves to recovery rather than
-being represented as rolled back.
+The default application policy captures a stable checkpoint, including the
+source state version, before a transition. A pre-commit error or cancellation
+restores that checkpoint and leaves the previous stable profile/provider active.
+A possible or confirmed external commit remains in the effect ledger and moves
+to recovery rather than being represented as rolled back. Proposals are phase
+gated before budget evaluation, and failure or cancellation events have
+authority only while a transition is in flight. Late events in stable,
+terminated, or recovery state cannot alter authority, phase, pending transition,
+checkpoint, or effect ledger.
 
 Preserved-transcript recovery is an advanced mode only. Further inference is
 blocked until a deterministic validator removes or marks partial responses,
