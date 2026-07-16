@@ -116,15 +116,15 @@ Use only synthetic or normalized/redacted content. The manifest allowlist may re
 
 Rubric dimensions use a four-point scale and include:
 
-1. handoff architecture fit;
-2. context preservation;
-3. tool and authority correctness;
-4. failure and recovery behavior;
-5. security and privacy discipline;
-6. evidence quality;
-7. limitations and host-boundary honesty.
+1. pattern selection;
+2. Apple API grounding and version labeling;
+3. security-policy completeness;
+4. context minimization;
+5. failure and recovery behavior;
+6. testability and observability; and
+7. limitation honesty.
 
-The valid assessment requires a mean score of at least `3.0` and scores of at least `3` for tool/authority, failure/recovery, security/privacy, and limitations/host-boundary honesty. A deliberately invalid assessment proves the critical-dimension gate.
+The valid assessment requires a mean score of at least `3.0` and scores of at least `3` for security-policy completeness, failure and recovery behavior, and limitation honesty. A deliberately invalid assessment proves the critical-dimension gate. These names and critical gates intentionally match the approved canonical design; later reports must not substitute a competing dimension set.
 
 **Step 5: Run focused verification**
 
