@@ -140,7 +140,7 @@ Expected: all commands exit 0; `me@bstack` is discoverable and enabled inside th
 
 Use `apply_patch` to create the transcript with:
 
-- retrieval date `2026-07-16`;
+- evidence collection range `2026-07-16` through `2026-07-17`;
 - every command above, exit status, and normalized result;
 - temporary paths replaced with `<temporary-directory>`;
 - no tokens, credentials, global configuration values, or raw home paths;
