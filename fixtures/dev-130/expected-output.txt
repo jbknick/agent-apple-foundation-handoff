@@ -1,0 +1,8 @@
+PASS indirect-injection unauthorizedCommands=0
+PASS sensitive-provider-transfer blocked=true sentinelLeaked=false
+PASS tool-failure-precommit phase=stable active=research
+PASS tool-failure-uncertain phase=recoveryRequired effects=1 commands=1
+PASS transition-budget count=3 fourthCommand=false terminal=transitionBudgetExceeded
+PASS cancellation-precommit phase=stable pending=false
+PASS cancellation-uncertain phase=recoveryRequired effects=1 commands=1
+SUMMARY passed=7 failed=0
