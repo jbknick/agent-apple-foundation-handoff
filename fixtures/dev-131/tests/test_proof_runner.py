@@ -89,6 +89,72 @@ class OfflineEvaluationProofTests(unittest.TestCase):
                     sorted(entry["expectedViolations"]), result["violations"]
                 )
 
+    def test_embedded_oracle_fields_are_schema_failures(self) -> None:
+        happy_path = self.load_case("cases/valid/happy-path.json")
+        embedded_fields = {
+            "expected": "pass",
+            "expectedStatus": "pass",
+            "expectedViolations": [],
+        }
+        for field, value in embedded_fields.items():
+            with self.subTest(field=field):
+                case = copy.deepcopy(happy_path)
+                case[field] = value
+                result = self.runner.evaluate_case(case)
+                self.assertEqual(["D-SCHEMA-001"], result["violations"])
+                self.assertEqual(
+                    [{"id": "D-SCHEMA-001", "status": "fail"}],
+                    result["checks"],
+                )
+
+    def test_runner_requires_complete_unique_readable_executed_corpus(self) -> None:
+        source = FIXTURES_ROOT
+        mutations = (
+            "missing-index-entry",
+            "duplicate-index-entry",
+            "path-mismatch",
+            "unreadable-case",
+            "unexecuted-case",
+        )
+        for mutation in mutations:
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as temp_dir:
+                fixtures = Path(temp_dir) / "fixtures"
+                shutil.copytree(source, fixtures)
+                index_path = fixtures / "index.json"
+                index = load_json(index_path)
+                if mutation == "missing-index-entry":
+                    index["cases"] = [
+                        entry
+                        for entry in index["cases"]
+                        if entry["id"] != "invalid-phase"
+                    ]
+                elif mutation == "duplicate-index-entry":
+                    index["cases"].append(copy.deepcopy(index["cases"][0]))
+                elif mutation == "path-mismatch":
+                    budget = next(
+                        entry
+                        for entry in index["cases"]
+                        if entry["id"] == "transition-budget-exhausted"
+                    )
+                    budget["path"] = "cases/invalid/transition-loop.json"
+                elif mutation == "unreadable-case":
+                    (fixtures / "cases/invalid/invalid-phase.json").unlink()
+                elif mutation == "unexecuted-case":
+                    (fixtures / "cases/invalid/invalid-phase.json").write_text(
+                        "{not-json}\n", encoding="utf-8"
+                    )
+                index_path.write_text(
+                    json.dumps(index, indent=2) + "\n", encoding="utf-8"
+                )
+
+                result = self.runner.run(fixtures)
+                self.assertEqual("fail", result["status"])
+                self.assertEqual("fail", result["corpus"]["status"])
+
+    def test_runner_has_no_second_expected_outcome_oracle(self) -> None:
+        source = RUNNER_PATH.read_text(encoding="utf-8")
+        self.assertNotIn("EXPECTED_REJECTIONS", source)
+
     def test_transition_budget_exhaustion_is_distinct_from_a_loop(self) -> None:
         budget_entries = [
             entry
@@ -382,6 +448,20 @@ class OfflineEvaluationProofTests(unittest.TestCase):
             ["D-RUBRIC-001"],
             self.runner.validate_rubric(missing_response, valid)["violations"],
         )
+
+    def test_duplicate_critical_rubric_dimension_is_rejected(self) -> None:
+        response_path = (
+            FIXTURES_ROOT
+            / "example-evidence/rubric/architecture-response.synthetic.md"
+        )
+        assessment = load_json(
+            FIXTURES_ROOT / "example-evidence/rubric/assessment.json"
+        )
+        assessment["thresholds"]["criticalDimensions"].append(
+            "security_policy_completeness"
+        )
+        result = self.runner.validate_rubric(response_path, assessment)
+        self.assertEqual(["D-RUBRIC-001"], result["violations"])
 
     def test_valid_evidence_bundle_passes_allowlist_and_hash_checks(self) -> None:
         result = self.runner.validate_evidence_bundle(

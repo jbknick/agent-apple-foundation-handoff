@@ -64,16 +64,32 @@ EVIDENCE_PATH_CLASSIFICATIONS = {
 }
 EVIDENCE_ALLOWLIST = set(EVIDENCE_PATH_CLASSIFICATIONS)
 
-EXPECTED_REJECTIONS = {
-    "transition-loop": ["D-TRANSITION-001"],
-    "transition-budget-exhausted": ["D-TRANSITION-001"],
-    "wrong-final-owner": ["D-OWNER-001"],
-    "missing-context-policy": ["D-CONTEXT-001"],
-    "unauthorized-tool": ["D-TOOL-001"],
-    "stale-grant": ["D-GRANT-001"],
-    "invalid-phase": ["D-PHASE-001"],
-    "retry-before-reconciliation": ["D-EFFECT-002"],
-    "unsafe-evidence-manifest": ["D-EVIDENCE-001"],
+REQUIRED_CASE_PATHS = {
+    "happy-path": "cases/valid/happy-path.json",
+    "replayed-effect": "cases/valid/replayed-effect.json",
+    "transition-loop": "cases/invalid/transition-loop.json",
+    "transition-budget-exhausted": (
+        "cases/invalid/transition-budget-exhausted.json"
+    ),
+    "wrong-final-owner": "cases/invalid/wrong-final-owner.json",
+    "missing-context-policy": "cases/invalid/missing-context-policy.json",
+    "unauthorized-tool": "cases/invalid/unauthorized-tool.json",
+    "stale-grant": "cases/invalid/stale-grant.json",
+    "invalid-phase": "cases/invalid/invalid-phase.json",
+    "retry-before-reconciliation": (
+        "cases/invalid/retry-before-reconciliation.json"
+    ),
+    "unsafe-evidence-manifest": (
+        "cases/invalid/unsafe-evidence-manifest.json"
+    ),
+}
+
+CASE_ORACLE_FIELDS = {
+    "expected",
+    "expectedStatus",
+    "expectedViolations",
+    "oracle",
+    "oracleMatch",
 }
 
 EXPECTED_HOST_LAYERS = {
@@ -169,6 +185,10 @@ def _record_list(value: object, fields: dict[str, object]) -> bool:
 
 def _valid_case_shape(case: object) -> bool:
     if not isinstance(case, dict):
+        return False
+    if set(case) != {"schemaVersion", "caseId", "workflow", "policy", "result"}:
+        return False
+    if CASE_ORACLE_FIELDS & set(case):
         return False
     if (
         case.get("schemaVersion") != "1.0"
@@ -556,6 +576,10 @@ def _rubric_assessment_shape_is_valid(assessment: object) -> bool:
         and thresholds.get("meanMinimum") == 3.0
         and thresholds.get("criticalMinimum") == 3
         and _string_list(thresholds.get("criticalDimensions"))
+        and len(thresholds["criticalDimensions"]) == len(CRITICAL_DIMENSIONS)
+        and len(set(thresholds["criticalDimensions"]))
+        == len(thresholds["criticalDimensions"])
+        and set(thresholds["criticalDimensions"]) == CRITICAL_DIMENSIONS
         and assessment.get("verdict") in {"pass", "fail"}
     )
 
@@ -638,7 +662,9 @@ def _structured_content_is_safe(value: object) -> bool:
     return value is None or isinstance(value, (bool, int, float))
 
 
-def _checks_schema_is_valid(value: object) -> bool:
+def _checks_schema_is_valid(
+    value: object, expected_snapshot: dict | None = None
+) -> bool:
     if not isinstance(value, dict) or set(value) != {
         "schemaVersion",
         "status",
@@ -652,10 +678,19 @@ def _checks_schema_is_valid(value: object) -> bool:
     return bool(
         value.get("schemaVersion") == "1.0"
         and value.get("status") == "pass"
-        and value.get("acceptedWorkflows")
-        == ["minimal-route-owner", "recovery-aware-effect"]
+        and _string_list(value.get("acceptedWorkflows"))
+        and bool(value["acceptedWorkflows"])
+        and len(value["acceptedWorkflows"]) == len(set(value["acceptedWorkflows"]))
         and isinstance(rejections, dict)
-        and rejections == EXPECTED_REJECTIONS
+        and bool(rejections)
+        and all(
+            _non_empty_string(case_id)
+            and isinstance(violations, list)
+            and bool(violations)
+            and violations == sorted(set(violations))
+            and set(violations) <= CHECK_IDS
+            for case_id, violations in rejections.items()
+        )
         and isinstance(metric, dict)
         and set(metric) == {"numerator", "denominator", "status", "value"}
         and metric
@@ -665,6 +700,7 @@ def _checks_schema_is_valid(value: object) -> bool:
             "status": "not_applicable",
             "value": None,
         }
+        and (expected_snapshot is None or value == expected_snapshot)
     )
 
 
@@ -751,7 +787,9 @@ def _markdown_schema_is_valid(relative: str, text: str) -> bool:
     return False
 
 
-def _evidence_content_is_safe(path: Path, relative: str) -> bool:
+def _evidence_content_is_safe(
+    path: Path, relative: str, expected_checks: dict | None = None
+) -> bool:
     try:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
@@ -766,8 +804,12 @@ def _evidence_content_is_safe(path: Path, relative: str) -> bool:
             value = json.loads(text)
         except json.JSONDecodeError:
             return False
+        if relative == "checks.json":
+            return bool(
+                _checks_schema_is_valid(value, expected_checks)
+                and _structured_content_is_safe(value)
+            )
         schema_validators = {
-            "checks.json": _checks_schema_is_valid,
             "environment.json": _environment_schema_is_valid,
             "host-matrix.json": _host_matrix_schema_is_valid,
             "rubric/assessment.json": _rubric_assessment_shape_is_valid,
@@ -798,7 +840,9 @@ def _evidence_content_is_safe(path: Path, relative: str) -> bool:
     return False
 
 
-def validate_evidence_bundle(bundle_root: Path) -> dict:
+def validate_evidence_bundle(
+    bundle_root: Path, expected_checks: dict | None = None
+) -> dict:
     """Validate a safe, declared, hash-addressed evidence bundle."""
 
     bundle_root = Path(bundle_root)
@@ -849,7 +893,9 @@ def validate_evidence_bundle(bundle_root: Path) -> dict:
             and "raw-prompt" not in relative.lower()
             and not relative.lower().endswith(".trace")
         )
-        content_is_safe = path.is_file() and _evidence_content_is_safe(path, relative)
+        content_is_safe = path.is_file() and _evidence_content_is_safe(
+            path, relative, expected_checks
+        )
         hash_matches = content_is_safe and item.get("sha256") == _sha256(path)
         if (
             not path_is_safe
@@ -868,7 +914,7 @@ def validate_evidence_bundle(bundle_root: Path) -> dict:
     # Scan the assembled allowlist a second time after hash validation. The
     # manifest hash can never turn prohibited content into safe evidence.
     if valid and not all(
-        _evidence_content_is_safe(bundle_root / relative, relative)
+        _evidence_content_is_safe(bundle_root / relative, relative, expected_checks)
         for relative in EVIDENCE_ALLOWLIST
     ):
         valid = False
@@ -898,18 +944,111 @@ def _rate_metric(numerator: int, denominator: int) -> dict:
     }
 
 
+def _index_is_valid(index: object) -> bool:
+    if (
+        not isinstance(index, dict)
+        or set(index) != {"schemaVersion", "cases"}
+        or index.get("schemaVersion") != "1.0"
+        or not isinstance(index.get("cases"), list)
+        or len(index["cases"]) != len(REQUIRED_CASE_PATHS)
+    ):
+        return False
+
+    observed_ids: set[str] = set()
+    observed_paths: set[str] = set()
+    for entry in index["cases"]:
+        if (
+            not isinstance(entry, dict)
+            or set(entry)
+            != {"id", "path", "expectedStatus", "expectedViolations"}
+            or not _non_empty_string(entry.get("id"))
+            or not _non_empty_string(entry.get("path"))
+            or entry["expectedStatus"] not in {"pass", "fail"}
+            or not isinstance(entry.get("expectedViolations"), list)
+            or not all(
+                _non_empty_string(violation)
+                for violation in entry["expectedViolations"]
+            )
+            or entry["expectedViolations"]
+            != sorted(set(entry["expectedViolations"]))
+            or not set(entry["expectedViolations"]) <= CHECK_IDS
+            or (
+                entry["expectedStatus"] == "pass"
+                and bool(entry["expectedViolations"])
+            )
+            or (
+                entry["expectedStatus"] == "fail"
+                and not entry["expectedViolations"]
+            )
+            or REQUIRED_CASE_PATHS.get(entry["id"]) != entry["path"]
+            or entry["id"] in observed_ids
+            or entry["path"] in observed_paths
+        ):
+            return False
+        observed_ids.add(entry["id"])
+        observed_paths.add(entry["path"])
+    return observed_ids == set(REQUIRED_CASE_PATHS)
+
+
+def _derived_checks_snapshot(observations: list[dict], corpus_ok: bool) -> dict:
+    accepted_workflows: list[str] = []
+    exact_rejections: dict[str, list[str]] = {}
+    for observation in observations:
+        observed = observation["observed"]
+        if observed["status"] == "pass":
+            workflow = observed["workflow"]
+            if workflow not in accepted_workflows:
+                accepted_workflows.append(workflow)
+        else:
+            exact_rejections[observation["id"]] = observed["violations"]
+    return {
+        "schemaVersion": "1.0",
+        "status": "pass" if corpus_ok else "fail",
+        "acceptedWorkflows": accepted_workflows,
+        "exactRejections": exact_rejections,
+        "optionalAppleEvaluationPassRate": _rate_metric(0, 0),
+    }
+
+
 def run(fixtures_root: Path) -> dict:
     fixtures_root = Path(fixtures_root)
-    index = json.loads((fixtures_root / "index.json").read_text(encoding="utf-8"))
-    case_results = []
-    for oracle in index["cases"]:
-        case = json.loads(
-            (fixtures_root / oracle["path"]).read_text(encoding="utf-8")
+    try:
+        index = json.loads((fixtures_root / "index.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        index = {}
+    index_ok = _index_is_valid(index)
+    entries = index["cases"] if index_ok else []
+    case_results: list[dict] = []
+    observations: list[dict] = []
+    executed_ids: set[str] = set()
+    for oracle in entries:
+        try:
+            case = json.loads(
+                (fixtures_root / oracle["path"]).read_text(encoding="utf-8")
+            )
+            observed = evaluate_case(case)
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+            case_results.append(
+                {
+                    "id": oracle["id"],
+                    "status": "fail",
+                    "violations": ["D-SCHEMA-001"],
+                    "oracleMatch": False,
+                    "executed": False,
+                }
+            )
+            continue
+
+        identity_ok = observed["caseId"] == oracle["id"]
+        oracle_match = bool(
+            identity_ok
+            and observed["status"] == oracle["expectedStatus"]
+            and observed["violations"] == oracle["expectedViolations"]
         )
-        observed = evaluate_case(case)
-        oracle_match = (
-            observed["status"] == oracle["expectedStatus"]
-            and observed["violations"] == sorted(oracle["expectedViolations"])
+        if identity_ok:
+            executed_ids.add(oracle["id"])
+        observations.append(
+            {"id": oracle["id"], "oracle": oracle, "observed": observed}
         )
         case_results.append(
             {
@@ -917,8 +1056,19 @@ def run(fixtures_root: Path) -> dict:
                 "status": observed["status"],
                 "violations": observed["violations"],
                 "oracleMatch": oracle_match,
+                "executed": identity_ok,
             }
         )
+
+    complete_execution = (
+        index_ok
+        and executed_ids == set(REQUIRED_CASE_PATHS)
+        and len(case_results) == len(REQUIRED_CASE_PATHS)
+    )
+    corpus_ok = complete_execution and all(
+        case["oracleMatch"] for case in case_results
+    )
+    derived_checks = _derived_checks_snapshot(observations, corpus_ok)
 
     rubric_root = fixtures_root / "example-evidence/rubric"
     response_path = rubric_root / "architecture-response.synthetic.md"
@@ -937,15 +1087,24 @@ def run(fixtures_root: Path) -> dict:
         and invalid_rubric["status"] == "fail"
         and invalid_rubric["violations"] == ["D-RUBRIC-001"]
     )
-    evidence = validate_evidence_bundle(fixtures_root / "example-evidence")
+    evidence = validate_evidence_bundle(
+        fixtures_root / "example-evidence",
+        derived_checks if complete_execution else {},
+    )
     overall_ok = (
-        all(case["oracleMatch"] for case in case_results)
+        corpus_ok
         and rubric_gate_ok
         and evidence["status"] == "pass"
     )
     return {
         "schemaVersion": "1.0",
         "status": "pass" if overall_ok else "fail",
+        "corpus": {
+            "status": "pass" if corpus_ok else "fail",
+            "indexValid": index_ok,
+            "requiredCaseCount": len(REQUIRED_CASE_PATHS),
+            "executedCaseCount": len(executed_ids),
+        },
         "cases": case_results,
         "rubric": {
             "status": "pass" if rubric_gate_ok else "fail",
