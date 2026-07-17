@@ -883,8 +883,9 @@ git commit -m "test(DEV-137): record reviewed reference probe"
 
 ### Task 5B: Replace generic tool inference with exact Codex command evidence
 
-**Decision source:** DEV-137 Linear comment
-`3b643609-4f59-40a1-b527-7a2d2f36bdd4`, approved after independent review of
+**Decision source:** DEV-137 Linear comments
+`3b643609-4f59-40a1-b527-7a2d2f36bdd4` and correction
+`7a81fbb3-6b10-44c5-873f-b133d59c0d4e`, approved after independent review of
 `064119d52c9525b0586790f64fd4c8759f36ca19`. The already-recorded Codex host
 failure remains authoritative; this task authorizes deterministic repair only,
 not another host execution.
@@ -904,6 +905,9 @@ not another host execution.
 - Removes from the accepted evidence surface: generic nested tool mappings,
   structured argv inference, alternative readers, command prefixes/wrappers,
   mixed or extra tool items, completion-order inference, and reused item IDs.
+- Accepts one transport-only shell envelope when the executable basename is
+  `sh`, `bash`, or `zsh`, its only flag is `-lc`, and its decoded inner script
+  is exactly one approved command. This does not broaden the inner grammar.
 
 - [ ] **Step 1: Commit the approved plan before implementation**
 
@@ -927,9 +931,11 @@ In `DirectedReferenceProbeTests`:
 3. require the exact discovery tokens and exact `cat` owner tokens;
 4. reject reversed/interleaved completion, sequential ID reuse, command updates,
    unpaired items, extra commands, and every non-command tool item;
-5. reject wrappers, alternate discovery/read commands, additional/duplicate
-   operands, globs, direct search readers, nested mappings, structured argv,
-   sibling inputs, and arbitrary programs even when they mention one owner;
+5. accept the exact direct command and the exact one-shell `-lc` transport
+   envelope; reject nested or modified wrappers, alternate discovery/read
+   commands, additional/duplicate operands, globs, direct search readers,
+   nested mappings, structured argv, sibling inputs, and arbitrary programs
+   even when they mention one owner;
 6. reject duplicate JSON keys and non-standard `NaN`/`Infinity` constants in
    JSONL and stringified tool arguments; and
 7. require the prompt to name the two exact commands without naming the correct
@@ -958,6 +964,11 @@ official command lifecycle. Validate the exact event/item schema, preserve start
 order, require completion before the next start, bind completion to the same ID
 and command, require success status and exit code zero, and resolve only the one
 `cat` operand through the existing canonical-root regular-file check.
+
+Normalize at most one host transport envelope before comparing the command:
+parse a shell basename in `{sh,bash,zsh}`, require exactly `-lc` and one script
+operand, then require that decoded script to match the direct approved command
+exactly. Reject nested envelopes and every other wrapper shape.
 
 Update `build_prompt` to require the exact discovery and read commands while
 withholding the owner basename. Do not change expected owners or semantic result
