@@ -28,6 +28,7 @@ Never edit `AGENTS.md` directly; update `CLAUDE.md`, then use `scripts/sync_gene
   `metadata/codex-marketplace.json`. Plugin-local canonical inputs are
   `plugins/apple-foundation-models-handoff/.claude-plugin/plugin.json` and
   `plugins/apple-foundation-models-handoff/metadata/codex-interface.json`.
+  `skills/**` and `references/**` are current plugin-local canonical inputs.
 - `AGENTS.md`, `.agents/plugins/marketplace.json`, and
   `plugins/apple-foundation-models-handoff/.codex-plugin/plugin.json` are generated,
   non-editable outputs of the shared synchronization entry point.
