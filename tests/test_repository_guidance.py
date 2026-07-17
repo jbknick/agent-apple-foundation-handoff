@@ -44,13 +44,18 @@ STALE_WORKFLOW_CLAIMS = (
     "remain unimplemented",
     "must not be advertised as active",
     "DEV-136 will create",
+    "future `skills/**` and `references/**`",
 )
 WORKFLOW_GUIDANCE_CONTRACTS = (
     "The five production workflows are implemented",
+    "`skills/**` are current plugin-local canonical inputs; pending/future "
+    "`references/**` also belong below that plugin root",
     "DEV-136 host evidence is Codex-only",
     "Claude execution and cross-host comparison are `blocked/owner-deferred`",
     "Discovery, file presence, and installation are structural prerequisites and "
     "cannot prove behavioral or capability activation",
+    "known Codex probe failures and the DEV-137 integration blocker mean this "
+    "repository does not claim that all behavioral evidence passes",
 )
 SKILL_OWNED_SECTION_HEADINGS = (
     "Routing and Inspection",
@@ -640,13 +645,14 @@ class RepositoryGuidanceTests(unittest.TestCase):
             with self.subTest(guide=text[:12]):
                 assert_workflow_guidance_contract(self, text)
 
-    def test_guidance_oracle_rejects_structural_prerequisite_as_capability_proof(self):
+    def test_guidance_oracle_rejects_removed_truthfulness_contract(self):
         valid = " ".join((*WORKFLOW_SKILLS, *WORKFLOW_GUIDANCE_CONTRACTS))
-        mutation = valid.replace(WORKFLOW_GUIDANCE_CONTRACTS[-1], "", 1)
 
         assert_workflow_guidance_contract(self, valid)
-        with self.assertRaises(AssertionError):
-            assert_workflow_guidance_contract(self, mutation)
+        for contract in WORKFLOW_GUIDANCE_CONTRACTS:
+            mutation = valid.replace(contract, "", 1)
+            with self.subTest(contract=contract), self.assertRaises(AssertionError):
+                assert_workflow_guidance_contract(self, mutation)
 
     def test_guidance_does_not_duplicate_skill_owned_contract_sections(self):
         for path in (CANONICAL, GENERATED):
