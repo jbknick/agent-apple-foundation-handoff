@@ -187,6 +187,14 @@ CODEX_JSONL_PAIRED_ITEM_TYPES = {
     "command_execution", "mcp_tool_call", "collab_tool_call", "web_search",
     "todo_list",
 }
+CODEX_JSONL_IMMUTABLE_IDENTITY_FIELDS = {
+    "command_execution": ("command",),
+    "mcp_tool_call": ("server", "tool", "arguments"),
+    "collab_tool_call": (
+        "tool", "sender_thread_id", "receiver_thread_ids", "prompt",
+    ),
+    "web_search": ("query", "action"),
+}
 
 TRUSTED_SYSTEM_PATH_ALIASES = {
     Path("/var"): Path("/private/var"),
@@ -1059,9 +1067,11 @@ def _codex_jsonl_events(stdout: str) -> list[dict[str, Any]]:
                     opened is None or opened["type"] != item["type"]
                 ):
                     raise ValueError("Codex JSONL item completion is unpaired")
-                if item["type"] == "command_execution":
-                    if opened["command"] != item["command"]:
-                        raise ValueError("command completion identity is mismatched")
+                immutable_fields = CODEX_JSONL_IMMUTABLE_IDENTITY_FIELDS.get(
+                    item["type"], ()
+                )
+                if any(opened[field] != item[field] for field in immutable_fields):
+                    raise ValueError("Codex JSONL item identity is mismatched")
                 if opened is not None:
                     if opened["type"] != item["type"]:
                         raise ValueError("Codex JSONL item type changed")
@@ -1800,7 +1810,7 @@ def _positive_envelope(
 def _usable_version(value: str | None) -> bool:
     if value is None:
         return False
-    normalized = value.strip().strip('"\'').strip().lower()
+    normalized = value.strip().strip('"\'‘’“”').strip().lower()
     normalized = re.sub(r"[-_\s]+", "_", normalized)
     return bool(normalized) and normalized not in {
         "unknown", "n/a", "none", "null", "tbd", "placeholder",
@@ -1811,7 +1821,7 @@ def _usable_version(value: str | None) -> bool:
 def _has_authorized_follow_on_boundary(text: str) -> bool:
     normalized = text.lower()
     normalized = re.sub(
-        r"\b(?:isn|aren|wasn|weren|doesn|don|can)['’]t\b|\bcannot\b",
+        r"\b[a-z]+n['’]t\b|\bcannot\b",
         " not ",
         normalized,
     )
