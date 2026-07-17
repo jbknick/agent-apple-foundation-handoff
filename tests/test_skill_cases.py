@@ -2953,6 +2953,56 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                     self.runner._precondition_blocker(snapshot),
                 )
 
+    def test_process_execution_is_bound_to_verified_open_executable_bytes(self) -> None:
+        fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
+        outputs = _forward_outputs(fixture)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            executable = root / "captured-codex"
+            replacement = root / "replacement-codex"
+            executable.write_bytes(b"#!/bin/sh\n# captured bytes\nexit 0\n")
+            executable.chmod(0o700)
+            replacement.write_bytes(b"#!/bin/sh\n# replacement bytes\nexit 0\n")
+            replacement.chmod(0o700)
+            captured_digest = executable_bytes_sha256(executable)
+            observed: dict[str, object] = {}
+
+            class BindingProcess(_FakeHostProcess):
+                def __call__(self, command: list[str], **kwargs):
+                    os.replace(replacement, executable)
+                    override = kwargs.get("executable")
+                    observed["argv0"] = command[0]
+                    observed["override"] = override
+                    observed["pass_fds"] = kwargs.get("pass_fds", ())
+                    observed["bound_digest"] = (
+                        executable_bytes_sha256(Path(override))
+                        if isinstance(override, str)
+                        else None
+                    )
+                    return super().__call__(command, **kwargs)
+
+            process = BindingProcess()
+            code, _ = _run_host(
+                self.runner,
+                fixture,
+                str(executable),
+                process,
+                _FakePrerequisiteChecker(
+                    _passing_prerequisites(str(executable))
+                ),
+                _FakeScorer(outputs),
+            )
+
+            self.assertEqual(self.runner.FAIL, code)
+            self.assertEqual(str(executable), observed["argv0"])
+            self.assertIsInstance(observed["override"], str)
+            self.assertNotEqual(str(executable), observed["override"])
+            self.assertEqual(captured_digest, observed["bound_digest"])
+            if str(observed["override"]).startswith("/dev/fd/"):
+                descriptor = int(str(observed["override"]).rsplit("/", 1)[1])
+                self.assertIn(descriptor, observed["pass_fds"])
+
     def test_prerequisites_require_exact_auth_plugin_entry_and_regular_skill_payloads(self) -> None:
         def build_plugin_tree(repo_root: Path) -> tuple[Path, dict]:
             plugin_root = (
@@ -3350,6 +3400,26 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
             )
             self.assertEqual([], scorer.calls)
 
+    def test_successful_tool_event_stream_requires_turn_completed(self) -> None:
+        failed_terminal = "\n".join(
+            (
+                json.dumps(
+                    {
+                        "type": "item.completed",
+                        "item": {"type": "command_execution"},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "turn.failed",
+                        "error": {"message": "synthetic failure"},
+                    }
+                ),
+            )
+        )
+        with self.assertRaises(ValueError):
+            self.runner._tool_events(failed_terminal)
+
     def test_model_unavailable_requires_cli_or_structured_error_not_agent_prose(self) -> None:
         agent_prose = "\n".join(
             (
@@ -3429,6 +3499,26 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                 "process_failed",
                 evidence["host"]["blockerReason"],
             )
+
+    def test_model_unavailable_ignores_nested_item_error_text(self) -> None:
+        nested_item_failure = subprocess.CompletedProcess(
+            ["codex", "exec"],
+            1,
+            json.dumps(
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "type": "error",
+                        "message": "model gpt-5.6-sol is unavailable",
+                    },
+                }
+            )
+            + "\n",
+            "",
+        )
+        self.assertFalse(
+            self.runner._is_model_unavailable(nested_item_failure)
+        )
 
     def test_plugin_activation_is_nonpass_until_fresh_host_cases_prove_it(self) -> None:
         snapshot = _passing_prerequisites()
