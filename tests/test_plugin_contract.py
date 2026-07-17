@@ -45,6 +45,7 @@ class PluginContractTests(unittest.TestCase):
     def test_marketplaces_use_the_conventional_source(self):
         claude = load_json(".claude-plugin/marketplace.json")
         codex = load_json("metadata/codex-marketplace.json")
+        generated_codex = load_json(".agents/plugins/marketplace.json")
 
         self.assertEqual(MARKETPLACE, claude["name"])
         self.assertEqual(SOURCE, claude["plugins"][0]["source"])
@@ -56,6 +57,35 @@ class PluginContractTests(unittest.TestCase):
         )
         self.assertEqual("Developer Tools", entry["category"])
         self.assertNotIn("products", entry["policy"])
+        self.assertEqual(codex, generated_codex)
+
+    def test_generated_codex_manifest_preserves_canonical_ownership(self):
+        shared = load_json(
+            "plugins/apple-foundation-models-handoff/.claude-plugin/plugin.json"
+        )
+        interface = load_json(
+            "plugins/apple-foundation-models-handoff/metadata/codex-interface.json"
+        )
+        generated = load_json(
+            "plugins/apple-foundation-models-handoff/.codex-plugin/plugin.json"
+        )
+
+        for field in (
+            "name",
+            "version",
+            "description",
+            "author",
+            "homepage",
+            "repository",
+            "license",
+            "keywords",
+        ):
+            with self.subTest(field=field):
+                self.assertEqual(shared[field], generated[field])
+        self.assertEqual(interface, generated["interface"])
+        self.assertNotIn("skills", generated)
+        for field in ("hooks", "mcpServers", "apps", "commands", "agents"):
+            self.assertNotIn(field, generated)
 
     def test_input_schemas_are_closed_and_bounded(self):
         interface = load_json("schemas/codex-interface-input.schema.json")
@@ -68,7 +98,7 @@ class PluginContractTests(unittest.TestCase):
         self.assertEqual(1, marketplace["properties"]["plugins"]["minItems"])
         self.assertEqual(1, marketplace["properties"]["plugins"]["maxItems"])
 
-    def test_plugin_package_initially_contains_only_canonical_inputs(self):
+    def test_plugin_package_contains_only_metadata_contract_files(self):
         plugin_root = ROOT / "plugins" / PLUGIN_ID
         package_files = {
             path.relative_to(plugin_root).as_posix()
@@ -79,10 +109,23 @@ class PluginContractTests(unittest.TestCase):
         self.assertEqual(
             {
                 ".claude-plugin/plugin.json",
+                ".codex-plugin/plugin.json",
                 "metadata/codex-interface.json",
             },
             package_files,
         )
+        for surface in (
+            "skills",
+            "references",
+            "agents",
+            "hooks",
+            "mcp",
+            "commands",
+            "scripts",
+            "assets",
+        ):
+            with self.subTest(surface=surface):
+                self.assertFalse((plugin_root / surface).exists())
 
 
 if __name__ == "__main__":

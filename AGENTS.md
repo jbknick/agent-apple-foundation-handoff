@@ -8,29 +8,28 @@
 Never edit `AGENTS.md` directly; update `CLAUDE.md`, then use `scripts/sync_generated_artifacts.py`.
 
 ### Scope and capability ownership
-- Future plugin `apple-foundation-models-handoff` has five positive workflows: design,
-  implement, review, debug, and validate handoff architectures, not generic education.
-- Positive preselection chooses one workflow and discloses only its directly linked
-  reference. Do not copy workflows, duplicate the corpus, or add a plugin-local worker.
-- One bounded non-positive preselection router may only clarify, decline, or hand off other
-  requests. It is distinct from the later DEV-142 through DEV-145 cost router, `PostToolUse`
-  hook, and Swift bridge chain; it is not a sixth positive skill. DEV-133 is guidance-only
-  and implements no runtime.
-- Skill and reference payloads belong to later issues and are absent here. Foundation
-  Models handoff, coding-session handoff, Apple Handoff, App Intents, Claude/Codex Agent
-  Skills, and Foundation Models runtime Skills are distinct.
+- Plugin `apple-foundation-models-handoff` is a metadata-only scaffold with zero
+  capabilities; it does not advertise unfinished behavior.
+- Later issues own five positive workflows: design, implement, review, debug, and
+  validate Foundation Models handoff architectures. Positive requests select one
+  workflow directly and progressively disclose only its linked reference.
+- One bounded non-positive preselection router may later clarify, decline, or hand off
+  other requests. It is not a sixth positive workflow and is distinct from the DEV-142
+  through DEV-145 cost router, `PostToolUse` hooks, and Swift bridge chain.
+- Skills, references, hooks, commands, agents, MCP servers, scripts, dependencies, and
+  runtime code are absent. Foundation Models handoff, coding-session handoff, Apple
+  Handoff, App Intents, Agent Skills, and Foundation Models runtime Skills are distinct.
 
 ### Canonical and generated paths
-- Today the repository-guidance artifact set is exactly authored canonical `CLAUDE.md` and
-  generated root `AGENTS.md`; no plugin metadata, skill/reference payload, or generated
-  manifest is present under DEV-133.
-- DEV-135 owns planned plugin metadata inputs and generated manifest outputs; they remain
-  absent until it implements them through the shared synchronization entry point.
-- Host loading remains conditional and claims no discovery, installation, activation,
-  reference, or capability success.
-- Preferred source `./` is conditional on isolated cache inspection and fresh
-  real-host activation/reference proof. Fallback `./plugins/apple-foundation-models-handoff`
-  changes placement only and must not use external symlinks.
+- Root canonical inputs are `CLAUDE.md`, `.claude-plugin/marketplace.json`, and
+  `metadata/codex-marketplace.json`. Plugin-local canonical inputs are
+  `plugins/apple-foundation-models-handoff/.claude-plugin/plugin.json` and
+  `plugins/apple-foundation-models-handoff/metadata/codex-interface.json`.
+- `AGENTS.md`, `.agents/plugins/marketplace.json`, and
+  `plugins/apple-foundation-models-handoff/.codex-plugin/plugin.json` are generated,
+  non-editable outputs of the shared synchronization entry point.
+- DEV-135 selects conventional source `./plugins/apple-foundation-models-handoff`;
+  the package must not use external symlinks.
 - The effective cached plugin payload must exclude repository-only docs, research,
   fixtures, tests, and private state; none may appear as plugin capabilities.
 

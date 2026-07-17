@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import importlib.util
+import contextlib
+import io
 import json
+import os
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,6 +30,14 @@ CANONICAL_INPUTS = (
     CODEX_MARKETPLACE,
     SHARED_MANIFEST,
     CODEX_INTERFACE,
+)
+GENERATED_OUTPUTS = (
+    Path("AGENTS.md"),
+    Path(".agents/plugins/marketplace.json"),
+    Path(
+        "plugins/apple-foundation-models-handoff/"
+        ".codex-plugin/plugin.json"
+    ),
 )
 
 
@@ -58,6 +71,23 @@ class GeneratedArtifactTests(unittest.TestCase):
             target = destination / relative_path
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / relative_path, target)
+
+    def _run_isolated_cli(
+        self, root: Path, mode: str
+    ) -> subprocess.CompletedProcess[str]:
+        scripts = root / "scripts"
+        scripts.mkdir(exist_ok=True)
+        shutil.copyfile(SCRIPT, scripts / "sync_generated_artifacts.py")
+        environment = os.environ.copy()
+        environment["PYTHONDONTWRITEBYTECODE"] = "1"
+        return subprocess.run(
+            [sys.executable, str(scripts / "sync_generated_artifacts.py"), mode],
+            cwd=root,
+            env=environment,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
 
     def _mutate_json(
         self,
@@ -143,6 +173,265 @@ class GeneratedArtifactTests(unittest.TestCase):
         self.assertEqual(["name", "interface", "plugins"], list(rendered))
         self.assertEqual(["name", "source", "policy", "category"], list(entry))
         self.assertEqual(content, sync.render_codex_marketplace(inputs))
+
+    def test_write_creates_all_outputs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            isolated_root = Path(directory)
+            self._copy_canonical_inputs(isolated_root)
+            expected = sync.expected_artifacts(isolated_root)
+
+            result = self._run_isolated_cli(isolated_root, "--write")
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertEqual("updated generated artifacts\n", result.stdout)
+            self.assertEqual("", result.stderr)
+            self.assertEqual(set(GENERATED_OUTPUTS), set(expected))
+            for relative_path, content in expected.items():
+                with self.subTest(relative_path=relative_path):
+                    self.assertEqual(content, (isolated_root / relative_path).read_bytes())
+
+    def test_write_is_byte_idempotent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            isolated_root = Path(directory)
+            self._copy_canonical_inputs(isolated_root)
+            first = self._run_isolated_cli(isolated_root, "--write")
+            self.assertEqual(0, first.returncode, first.stderr)
+            snapshot = {
+                path: (isolated_root / path).read_bytes()
+                for path in GENERATED_OUTPUTS
+            }
+
+            second = self._run_isolated_cli(isolated_root, "--write")
+
+            self.assertEqual(0, second.returncode, second.stderr)
+            self.assertEqual("generated artifacts are synchronized\n", second.stdout)
+            self.assertEqual(
+                snapshot,
+                {path: (isolated_root / path).read_bytes() for path in GENERATED_OUTPUTS},
+            )
+
+    def test_check_rejects_drift_in_each_output_without_writing(self):
+        for drifted in GENERATED_OUTPUTS:
+            with self.subTest(drifted=drifted), tempfile.TemporaryDirectory() as directory:
+                isolated_root = Path(directory)
+                self._copy_canonical_inputs(isolated_root)
+                written = self._run_isolated_cli(isolated_root, "--write")
+                self.assertEqual(0, written.returncode, written.stderr)
+                with (isolated_root / drifted).open("ab") as output:
+                    output.write(b"drift\n")
+                snapshot = {
+                    path: (isolated_root / path).read_bytes()
+                    for path in GENERATED_OUTPUTS
+                }
+
+                result = self._run_isolated_cli(isolated_root, "--check")
+
+                self.assertEqual(1, result.returncode)
+                self.assertEqual("", result.stdout)
+                self.assertEqual(
+                    f"{drifted.as_posix()}: generated content is out of date\n",
+                    result.stderr,
+                )
+                self.assertEqual(
+                    snapshot,
+                    {
+                        path: (isolated_root / path).read_bytes()
+                        for path in GENERATED_OUTPUTS
+                    },
+                )
+
+    def test_preflight_prevents_partial_write(self):
+        with tempfile.TemporaryDirectory() as directory:
+            isolated_root = Path(directory)
+            self._copy_canonical_inputs(isolated_root)
+            written = self._run_isolated_cli(isolated_root, "--write")
+            self.assertEqual(0, written.returncode, written.stderr)
+            agents = isolated_root / "AGENTS.md"
+            stale = b"stale AGENTS output\n"
+            agents.write_bytes(stale)
+            shutil.rmtree(isolated_root / ".agents", ignore_errors=True)
+            (isolated_root / ".agents").write_text(
+                "obstruction\n", encoding="utf-8", newline="\n"
+            )
+
+            result = self._run_isolated_cli(isolated_root, "--write")
+
+            self.assertEqual(1, result.returncode)
+            self.assertEqual("", result.stdout)
+            self.assertEqual(
+                ".agents/plugins/marketplace.json: unsafe or unwritable generated output\n",
+                result.stderr,
+            )
+            self.assertEqual(stale, agents.read_bytes())
+
+    def test_nested_parent_symlink_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temporary_root = Path(directory)
+            isolated_root = temporary_root / "repository"
+            isolated_root.mkdir()
+            self._copy_canonical_inputs(isolated_root)
+            external = temporary_root / "external"
+            external.mkdir()
+            sentinel = external / "plugin.json"
+            original = b"external target\n"
+            sentinel.write_bytes(original)
+            plugin_root = isolated_root / "plugins/apple-foundation-models-handoff"
+            (plugin_root / ".codex-plugin").symlink_to(external, target_is_directory=True)
+
+            result = self._run_isolated_cli(isolated_root, "--write")
+
+            self.assertEqual(1, result.returncode)
+            self.assertEqual("", result.stdout)
+            self.assertEqual(
+                "plugins/apple-foundation-models-handoff/.codex-plugin/plugin.json: "
+                "unsafe or unwritable generated output\n",
+                result.stderr,
+            )
+            self.assertEqual(original, sentinel.read_bytes())
+            self.assertFalse((isolated_root / "AGENTS.md").exists())
+
+    def test_generated_output_symlink_cannot_mutate_target(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temporary_root = Path(directory)
+            isolated_root = temporary_root / "repository"
+            isolated_root.mkdir()
+            self._copy_canonical_inputs(isolated_root)
+            external = temporary_root / "external-marketplace"
+            original = b"external target\n"
+            external.write_bytes(original)
+            output = isolated_root / ".agents/plugins/marketplace.json"
+            output.parent.mkdir(parents=True)
+            output.symlink_to(external)
+
+            result = self._run_isolated_cli(isolated_root, "--write")
+
+            self.assertEqual(1, result.returncode)
+            self.assertEqual(original, external.read_bytes())
+            self.assertTrue(output.is_symlink())
+            self.assertEqual(
+                ".agents/plugins/marketplace.json: unsafe or unwritable generated output\n",
+                result.stderr,
+            )
+
+    def test_unexpected_generated_file_is_rejected(self):
+        unexpected_paths = (
+            Path(".agents/plugins/unexpected.json"),
+            Path(
+                "plugins/apple-foundation-models-handoff/"
+                ".codex-plugin/unexpected.json"
+            ),
+        )
+        for unexpected in unexpected_paths:
+            with self.subTest(unexpected=unexpected), tempfile.TemporaryDirectory() as directory:
+                isolated_root = Path(directory)
+                self._copy_canonical_inputs(isolated_root)
+                target = isolated_root / unexpected
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("{}\n", encoding="utf-8", newline="\n")
+
+                result = self._run_isolated_cli(isolated_root, "--check")
+
+                self.assertEqual(1, result.returncode)
+                self.assertEqual("", result.stdout)
+                self.assertEqual(
+                    "generated artifacts: unexpected generated path\n", result.stderr
+                )
+
+    def test_missing_nested_parents_are_drift_then_created_safely(self):
+        with tempfile.TemporaryDirectory() as directory:
+            isolated_root = Path(directory)
+            self._copy_canonical_inputs(isolated_root)
+            expected = sync.expected_artifacts(isolated_root)
+            (isolated_root / "AGENTS.md").write_bytes(expected[Path("AGENTS.md")])
+
+            checked = self._run_isolated_cli(isolated_root, "--check")
+
+            self.assertEqual(1, checked.returncode)
+            self.assertEqual(
+                ".agents/plugins/marketplace.json: generated content is out of date\n"
+                "plugins/apple-foundation-models-handoff/.codex-plugin/plugin.json: "
+                "generated content is out of date\n",
+                checked.stderr,
+            )
+            self.assertFalse((isolated_root / ".agents").exists())
+            self.assertFalse(
+                (
+                    isolated_root
+                    / "plugins/apple-foundation-models-handoff/.codex-plugin"
+                ).exists()
+            )
+
+            written = self._run_isolated_cli(isolated_root, "--write")
+
+            self.assertEqual(0, written.returncode, written.stderr)
+            self.assertEqual("updated generated artifacts\n", written.stdout)
+            for relative_path, content in expected.items():
+                self.assertEqual(content, (isolated_root / relative_path).read_bytes())
+
+    def test_temporary_path_swap_is_normalized_and_cleaned(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temporary_root = Path(directory)
+            isolated_root = temporary_root / "repository"
+            isolated_root.mkdir()
+            self._copy_canonical_inputs(isolated_root)
+            generated = isolated_root / "AGENTS.md"
+            generated.write_bytes(b"stale generated output\n")
+            sentinel = temporary_root / "external-sentinel"
+            original = b"external sentinel must remain unchanged\n"
+            sentinel.write_bytes(original)
+            real_replace = sync.os.replace
+
+            def swap_temporary_path(
+                source,
+                destination,
+                *,
+                src_dir_fd=None,
+                dst_dir_fd=None,
+            ):
+                os.unlink(source, dir_fd=src_dir_fd)
+                os.symlink(sentinel, source, dir_fd=src_dir_fd)
+                return real_replace(
+                    source,
+                    destination,
+                    src_dir_fd=src_dir_fd,
+                    dst_dir_fd=dst_dir_fd,
+                )
+
+            diagnostic = io.StringIO()
+            with mock.patch.object(sync.os, "replace", swap_temporary_path):
+                with contextlib.redirect_stderr(diagnostic):
+                    synchronized = sync.synchronize(isolated_root, write=True)
+
+            self.assertFalse(synchronized)
+            self.assertEqual(
+                "AGENTS.md: unsafe or unwritable generated output\n",
+                diagnostic.getvalue(),
+            )
+            self.assertEqual(original, sentinel.read_bytes())
+            self.assertFalse(os.path.lexists(generated))
+            self.assertEqual([], list(isolated_root.glob(".AGENTS.md.*.tmp")))
+
+    def test_atomic_replace_failure_is_normalized_and_cleans_temporary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            isolated_root = Path(directory)
+            self._copy_canonical_inputs(isolated_root)
+            generated = isolated_root / "AGENTS.md"
+            original = b"stale generated output\n"
+            generated.write_bytes(original)
+            diagnostic = io.StringIO()
+
+            with mock.patch.object(sync.os, "replace", side_effect=OSError):
+                with contextlib.redirect_stderr(diagnostic):
+                    synchronized = sync.synchronize(isolated_root, write=True)
+
+            self.assertFalse(synchronized)
+            self.assertEqual(
+                "AGENTS.md: unsafe or unwritable generated output\n",
+                diagnostic.getvalue(),
+            )
+            self.assertEqual(original, generated.read_bytes())
+            self.assertFalse(generated.is_symlink())
+            self.assertEqual([], list(isolated_root.glob(".AGENTS.md.*.tmp")))
 
     def test_coordinated_valid_semver_version_drift_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:

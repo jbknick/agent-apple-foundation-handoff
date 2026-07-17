@@ -1,0 +1,20 @@
+{
+  "name": "agent-apple-foundation-handoff",
+  "interface": {
+    "displayName": "Agent Apple Foundation Handoff"
+  },
+  "plugins": [
+    {
+      "name": "apple-foundation-models-handoff",
+      "source": {
+        "source": "local",
+        "path": "./plugins/apple-foundation-models-handoff"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

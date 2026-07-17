@@ -18,6 +18,13 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "sync_generated_artifacts.py"
 CANONICAL = ROOT / "CLAUDE.md"
 GENERATED = ROOT / "AGENTS.md"
+CANONICAL_INPUTS = (
+    Path("CLAUDE.md"),
+    Path(".claude-plugin/marketplace.json"),
+    Path("metadata/codex-marketplace.json"),
+    Path("plugins/apple-foundation-models-handoff/.claude-plugin/plugin.json"),
+    Path("plugins/apple-foundation-models-handoff/metadata/codex-interface.json"),
+)
 BEGIN = "<!-- BEGIN GENERATED AGENTS ADAPTER -->"
 END = "<!-- END GENERATED AGENTS ADAPTER -->"
 HEADER = (
@@ -94,6 +101,12 @@ def mutate_after_read(read_number: int, mutation):
 
 
 class RepositoryGuidanceTests(unittest.TestCase):
+    def _copy_canonical_inputs(self, destination: Path) -> None:
+        for relative_path in CANONICAL_INPUTS:
+            target = destination / relative_path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / relative_path, target)
+
     def test_generated_agents_matches_canonical_adapter_exactly(self):
         canonical_text = CANONICAL.read_text(encoding="utf-8")
         body = canonical_text.split(BEGIN, 1)[1].split(END, 1)[0].strip("\n")
@@ -136,7 +149,7 @@ class RepositoryGuidanceTests(unittest.TestCase):
     def test_write_mode_is_idempotent_in_an_isolated_root(self):
         with tempfile.TemporaryDirectory() as directory:
             isolated_root = Path(directory)
-            shutil.copyfile(CANONICAL, isolated_root / "CLAUDE.md")
+            self._copy_canonical_inputs(isolated_root)
 
             self.assertTrue(sync_generated_artifacts.synchronize(isolated_root, write=True))
             first_bytes = (isolated_root / "AGENTS.md").read_bytes()
@@ -147,7 +160,7 @@ class RepositoryGuidanceTests(unittest.TestCase):
     def test_check_mode_rejects_isolated_generated_drift(self):
         with tempfile.TemporaryDirectory() as directory:
             isolated_root = Path(directory)
-            shutil.copyfile(CANONICAL, isolated_root / "CLAUDE.md")
+            self._copy_canonical_inputs(isolated_root)
             self.assertTrue(sync_generated_artifacts.synchronize(isolated_root, write=True))
             with (isolated_root / "AGENTS.md").open(
                 "a", encoding="utf-8", newline="\n"
@@ -192,7 +205,7 @@ class RepositoryGuidanceTests(unittest.TestCase):
                 temporary_root = Path(directory)
                 isolated_root = temporary_root / "repository"
                 isolated_root.mkdir()
-                shutil.copyfile(CANONICAL, isolated_root / "CLAUDE.md")
+                self._copy_canonical_inputs(isolated_root)
                 sentinel = temporary_root / "external-sentinel"
                 original = b"external sentinel must remain unchanged\n"
                 sentinel.write_bytes(original)
@@ -212,7 +225,7 @@ class RepositoryGuidanceTests(unittest.TestCase):
     def test_cli_distinguishes_generated_obstruction_from_canonical_failure(self):
         with tempfile.TemporaryDirectory() as directory:
             isolated_root = Path(directory)
-            shutil.copyfile(CANONICAL, isolated_root / "CLAUDE.md")
+            self._copy_canonical_inputs(isolated_root)
             (isolated_root / "AGENTS.md").mkdir()
 
             result = run_isolated_cli(isolated_root, "--write")
@@ -223,11 +236,12 @@ class RepositoryGuidanceTests(unittest.TestCase):
                 "AGENTS.md: unsafe or unwritable generated output\n",
                 result.stderr,
             )
-            self.assertNotIn("CLAUDE.md: invalid canonical adapter input", result.stderr)
+            self.assertNotIn("CLAUDE.md: invalid canonical metadata input", result.stderr)
             self.assertTrue((isolated_root / "AGENTS.md").is_dir())
 
         with tempfile.TemporaryDirectory() as directory:
             isolated_root = Path(directory)
+            self._copy_canonical_inputs(isolated_root)
             (isolated_root / "CLAUDE.md").write_text(
                 "invalid canonical guide\n", encoding="utf-8", newline="\n"
             )
@@ -237,7 +251,7 @@ class RepositoryGuidanceTests(unittest.TestCase):
             self.assertEqual(1, result.returncode)
             self.assertEqual("", result.stdout)
             self.assertEqual(
-                "CLAUDE.md: invalid canonical adapter input\n",
+                "CLAUDE.md: invalid canonical metadata input\n",
                 result.stderr,
             )
 
@@ -259,7 +273,7 @@ class RepositoryGuidanceTests(unittest.TestCase):
                 self.assertEqual(1, result.returncode)
                 self.assertEqual("", result.stdout)
                 self.assertEqual(
-                    "CLAUDE.md: invalid canonical adapter input\n",
+                    "CLAUDE.md: invalid canonical metadata input\n",
                     result.stderr,
                 )
                 self.assertNotIn(str(temporary_root), result.stdout + result.stderr)
@@ -275,7 +289,7 @@ class RepositoryGuidanceTests(unittest.TestCase):
                 self.assertEqual(1, result.returncode)
                 self.assertEqual("", result.stdout)
                 self.assertEqual(
-                    "CLAUDE.md: invalid canonical adapter input\n",
+                    "CLAUDE.md: invalid canonical metadata input\n",
                     result.stderr,
                 )
                 self.assertFalse(os.path.lexists(isolated_root / "AGENTS.md"))
@@ -338,7 +352,7 @@ class RepositoryGuidanceTests(unittest.TestCase):
             temporary_root = Path(directory)
             isolated_root = temporary_root / "repository"
             isolated_root.mkdir()
-            shutil.copyfile(CANONICAL, isolated_root / "CLAUDE.md")
+            self._copy_canonical_inputs(isolated_root)
             generated = isolated_root / "AGENTS.md"
             generated.write_bytes(b"stale generated output\n")
             sentinel = temporary_root / "external-sentinel"
@@ -346,11 +360,21 @@ class RepositoryGuidanceTests(unittest.TestCase):
             sentinel.write_bytes(original)
             real_replace = sync_generated_artifacts.os.replace
 
-            def swap_temporary_path(source, destination):
-                temporary = Path(source)
-                temporary.unlink()
-                temporary.symlink_to(sentinel)
-                return real_replace(source, destination)
+            def swap_temporary_path(
+                source,
+                destination,
+                *,
+                src_dir_fd=None,
+                dst_dir_fd=None,
+            ):
+                os.unlink(source, dir_fd=src_dir_fd)
+                os.symlink(sentinel, source, dir_fd=src_dir_fd)
+                return real_replace(
+                    source,
+                    destination,
+                    src_dir_fd=src_dir_fd,
+                    dst_dir_fd=dst_dir_fd,
+                )
 
             diagnostic = io.StringIO()
             with mock.patch.object(
@@ -373,7 +397,7 @@ class RepositoryGuidanceTests(unittest.TestCase):
     def test_atomic_replace_failure_is_normalized_and_cleans_temporary(self):
         with tempfile.TemporaryDirectory() as directory:
             isolated_root = Path(directory)
-            shutil.copyfile(CANONICAL, isolated_root / "CLAUDE.md")
+            self._copy_canonical_inputs(isolated_root)
             generated = isolated_root / "AGENTS.md"
             original = b"stale generated output\n"
             generated.write_bytes(original)
@@ -493,7 +517,7 @@ class RepositoryGuidanceTests(unittest.TestCase):
     def test_guidance_preserves_plugin_payload_and_host_boundaries(self):
         canonical_text = normalized_guide(CANONICAL)
         required_contracts = (
-            "`./` is conditional",
+            "DEV-135 selects conventional source "
             "`./plugins/apple-foundation-models-handoff`",
             "effective cached plugin payload",
             "repository-only docs, research, fixtures, tests, and private state",
@@ -521,11 +545,9 @@ class RepositoryGuidanceTests(unittest.TestCase):
             "marketplace registration, plugin install/add, then a fresh task",
             "`codex --plugin-dir` is not approved",
             "Claude `2.1.140` is diagnostic-only and cannot substitute",
-                "DEV-135 owns planned plugin metadata inputs and generated manifest "
-                "outputs; they remain absent until it implements them through the shared "
-                "synchronization entry point",
-            "Host loading remains conditional and claims no "
-            "discovery, installation, activation, reference, or capability success.",
+            "metadata-only scaffold with zero capabilities",
+            "Skills, references, hooks, commands, agents, MCP servers, scripts, "
+            "dependencies, and runtime code are absent",
             "Normalize the repository as `<repo>` and executable as `<host-path>`",
             "never commit literal resolutions, other private absolute paths, or raw "
             "`PATH`",

@@ -6,9 +6,9 @@ from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
+import secrets
 import stat
 import sys
-import tempfile
 from typing import Mapping, Sequence
 
 
@@ -19,9 +19,10 @@ GENERATED_HEADER = (
     "<!-- Generated from CLAUDE.md by scripts/sync_generated_artifacts.py. "
     "Do not edit directly. -->\n\n"
 )
-CANONICAL_DIAGNOSTIC = "CLAUDE.md: invalid canonical adapter input"
-DRIFT_DIAGNOSTIC = "AGENTS.md: generated content is out of date"
-OUTPUT_DIAGNOSTIC = "AGENTS.md: unsafe or unwritable generated output"
+CANONICAL_DIAGNOSTIC = "invalid canonical metadata input"
+DRIFT_DIAGNOSTIC = "generated content is out of date"
+OUTPUT_DIAGNOSTIC = "unsafe or unwritable generated output"
+UNEXPECTED_DIAGNOSTIC = "generated artifacts: unexpected generated path"
 PLUGIN_ID = "apple-foundation-models-handoff"
 PLUGIN_ROOT = Path("plugins") / PLUGIN_ID
 CLAUDE_MARKETPLACE = Path(".claude-plugin/marketplace.json")
@@ -50,6 +51,14 @@ class CanonicalInputError(Exception):
 
 class GeneratedOutputError(Exception):
     """Generated output cannot be inspected or replaced safely."""
+
+    def __init__(self, relative_path: Path | None = None) -> None:
+        super().__init__(relative_path.as_posix() if relative_path is not None else "")
+        self.relative_path = relative_path
+
+
+class UnexpectedGeneratedPath(Exception):
+    """A reserved generated namespace contains an unowned file."""
 
 
 def _adapter_body(canonical_text: str) -> str:
@@ -426,19 +435,49 @@ def expected_artifacts(root: Path) -> dict[Path, bytes]:
     }
 
 
-def _expected_bytes(root: Path) -> bytes:
-    try:
-        canonical_text = _read_canonical(root / "CLAUDE.md").decode("utf-8")
-        return render_agents(canonical_text).encode("utf-8")
-    except CanonicalInputError:
-        raise
-    except (OSError, UnicodeError, ValueError) as error:
-        raise CanonicalInputError from error
+def _directory_flags() -> int:
+    return (
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
 
 
-def _regular_output_metadata(generated: Path) -> os.stat_result | None:
+def _open_directory_chain(root: Path, relative: Path, create: bool) -> int | None:
+    """Open a repository-relative directory without following path components."""
+
+    descriptor: int | None = None
     try:
-        metadata = generated.lstat()
+        descriptor = os.open(root, _directory_flags())
+        for component in relative.parts:
+            if component in ("", "."):
+                continue
+            try:
+                child = os.open(component, _directory_flags(), dir_fd=descriptor)
+            except FileNotFoundError:
+                if not create:
+                    return None
+                os.mkdir(component, mode=0o755, dir_fd=descriptor)
+                child = os.open(component, _directory_flags(), dir_fd=descriptor)
+            previous = descriptor
+            descriptor = child
+            os.close(previous)
+        result = descriptor
+        descriptor = None
+        return result
+    except OSError as error:
+        raise GeneratedOutputError from error
+    finally:
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+
+
+def _regular_output_at(parent_fd: int, name: str) -> os.stat_result | None:
+    try:
+        metadata = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
     except FileNotFoundError:
         return None
     except OSError as error:
@@ -448,8 +487,8 @@ def _regular_output_metadata(generated: Path) -> os.stat_result | None:
     return metadata
 
 
-def _read_generated(generated: Path) -> bytes | None:
-    metadata = _regular_output_metadata(generated)
+def _read_generated_at(parent_fd: int, name: str) -> bytes | None:
+    metadata = _regular_output_at(parent_fd, name)
     if metadata is None:
         return None
 
@@ -457,7 +496,7 @@ def _read_generated(generated: Path) -> bytes | None:
     flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
     flags |= getattr(os, "O_NOFOLLOW", 0)
     try:
-        descriptor = os.open(generated, flags)
+        descriptor = os.open(name, flags, dir_fd=parent_fd)
         opened = os.fstat(descriptor)
         if not stat.S_ISREG(opened.st_mode) or not _same_file(metadata, opened):
             raise GeneratedOutputError
@@ -465,7 +504,7 @@ def _read_generated(generated: Path) -> bytes | None:
             descriptor = None
             content = stream.read()
             after_read = os.fstat(stream.fileno())
-            current = generated.lstat()
+            current = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
             if not _unchanged_after_read(opened, after_read, current):
                 raise GeneratedOutputError
             return content
@@ -479,9 +518,9 @@ def _read_generated(generated: Path) -> bytes | None:
                 raise GeneratedOutputError from error
 
 
-def _remove_unsafe_output(generated: Path) -> None:
+def _remove_unsafe_output_at(parent_fd: int, name: str) -> None:
     try:
-        metadata = generated.lstat()
+        metadata = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
     except FileNotFoundError:
         return
     except OSError as error:
@@ -489,22 +528,30 @@ def _remove_unsafe_output(generated: Path) -> None:
     if stat.S_ISDIR(metadata.st_mode):
         raise GeneratedOutputError
     try:
-        generated.unlink()
+        os.unlink(name, dir_fd=parent_fd)
     except FileNotFoundError:
         return
     except OSError as error:
         raise GeneratedOutputError from error
 
 
-def _write_generated(root: Path, generated: Path, expected: bytes) -> None:
-    _regular_output_metadata(generated)
+def _write_generated_at(parent_fd: int, name: str, expected: bytes) -> None:
+    """Atomically replace one generated file relative to its held parent."""
+
+    _regular_output_at(parent_fd, name)
+    temporary = f".{name}.{secrets.token_hex(16)}.tmp"
     descriptor: int | None = None
-    temporary: Path | None = None
+    temporary_exists = False
+    flags = (
+        os.O_WRONLY
+        | os.O_CREAT
+        | os.O_EXCL
+        | getattr(os, "O_BINARY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
     try:
-        descriptor, temporary_name = tempfile.mkstemp(
-            prefix=".AGENTS.md.", suffix=".tmp", dir=root
-        )
-        temporary = Path(temporary_name)
+        descriptor = os.open(temporary, flags, 0o644, dir_fd=parent_fd)
+        temporary_exists = True
         if hasattr(os, "fchmod"):
             os.fchmod(descriptor, 0o644)
         with os.fdopen(os.dup(descriptor), "wb") as stream:
@@ -513,24 +560,33 @@ def _write_generated(root: Path, generated: Path, expected: bytes) -> None:
             os.fsync(stream.fileno())
 
         intended_metadata = os.fstat(descriptor)
-        temporary_metadata = temporary.lstat()
+        temporary_metadata = os.stat(
+            temporary, dir_fd=parent_fd, follow_symlinks=False
+        )
         if not stat.S_ISREG(temporary_metadata.st_mode) or not _same_file(
             intended_metadata, temporary_metadata
         ):
             raise GeneratedOutputError
-        _regular_output_metadata(generated)
-        os.replace(temporary, generated)
+
+        _regular_output_at(parent_fd, name)
+        os.replace(
+            temporary,
+            name,
+            src_dir_fd=parent_fd,
+            dst_dir_fd=parent_fd,
+        )
+        temporary_exists = False
         try:
-            generated_metadata = generated.lstat()
-        except OSError as error:
-            _remove_unsafe_output(generated)
+            generated_metadata = os.stat(
+                name, dir_fd=parent_fd, follow_symlinks=False
+            )
+            if not stat.S_ISREG(generated_metadata.st_mode) or not _same_file(
+                intended_metadata, generated_metadata
+            ):
+                raise GeneratedOutputError
+        except (GeneratedOutputError, OSError) as error:
+            _remove_unsafe_output_at(parent_fd, name)
             raise GeneratedOutputError from error
-        if not stat.S_ISREG(generated_metadata.st_mode) or not _same_file(
-            intended_metadata, generated_metadata
-        ):
-            _remove_unsafe_output(generated)
-            raise GeneratedOutputError
-        temporary = None
     except GeneratedOutputError:
         raise
     except OSError as error:
@@ -542,9 +598,9 @@ def _write_generated(root: Path, generated: Path, expected: bytes) -> None:
                 os.close(descriptor)
             except OSError as error:
                 cleanup_error = error
-        if temporary is not None:
+        if temporary_exists:
             try:
-                temporary.unlink()
+                os.unlink(temporary, dir_fd=parent_fd)
             except FileNotFoundError:
                 pass
             except OSError as error:
@@ -553,30 +609,148 @@ def _write_generated(root: Path, generated: Path, expected: bytes) -> None:
             raise GeneratedOutputError from cleanup_error
 
 
+def _scan_directory(
+    parent_fd: int,
+    relative: Path,
+    allowed: set[Path],
+) -> None:
+    try:
+        with os.scandir(parent_fd) as entries:
+            for entry in entries:
+                candidate = relative / entry.name
+                if entry.is_dir(follow_symlinks=False):
+                    child_fd: int | None = None
+                    try:
+                        child_fd = os.open(
+                            entry.name, _directory_flags(), dir_fd=parent_fd
+                        )
+                        _scan_directory(child_fd, candidate, allowed)
+                    finally:
+                        if child_fd is not None:
+                            os.close(child_fd)
+                elif candidate not in allowed:
+                    raise UnexpectedGeneratedPath
+    except UnexpectedGeneratedPath:
+        raise
+    except OSError as error:
+        raise GeneratedOutputError from error
+
+
+def _scan_generated_namespaces(root: Path) -> None:
+    allowed = set(GENERATED_PATHS)
+    for namespace, generated_path in (
+        (CODEX_MARKETPLACE.parent, CODEX_MARKETPLACE),
+        (CODEX_MANIFEST.parent, CODEX_MANIFEST),
+    ):
+        descriptor: int | None = None
+        try:
+            descriptor = _open_directory_chain(root, namespace, create=False)
+            if descriptor is not None:
+                _scan_directory(descriptor, namespace, allowed)
+        except UnexpectedGeneratedPath:
+            raise
+        except GeneratedOutputError as error:
+            raise GeneratedOutputError(generated_path) from error
+        finally:
+            if descriptor is not None:
+                try:
+                    os.close(descriptor)
+                except OSError as error:
+                    raise GeneratedOutputError(generated_path) from error
+
+
+def _output_error(relative_path: Path, error: GeneratedOutputError) -> None:
+    if error.relative_path is not None:
+        raise error
+    raise GeneratedOutputError(relative_path) from error
+
+
 def _synchronize(root: Path, write: bool) -> tuple[bool, bool]:
-    expected = _expected_bytes(root)
-    generated = root / "AGENTS.md"
-    if _read_generated(generated) == expected:
-        return True, False
-    if not write:
-        return False, False
-    _write_generated(root, generated, expected)
-    return True, True
+    expected = expected_artifacts(root)
+    _scan_generated_namespaces(root)
+
+    parent_descriptors: dict[Path, int | None] = {}
+    observed: dict[Path, bytes | None] = {}
+    try:
+        for relative_path in GENERATED_PATHS:
+            try:
+                parent_fd = _open_directory_chain(
+                    root, relative_path.parent, create=False
+                )
+                parent_descriptors[relative_path] = parent_fd
+                observed[relative_path] = (
+                    None
+                    if parent_fd is None
+                    else _read_generated_at(parent_fd, relative_path.name)
+                )
+            except GeneratedOutputError as error:
+                _output_error(relative_path, error)
+
+        drifted = [
+            relative_path
+            for relative_path in GENERATED_PATHS
+            if observed[relative_path] != expected[relative_path]
+        ]
+        if not write:
+            for relative_path in drifted:
+                print(
+                    f"{relative_path.as_posix()}: {DRIFT_DIAGNOSTIC}",
+                    file=sys.stderr,
+                )
+            return not drifted, False
+
+        for relative_path in GENERATED_PATHS:
+            if parent_descriptors[relative_path] is None:
+                try:
+                    parent_descriptors[relative_path] = _open_directory_chain(
+                        root, relative_path.parent, create=True
+                    )
+                except GeneratedOutputError as error:
+                    _output_error(relative_path, error)
+
+        changed = False
+        for relative_path in GENERATED_PATHS:
+            parent_fd = parent_descriptors[relative_path]
+            if parent_fd is None:
+                raise GeneratedOutputError(relative_path)
+            try:
+                current = _read_generated_at(parent_fd, relative_path.name)
+                if current != expected[relative_path]:
+                    _write_generated_at(
+                        parent_fd, relative_path.name, expected[relative_path]
+                    )
+                    changed = True
+            except GeneratedOutputError as error:
+                _output_error(relative_path, error)
+        return True, changed
+    finally:
+        close_error: Path | None = None
+        for relative_path, descriptor in parent_descriptors.items():
+            if descriptor is not None:
+                try:
+                    os.close(descriptor)
+                except OSError:
+                    close_error = close_error or relative_path
+        if close_error is not None:
+            raise GeneratedOutputError(close_error)
 
 
 def synchronize(root: Path, write: bool) -> bool:
-    """Write the adapter or return whether its bytes match exactly."""
+    """Write all generated artifacts or report whether their bytes match."""
 
     try:
         synchronized, _ = _synchronize(root, write)
-    except CanonicalInputError:
-        print(CANONICAL_DIAGNOSTIC, file=sys.stderr)
+    except CanonicalInputError as error:
+        relative_path = str(error) or "CLAUDE.md"
+        print(f"{relative_path}: {CANONICAL_DIAGNOSTIC}", file=sys.stderr)
         return False
-    except GeneratedOutputError:
-        print(OUTPUT_DIAGNOSTIC, file=sys.stderr)
+    except UnexpectedGeneratedPath:
+        print(UNEXPECTED_DIAGNOSTIC, file=sys.stderr)
         return False
-    if not synchronized:
-        print(DRIFT_DIAGNOSTIC, file=sys.stderr)
+    except GeneratedOutputError as error:
+        relative_path = error.relative_path or Path("AGENTS.md")
+        print(f"{relative_path.as_posix()}: {OUTPUT_DIAGNOSTIC}", file=sys.stderr)
+        return False
     return synchronized
 
 
@@ -594,18 +768,22 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         synchronized, changed = _synchronize(root, write=arguments.write)
-    except CanonicalInputError:
-        print(CANONICAL_DIAGNOSTIC, file=sys.stderr)
+    except CanonicalInputError as error:
+        relative_path = str(error) or "CLAUDE.md"
+        print(f"{relative_path}: {CANONICAL_DIAGNOSTIC}", file=sys.stderr)
         return 1
-    except GeneratedOutputError:
-        print(OUTPUT_DIAGNOSTIC, file=sys.stderr)
+    except UnexpectedGeneratedPath:
+        print(UNEXPECTED_DIAGNOSTIC, file=sys.stderr)
+        return 1
+    except GeneratedOutputError as error:
+        relative_path = error.relative_path or Path("AGENTS.md")
+        print(f"{relative_path.as_posix()}: {OUTPUT_DIAGNOSTIC}", file=sys.stderr)
         return 1
 
     if not synchronized:
-        print(DRIFT_DIAGNOSTIC, file=sys.stderr)
         return 1
     if arguments.write and changed:
-        print("updated AGENTS.md")
+        print("updated generated artifacts")
     else:
         print("generated artifacts are synchronized")
     return 0
