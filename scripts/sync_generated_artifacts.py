@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """Generate or check provider adapters derived from canonical repository data."""
 
-from __future__ import annotations
-
 import argparse
+from dataclasses import dataclass
+import json
 import os
 from pathlib import Path
+import re
 import stat
 import sys
 import tempfile
-from typing import Sequence
+from typing import Mapping, Sequence
 
 
 BEGIN = "<!-- BEGIN GENERATED AGENTS ADAPTER -->"
@@ -22,6 +23,28 @@ GENERATED_HEADER = (
 CANONICAL_DIAGNOSTIC = "CLAUDE.md: invalid canonical adapter input"
 DRIFT_DIAGNOSTIC = "AGENTS.md: generated content is out of date"
 OUTPUT_DIAGNOSTIC = "AGENTS.md: unsafe or unwritable generated output"
+PLUGIN_ID = "apple-foundation-models-handoff"
+PLUGIN_ROOT = Path("plugins") / PLUGIN_ID
+CLAUDE_MARKETPLACE = Path(".claude-plugin/marketplace.json")
+CODEX_MARKETPLACE_INPUT = Path("metadata/codex-marketplace.json")
+SHARED_MANIFEST = PLUGIN_ROOT / ".claude-plugin/plugin.json"
+CODEX_INTERFACE_INPUT = PLUGIN_ROOT / "metadata/codex-interface.json"
+CODEX_MANIFEST = PLUGIN_ROOT / ".codex-plugin/plugin.json"
+CODEX_MARKETPLACE = Path(".agents/plugins/marketplace.json")
+GENERATED_PATHS = (Path("AGENTS.md"), CODEX_MARKETPLACE, CODEX_MANIFEST)
+EXPECTED_SOURCE = "./plugins/apple-foundation-models-handoff"
+STRICT_SEMVER = re.compile(
+    r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$"
+)
+
+
+@dataclass(frozen=True)
+class CanonicalInputs:
+    guidance: str
+    claude_marketplace: Mapping[str, object]
+    codex_marketplace: Mapping[str, object]
+    shared_manifest: Mapping[str, object]
+    codex_interface: Mapping[str, object]
 
 
 class CanonicalInputError(Exception):
@@ -113,6 +136,299 @@ def _read_canonical(canonical: Path) -> bytes:
                 os.close(descriptor)
             except OSError as error:
                 raise CanonicalInputError from error
+
+
+def _pairs_without_duplicates(
+    pairs: list[tuple[str, object]],
+) -> dict[str, object]:
+    value: dict[str, object] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError("duplicate JSON key")
+        value[key] = item
+    return value
+
+
+def _json_input(root: Path, relative_path: Path) -> Mapping[str, object]:
+    try:
+        encoded = _read_canonical(root / relative_path)
+        value = json.loads(
+            encoded.decode("utf-8"), object_pairs_hook=_pairs_without_duplicates
+        )
+        if not isinstance(value, dict):
+            raise ValueError("JSON input must be an object")
+        return value
+    except (CanonicalInputError, TypeError, UnicodeError, ValueError) as error:
+        raise CanonicalInputError(relative_path.as_posix()) from error
+
+
+def _closed_object(
+    value: object,
+    required: set[str],
+    allowed: set[str],
+) -> Mapping[str, object]:
+    if not isinstance(value, dict):
+        raise ValueError("object")
+    keys = set(value)
+    if not required.issubset(keys) or not keys.issubset(allowed):
+        raise ValueError("closed object")
+    return value
+
+
+def _string(value: object) -> str:
+    if not isinstance(value, str) or not value:
+        raise ValueError("non-empty string")
+    return value
+
+
+def _https(value: object) -> str:
+    url = _string(value)
+    if not url.startswith("https://"):
+        raise ValueError("HTTPS URL")
+    return url
+
+
+def _validate_shared_manifest(value: object) -> None:
+    fields = {
+        "name",
+        "version",
+        "description",
+        "author",
+        "homepage",
+        "repository",
+        "license",
+        "keywords",
+    }
+    value = _closed_object(value, fields, fields)
+    if value["name"] != PLUGIN_ID:
+        raise ValueError("plugin identity")
+    if STRICT_SEMVER.fullmatch(_string(value["version"])) is None:
+        raise ValueError("strict semver")
+    _string(value["description"])
+    author = _closed_object(value["author"], {"name", "url"}, {"name", "url"})
+    _string(author["name"])
+    _https(author["url"])
+    _https(value["homepage"])
+    _https(value["repository"])
+    _string(value["license"])
+    keywords = value["keywords"]
+    if not isinstance(keywords, list) or not keywords:
+        raise ValueError("keywords")
+    if len(set(keywords)) != len(keywords):
+        raise ValueError("duplicate keywords")
+    for keyword in keywords:
+        _string(keyword)
+
+
+def _validate_codex_interface(value: object) -> None:
+    fields = {
+        "displayName",
+        "shortDescription",
+        "longDescription",
+        "developerName",
+        "category",
+        "capabilities",
+        "websiteURL",
+        "defaultPrompt",
+    }
+    value = _closed_object(value, fields, fields)
+    for field in (
+        "displayName",
+        "shortDescription",
+        "longDescription",
+        "developerName",
+    ):
+        _string(value[field])
+    if value["category"] != "Developer Tools":
+        raise ValueError("interface category")
+    capabilities = value["capabilities"]
+    if not isinstance(capabilities, list):
+        raise ValueError("capabilities")
+    for capability in capabilities:
+        _string(capability)
+    prompts = value["defaultPrompt"]
+    if not isinstance(prompts, list) or not 1 <= len(prompts) <= 3:
+        raise ValueError("prompt count")
+    for prompt in prompts:
+        if len(_string(prompt)) > 128:
+            raise ValueError("prompt length")
+    _https(value["websiteURL"])
+
+
+def _validate_claude_marketplace(
+    value: object, shared_manifest: Mapping[str, object]
+) -> None:
+    fields = {"name", "owner", "plugins"}
+    value = _closed_object(value, fields, fields)
+    if value["name"] != "agent-apple-foundation-handoff":
+        raise ValueError("Claude marketplace identity")
+    owner = _closed_object(value["owner"], {"name"}, {"name"})
+    if owner["name"] != "Joseph Knickerbocker":
+        raise ValueError("Claude marketplace owner")
+    plugins = value["plugins"]
+    if not isinstance(plugins, list) or len(plugins) != 1:
+        raise ValueError("Claude marketplace plugins")
+    plugin_fields = {"name", "source", "description", "version"}
+    plugin = _closed_object(plugins[0], plugin_fields, plugin_fields)
+    if plugin["name"] != shared_manifest["name"]:
+        raise ValueError("Claude plugin identity")
+    if plugin["description"] != shared_manifest["description"]:
+        raise ValueError("Claude plugin description")
+    if plugin["version"] != shared_manifest["version"]:
+        raise ValueError("Claude plugin version")
+    if plugin["source"] != EXPECTED_SOURCE:
+        raise ValueError("Claude plugin source")
+
+
+def _validate_codex_marketplace(
+    value: object, shared_manifest: Mapping[str, object]
+) -> None:
+    fields = {"name", "interface", "plugins"}
+    value = _closed_object(value, fields, fields)
+    if value["name"] != "agent-apple-foundation-handoff":
+        raise ValueError("Codex marketplace identity")
+    interface = _closed_object(value["interface"], {"displayName"}, {"displayName"})
+    if interface["displayName"] != "Agent Apple Foundation Handoff":
+        raise ValueError("Codex marketplace display identity")
+    plugins = value["plugins"]
+    if not isinstance(plugins, list) or len(plugins) != 1:
+        raise ValueError("Codex marketplace plugins")
+    plugin_fields = {"name", "source", "policy", "category"}
+    plugin = _closed_object(plugins[0], plugin_fields, plugin_fields)
+    if plugin["name"] != shared_manifest["name"]:
+        raise ValueError("Codex plugin identity")
+    source = _closed_object(plugin["source"], {"source", "path"}, {"source", "path"})
+    if source["source"] != "local" or source["path"] != EXPECTED_SOURCE:
+        raise ValueError("Codex plugin source")
+    policy_fields = {"installation", "authentication"}
+    policy = _closed_object(plugin["policy"], policy_fields, policy_fields)
+    if policy["installation"] != "AVAILABLE":
+        raise ValueError("Codex installation policy")
+    if policy["authentication"] != "ON_INSTALL":
+        raise ValueError("Codex authentication policy")
+    if plugin["category"] != "Developer Tools":
+        raise ValueError("Codex marketplace category")
+
+
+def _validate_input(
+    relative_path: Path,
+    validator,
+    value: object,
+    *extra: object,
+) -> None:
+    try:
+        validator(value, *extra)
+    except (TypeError, ValueError) as error:
+        raise CanonicalInputError(relative_path.as_posix()) from error
+
+
+def load_canonical_inputs(root: Path) -> CanonicalInputs:
+    guidance_path = Path("CLAUDE.md")
+    try:
+        guidance = _read_canonical(root / guidance_path).decode("utf-8")
+    except (CanonicalInputError, UnicodeError) as error:
+        raise CanonicalInputError(guidance_path.as_posix()) from error
+
+    shared = _json_input(root, SHARED_MANIFEST)
+    claude_marketplace = _json_input(root, CLAUDE_MARKETPLACE)
+    codex_interface = _json_input(root, CODEX_INTERFACE_INPUT)
+    codex_marketplace = _json_input(root, CODEX_MARKETPLACE_INPUT)
+    _validate_input(guidance_path, _adapter_body, guidance)
+    _validate_input(SHARED_MANIFEST, _validate_shared_manifest, shared)
+    _validate_input(
+        CLAUDE_MARKETPLACE,
+        _validate_claude_marketplace,
+        claude_marketplace,
+        shared,
+    )
+    _validate_input(CODEX_INTERFACE_INPUT, _validate_codex_interface, codex_interface)
+    _validate_input(
+        CODEX_MARKETPLACE_INPUT,
+        _validate_codex_marketplace,
+        codex_marketplace,
+        shared,
+    )
+    return CanonicalInputs(
+        guidance, claude_marketplace, codex_marketplace, shared, codex_interface
+    )
+
+
+def _json_bytes(value: Mapping[str, object]) -> bytes:
+    return (json.dumps(value, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+
+
+def render_codex_manifest(inputs: CanonicalInputs) -> bytes:
+    """Render the Codex plugin manifest from validated canonical inputs."""
+
+    shared = inputs.shared_manifest
+    author = shared["author"]
+    interface = inputs.codex_interface
+    return _json_bytes(
+        {
+            "name": shared["name"],
+            "version": shared["version"],
+            "description": shared["description"],
+            "author": {
+                "name": author["name"],
+                "url": author["url"],
+            },
+            "homepage": shared["homepage"],
+            "repository": shared["repository"],
+            "license": shared["license"],
+            "keywords": list(shared["keywords"]),
+            "interface": {
+                "displayName": interface["displayName"],
+                "shortDescription": interface["shortDescription"],
+                "longDescription": interface["longDescription"],
+                "developerName": interface["developerName"],
+                "category": interface["category"],
+                "capabilities": list(interface["capabilities"]),
+                "websiteURL": interface["websiteURL"],
+                "defaultPrompt": list(interface["defaultPrompt"]),
+            },
+        }
+    )
+
+
+def render_codex_marketplace(inputs: CanonicalInputs) -> bytes:
+    """Render the Codex marketplace from validated canonical inputs."""
+
+    marketplace = inputs.codex_marketplace
+    interface = marketplace["interface"]
+    plugin = marketplace["plugins"][0]
+    source = plugin["source"]
+    policy = plugin["policy"]
+    return _json_bytes(
+        {
+            "name": marketplace["name"],
+            "interface": {"displayName": interface["displayName"]},
+            "plugins": [
+                {
+                    "name": inputs.shared_manifest["name"],
+                    "source": {
+                        "source": source["source"],
+                        "path": source["path"],
+                    },
+                    "policy": {
+                        "installation": policy["installation"],
+                        "authentication": policy["authentication"],
+                    },
+                    "category": plugin["category"],
+                }
+            ],
+        }
+    )
+
+
+def expected_artifacts(root: Path) -> dict[Path, bytes]:
+    """Render every generated artifact without writing it."""
+
+    inputs = load_canonical_inputs(root)
+    return {
+        Path("AGENTS.md"): render_agents(inputs.guidance).encode("utf-8"),
+        CODEX_MARKETPLACE: render_codex_marketplace(inputs),
+        CODEX_MANIFEST: render_codex_manifest(inputs),
+    }
 
 
 def _expected_bytes(root: Path) -> bytes:
