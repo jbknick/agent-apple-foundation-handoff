@@ -69,6 +69,35 @@ CONTENT_COMMANDS = {
     "tail",
     "wc",
 }
+DIRECT_SEARCH_COMMANDS = {"grep", "rg"}
+DIRECT_SEARCH_FLAG_OPTIONS = {
+    "grep": {
+        "--fixed-strings",
+        "--line-number",
+        "-F",
+        "-n",
+    },
+    "rg": {
+        "--fixed-strings",
+        "--line-number",
+        "-F",
+        "-n",
+    },
+}
+DIRECT_SEARCH_PATTERN_OPTIONS = {"--regexp", "-e"}
+DIRECT_SEARCH_REJECTED_OPTIONS = {
+    "--dereference-recursive",
+    "--file",
+    "--ignore-file",
+    "--include",
+    "--pre",
+    "--pre-glob",
+    "--recursive",
+    "--search-zip",
+    "-R",
+    "-f",
+    "-r",
+}
 BLOCKER_ERROR_CODES = {
     "authentication_required",
     "invalid_api_key",
@@ -467,35 +496,132 @@ def is_reference_context(path: Path) -> bool:
     return True
 
 
+def direct_search_reference_read(
+    executable: str,
+    arguments: list[str],
+    base: Path,
+    task_id: str,
+) -> str:
+    patterns: list[str] = []
+    positionals: list[str] = []
+    parse_options = True
+    index = 0
+    while index < len(arguments):
+        token = arguments[index]
+        if parse_options and token == "--":
+            parse_options = False
+            index += 1
+            continue
+        if parse_options and token.startswith("--"):
+            option, separator, attached = token.partition("=")
+            if option in DIRECT_SEARCH_REJECTED_OPTIONS:
+                raise ProbeFailure("bulk_reference_content_read", task_id)
+            if option in DIRECT_SEARCH_FLAG_OPTIONS[executable]:
+                if separator:
+                    raise ProbeFailure("ambiguous_reference_read", task_id)
+                index += 1
+                continue
+            if option in DIRECT_SEARCH_PATTERN_OPTIONS:
+                if separator:
+                    if not attached:
+                        raise ProbeFailure("ambiguous_reference_read", task_id)
+                    patterns.append(attached)
+                    index += 1
+                    continue
+                index += 1
+                if index >= len(arguments):
+                    raise ProbeFailure("ambiguous_reference_read", task_id)
+                patterns.append(arguments[index])
+                index += 1
+                continue
+            raise ProbeFailure("ambiguous_reference_read", task_id)
+        if parse_options and token.startswith("-") and token != "-":
+            if token in DIRECT_SEARCH_REJECTED_OPTIONS:
+                raise ProbeFailure("bulk_reference_content_read", task_id)
+            if token in DIRECT_SEARCH_FLAG_OPTIONS[executable]:
+                index += 1
+                continue
+            if token == "-e":
+                index += 1
+                if index >= len(arguments):
+                    raise ProbeFailure("ambiguous_reference_read", task_id)
+                patterns.append(arguments[index])
+                index += 1
+                continue
+            if token.startswith("-e") and len(token) > 2:
+                patterns.append(token[2:])
+                index += 1
+                continue
+            raise ProbeFailure("ambiguous_reference_read", task_id)
+        positionals.append(token)
+        index += 1
+
+    if not patterns:
+        if len(positionals) < 2:
+            raise ProbeFailure("ambiguous_reference_read", task_id)
+        patterns.append(positionals.pop(0))
+    if any(is_reference_path_token(pattern) for pattern in patterns):
+        raise ProbeFailure("ambiguous_reference_read", task_id)
+    if len(positionals) != 1 or positionals[0] == "-":
+        raise ProbeFailure("bulk_reference_content_read", task_id)
+    name = validate_reference_candidate(
+        positionals[0],
+        base,
+        task_id,
+        directory_discovery=False,
+        bulk_directory_read=True,
+    )
+    if name is None:
+        raise ProbeFailure("ambiguous_reference_read", task_id)
+    return name
+
+
 def command_reference_reads(
     command: str,
     task_id: str,
     base: Path = ROOT,
-) -> set[str]:
+) -> tuple[set[str], int]:
     observed: set[str] = set()
     effective_command, tokens = parsed_shell_command(command, task_id)
     if not tokens:
-        return observed
+        return observed, 0
     executable = Path(tokens[0]).name
     reference_relevant = any(is_reference_path_token(token) for token in tokens)
+    reference_context = is_reference_context(base)
     if executable in SHELL_WRAPPERS:
-        if reference_relevant or is_reference_context(base):
+        if reference_relevant or reference_context:
             raise ProbeFailure("bulk_reference_content_read", task_id)
-        return observed
+        return observed, 0
     has_control, has_command_substitution = shell_syntax_flags(effective_command)
     has_xargs = executable == "xargs"
     if has_xargs:
         raise ProbeFailure("ambiguous_reference_read", task_id)
-    if reference_relevant and (has_control or has_command_substitution):
+    if (reference_relevant or reference_context) and (
+        has_control or has_command_substitution
+    ):
         raise ProbeFailure("bulk_reference_content_read", task_id)
     if has_control or has_command_substitution:
-        return observed
+        return observed, 0
 
     arguments = tokens[1:]
     path_tokens = [token for token in arguments if is_reference_path_token(token)]
-    if not path_tokens:
-        return observed
     is_rg_discovery = executable == "rg" and "--files" in arguments
+    if (
+        executable in DIRECT_SEARCH_COMMANDS
+        and not is_rg_discovery
+        and (reference_relevant or reference_context)
+    ):
+        observed.add(
+            direct_search_reference_read(
+                executable,
+                arguments,
+                base.resolve(strict=False),
+                task_id,
+            )
+        )
+        return observed, 1
+    if not path_tokens:
+        return observed, 0
     directory_discovery = executable in DISCOVERY_COMMANDS or is_rg_discovery
     if directory_discovery:
         if any(
@@ -515,15 +641,16 @@ def command_reference_reads(
         )
         if name is not None:
             observed.add(name)
-    return observed
+    return observed, int(bool(observed))
 
 
 def mapping_reference_reads(
     value: object,
     base: Path,
     task_id: str,
-) -> set[str]:
+) -> tuple[set[str], int]:
     observed: set[str] = set()
+    read_count = 0
     if isinstance(value, str):
         stripped = value.lstrip()
         if stripped.startswith(("{", "[")):
@@ -535,10 +662,14 @@ def mapping_reference_reads(
             except (json.JSONDecodeError, DuplicateKeyError):
                 if is_reference_path_token(value):
                     raise ProbeFailure("invalid_tool_event", task_id) from None
-                return observed
+                return observed, read_count
             if isinstance(decoded, (dict, list)):
-                observed.update(mapping_reference_reads(decoded, base, task_id))
-            return observed
+                nested_observed, nested_count = mapping_reference_reads(
+                    decoded, base, task_id
+                )
+                observed.update(nested_observed)
+                read_count += nested_count
+            return observed, read_count
         if is_reference_path_token(value):
             if not any(character.isspace() for character in value) and not any(
                 operator in value for operator in ("|", ";", "&", ">", "<")
@@ -551,15 +682,24 @@ def mapping_reference_reads(
                 )
                 if name is not None:
                     observed.add(name)
+                    read_count += 1
             else:
-                observed.update(command_reference_reads(value, task_id))
-        return observed
+                nested_observed, nested_count = command_reference_reads(
+                    value, task_id
+                )
+                observed.update(nested_observed)
+                read_count += nested_count
+        return observed, read_count
     if isinstance(value, list):
         for nested in value:
-            observed.update(mapping_reference_reads(nested, base, task_id))
-        return observed
+            nested_observed, nested_count = mapping_reference_reads(
+                nested, base, task_id
+            )
+            observed.update(nested_observed)
+            read_count += nested_count
+        return observed, read_count
     if not isinstance(value, dict):
-        return observed
+        return observed, read_count
     local_base = declared_working_directory(value, base, task_id)
     for key, nested in value.items():
         if key in {"cwd", "workdir"}:
@@ -573,27 +713,45 @@ def mapping_reference_reads(
             )
             if name is not None:
                 observed.add(name)
+                read_count += 1
         elif key == "command" and isinstance(nested, str):
-            observed.update(command_reference_reads(nested, task_id, local_base))
+            nested_observed, nested_count = command_reference_reads(
+                nested, task_id, local_base
+            )
+            observed.update(nested_observed)
+            read_count += nested_count
         else:
-            observed.update(mapping_reference_reads(nested, local_base, task_id))
-    return observed
+            nested_observed, nested_count = mapping_reference_reads(
+                nested, local_base, task_id
+            )
+            observed.update(nested_observed)
+            read_count += nested_count
+    return observed, read_count
 
 
 def observed_reference_reads(
     events: list[dict[str, Any]], task_id: str
 ) -> set[str]:
     observed: set[str] = set()
+    read_count = 0
     for item in paired_successful_tool_items(events, task_id):
         if item.get("type") == "command_execution":
             command = item.get("command")
             if not isinstance(command, str):
                 raise ProbeFailure("invalid_tool_event", task_id)
             base = declared_working_directory(item, ROOT, task_id)
-            observed.update(command_reference_reads(command, task_id, base))
+            item_observed, item_count = command_reference_reads(
+                command, task_id, base
+            )
         else:
             inputs = {key: item[key] for key in TOOL_INPUT_KEYS if key in item}
-            observed.update(mapping_reference_reads(inputs, ROOT, task_id))
+            item_observed, item_count = mapping_reference_reads(
+                inputs, ROOT, task_id
+            )
+        observed.update(item_observed)
+        read_count += item_count
+        if read_count > 1:
+            raise ProbeFailure("bulk_reference_content_read", task_id)
     return observed
 
 
