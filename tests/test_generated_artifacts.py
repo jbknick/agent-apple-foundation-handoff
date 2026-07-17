@@ -39,6 +39,21 @@ GENERATED_OUTPUTS = (
         ".codex-plugin/plugin.json"
     ),
 )
+SKILLS = (
+    "design-apple-foundation-models-handoff",
+    "implement-apple-foundation-models-handoff",
+    "review-apple-foundation-models-handoff",
+    "debug-apple-foundation-models-handoff",
+    "validate-apple-foundation-models-handoff",
+)
+PLUGIN_DESCRIPTION = (
+    "Design, implement, review, debug, and validate Apple Foundation Models "
+    "handoff architectures."
+)
+DEFAULT_PROMPT = (
+    "Select the appropriate workflow to design, implement, review, debug, or "
+    "validate an Apple Foundation Models handoff."
+)
 
 
 spec = importlib.util.spec_from_file_location(
@@ -71,6 +86,10 @@ class GeneratedArtifactTests(unittest.TestCase):
             target = destination / relative_path
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / relative_path, target)
+        shutil.copytree(
+            ROOT / "plugins/apple-foundation-models-handoff/skills",
+            destination / "plugins/apple-foundation-models-handoff/skills",
+        )
 
     def _run_isolated_cli(
         self, root: Path, mode: str
@@ -164,8 +183,10 @@ class GeneratedArtifactTests(unittest.TestCase):
         rendered = json.loads(content)
 
         self.assertEqual("0.1.0", rendered["version"])
-        self.assertEqual([], rendered["interface"]["capabilities"])
-        self.assertNotIn("skills", rendered)
+        self.assertEqual(PLUGIN_DESCRIPTION, rendered["description"])
+        self.assertEqual(list(SKILLS), rendered["interface"]["capabilities"])
+        self.assertEqual([DEFAULT_PROMPT], rendered["interface"]["defaultPrompt"])
+        self.assertEqual("./skills/", rendered.get("skills"))
         self.assertEqual(
             [
                 "name",
@@ -176,6 +197,7 @@ class GeneratedArtifactTests(unittest.TestCase):
                 "repository",
                 "license",
                 "keywords",
+                "skills",
                 "interface",
             ],
             list(rendered),
@@ -250,7 +272,7 @@ class GeneratedArtifactTests(unittest.TestCase):
         manifest_ownership_drift = json.loads(sync.render_codex_manifest(inputs))
         manifest_ownership_drift["description"] = "Renderer-owned description drift."
         manifest_extra_key = json.loads(sync.render_codex_manifest(inputs))
-        manifest_extra_key["skills"] = []
+        manifest_extra_key["unexpected"] = True
         marketplace_ownership_drift = json.loads(sync.render_codex_marketplace(inputs))
         marketplace_ownership_drift["plugins"][0]["name"] = "wrong-plugin"
         marketplace_extra_key = json.loads(sync.render_codex_marketplace(inputs))
@@ -706,25 +728,96 @@ class GeneratedArtifactTests(unittest.TestCase):
             self.assertNotIn(str(ROOT), diagnostic)
             self.assertFalse(Path(diagnostic).is_absolute())
 
-    def test_non_empty_capabilities_are_rejected(self):
+    def test_capability_boundary_mutations_are_rejected(self):
+        mutations = (
+            ("missing", None),
+            ("reordered", list(reversed(SKILLS))),
+            ("duplicate", [*SKILLS[:-1], SKILLS[-2]]),
+            ("sixth", [*SKILLS, "extra-apple-foundation-models-handoff"]),
+        )
+        for name, replacement in mutations:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                isolated_root = Path(directory)
+                self._copy_canonical_inputs(isolated_root)
+                if replacement is None:
+                    self._mutate_json(
+                        isolated_root,
+                        CODEX_INTERFACE,
+                        lambda value: _delete_nested(value, ("capabilities",)),
+                    )
+                else:
+                    self._mutate_json(
+                        isolated_root,
+                        CODEX_INTERFACE,
+                        lambda value, replacement=replacement: _set_nested(
+                            value, ("capabilities",), replacement
+                        ),
+                    )
+
+                with self.assertRaises(sync.CanonicalInputError) as raised:
+                    sync.load_canonical_inputs(isolated_root)
+
+                self.assertEqual(CODEX_INTERFACE.as_posix(), str(raised.exception))
+
+    def test_skill_component_mutations_are_rejected(self):
+        def remove_skill(root: Path) -> None:
+            shutil.rmtree(
+                root
+                / "plugins/apple-foundation-models-handoff/skills"
+                / SKILLS[0]
+            )
+
+        def add_sixth_skill(root: Path) -> None:
+            extra = (
+                root
+                / "plugins/apple-foundation-models-handoff/skills/extra-workflow"
+            )
+            extra.mkdir()
+            (extra / "SKILL.md").write_text(
+                "---\nname: extra-workflow\ndescription: Extra.\n---\n",
+                encoding="utf-8",
+            )
+
+        def mismatch_frontmatter(root: Path) -> None:
+            skill = (
+                root
+                / "plugins/apple-foundation-models-handoff/skills"
+                / SKILLS[0]
+                / "SKILL.md"
+            )
+            skill.write_text(
+                skill.read_text(encoding="utf-8").replace(
+                    f"name: {SKILLS[0]}", "name: wrong-skill", 1
+                ),
+                encoding="utf-8",
+            )
+
+        for name, mutate in (
+            ("missing skill", remove_skill),
+            ("sixth skill", add_sixth_skill),
+            ("capability name mismatch", mismatch_frontmatter),
+        ):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                isolated_root = Path(directory)
+                self._copy_canonical_inputs(isolated_root)
+                mutate(isolated_root)
+
+                with self.assertRaises(sync.CanonicalInputError) as raised:
+                    sync.load_canonical_inputs(isolated_root)
+
+                self.assertEqual(
+                    "plugins/apple-foundation-models-handoff/skills",
+                    str(raised.exception),
+                )
+
+    def test_exact_capabilities_and_skill_component_are_accepted(self):
         with tempfile.TemporaryDirectory() as directory:
             isolated_root = Path(directory)
             self._copy_canonical_inputs(isolated_root)
-            self._mutate_json(
-                isolated_root,
-                CODEX_INTERFACE,
-                lambda value: _set_nested(
-                    value, ("capabilities",), ["foundation-models-handoff"]
-                ),
-            )
+            inputs = sync.load_canonical_inputs(isolated_root)
 
-            with self.assertRaises(sync.CanonicalInputError) as raised:
-                sync.load_canonical_inputs(isolated_root)
-
-            diagnostic = str(raised.exception)
-            self.assertNotIn(str(isolated_root), diagnostic)
-            self.assertNotIn(str(ROOT), diagnostic)
-            self.assertFalse(Path(diagnostic).is_absolute())
+            self.assertEqual("./skills/", inputs.shared_manifest.get("skills"))
+            self.assertEqual(list(SKILLS), inputs.codex_interface["capabilities"])
 
     def test_canonical_mutations_are_rejected_without_absolute_paths(self):
         mutations = (
@@ -749,7 +842,7 @@ class GeneratedArtifactTests(unittest.TestCase):
                 "unknown shared field",
                 SHARED_MANIFEST,
                 "json",
-                lambda value: _set_nested(value, ("skills",), []),
+                lambda value: _set_nested(value, ("unexpected",), True),
             ),
             (
                 "unknown author field",

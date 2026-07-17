@@ -22,6 +22,8 @@ copy_canonical_inputs() {
     "$destination/plugins/apple-foundation-models-handoff/.claude-plugin/plugin.json"
   cp "$REPO_ROOT/plugins/apple-foundation-models-handoff/metadata/codex-interface.json" \
     "$destination/plugins/apple-foundation-models-handoff/metadata/codex-interface.json"
+  cp -R "$REPO_ROOT/plugins/apple-foundation-models-handoff/skills" \
+    "$destination/plugins/apple-foundation-models-handoff/skills"
   cp "$SCRIPT" "$destination/scripts/sync_generated_artifacts.py"
 }
 

@@ -5,7 +5,7 @@
     {
       "name": "apple-foundation-models-handoff",
       "source": "./plugins/apple-foundation-models-handoff",
-      "description": "Installable metadata scaffold for Apple Foundation Models handoff workflows; production skills are not included yet.",
+      "description": "Design, implement, review, debug, and validate Apple Foundation Models handoff architectures.",
       "version": "0.1.0"
     }
   ]

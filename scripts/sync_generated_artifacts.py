@@ -25,6 +25,7 @@ OUTPUT_DIAGNOSTIC = "unsafe or unwritable generated output"
 UNEXPECTED_DIAGNOSTIC = "generated artifacts: unexpected generated path"
 PLUGIN_ID = "apple-foundation-models-handoff"
 PLUGIN_ROOT = Path("plugins") / PLUGIN_ID
+SKILLS_COMPONENT = PLUGIN_ROOT / "skills"
 CLAUDE_MARKETPLACE = Path(".claude-plugin/marketplace.json")
 CODEX_MARKETPLACE_INPUT = Path("metadata/codex-marketplace.json")
 SHARED_MANIFEST = PLUGIN_ROOT / ".claude-plugin/plugin.json"
@@ -34,6 +35,13 @@ CODEX_MARKETPLACE = Path(".agents/plugins/marketplace.json")
 GENERATED_PATHS = (Path("AGENTS.md"), CODEX_MARKETPLACE, CODEX_MANIFEST)
 EXPECTED_SOURCE = "./plugins/apple-foundation-models-handoff"
 EXPECTED_VERSION = "0.1.0"
+EXPECTED_CAPABILITIES = (
+    "design-apple-foundation-models-handoff",
+    "implement-apple-foundation-models-handoff",
+    "review-apple-foundation-models-handoff",
+    "debug-apple-foundation-models-handoff",
+    "validate-apple-foundation-models-handoff",
+)
 ROOT_AGENTS_TEMP_PREFIX = ".AGENTS.md."
 ROOT_AGENTS_TEMP_SUFFIX = ".tmp"
 ROOT_AGENTS_TEMP_TOKEN_LENGTH = 32
@@ -219,6 +227,7 @@ def _validate_shared_manifest(value: object) -> None:
         "repository",
         "license",
         "keywords",
+        "skills",
     }
     value = _closed_object(value, fields, fields)
     if value["name"] != PLUGIN_ID:
@@ -239,6 +248,8 @@ def _validate_shared_manifest(value: object) -> None:
         raise ValueError("duplicate keywords")
     for keyword in keywords:
         _string(keyword)
+    if value["skills"] != "./skills/":
+        raise ValueError("skills component")
 
 
 def _validate_codex_interface(value: object) -> None:
@@ -263,7 +274,7 @@ def _validate_codex_interface(value: object) -> None:
     if value["category"] != "Developer Tools":
         raise ValueError("interface category")
     capabilities = value["capabilities"]
-    if capabilities != []:
+    if capabilities != list(EXPECTED_CAPABILITIES):
         raise ValueError("capabilities")
     prompts = value["defaultPrompt"]
     if not isinstance(prompts, list) or not 1 <= len(prompts) <= 3:
@@ -272,6 +283,56 @@ def _validate_codex_interface(value: object) -> None:
         if len(_string(prompt)) > 128:
             raise ValueError("prompt length")
     _https(value["websiteURL"])
+
+
+def _validate_skill_component(
+    root: object,
+    shared_manifest: Mapping[str, object],
+    codex_interface: Mapping[str, object],
+) -> None:
+    if not isinstance(root, Path):
+        raise ValueError("repository root")
+    if shared_manifest["skills"] != "./skills/":
+        raise ValueError("skills component")
+    if codex_interface["capabilities"] != list(EXPECTED_CAPABILITIES):
+        raise ValueError("capabilities")
+
+    skills_root = root / SKILLS_COMPONENT
+    try:
+        root_metadata = skills_root.lstat()
+        if not stat.S_ISDIR(root_metadata.st_mode) or stat.S_ISLNK(
+            root_metadata.st_mode
+        ):
+            raise ValueError("skills root")
+        with os.scandir(skills_root) as entries:
+            discovered = {entry.name: entry for entry in entries}
+        if set(discovered) != set(EXPECTED_CAPABILITIES):
+            raise ValueError("skill directories")
+
+        for capability in EXPECTED_CAPABILITIES:
+            entry = discovered[capability]
+            metadata = entry.stat(follow_symlinks=False)
+            if not stat.S_ISDIR(metadata.st_mode):
+                raise ValueError("skill directory")
+            skill_directory = skills_root / capability
+            with os.scandir(skill_directory) as children:
+                child_entries = {child.name: child for child in children}
+            if set(child_entries) != {"SKILL.md"}:
+                raise ValueError("skill contents")
+            skill_entry = child_entries["SKILL.md"]
+            skill_metadata = skill_entry.stat(follow_symlinks=False)
+            if not stat.S_ISREG(skill_metadata.st_mode):
+                raise ValueError("skill file")
+            try:
+                skill_text = _read_canonical(skill_directory / "SKILL.md").decode(
+                    "utf-8"
+                )
+            except (CanonicalInputError, UnicodeError) as error:
+                raise ValueError("skill file") from error
+            if not skill_text.startswith(f"---\nname: {capability}\n"):
+                raise ValueError("skill identity")
+    except (OSError, ValueError) as error:
+        raise ValueError("skills component") from error
 
 
 def _validate_claude_marketplace(
@@ -362,6 +423,13 @@ def load_canonical_inputs(root: Path) -> CanonicalInputs:
     )
     _validate_input(CODEX_INTERFACE_INPUT, _validate_codex_interface, codex_interface)
     _validate_input(
+        SKILLS_COMPONENT,
+        _validate_skill_component,
+        root,
+        shared,
+        codex_interface,
+    )
+    _validate_input(
         CODEX_MARKETPLACE_INPUT,
         _validate_codex_marketplace,
         codex_marketplace,
@@ -395,6 +463,7 @@ def render_codex_manifest(inputs: CanonicalInputs) -> bytes:
             "repository": shared["repository"],
             "license": shared["license"],
             "keywords": list(shared["keywords"]),
+            "skills": shared["skills"],
             "interface": {
                 "displayName": interface["displayName"],
                 "shortDescription": interface["shortDescription"],

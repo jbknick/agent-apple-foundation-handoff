@@ -29,6 +29,20 @@ REFERENCE_FILES = {
         "evaluation-and-observability.md",
     )
 }
+PLUGIN_DESCRIPTION = (
+    "Design, implement, review, debug, and validate Apple Foundation Models "
+    "handoff architectures."
+)
+SHORT_DESCRIPTION = "Design and verify Apple Foundation Models handoff workflows."
+LONG_DESCRIPTION = (
+    "Five focused workflows for designing, implementing, reviewing, debugging, "
+    "and validating Apple Foundation Models handoff architectures with explicit "
+    "Apple API availability, state, trust, recovery, and evidence boundaries."
+)
+DEFAULT_PROMPT = (
+    "Select the appropriate workflow to design, implement, review, debug, or "
+    "validate an Apple Foundation Models handoff."
+)
 SKILLS = (
     "design-apple-foundation-models-handoff",
     "implement-apple-foundation-models-handoff",
@@ -239,9 +253,15 @@ class PluginContractTests(unittest.TestCase):
 
         self.assertEqual(PLUGIN_ID, manifest["name"])
         self.assertEqual(VERSION, manifest["version"])
+        self.assertEqual(PLUGIN_DESCRIPTION, manifest["description"])
         self.assertEqual(REPOSITORY, manifest["homepage"])
         self.assertEqual(REPOSITORY, manifest["repository"])
         self.assertEqual("./skills/", manifest.get("skills"))
+        skills_root = ROOT / "plugins" / PLUGIN_ID / manifest["skills"]
+        self.assertEqual(
+            sorted(SKILLS),
+            sorted(path.name for path in skills_root.iterdir() if path.is_dir()),
+        )
         for field in ("hooks", "mcpServers", "apps", "commands", "agents"):
             self.assertNotIn(field, manifest)
 
@@ -250,10 +270,30 @@ class PluginContractTests(unittest.TestCase):
             "plugins/apple-foundation-models-handoff/metadata/codex-interface.json"
         )
 
+        self.assertEqual(SHORT_DESCRIPTION, interface["shortDescription"])
+        self.assertEqual(LONG_DESCRIPTION, interface["longDescription"])
         self.assertEqual("Developer Tools", interface["category"])
         self.assertEqual(list(SKILLS), interface["capabilities"])
-        self.assertEqual(1, len(interface["defaultPrompt"]))
-        self.assertLessEqual(len(interface["defaultPrompt"][0]), 128)
+        self.assertEqual([DEFAULT_PROMPT], interface["defaultPrompt"])
+        self.assertLessEqual(len(DEFAULT_PROMPT), 128)
+        for stale_claim in ("metadata-only", "scaffold", "not included"):
+            self.assertNotIn(stale_claim, json.dumps(interface).lower())
+
+    def test_each_capability_resolves_to_one_authored_skill_with_the_same_name(self):
+        interface = load_json(
+            "plugins/apple-foundation-models-handoff/metadata/codex-interface.json"
+        )
+        skills_root = ROOT / "plugins" / PLUGIN_ID / "skills"
+
+        self.assertEqual(list(SKILLS), interface["capabilities"])
+        self.assertEqual(set(SKILLS), {path.name for path in skills_root.iterdir()})
+        for capability in interface["capabilities"]:
+            with self.subTest(capability=capability):
+                skill_file = skills_root / capability / "SKILL.md"
+                self.assertTrue(skill_file.is_file())
+                self.assertFalse(skill_file.is_symlink())
+                text = skill_file.read_text(encoding="utf-8")
+                self.assertTrue(text.startswith(f"---\nname: {capability}\n"))
 
     def test_marketplaces_use_the_conventional_source(self):
         claude = load_json(".claude-plugin/marketplace.json")
@@ -262,6 +302,7 @@ class PluginContractTests(unittest.TestCase):
 
         self.assertEqual(MARKETPLACE, claude["name"])
         self.assertEqual(SOURCE, claude["plugins"][0]["source"])
+        self.assertEqual(PLUGIN_DESCRIPTION, claude["plugins"][0]["description"])
         entry = codex["plugins"][0]
         self.assertEqual({"source": "local", "path": SOURCE}, entry["source"])
         self.assertEqual(
@@ -424,8 +465,13 @@ class PluginContractTests(unittest.TestCase):
         sync._validate_codex_interface(canonical_interface)
         sync._validate_codex_marketplace(canonical_marketplace, shared_manifest)
 
+        missing_capabilities = json.loads(json.dumps(canonical_interface))
+        del missing_capabilities["capabilities"]
+        with self.assertRaises(ValueError):
+            sync._validate_codex_interface(missing_capabilities)
+
         interface_boundary_mutations = (
-            ("missing capabilities", ("capabilities",), []),
+            ("empty capabilities", ("capabilities",), []),
             ("reordered capabilities", ("capabilities",), list(reversed(SKILLS))),
             ("incomplete capabilities", ("capabilities",), list(SKILLS[:-1])),
             (
@@ -434,7 +480,7 @@ class PluginContractTests(unittest.TestCase):
                 [*SKILLS[:-1], SKILLS[-2]],
             ),
             (
-                "extra capability",
+                "sixth capability",
                 ("capabilities",),
                 [*SKILLS, "extra-apple-foundation-models-handoff"],
             ),
