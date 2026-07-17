@@ -51,6 +51,13 @@ WORKFLOW_GUIDANCE_CONTRACTS = (
     "Discovery, file presence, and installation are structural prerequisites and "
     "cannot prove behavioral or capability activation",
 )
+SKILL_OWNED_SECTION_HEADINGS = (
+    "Routing and Inspection",
+    "Common Workflow Protocol",
+    "Output Contract",
+    "References",
+    "Guardrails",
+)
 
 
 spec = importlib.util.spec_from_file_location("sync_generated_artifacts", SCRIPT)
@@ -137,6 +144,17 @@ def assert_workflow_guidance_contract(
         test_case.assertTrue(
             contract in normalized_text,
             f"missing workflow guidance contract: {contract}",
+        )
+
+
+def assert_guidance_does_not_duplicate_skill_sections(
+    test_case: unittest.TestCase, text: str
+) -> None:
+    for heading in SKILL_OWNED_SECTION_HEADINGS:
+        test_case.assertNotRegex(
+            text,
+            rf"(?mi)^#{{2,6}}\s+{re.escape(heading)}\s*$",
+            f"root guidance must not duplicate skill-owned section: {heading}",
         )
 
 
@@ -627,6 +645,23 @@ class RepositoryGuidanceTests(unittest.TestCase):
         assert_workflow_guidance_contract(self, valid)
         with self.assertRaises(AssertionError):
             assert_workflow_guidance_contract(self, mutation)
+
+    def test_guidance_does_not_duplicate_skill_owned_contract_sections(self):
+        for path in (CANONICAL, GENERATED):
+            with self.subTest(path=path.name):
+                assert_guidance_does_not_duplicate_skill_sections(
+                    self, path.read_text(encoding="utf-8")
+                )
+
+    def test_guidance_section_ownership_oracle_rejects_copy_without_remove(self):
+        valid = "# Repository guidance\n"
+        assert_guidance_does_not_duplicate_skill_sections(self, valid)
+
+        for heading in SKILL_OWNED_SECTION_HEADINGS:
+            with self.subTest(heading=heading), self.assertRaises(AssertionError):
+                assert_guidance_does_not_duplicate_skill_sections(
+                    self, f"{valid}\n## {heading}\nDuplicated workflow content.\n"
+                )
 
     def test_guidance_preserves_safe_synthetic_and_redacted_evidence_exception(self):
         canonical_text = normalized_guide(CANONICAL)

@@ -220,6 +220,18 @@ CLARIFICATION_FIELDS = (
     "question",
 )
 VERIFICATION_STATUSES = ("pass", "fail", "blocked", "not_applicable")
+NO_ACTIVATION_VALUES = {
+    "activationStatus": "no_activation",
+    "reasonCode": "out_of_domain",
+    "domain": "out_of_domain",
+    "requestedOperation": " | ".join(ROUTER_ENUMS["requestedOperation"]),
+}
+CLARIFICATION_VALUES = {
+    "activationStatus": "clarification_required",
+    "clarificationKind": "domain | approved_contract",
+    "missingInput": "domain | approved_contract",
+    "question": "<one bounded question>",
+}
 
 
 @dataclass(frozen=True)
@@ -336,11 +348,26 @@ def assert_exact_shape(
     expected_fields: tuple[str, ...],
     expected_values: dict[str, str],
 ) -> None:
-    fields = assigned_fields(section.body)
+    fenced = re.fullmatch(
+        r"```text\n(?P<body>.*?)\n```",
+        section.body.strip(),
+        flags=re.DOTALL,
+    )
+    if fenced is None:
+        test_case.fail(
+            f"{section.title} must contain exactly one fenced normalized text block"
+        )
+    block = fenced.group("body")
+    lines = [line for line in block.splitlines() if line.strip()]
+    fields = assigned_fields(block)
+    test_case.assertEqual(
+        len(lines),
+        len(fields),
+        f"{section.title} block may contain only normalized field assignments",
+    )
     test_case.assertEqual(expected_fields, tuple(name for name, _ in fields))
     values = {name: value.strip().strip("`") for name, value in fields}
-    for name, expected in expected_values.items():
-        test_case.assertEqual(expected, values[name])
+    test_case.assertEqual(expected_values, values)
 
 
 def assert_non_positive_exclusions(
@@ -386,6 +413,199 @@ def numbered_items(body: str) -> tuple[tuple[int, str], ...]:
     return tuple(items)
 
 
+def section_owns(section: MarkdownSection, position: int) -> bool:
+    return section.heading_start <= position < section.end
+
+
+def assert_pattern_owned(
+    test_case: unittest.TestCase,
+    text: str,
+    pattern: re.Pattern[str],
+    owner: MarkdownSection,
+    label: str,
+) -> None:
+    matches = tuple(pattern.finditer(text))
+    test_case.assertTrue(matches, f"missing owned contract content: {label}")
+    for match in matches:
+        test_case.assertTrue(
+            section_owns(owner, match.start()),
+            f"{label} must occur only under {owner.title}",
+        )
+
+
+def numbered_item_spans(text: str) -> tuple[tuple[int, str], ...]:
+    markers = list(re.finditer(r"(?m)^\s*\d+\.\s+", text))
+    headings = list(re.finditer(r"(?m)^#{2,6}[ \t]+", text))
+    items = []
+    for index, marker in enumerate(markers):
+        boundaries = [
+            candidate.start()
+            for candidate in (*markers[index + 1 :], *headings)
+            if candidate.start() > marker.start()
+        ]
+        end = min(boundaries, default=len(text))
+        items.append((marker.start(), text[marker.end() : end].strip()))
+    return tuple(items)
+
+
+def assert_exclusive_section_ownership(
+    test_case: unittest.TestCase,
+    text: str,
+    sections: tuple[MarkdownSection, ...],
+    routing: MarkdownSection,
+    protocol: MarkdownSection,
+    output: MarkdownSection,
+    references: MarkdownSection,
+    guardrails: MarkdownSection,
+    skill: str,
+) -> None:
+    assignment_pattern = re.compile(
+        r"(?m)^\s*(?:[-*]\s*)?`?([A-Za-z][A-Za-z0-9]*)`?\s*[:=]"
+    )
+    router_fields = {
+        *ROUTER_ENUMS,
+        "reasonCode",
+        "clarificationKind",
+        "missingInput",
+        "question",
+    }
+    for assignment in assignment_pattern.finditer(text):
+        field = assignment.group(1)
+        if field in RESULT_FIELDS:
+            allowed = section_owns(output, assignment.start()) or (
+                field == "activationStatus"
+                and section_owns(routing, assignment.start())
+            )
+            test_case.assertTrue(
+                allowed,
+                f"machine output field {field} must be owned by Output Contract",
+            )
+        if field in router_fields:
+            test_case.assertTrue(
+                section_owns(routing, assignment.start()),
+                f"router field {field} must be owned by Routing and Inspection",
+            )
+
+    distinctive_output_fields = tuple(
+        field
+        for field in RESULT_FIELDS
+        if any(character.isupper() for character in field)
+        and field != "activationStatus"
+    )
+    for field in distinctive_output_fields:
+        for occurrence in re.finditer(
+            rf"(?<![A-Za-z0-9_]){re.escape(field)}(?![A-Za-z0-9_])", text
+        ):
+            allowed = section_owns(output, occurrence.start()) or (
+                field == "architectureResult"
+                and section_owns(guardrails, occurrence.start())
+            )
+            test_case.assertTrue(
+                allowed,
+                f"output identifier {field} must be owned by Output Contract",
+            )
+
+    expected_output_titles = {
+        normalize_title(title)
+        for title in (*COMMON_SECTIONS, *WORKFLOW_SECTIONS[skill])
+    }
+    for title in expected_output_titles:
+        matches = [
+            section
+            for section in sections
+            if normalize_title(section.title) == title
+        ]
+        test_case.assertEqual(1, len(matches), f"duplicate output heading: {title}")
+        test_case.assertTrue(
+            section_owns(output, matches[0].heading_start),
+            f"output heading {title} must be owned by Output Contract",
+        )
+
+    expected_targets = tuple(f"../../references/{name}" for name in REFERENCE_NAMES)
+    for target in expected_targets:
+        matches = tuple(re.finditer(re.escape(target), text))
+        test_case.assertEqual(1, len(matches), f"duplicate or missing reference: {target}")
+        test_case.assertTrue(
+            section_owns(references, matches[0].start()),
+            f"reference {target} must be owned by References",
+        )
+
+    guardrail_patterns = (
+        re.compile(
+            r"compiled_sdk_26_5.{0,40}interface_verified_sdk_26_5",
+            re.IGNORECASE | re.DOTALL,
+        ),
+        re.compile(
+            r"ground\s+(?:Apple\s+)?claims.{0,80}official Apple documentation.{0,80}"
+            r"installed SDK interfaces.{0,80}WWDC.{0,80}Apple-owned repositories",
+            re.IGNORECASE | re.DOTALL,
+        ),
+        re.compile(
+            r"compile-check.{0,80}Swift.{0,80}supported.{0,80}label.{0,40}"
+            r"pseudocode.{0,80}unsupported",
+            re.IGNORECASE | re.DOTALL,
+        ),
+        re.compile(
+            r"missing (?:SDK|host|toolchain|binary|hardware|prerequisite).{0,140}"
+            r"blocked",
+            re.IGNORECASE | re.DOTALL,
+        ),
+        re.compile(
+            r"non-positive results.{0,80}(?:contain|emit|include|load) no.{0,80}"
+            r"architectureResult.{0,80}workflow-specific sections.{0,80}references"
+            r".{0,80}fabricated Apple claims.{0,80}host activation evidence",
+            re.IGNORECASE | re.DOTALL,
+        ),
+    )
+    for index, pattern in enumerate(guardrail_patterns, start=1):
+        assert_pattern_owned(
+            test_case,
+            text,
+            pattern,
+            guardrails,
+            f"guardrail rule {index}",
+        )
+
+    routing_phrases = (
+        "Choose exactly one primary workflow",
+        "Ask exactly one targeted clarification",
+        "review first",
+        "separate authorized follow-on boundary",
+        "Do not invoke another skill",
+        "Adjacent non-triggers",
+    )
+    for phrase in routing_phrases:
+        assert_pattern_owned(
+            test_case,
+            text,
+            re.compile(re.escape(phrase), re.IGNORECASE),
+            routing,
+            phrase,
+        )
+
+    for shape_title in ("no_activation", "clarification_required"):
+        normalized = normalize_title(shape_title)
+        matches = [
+            section
+            for section in sections
+            if normalize_title(section.title) == normalized
+        ]
+        test_case.assertEqual(1, len(matches), f"duplicate routing shape: {shape_title}")
+        test_case.assertTrue(
+            section_owns(routing, matches[0].heading_start),
+            f"{shape_title} must be owned by Routing and Inspection",
+        )
+
+    for position, item in numbered_item_spans(text):
+        if section_owns(protocol, position):
+            continue
+        for patterns in PROTOCOL_STEP_PATTERNS:
+            if all(re.search(pattern, item, re.IGNORECASE) for pattern in patterns):
+                test_case.fail(
+                    "common protocol steps must occur only under Common Workflow Protocol"
+                )
+
+
 def assert_structured_skill_contract(
     test_case: unittest.TestCase, text: str, skill: str
 ) -> None:
@@ -420,10 +640,7 @@ def assert_structured_skill_contract(
         test_case,
         no_activation,
         NO_ACTIVATION_FIELDS,
-        {
-            "activationStatus": "no_activation",
-            "reasonCode": "out_of_domain",
-        },
+        NO_ACTIVATION_VALUES,
     )
     assert_non_positive_exclusions(test_case, no_activation)
     clarification = child_named(
@@ -433,19 +650,9 @@ def assert_structured_skill_contract(
         test_case,
         clarification,
         CLARIFICATION_FIELDS,
-        {"activationStatus": "clarification_required"},
+        CLARIFICATION_VALUES,
     )
     assert_non_positive_exclusions(test_case, clarification)
-    clarification_values = dict(assigned_fields(clarification.body))
-    test_case.assertEqual(
-        ("domain", "approved_contract"),
-        tuple(
-            re.findall(
-                r"\b[a-z][a-z0-9_]*\b",
-                clarification_values["clarificationKind"],
-            )
-        ),
-    )
 
     steps = numbered_items(protocol.body)
     test_case.assertEqual(tuple(range(1, 11)), tuple(number for number, _ in steps))
@@ -496,6 +703,17 @@ def assert_structured_skill_contract(
             r"zero denominator.{0,100}not_applicable.{0,80}(?:null value|value.{0,20}null)",
             re.IGNORECASE,
         ),
+    )
+    assert_exclusive_section_ownership(
+        test_case,
+        text,
+        sections,
+        routing,
+        protocol,
+        output,
+        references,
+        guardrails,
+        skill,
     )
 
     expected_targets = tuple(f"../../references/{name}" for name in REFERENCE_NAMES)
@@ -593,10 +811,12 @@ def build_valid_skill_fixture(skill: str) -> str:
         + ".\n\n"
         "### no_activation\n"
         "```text\nactivationStatus = no_activation\nreasonCode = out_of_domain\n"
-        "domain = <domain>\nrequestedOperation = <requestedOperation>\n```\n\n"
+        "domain = out_of_domain\n"
+        f"requestedOperation = {NO_ACTIVATION_VALUES['requestedOperation']}\n```\n\n"
         "### clarification_required\n"
         "```text\nactivationStatus = clarification_required\n"
-        "clarificationKind = domain | approved_contract\nmissingInput = <missing input>\n"
+        "clarificationKind = domain | approved_contract\n"
+        "missingInput = domain | approved_contract\n"
         "question = <one bounded question>\n```\n\n"
         "## Common Workflow Protocol\n"
         f"{protocol_lines}\n\n"
@@ -692,13 +912,16 @@ class SkillContractMutationTests(unittest.TestCase):
 
     def test_non_positive_shape_omissions_and_malformed_fields_are_rejected(self) -> None:
         fixture = build_valid_skill_fixture(self.skill)
+        requested_operation = (
+            f"requestedOperation = {NO_ACTIVATION_VALUES['requestedOperation']}\n"
+        )
         mutations = {
             "missing requested operation": fixture.replace(
-                "requestedOperation = <requestedOperation>\n", "", 1
+                requested_operation, "", 1
             ),
             "extra positive field": fixture.replace(
-                "requestedOperation = <requestedOperation>\n",
-                "requestedOperation = <requestedOperation>\narchitectureResult = <forbidden>\n",
+                requested_operation,
+                f"{requested_operation}architectureResult = <forbidden>\n",
                 1,
             ),
             "malformed clarification kind": fixture.replace(
@@ -706,10 +929,56 @@ class SkillContractMutationTests(unittest.TestCase):
                 "clarificationKind = domain | approved_contract | implementation_detail",
                 1,
             ),
+            "invalid no activation domain": fixture.replace(
+                "domain = out_of_domain",
+                "domain = ambiguous",
+                1,
+            ),
+            "invalid requested operation": fixture.replace(
+                requested_operation,
+                f"{requested_operation.rstrip()} | unknown_action\n",
+                1,
+            ),
+            "invalid missing input": fixture.replace(
+                "missingInput = domain | approved_contract",
+                "missingInput = implementation_detail",
+                1,
+            ),
             "fabricated host activation evidence": fixture.replace(
-                "requestedOperation = <requestedOperation>\n```",
-                "requestedOperation = <requestedOperation>\n```\n"
+                f"{requested_operation}```",
+                f"{requested_operation}```\n"
                 "Host activation evidence claims a pass.",
+                1,
+            ),
+        }
+
+        for name, candidate in mutations.items():
+            with self.subTest(mutation=name):
+                self.assert_rejected(candidate)
+
+    def test_non_positive_shapes_reject_arbitrary_prose_outside_the_exact_block(
+        self,
+    ) -> None:
+        fixture = build_valid_skill_fixture(self.skill)
+        requested_operation = (
+            f"requestedOperation = {NO_ACTIVATION_VALUES['requestedOperation']}\n"
+        )
+        mutations = {
+            "no activation prose": fixture.replace(
+                f"{requested_operation}```",
+                f"{requested_operation}```\n"
+                "Arbitrary prose is forbidden here.",
+                1,
+            ),
+            "clarification prose": fixture.replace(
+                "question = <one bounded question>\n```",
+                "question = <one bounded question>\n```\n"
+                "Arbitrary prose is forbidden here.",
+                1,
+            ),
+            "prose inside normalized block": fixture.replace(
+                f"{requested_operation}```",
+                f"{requested_operation}Arbitrary prose is forbidden here.\n```",
                 1,
             ),
         }
@@ -770,6 +1039,78 @@ class SkillContractMutationTests(unittest.TestCase):
             "misplaced guardrail": misplaced_guardrail,
             "misplaced references": misplaced_references,
         }
+        for name, candidate in mutations.items():
+            with self.subTest(mutation=name):
+                self.assert_rejected(candidate)
+
+    def test_copy_without_remove_duplicates_violate_exclusive_section_ownership(
+        self,
+    ) -> None:
+        fixture = build_valid_skill_fixture(self.skill)
+        missing_guardrail = (
+            "Missing SDK, host, toolchain, binary, hardware, or prerequisite support "
+            "is blocked."
+        )
+        clarification_block = (
+            "### clarification_required\n"
+            "```text\nactivationStatus = clarification_required\n"
+            "clarificationKind = domain | approved_contract\n"
+            "missingInput = domain | approved_contract\n"
+            "question = <one bounded question>\n```\n"
+        )
+        reference_link = (
+            f"[{REFERENCE_NAMES[0]}](../../references/{REFERENCE_NAMES[0]})"
+        )
+        router_domain = f"domain = {' | '.join(ROUTER_ENUMS['domain'])}"
+        mutations = {
+            "architecture result in routing": fixture.replace(
+                "## Routing and Inspection\n",
+                "## Routing and Inspection\narchitectureResult = <duplicate>\n",
+                1,
+            ),
+            "common output heading under references": fixture.replace(
+                "## References\n",
+                "## References\n### Context Policy\nDuplicate output content.\n",
+                1,
+            ),
+            "guardrail in routing": fixture.replace(
+                "## Routing and Inspection\n",
+                f"## Routing and Inspection\n{missing_guardrail}\n",
+                1,
+            ),
+            "evidence-label guardrail in routing": fixture.replace(
+                "## Routing and Inspection\n",
+                "## Routing and Inspection\ncompiled_sdk_26_5 and "
+                "interface_verified_sdk_26_5\n",
+                1,
+            ),
+            "clarification block under guardrails": fixture.replace(
+                "## Guardrails\n",
+                f"## Guardrails\n{clarification_block}",
+                1,
+            ),
+            "reference link in routing": fixture.replace(
+                "## Routing and Inspection\n",
+                f"## Routing and Inspection\n{reference_link}\n",
+                1,
+            ),
+            "protocol step under guardrails": fixture.replace(
+                "## Guardrails\n",
+                f"## Guardrails\n1. {PROTOCOL_STEPS[0]}\n",
+                1,
+            ),
+            "output field in routing": fixture.replace(
+                "## Routing and Inspection\n",
+                "## Routing and Inspection\nscope = <duplicate>\n",
+                1,
+            ),
+            "router input under guardrails": fixture.replace(
+                "## Guardrails\n",
+                f"## Guardrails\n{router_domain}\n",
+                1,
+            ),
+        }
+
         for name, candidate in mutations.items():
             with self.subTest(mutation=name):
                 self.assert_rejected(candidate)
