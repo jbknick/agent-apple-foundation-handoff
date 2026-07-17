@@ -682,7 +682,7 @@ their non-positive shape.
 - Full walkthrough: yes; detailed below.
 
 **Synthetic artifact input: DEV134-SYNTH-REDUCER-002-v1**
-*(pseudocode, not Swift or an Apple API)*
+*Classification: `pseudocode_deterministic_mock` (pseudocode, not Swift or an Apple API).*
 
 ```text
 state.activeProfiles = proposal.profiles
@@ -867,7 +867,7 @@ architecture contract, return findings, and make no edits.
 | --- | --- |
 | Activation and Scope | Router selects review only, freezes edits, and identifies the existing flawed artifact. `D-SCHEMA-001`, `D-ROUTE-001`. |
 | Pattern and Ownership | Reconstruct intended baton-pass and report Important `D-OWNER-001` for ambiguous final owner plus `D-TRANSITION-001` for no finite budget. |
-| Apple API Availability | Reject unlabelled beta profile/mutation claims; separate stable and beta errors and require exact evidence labels. |
+| Apple API Availability | The supplied artifact is classified `pseudocode_deterministic_mock`; `state.activeProfiles` is application-owned pseudocode and is not `LanguageModelSession.DynamicProfile`. It contains no Apple API, version, or error claim, so no Apple API finding is emitted and this scenario's API-claim assessment is `not_applicable`; stable SDK 26.5 and OS/Xcode 27 beta boundaries remain reviewer rules for any future actual Apple claim. |
 | State and Lifecycle | Report phase/version/termination drift: uncertain external truth cannot become `terminated`; require persistent `recoveryRequired`. `D-PHASE-001`. |
 | Trust and Model Boundaries | Report model summary as untrusted, not approval or reducer authority. |
 | Context Policy | Report full transcript with no include/exclude/provenance policy using `D-CONTEXT-001` and `D-CONTEXT-002`; require atomic C3 rejection. |
