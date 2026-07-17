@@ -1410,6 +1410,18 @@ class DirectedReferenceProbeTests(unittest.TestCase):
                     observed,
                 )
 
+    def test_shell_envelope_rejects_relative_slash_executable_tokens(self):
+        for shell in (
+            "./bash",
+            "tools/zsh",
+            "../bin/sh",
+            "nested/toolchain/bash",
+        ):
+            with self.subTest(shell=shell):
+                self.assert_strict_probe_failure(
+                    self.exact_reference_access_events(shell=shell)
+                )
+
     def test_command_items_require_the_exact_pinned_schema(self):
         expected_item_keys = {
             "aggregated_output",
@@ -1517,6 +1529,67 @@ class DirectedReferenceProbeTests(unittest.TestCase):
             with self.subTest(item_type=item_type):
                 self.assert_strict_probe_failure(events)
 
+    def test_pinned_passive_items_do_not_invalidate_exact_evidence(self):
+        canonical = self.exact_reference_access_events()
+        passive_events = {
+            "agent_message": {
+                "type": "item.completed",
+                "item": {
+                    "id": "passive-agent-message",
+                    "type": "agent_message",
+                    "text": "synthetic response",
+                },
+            },
+            "reasoning": {
+                "type": "item.completed",
+                "item": {
+                    "id": "passive-reasoning",
+                    "type": "reasoning",
+                    "text": "synthetic summary",
+                },
+            },
+            "error": {
+                "type": "item.completed",
+                "item": {
+                    "id": "passive-error",
+                    "type": "error",
+                    "message": "synthetic non-fatal error item",
+                },
+            },
+        }
+        for item_type, event in passive_events.items():
+            with self.subTest(item_type=item_type):
+                self.assertEqual(
+                    {"apple-api-availability.md"},
+                    self.strict_observed(canonical[:2] + [event] + canonical[2:]),
+                )
+
+    def test_pinned_actions_tools_and_unknown_items_invalidate_exact_evidence(self):
+        canonical = self.exact_reference_access_events()
+        rejected_item_types = (
+            "todo_list",
+            "file_change",
+            "mcp_tool_call",
+            "collab_tool_call",
+            "web_search",
+            "file_read",
+            "function_call",
+            "tool_call",
+            "future_tool_action",
+        )
+        for item_type in rejected_item_types:
+            event = {
+                "type": "item.completed",
+                "item": {
+                    "id": f"extra-{item_type}",
+                    "type": item_type,
+                },
+            }
+            with self.subTest(item_type=item_type):
+                self.assert_strict_probe_failure(
+                    canonical[:2] + [event] + canonical[2:]
+                )
+
     def test_only_exact_discovery_and_cat_owner_tokens_are_accepted(self):
         owner = f"{REFERENCE_ROOT_RELATIVE}/apple-api-availability.md"
         discovery_alternatives = (
@@ -1603,6 +1676,43 @@ class DirectedReferenceProbeTests(unittest.TestCase):
                 )
         for command in malformed_read:
             with self.subTest(stage="read", command=command):
+                self.assert_strict_probe_failure(
+                    exact_discovery_event
+                    + self.command_events(command, identifier="reader-1")
+                )
+
+    def test_host_shell_envelope_rejects_nonliteral_inner_scripts(self):
+        owner = f"{REFERENCE_ROOT_RELATIVE}/apple-api-availability.md"
+        exact_discovery = f"rg --files {REFERENCE_ROOT_RELATIVE}"
+        exact_read = f"cat {owner}"
+        exact_discovery_event = self.command_events(
+            "/bin/bash -lc " + shlex.quote(exact_discovery),
+            identifier="discovery-1",
+        )
+        exact_read_event = self.command_events(
+            "/bin/zsh -lc " + shlex.quote(exact_read),
+            identifier="reader-1",
+        )
+        nonliteral_discovery_scripts = (
+            f"rg  --files {REFERENCE_ROOT_RELATIVE}",
+            f"'rg' --files {REFERENCE_ROOT_RELATIVE}",
+            f"rg --files '{REFERENCE_ROOT_RELATIVE}'",
+        )
+        nonliteral_read_scripts = (
+            f"cat  {owner}",
+            f"'cat' {owner}",
+            f"cat '{owner}'",
+        )
+        for script in nonliteral_discovery_scripts:
+            command = "/bin/bash -lc " + shlex.quote(script)
+            with self.subTest(stage="discovery", script=script):
+                self.assert_strict_probe_failure(
+                    self.command_events(command, identifier="discovery-1")
+                    + exact_read_event
+                )
+        for script in nonliteral_read_scripts:
+            command = "/bin/zsh -lc " + shlex.quote(script)
+            with self.subTest(stage="read", script=script):
                 self.assert_strict_probe_failure(
                     exact_discovery_event
                     + self.command_events(command, identifier="reader-1")
