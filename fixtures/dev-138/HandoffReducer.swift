@@ -23,7 +23,6 @@ enum Fallback: String, Codable, Equatable {
     case none
     case safeAlternative
     case unavailable
-    case unsafeExpandedTrust
 }
 
 enum TransitionEdge: String, Codable, Hashable {
@@ -202,6 +201,22 @@ struct RepairFacts: Codable, Equatable {
     )
 }
 
+struct HandoffProposal: Equatable {
+    var sourceProfile: String
+    var sourceProvider: String
+    var destinationProfile: String
+    var destinationProvider: String
+
+    static func fixture(from state: HandoffState) -> HandoffProposal {
+        HandoffProposal(
+            sourceProfile: state.activeProfile,
+            sourceProvider: state.activeProvider,
+            destinationProfile: "destination",
+            destinationProvider: "provider-b"
+        )
+    }
+}
+
 struct HandoffState: Equatable {
     var activeProfile: String
     var activeProvider: String
@@ -221,9 +236,13 @@ struct HandoffState: Equatable {
     var ledger: [EffectRecord]
     var pendingEffectID: String?
     var pendingTransition: String?
+    var pendingProposal: HandoffProposal?
     var lastCheckpoint: String?
     var lastStableCheckpoint: String
     var repairFacts: RepairFacts
+    var authorizedBoundary: TrustBoundary
+    var fallback: Fallback
+    var transcript: [TranscriptEntry]
     var auditEvents: [String]
 
     static var initial: HandoffState {
@@ -246,20 +265,36 @@ struct HandoffState: Equatable {
             ledger: [],
             pendingEffectID: nil,
             pendingTransition: nil,
+            pendingProposal: nil,
             lastCheckpoint: nil,
             lastStableCheckpoint: "source-stable",
             repairFacts: .none,
+            authorizedBoundary: TrustBoundary(
+                providerRank: 2,
+                maximumDataClass: .c2Sensitive,
+                retentionRank: 1,
+                toolRank: 1,
+                effectBudget: 1
+            ),
+            fallback: .none,
+            transcript: [.text("synthetic-summary")],
             auditEvents: []
         )
     }
 }
 
+enum ModelAvailability: Equatable {
+    case degraded(candidate: TrustBoundary)
+    case unavailable
+}
+
 enum TrustedEvent: Equatable {
-    case proposeBaton
+    case proposeBaton(proposal: HandoffProposal)
     case commitBaton
     case completeConsultation
     case execute(request: ExecutionRequest)
     case acceptToolResult(result: ToolResult, authorization: ToolAuthorization)
+    case modelAvailability(ModelAvailability)
     case commandUncertain(effectID: String)
     case reconciliationUnavailable
     case suppressReplay
@@ -268,7 +303,8 @@ enum TrustedEvent: Equatable {
     case failPrecommit
     case cancelPrecommit
     case cancelUncertain
-    case repairTranscript
+    case repairTranscript(entries: [TranscriptEntry])
+    case reuseTranscript(entries: [TranscriptEntry])
     case ignoreUntrustedInput
 }
 
@@ -317,17 +353,6 @@ struct TrustBoundary: Equatable {
     var effectBudget: Int
 }
 
-enum FallbackSelection: Equatable {
-    case primary
-    case chosen(TrustBoundary)
-    case unavailable
-}
-
-struct FallbackPlan: Equatable {
-    var primary: TrustBoundary
-    var selection: FallbackSelection
-}
-
 enum TranscriptEntry: Equatable {
     case text(String)
     case call(String)
@@ -354,6 +379,7 @@ struct EvidenceRecord: Equatable {
     var pathKind: EvidencePathKind
     var artifactExtension: String
     var redaction: EvidenceRedaction
+    var content: String
     var fingerprint: String
 }
 
@@ -376,8 +402,6 @@ struct ScenarioObservation {
     var clock: Int
     var toolAuthorization: ToolAuthorization
     var toolResult: ToolResult?
-    var fallbackPlan: FallbackPlan
-    var transcript: [TranscriptEntry]
     var evidence: [EvidenceRecord]
     var state: HandoffState
     var eventRecords: [EventRecord]
@@ -406,6 +430,123 @@ struct CaseResult: Codable {
     let auditEvents: [String]
 }
 
+enum SHA256 {
+    private static let roundConstants: [UInt32] = [
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
+        0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
+        0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc,
+        0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+        0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3,
+        0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5,
+        0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+        0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+    ]
+
+    static func hexDigest(_ input: String) -> String {
+        var message = Array(input.utf8)
+        let bitLength = UInt64(message.count) * 8
+        message.append(0x80)
+        while message.count % 64 != 56 {
+            message.append(0)
+        }
+        for shift in stride(from: 56, through: 0, by: -8) {
+            message.append(UInt8((bitLength >> UInt64(shift)) & 0xff))
+        }
+
+        var hash: [UInt32] = [
+            0x6a09e667,
+            0xbb67ae85,
+            0x3c6ef372,
+            0xa54ff53a,
+            0x510e527f,
+            0x9b05688c,
+            0x1f83d9ab,
+            0x5be0cd19,
+        ]
+
+        for offset in stride(from: 0, to: message.count, by: 64) {
+            var words = [UInt32](repeating: 0, count: 64)
+            for index in 0..<16 {
+                let start = offset + index * 4
+                words[index] = UInt32(message[start]) << 24
+                    | UInt32(message[start + 1]) << 16
+                    | UInt32(message[start + 2]) << 8
+                    | UInt32(message[start + 3])
+            }
+            for index in 16..<64 {
+                let first = rotateRight(words[index - 15], by: 7)
+                    ^ rotateRight(words[index - 15], by: 18)
+                    ^ (words[index - 15] >> 3)
+                let second = rotateRight(words[index - 2], by: 17)
+                    ^ rotateRight(words[index - 2], by: 19)
+                    ^ (words[index - 2] >> 10)
+                words[index] = words[index - 16]
+                    &+ first
+                    &+ words[index - 7]
+                    &+ second
+            }
+
+            var a = hash[0]
+            var b = hash[1]
+            var c = hash[2]
+            var d = hash[3]
+            var e = hash[4]
+            var f = hash[5]
+            var g = hash[6]
+            var h = hash[7]
+
+            for index in 0..<64 {
+                let sigmaOne = rotateRight(e, by: 6)
+                    ^ rotateRight(e, by: 11)
+                    ^ rotateRight(e, by: 25)
+                let choice = (e & f) ^ ((~e) & g)
+                let temporaryOne = h
+                    &+ sigmaOne
+                    &+ choice
+                    &+ roundConstants[index]
+                    &+ words[index]
+                let sigmaZero = rotateRight(a, by: 2)
+                    ^ rotateRight(a, by: 13)
+                    ^ rotateRight(a, by: 22)
+                let majority = (a & b) ^ (a & c) ^ (b & c)
+                let temporaryTwo = sigmaZero &+ majority
+
+                h = g
+                g = f
+                f = e
+                e = d &+ temporaryOne
+                d = c
+                c = b
+                b = a
+                a = temporaryOne &+ temporaryTwo
+            }
+
+            hash[0] &+= a
+            hash[1] &+= b
+            hash[2] &+= c
+            hash[3] &+= d
+            hash[4] &+= e
+            hash[5] &+= f
+            hash[6] &+= g
+            hash[7] &+= h
+        }
+
+        return hash.map { String(format: "%08x", $0) }.joined()
+    }
+
+    private static func rotateRight(_ value: UInt32, by amount: UInt32) -> UInt32 {
+        (value >> amount) | (value << (32 - amount))
+    }
+}
+
 enum HandoffReducer {
     private static let executorBinding = ToolBinding(
         name: "executor.run",
@@ -422,34 +563,55 @@ enum HandoffReducer {
         var next = state
 
         switch event {
-        case .proposeBaton:
+        case let .proposeBaton(proposal):
+            guard proposal.sourceProfile == state.activeProfile,
+                  proposal.sourceProvider == state.activeProvider
+            else {
+                return refused(state, disposition: .refusedPolicy, audit: "transition:refused-source")
+            }
+            guard proposal.destinationProfile != proposal.sourceProfile,
+                  !state.visitedProfiles.contains(proposal.destinationProfile)
+            else {
+                return refused(state, disposition: .refusedPolicy, audit: "transition:refused-revisit")
+            }
             guard state.transitionCount < state.transitionBudget else {
                 return refused(state, disposition: .refusedBudget, audit: "transition:refused-budget")
             }
-            guard state.allowedEdges.contains(.sourceToDestination) else {
+            guard let edge = transitionEdge(for: proposal),
+                  state.allowedEdges.contains(edge)
+            else {
                 return refused(state, disposition: .refusedPolicy, audit: "transition:refused-edge")
             }
             next.phase = .transitioning
             next.pendingTransition = "baton-pass"
+            next.pendingProposal = proposal
             next.auditEvents.append("proposal:baton-pass")
             return applied(next, audit: ["proposal:baton-pass"])
 
         case .commitBaton:
-            guard state.pendingTransition == "baton-pass" else {
+            guard state.pendingTransition == "baton-pass",
+                  let proposal = state.pendingProposal,
+                  proposal.sourceProfile == state.activeProfile,
+                  proposal.sourceProvider == state.activeProvider,
+                  let edge = transitionEdge(for: proposal),
+                  state.allowedEdges.contains(edge),
+                  !state.visitedProfiles.contains(proposal.destinationProfile)
+            else {
                 return refused(state, disposition: .refusedPolicy, audit: "commit:refused-no-proposal")
             }
             guard state.transitionCount < state.transitionBudget else {
                 return refused(state, disposition: .refusedBudget, audit: "commit:refused-budget")
             }
-            next.activeProfile = "destination"
-            next.activeProvider = "provider-b"
-            next.finalResponseOwner = "destination"
+            next.activeProfile = proposal.destinationProfile
+            next.activeProvider = proposal.destinationProvider
+            next.finalResponseOwner = proposal.destinationProfile
             next.phase = .stable
             next.stateVersion += 1
             next.transitionCount += 1
-            next.transitionHistory.append(.sourceToDestination)
-            next.visitedProfiles.append("destination")
+            next.transitionHistory.append(edge)
+            next.visitedProfiles.append(proposal.destinationProfile)
             next.pendingTransition = nil
+            next.pendingProposal = nil
             next.lastStableCheckpoint = "baton-committed"
             next.auditEvents.append("commit:destination")
             return applied(next, audit: ["commit:destination"])
@@ -525,6 +687,25 @@ enum HandoffReducer {
                 outcome: .statePreserved,
                 auditEvents: ["tool-result:accepted"]
             )
+
+        case let .modelAvailability(availability):
+            switch availability {
+            case let .degraded(candidate):
+                guard !boundaryExpands(candidate, comparedTo: state.authorizedBoundary) else {
+                    return refused(
+                        state,
+                        disposition: .refusedPolicy,
+                        audit: "fallback:refused-expanded-trust"
+                    )
+                }
+                next.fallback = .safeAlternative
+                next.auditEvents.append("fallback:safe-alternative")
+                return applied(next, audit: ["fallback:safe-alternative"])
+            case .unavailable:
+                next.fallback = .unavailable
+                next.auditEvents.append("fallback:explicit-unavailable")
+                return applied(next, audit: ["fallback:explicit-unavailable"])
+            }
 
         case let .commandUncertain(effectID):
             guard state.ledger.contains(where: { $0.effectID == effectID }) else {
@@ -612,12 +793,14 @@ enum HandoffReducer {
         case .failPrecommit:
             next.phase = .stable
             next.pendingTransition = nil
+            next.pendingProposal = nil
             next.auditEvents.append(contentsOf: ["failure:precommit", "rollback:source"])
             return applied(next, audit: ["failure:precommit", "rollback:source"])
 
         case .cancelPrecommit:
             next.phase = .stable
             next.pendingTransition = nil
+            next.pendingProposal = nil
             next.auditEvents.append(contentsOf: ["cancellation:precommit", "rollback:source"])
             return applied(next, audit: ["cancellation:precommit", "rollback:source"])
 
@@ -630,9 +813,21 @@ enum HandoffReducer {
                 auditEvents: ["cancellation:recorded", "recovery:preserved"]
             )
 
-        case .repairTranscript:
+        case let .repairTranscript(entries):
+            guard let repaired = repairedTranscript(from: entries) else {
+                return refused(state, disposition: .refusedPolicy, audit: "transcript:refused-repair")
+            }
+            next.transcript = repaired
             next.auditEvents.append(contentsOf: ["transcript:repaired", "transcript:reused"])
             return applied(next, audit: ["transcript:repaired", "transcript:reused"])
+
+        case let .reuseTranscript(entries):
+            guard transcriptIsBalanced(entries) else {
+                return refused(state, disposition: .refusedPolicy, audit: "transcript:refused-reuse")
+            }
+            next.transcript = entries
+            next.auditEvents.append("transcript:reused")
+            return applied(next, audit: ["transcript:reused"])
 
         case .ignoreUntrustedInput:
             return ReducerDecision(
@@ -682,6 +877,7 @@ enum HandoffReducer {
             || observation.state.transitionCount != observation.state.transitionHistory.count
             || observation.state.transitionCount > observation.state.transitionBudget
             || Set(visited).count != visited.count
+            || transitionAttemptWasRefused(observation)
         {
             violations.insert("D-TRANSITION-001")
         }
@@ -706,7 +902,7 @@ enum HandoffReducer {
             violations.insert("D-GRANT-001")
         }
 
-        if !phaseFactsAreValid(observation) || !transcriptIsBalanced(observation.transcript) {
+        if !phaseFactsAreValid(observation) || !transcriptFactsAreValid(observation) {
             violations.insert("D-PHASE-001")
         }
 
@@ -721,11 +917,11 @@ enum HandoffReducer {
             violations.insert("D-EFFECT-002")
         }
 
-        if fallbackExpandsBoundary(observation.fallbackPlan) {
+        if fallbackAttemptExpandedTrust(observation) {
             violations.insert("D-FALLBACK-001")
         }
 
-        if observation.evidence.contains(where: evidenceRecordIsUnsafe) {
+        if observation.evidence.contains(where: { !evidenceRecordIsSafe($0) }) {
             violations.insert("D-EVIDENCE-001")
         }
 
@@ -749,7 +945,7 @@ enum HandoffReducer {
             transitionBudget: observation.state.transitionBudget,
             executorCommandCount: observation.state.executorCommandCount,
             effectCount: observation.state.ledger.count,
-            fallback: normalizedFallback(observation.fallbackPlan).rawValue,
+            fallback: observation.state.fallback.rawValue,
             contextIncluded: observation.context.filter(\.included).map(\.outputLabel).sorted(),
             contextExcluded: observation.context.filter { !$0.included }.map(\.outputLabel).sorted(),
             auditEvents: observation.auditFacts.sorted()
@@ -772,14 +968,33 @@ enum HandoffReducer {
 
     private static func requiredPhase(for event: TrustedEvent) -> Phase {
         switch event {
-        case .proposeBaton, .completeConsultation, .execute, .acceptToolResult, .commandUncertain,
-             .retryReconciled, .repairTranscript, .ignoreUntrustedInput:
+        case .proposeBaton, .completeConsultation, .execute, .acceptToolResult, .modelAvailability,
+             .commandUncertain, .retryReconciled, .repairTranscript, .reuseTranscript,
+             .ignoreUntrustedInput:
             return .stable
         case .commitBaton, .failPrecommit, .cancelPrecommit:
             return .transitioning
         case .reconciliationUnavailable, .suppressReplay, .reconcileSucceeded,
              .cancelUncertain:
             return .recoveryRequired
+        }
+    }
+
+    private static func transitionEdge(for proposal: HandoffProposal) -> TransitionEdge? {
+        switch (
+            proposal.sourceProfile,
+            proposal.sourceProvider,
+            proposal.destinationProfile,
+            proposal.destinationProvider
+        ) {
+        case ("source", "provider-a", "destination", "provider-b"):
+            return .sourceToDestination
+        case ("source", "provider-a", "child", "provider-b"):
+            return .sourceToChild
+        case ("child", "provider-b", "source", "provider-a"):
+            return .childToSource
+        default:
+            return nil
         }
     }
 
@@ -933,9 +1148,19 @@ enum HandoffReducer {
         let state = observation.state
         switch state.phase {
         case .stable:
-            if state.pendingTransition != nil || state.pendingEffectID != nil { return false }
+            if state.pendingTransition != nil
+                || state.pendingProposal != nil
+                || state.pendingEffectID != nil
+            {
+                return false
+            }
         case .transitioning:
-            if state.pendingTransition == nil || state.pendingEffectID != nil { return false }
+            if state.pendingTransition == nil
+                || state.pendingProposal == nil
+                || state.pendingEffectID != nil
+            {
+                return false
+            }
         case .recoveryRequired:
             if state.pendingEffectID == nil
                 || state.pendingTransition != "effect-reconciliation"
@@ -945,7 +1170,12 @@ enum HandoffReducer {
                 return false
             }
         case .terminated:
-            if state.pendingTransition != nil || state.pendingEffectID != nil { return false }
+            if state.pendingTransition != nil
+                || state.pendingProposal != nil
+                || state.pendingEffectID != nil
+            {
+                return false
+            }
         }
 
         for record in observation.eventRecords {
@@ -990,6 +1220,23 @@ enum HandoffReducer {
         return false
     }
 
+    private static func transitionAttemptWasRefused(_ observation: ScenarioObservation) -> Bool {
+        observation.eventRecords.contains { record in
+            guard case .proposeBaton = record.event else { return false }
+            return record.decision.disposition == .refusedBudget
+                || record.decision.auditEvents.contains("transition:refused-edge")
+                || record.decision.auditEvents.contains("transition:refused-revisit")
+        }
+    }
+
+    private static func transcriptFactsAreValid(_ observation: ScenarioObservation) -> Bool {
+        guard transcriptIsBalanced(observation.state.transcript) else { return false }
+        return !observation.eventRecords.contains { record in
+            guard case let .reuseTranscript(entries) = record.event else { return false }
+            return !transcriptIsBalanced(entries)
+        }
+    }
+
     private static func transcriptIsBalanced(_ transcript: [TranscriptEntry]) -> Bool {
         var pendingCalls = Set<String>()
         for entry in transcript {
@@ -1005,33 +1252,73 @@ enum HandoffReducer {
         return pendingCalls.isEmpty
     }
 
-    private static func normalizedFallback(_ plan: FallbackPlan) -> Fallback {
-        switch plan.selection {
-        case .primary:
-            return .none
-        case .unavailable:
-            return .unavailable
-        case let .chosen(boundary):
-            return fallbackExpandsBoundary(plan) || boundary == plan.primary
-                ? (fallbackExpandsBoundary(plan) ? .unsafeExpandedTrust : .safeAlternative)
-                : .safeAlternative
+    private static func repairedTranscript(
+        from entries: [TranscriptEntry]
+    ) -> [TranscriptEntry]? {
+        var pendingCalls: [String] = []
+        var seenCalls = Set<String>()
+        var repaired = entries
+        for entry in entries {
+            switch entry {
+            case .text:
+                continue
+            case let .call(callID):
+                guard seenCalls.insert(callID).inserted else { return nil }
+                pendingCalls.append(callID)
+            case let .result(callID):
+                guard let index = pendingCalls.firstIndex(of: callID) else { return nil }
+                pendingCalls.remove(at: index)
+            }
+        }
+        guard !pendingCalls.isEmpty else { return nil }
+        repaired.append(contentsOf: pendingCalls.map(TranscriptEntry.result))
+        return transcriptIsBalanced(repaired) ? repaired : nil
+    }
+
+    private static func fallbackAttemptExpandedTrust(
+        _ observation: ScenarioObservation
+    ) -> Bool {
+        observation.eventRecords.contains { record in
+            guard case let .modelAvailability(.degraded(candidate)) = record.event else {
+                return false
+            }
+            return boundaryExpands(candidate, comparedTo: record.before.authorizedBoundary)
         }
     }
 
-    private static func fallbackExpandsBoundary(_ plan: FallbackPlan) -> Bool {
-        guard case let .chosen(candidate) = plan.selection else { return false }
-        return candidate.providerRank > plan.primary.providerRank
-            || candidate.maximumDataClass.rawValue > plan.primary.maximumDataClass.rawValue
-            || candidate.retentionRank > plan.primary.retentionRank
-            || candidate.toolRank > plan.primary.toolRank
-            || candidate.effectBudget > plan.primary.effectBudget
+    private static func boundaryExpands(
+        _ candidate: TrustBoundary,
+        comparedTo authorized: TrustBoundary
+    ) -> Bool {
+        candidate.providerRank > authorized.providerRank
+            || candidate.maximumDataClass.rawValue > authorized.maximumDataClass.rawValue
+            || candidate.retentionRank > authorized.retentionRank
+            || candidate.toolRank > authorized.toolRank
+            || candidate.effectBudget > authorized.effectBudget
     }
 
-    private static func evidenceRecordIsUnsafe(_ record: EvidenceRecord) -> Bool {
-        record.classification == .rawContent
-            || record.pathKind == .absolute
-            || record.artifactExtension == ".trace"
-            || record.artifactExtension == ".xcresult"
-            || record.redaction == .raw
+    static func evidenceRecordIsSafe(_ record: EvidenceRecord) -> Bool {
+        let prohibitedContent = [
+            "blocked-c3-sentinel",
+            "synthetic-credential-sentinel",
+            "/Users/",
+            "session.trace",
+            ".xcresult",
+            "raw-evidence-payload",
+        ]
+        let hexadecimal = CharacterSet(charactersIn: "0123456789abcdef")
+        let digest = String(record.fingerprint.dropFirst("sha256:".count))
+        let digestIsWellFormed = record.fingerprint.hasPrefix("sha256:")
+            && digest.count == 64
+            && digest.unicodeScalars.allSatisfy(hexadecimal.contains)
+
+        return record.classification == .metadataOnly
+            && record.pathKind == .normalizedRelative
+            && record.artifactExtension != ".trace"
+            && record.artifactExtension != ".xcresult"
+            && record.redaction == .redacted
+            && !prohibitedContent.contains(where: record.content.contains)
+            && digestIsWellFormed
+            && record.fingerprint == "sha256:" + SHA256.hexDigest(record.content)
     }
 }

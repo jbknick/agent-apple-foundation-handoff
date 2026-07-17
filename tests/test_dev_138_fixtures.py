@@ -346,7 +346,10 @@ import Foundation
 struct Probe {
     static func main() {
         let direct = HandoffReducer.reduce(.initial, event: .commitBaton)
-        let proposed = HandoffReducer.reduce(.initial, event: .proposeBaton)
+        let proposed = HandoffReducer.reduce(
+            .initial,
+            event: .proposeBaton(proposal: HandoffProposal.fixture(from: .initial))
+        )
         let committed = HandoffReducer.reduce(proposed.state, event: .commitBaton)
         let values = [
             direct.state.phase.rawValue,
@@ -369,6 +372,246 @@ struct Probe {
             output,
             "stable|source|true|transitioning|source|baton-pass|stable|destination|destination|1\n",
         )
+
+    def test_proposals_bind_current_source_and_refuse_revisit_edge_and_budget(self):
+        output = self._run_reducer_probe(
+            r'''
+import Foundation
+
+@main
+struct Probe {
+    static func main() {
+        let initial = HandoffState.initial
+        let valid = HandoffProposal.fixture(from: initial)
+
+        var wrongSource = valid
+        wrongSource.sourceProfile = "impersonator"
+        let wrong = HandoffReducer.reduce(
+            initial,
+            event: .proposeBaton(proposal: wrongSource)
+        )
+        var wrongProvider = valid
+        wrongProvider.sourceProvider = "impersonator-provider"
+        let wrongProviderDecision = HandoffReducer.reduce(
+            initial,
+            event: .proposeBaton(proposal: wrongProvider)
+        )
+        var wrongDestinationProvider = valid
+        wrongDestinationProvider.destinationProvider = "unapproved-provider"
+        let wrongDestinationDecision = HandoffReducer.reduce(
+            initial,
+            event: .proposeBaton(proposal: wrongDestinationProvider)
+        )
+
+        let proposed = HandoffReducer.reduce(
+            initial,
+            event: .proposeBaton(proposal: valid)
+        )
+        let committed = HandoffReducer.reduce(
+            proposed.state,
+            event: .commitBaton
+        ).state
+
+        let revisit = HandoffProposal(
+            sourceProfile: committed.activeProfile,
+            sourceProvider: committed.activeProvider,
+            destinationProfile: "source",
+            destinationProvider: "provider-a"
+        )
+        let repeated = HandoffReducer.reduce(
+            committed,
+            event: .proposeBaton(proposal: revisit)
+        )
+
+        var exhausted = initial
+        exhausted.transitionBudget = 0
+        let overBudget = HandoffReducer.reduce(
+            exhausted,
+            event: .proposeBaton(proposal: HandoffProposal.fixture(from: exhausted))
+        )
+
+        var disallowed = initial
+        disallowed.allowedEdges = []
+        let badEdge = HandoffReducer.reduce(
+            disallowed,
+            event: .proposeBaton(proposal: HandoffProposal.fixture(from: disallowed))
+        )
+
+        let values = [
+            wrong.state == initial && wrong.command == nil && wrong.disposition == .refusedPolicy,
+            wrongProviderDecision.state == initial
+                && wrongProviderDecision.command == nil
+                && wrongProviderDecision.disposition == .refusedPolicy,
+            wrongDestinationDecision.state == initial
+                && wrongDestinationDecision.command == nil
+                && wrongDestinationDecision.disposition == .refusedPolicy,
+            proposed.state.pendingProposal == valid && proposed.state.phase == .transitioning,
+            committed.activeProfile == valid.destinationProfile && committed.activeProvider == valid.destinationProvider,
+            repeated.state == committed && repeated.command == nil && repeated.disposition == .refusedPolicy,
+            overBudget.state == exhausted && overBudget.command == nil && overBudget.disposition == .refusedBudget,
+            badEdge.state == disallowed && badEdge.command == nil && badEdge.disposition == .refusedPolicy,
+        ]
+        print(values.map(String.init).joined(separator: "|"))
+    }
+}
+'''
+        )
+        self.assertEqual(output, "true|true|true|true|true|true|true|true\n")
+
+    def test_model_availability_is_typed_reducer_owned_and_fail_closed(self):
+        output = self._run_reducer_probe(
+            r'''
+import Foundation
+
+@main
+struct Probe {
+    static func main() {
+        let initial = HandoffState.initial
+        var safe = initial.authorizedBoundary
+        safe.providerRank -= 1
+        safe.maximumDataClass = .c1TaskPrivate
+        safe.retentionRank -= 1
+        safe.toolRank -= 1
+        safe.effectBudget = 0
+
+        let degraded = HandoffReducer.reduce(
+            initial,
+            event: .modelAvailability(.degraded(candidate: safe))
+        )
+        let unavailable = HandoffReducer.reduce(
+            initial,
+            event: .modelAvailability(.unavailable)
+        )
+        let equal = HandoffReducer.reduce(
+            initial,
+            event: .modelAvailability(.degraded(candidate: initial.authorizedBoundary))
+        )
+
+        var unsafe = initial.authorizedBoundary
+        unsafe.providerRank += 1
+        let expanded = HandoffReducer.reduce(
+            initial,
+            event: .modelAvailability(.degraded(candidate: unsafe))
+        )
+
+        let values = [
+            degraded.state.fallback == .safeAlternative && degraded.disposition == .applied,
+            degraded.state.authorizedBoundary == initial.authorizedBoundary,
+            unavailable.state.fallback == .unavailable && unavailable.disposition == .applied,
+            equal.state.fallback == .safeAlternative && equal.disposition == .applied,
+            expanded.state == initial && expanded.command == nil && expanded.disposition == .refusedPolicy,
+        ]
+        print(values.map(String.init).joined(separator: "|"))
+    }
+}
+'''
+        )
+        self.assertEqual(output, "true|true|true|true|true\n")
+
+    def test_transcript_repair_starts_partial_and_reuse_rejects_unbalanced(self):
+        output = self._run_reducer_probe(
+            r'''
+import Foundation
+
+@main
+struct Probe {
+    static func main() {
+        let initial = HandoffState.initial
+        let repaired = HandoffReducer.reduce(
+            initial,
+            event: .repairTranscript(entries: [.call("call-001")])
+        )
+        let reused = HandoffReducer.reduce(
+            initial,
+            event: .reuseTranscript(entries: [.call("call-001")])
+        )
+        let malformed = HandoffReducer.reduce(
+            initial,
+            event: .repairTranscript(entries: [.result("orphan")])
+        )
+
+        let values = [
+            repaired.state.transcript == [.call("call-001"), .result("call-001")]
+                && repaired.disposition == .applied,
+            reused.state == initial && reused.command == nil && reused.disposition == .refusedPolicy,
+            malformed.state == initial && malformed.command == nil && malformed.disposition == .refusedPolicy,
+        ]
+        print(values.map(String.init).joined(separator: "|"))
+    }
+}
+'''
+        )
+        self.assertEqual(output, "true|true|true\n")
+
+        scenario_source = SOURCES[1].read_text()
+        self.assertIn(
+            '.repairTranscript(entries: [.call("call-001")])',
+            scenario_source,
+        )
+        self.assertNotIn(
+            '[.call("call-001"), .result("call-001")]',
+            scenario_source,
+        )
+
+    def test_evidence_uses_real_sha256_and_rejects_fingerprint_and_content_bypasses(self):
+        output = self._run_reducer_probe(
+            r'''
+import Foundation
+
+@main
+struct Probe {
+    static func main() {
+        let validContent = "case=DEV138;kind=metadata-only"
+        let valid = EvidenceRecord(
+            classification: .metadataOnly,
+            pathKind: .normalizedRelative,
+            artifactExtension: ".jsonl",
+            redaction: .redacted,
+            content: validContent,
+            fingerprint: "sha256:" + SHA256.hexDigest(validContent)
+        )
+        var mismatched = valid
+        mismatched.fingerprint = "sha256:" + String(repeating: "0", count: 64)
+        var disguised = valid
+        disguised.content = "synthetic-" + "credential-sentinel"
+        disguised.fingerprint = "sha256:" + SHA256.hexDigest(disguised.content)
+        var rawClassification = valid
+        rawClassification.classification = .rawContent
+        var absolutePath = valid
+        absolutePath.pathKind = .absolute
+        var prohibitedExtension = valid
+        prohibitedExtension.artifactExtension = ".trace"
+        var rawRedaction = valid
+        rawRedaction.redaction = .raw
+
+        let values = [
+            SHA256.hexDigest("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            HandoffReducer.evidenceRecordIsSafe(valid),
+            !HandoffReducer.evidenceRecordIsSafe(mismatched),
+            !HandoffReducer.evidenceRecordIsSafe(disguised),
+            !HandoffReducer.evidenceRecordIsSafe(rawClassification),
+            !HandoffReducer.evidenceRecordIsSafe(absolutePath),
+            !HandoffReducer.evidenceRecordIsSafe(prohibitedExtension),
+            !HandoffReducer.evidenceRecordIsSafe(rawRedaction),
+        ]
+        print(values.map(String.init).joined(separator: "|"))
+    }
+}
+'''
+        )
+        self.assertEqual(output, "true|true|true|true|true|true|true|true\n")
+
+        for mutation in (
+            "evidence_bad_fingerprint",
+            "evidence_mismatched_fingerprint",
+            "evidence_metadata_disguised_prohibited",
+        ):
+            with self.subTest(mutation=mutation):
+                raw_result = self._run_fixture("--mutation", mutation)
+                result = json.loads(raw_result)
+                self.assertEqual(result["violations"], ["D-EVIDENCE-001"])
+                self.assertEqual(result["status"], "fail")
+                self.assertNotIn(b"synthetic-credential-sentinel", raw_result)
 
     def test_recovery_refuses_late_or_wrong_phase_events_without_mutation(self):
         output = self._run_reducer_probe(
@@ -395,7 +638,7 @@ struct Probe {
             .cancelPrecommit,
             .cancelUncertain,
             .suppressReplay,
-            .repairTranscript,
+            .repairTranscript(entries: [.call("late")]),
             .ignoreUntrustedInput,
         ]
         let refused = events.map { event -> String in
@@ -417,7 +660,10 @@ import Foundation
 @main
 struct Probe {
     static func main() {
-        let proposed = HandoffReducer.reduce(.initial, event: .proposeBaton)
+        let proposed = HandoffReducer.reduce(
+            .initial,
+            event: .proposeBaton(proposal: HandoffProposal.fixture(from: .initial))
+        )
         let committed = HandoffReducer.reduce(proposed.state, event: .commitBaton).state
 
         var unauthorized = ExecutionRequest.fixture(state: committed)
@@ -465,7 +711,10 @@ import Foundation
 @main
 struct Probe {
     static func main() {
-        let proposed = HandoffReducer.reduce(.initial, event: .proposeBaton)
+        let proposed = HandoffReducer.reduce(
+            .initial,
+            event: .proposeBaton(proposal: HandoffProposal.fixture(from: .initial))
+        )
         let committed = HandoffReducer.reduce(proposed.state, event: .commitBaton).state
         let request = ExecutionRequest.fixture(state: committed)
         let executed = HandoffReducer.reduce(committed, event: .execute(request: request)).state
@@ -523,6 +772,7 @@ struct Probe {
 
     def test_scenarios_do_not_self_attest_policy_verdicts(self):
         swift_source = "\n".join(source.read_text() for source in SOURCES)
+        scenario_source = SOURCES[1].read_text()
         forbidden_verdict_fields = {
             "routeAllowed",
             "transitionEdgeAllowed",
@@ -547,6 +797,15 @@ struct Probe {
             field for field in forbidden_verdict_fields if field in swift_source
         )
         self.assertEqual(found, [], f"self-attested verdict fields remain: {found}")
+        for forbidden_assignment in (
+            ".state.transitionHistory =",
+            ".state.transitionCount =",
+            ".state.visitedProfiles =",
+            ".state.fallback =",
+            ".transcript =",
+            "fallbackPlan",
+        ):
+            self.assertNotIn(forbidden_assignment, scenario_source)
 
     def test_exact_grants_and_typed_tool_results_reject_independent_mutations(self):
         mutations = {

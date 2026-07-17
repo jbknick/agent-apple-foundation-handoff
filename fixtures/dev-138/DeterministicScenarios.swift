@@ -77,14 +77,6 @@ enum DeterministicScenarios {
         resultType: "ExecutionReceipt"
     )
 
-    private static let primaryBoundary = TrustBoundary(
-        providerRank: 2,
-        maximumDataClass: .c2Sensitive,
-        retentionRank: 1,
-        toolRank: 1,
-        effectBudget: 1
-    )
-
     private static func defaultContext(stateVersion: Int = 2) -> [ContextField] {
         [
             ContextField(
@@ -178,11 +170,15 @@ enum DeterministicScenarios {
     private static func batonExecution() -> (HandoffState, [EventRecord]) {
         var state = HandoffState.initial
         var records: [EventRecord] = []
-        for nextEvent in [TrustedEvent.proposeBaton, .commitBaton] {
-            let record = event(state, nextEvent)
-            records.append(record)
-            state = record.decision.state
-        }
+        let proposal = event(
+            state,
+            .proposeBaton(proposal: HandoffProposal.fixture(from: state))
+        )
+        records.append(proposal)
+        state = proposal.decision.state
+        let commit = event(state, .commitBaton)
+        records.append(commit)
+        state = commit.decision.state
         var request = ExecutionRequest.fixture(state: state)
         request.effectID = effectID
         let execution = event(state, .execute(request: request))
@@ -194,11 +190,15 @@ enum DeterministicScenarios {
     private static func committedExecution() -> (HandoffState, [EventRecord]) {
         var state = HandoffState.initial
         var records: [EventRecord] = []
-        for nextEvent in [TrustedEvent.proposeBaton, .commitBaton] {
-            let record = event(state, nextEvent)
-            records.append(record)
-            state = record.decision.state
-        }
+        let proposal = event(
+            state,
+            .proposeBaton(proposal: HandoffProposal.fixture(from: state))
+        )
+        records.append(proposal)
+        state = proposal.decision.state
+        let commit = event(state, .commitBaton)
+        records.append(commit)
+        state = commit.decision.state
         return (state, records)
     }
 
@@ -243,15 +243,16 @@ enum DeterministicScenarios {
             clock: 100,
             toolAuthorization: toolAuthorization,
             toolResult: result(for: state),
-            fallbackPlan: FallbackPlan(primary: primaryBoundary, selection: .primary),
-            transcript: [.text("synthetic-summary")],
             evidence: [
                 EvidenceRecord(
                     classification: .metadataOnly,
                     pathKind: .normalizedRelative,
                     artifactExtension: ".jsonl",
                     redaction: .redacted,
-                    fingerprint: "sha256:synthetic"
+                    content: "case=DEV138;kind=metadata-only",
+                    fingerprint: "sha256:" + SHA256.hexDigest(
+                        "case=DEV138;kind=metadata-only"
+                    )
                 )
             ],
             state: state,
@@ -338,10 +339,16 @@ enum DeterministicScenarios {
         scenarios.append(base("DEV138-BATON-VALID"))
 
         var budget = base("DEV138-BUDGET-EXCEEDED")
-        budget.state.transitionHistory = [.sourceToDestination, .sourceToDestination, .sourceToDestination]
-        budget.state.transitionCount = 3
-        budget.state.visitedProfiles = ["source", "destination", "overflow-a", "overflow-b"]
+        var exhausted = HandoffState.initial
+        exhausted.transitionBudget = 0
+        let budgetRefusal = event(
+            exhausted,
+            .proposeBaton(proposal: HandoffProposal.fixture(from: exhausted))
+        )
+        budget.state = budgetRefusal.decision.state
+        budget.eventRecords = [budgetRefusal]
         budget.auditFacts = ["transition:budget-exceeded"]
+        rebind(&budget)
         scenarios.append(budget)
 
         var c2Redacted = base("DEV138-C2-REDACTED")
@@ -416,7 +423,10 @@ enum DeterministicScenarios {
         scenarios.append(cancellationErased)
 
         var cancellationPrecommit = base("DEV138-CANCEL-PRECOMMIT")
-        let proposalForCancellation = event(.initial, .proposeBaton)
+        let proposalForCancellation = event(
+            .initial,
+            .proposeBaton(proposal: HandoffProposal.fixture(from: .initial))
+        )
         let cancellation = event(proposalForCancellation.decision.state, .cancelPrecommit)
         cancellationPrecommit.state = cancellation.decision.state
         cancellationPrecommit.eventRecords = [proposalForCancellation, cancellation]
@@ -445,8 +455,17 @@ enum DeterministicScenarios {
         scenarios.append(requiredMissing)
 
         var edgeInvalid = base("DEV138-EDGE-INVALID")
+        var edgeState = HandoffState.initial
+        edgeState.allowedEdges = []
+        let edgeRefusal = event(
+            edgeState,
+            .proposeBaton(proposal: HandoffProposal.fixture(from: edgeState))
+        )
+        edgeInvalid.state = edgeRefusal.decision.state
+        edgeInvalid.eventRecords = [edgeRefusal]
         edgeInvalid.route.allowedEdges = []
         edgeInvalid.auditFacts = ["transition:edge-invalid", "refusal:transition"]
+        rebind(&edgeInvalid)
         scenarios.append(edgeInvalid)
 
         var duplicateLedger = base("DEV138-EFFECT-DUPLICATE-LEDGER")
@@ -482,22 +501,37 @@ enum DeterministicScenarios {
         scenarios.append(prematureRetryScenario)
 
         var evidenceLeak = base("DEV138-EVIDENCE-LEAKAGE")
+        let prohibitedEvidence = "synthetic-" + "credential-sentinel"
         evidenceLeak.evidence = [
             EvidenceRecord(
                 classification: .rawContent,
                 pathKind: .absolute,
                 artifactExtension: ".tr" + "ace",
                 redaction: .raw,
-                fingerprint: "synthetic-" + "credential-sentinel"
+                content: prohibitedEvidence,
+                fingerprint: "sha256:" + SHA256.hexDigest(prohibitedEvidence)
             )
         ]
         evidenceLeak.auditFacts = ["evidence:prohibited-content-detected", "evidence:redaction-failed"]
         scenarios.append(evidenceLeak)
 
         var unsafeFallback = base("DEV138-FALLBACK-EXPANDS-TRUST")
-        unsafeFallback.fallbackPlan.selection = .chosen(
-            TrustBoundary(providerRank: 3, maximumDataClass: .c3NeverTransfer, retentionRank: 2, toolRank: 2, effectBudget: 2)
+        let unsafeFallbackEvent = event(
+            unsafeFallback.state,
+            .modelAvailability(
+                .degraded(
+                    candidate: TrustBoundary(
+                        providerRank: 3,
+                        maximumDataClass: .c3NeverTransfer,
+                        retentionRank: 2,
+                        toolRank: 2,
+                        effectBudget: 2
+                    )
+                )
+            )
         )
+        unsafeFallback.state = unsafeFallbackEvent.decision.state
+        unsafeFallback.eventRecords.append(unsafeFallbackEvent)
         unsafeFallback.auditFacts = ["fallback:expanded-trust", "refusal:fallback"]
         scenarios.append(unsafeFallback)
 
@@ -557,23 +591,52 @@ enum DeterministicScenarios {
         scenarios.append(ignoredInjection)
 
         var loop = base("DEV138-LOOP")
-        loop.state.transitionHistory = [.sourceToDestination, .sourceToDestination]
-        loop.state.transitionCount = 2
-        loop.state.visitedProfiles = ["source", "destination", "source"]
+        let (destinationState, destinationRecords) = committedExecution()
+        let revisit = HandoffProposal(
+            sourceProfile: destinationState.activeProfile,
+            sourceProvider: destinationState.activeProvider,
+            destinationProfile: "source",
+            destinationProvider: "provider-a"
+        )
+        let loopRefusal = event(
+            destinationState,
+            .proposeBaton(proposal: revisit)
+        )
+        loop.state = loopRefusal.decision.state
+        loop.eventRecords = destinationRecords + [loopRefusal]
         loop.auditFacts = ["transition:loop-detected", "refusal:loop"]
+        rebind(&loop)
         scenarios.append(loop)
 
         var unavailable = base("DEV138-MODEL-UNAVAILABLE-EXPLICIT")
         clearCommands(&unavailable)
-        unavailable.fallbackPlan.selection = .unavailable
+        let unavailableEvent = event(
+            unavailable.state,
+            .modelAvailability(.unavailable)
+        )
+        unavailable.state = unavailableEvent.decision.state
+        unavailable.eventRecords.append(unavailableEvent)
         unavailable.auditFacts = ["fallback:explicit-unavailable"]
         scenarios.append(unavailable)
 
         var safeFallback = base("DEV138-MODEL-UNAVAILABLE-SAFE")
         clearCommands(&safeFallback)
-        safeFallback.fallbackPlan.selection = .chosen(
-            TrustBoundary(providerRank: 1, maximumDataClass: .c1TaskPrivate, retentionRank: 0, toolRank: 1, effectBudget: 0)
+        let safeFallbackEvent = event(
+            safeFallback.state,
+            .modelAvailability(
+                .degraded(
+                    candidate: TrustBoundary(
+                        providerRank: 1,
+                        maximumDataClass: .c1TaskPrivate,
+                        retentionRank: 0,
+                        toolRank: 1,
+                        effectBudget: 0
+                    )
+                )
+            )
         )
+        safeFallback.state = safeFallbackEvent.decision.state
+        safeFallback.eventRecords.append(safeFallbackEvent)
         safeFallback.auditFacts = ["fallback:safe-alternative"]
         scenarios.append(safeFallback)
 
@@ -599,7 +662,10 @@ enum DeterministicScenarios {
         scenarios.append(invalidPhase)
 
         var precommitRollback = base("DEV138-PRECOMMIT-ROLLBACK")
-        let proposalForFailure = event(.initial, .proposeBaton)
+        let proposalForFailure = event(
+            .initial,
+            .proposeBaton(proposal: HandoffProposal.fixture(from: .initial))
+        )
         let failure = event(proposalForFailure.decision.state, .failPrecommit)
         precommitRollback.state = failure.decision.state
         precommitRollback.eventRecords = [proposalForFailure, failure]
@@ -693,8 +759,10 @@ enum DeterministicScenarios {
         scenarios.append(unauthorizedTool)
 
         var repairedTranscript = consultation("DEV138-TRANSCRIPT-REPAIRED")
-        repairedTranscript.transcript = [.call("call-001"), .result("call-001")]
-        let repair = event(repairedTranscript.state, .repairTranscript)
+        let repair = event(
+            repairedTranscript.state,
+            .repairTranscript(entries: [.call("call-001")])
+        )
         repairedTranscript.state = repair.decision.state
         repairedTranscript.eventRecords.append(repair)
         repairedTranscript.auditFacts = ["transcript:repaired", "transcript:reused"]
@@ -702,7 +770,12 @@ enum DeterministicScenarios {
         scenarios.append(repairedTranscript)
 
         var unbalancedTranscript = consultation("DEV138-TRANSCRIPT-UNBALANCED")
-        unbalancedTranscript.transcript = [.call("call-001")]
+        let refusedReuse = event(
+            unbalancedTranscript.state,
+            .reuseTranscript(entries: [.call("call-001")])
+        )
+        unbalancedTranscript.state = refusedReuse.decision.state
+        unbalancedTranscript.eventRecords.append(refusedReuse)
         unbalancedTranscript.auditFacts = ["transcript:unbalanced", "refusal:transcript-reuse"]
         scenarios.append(unbalancedTranscript)
 
@@ -740,13 +813,42 @@ enum DeterministicScenarios {
             observation.state.commandHistory.append(observation.state.commandHistory[0])
             observation.state.executorCommandCount = 2
         case "fallback_expands_trust":
-            observation.fallbackPlan.selection = .chosen(
-                TrustBoundary(providerRank: 3, maximumDataClass: .c3NeverTransfer, retentionRank: 2, toolRank: 2, effectBudget: 2)
+            let fallbackAttempt = event(
+                observation.state,
+                .modelAvailability(
+                    .degraded(
+                        candidate: TrustBoundary(
+                            providerRank: 3,
+                            maximumDataClass: .c3NeverTransfer,
+                            retentionRank: 2,
+                            toolRank: 2,
+                            effectBudget: 2
+                        )
+                    )
+                )
             )
+            observation.state = fallbackAttempt.decision.state
+            observation.eventRecords.append(fallbackAttempt)
         case "evidence_leak":
+            let rawEvidence = "raw-" + "evidence-payload"
             observation.evidence = [
-                EvidenceRecord(classification: .rawContent, pathKind: .absolute, artifactExtension: ".trace", redaction: .raw, fingerprint: "synthetic")
+                EvidenceRecord(
+                    classification: .rawContent,
+                    pathKind: .absolute,
+                    artifactExtension: ".trace",
+                    redaction: .raw,
+                    content: rawEvidence,
+                    fingerprint: "sha256:" + SHA256.hexDigest(rawEvidence)
+                )
             ]
+        case "evidence_bad_fingerprint":
+            observation.evidence[0].fingerprint = "sha256:not-a-digest"
+        case "evidence_mismatched_fingerprint":
+            observation.evidence[0].fingerprint = "sha256:" + String(repeating: "0", count: 64)
+        case "evidence_metadata_disguised_prohibited":
+            let disguised = "synthetic-" + "credential-sentinel"
+            observation.evidence[0].content = disguised
+            observation.evidence[0].fingerprint = "sha256:" + SHA256.hexDigest(disguised)
         case "grant_person_mismatch":
             observation.grant.personID = "other-person"
         case "grant_session_mismatch":
