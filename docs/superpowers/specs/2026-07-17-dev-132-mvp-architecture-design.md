@@ -26,9 +26,9 @@ The following reviewed issue heads are binding inputs:
 | Issue | Reviewed head | Authority used here |
 | --- | --- | --- |
 | DEV-127 | `191e2da63b863b367341a614c1ea1d9b4a032cd7` | The authoritative fork started as a three-document repository with no inherited plugin/generation architecture. |
-| DEV-128 | `4f0b66ef7061d842f333e2749e74614f5331c915` | SDK 26.x compile-checked core, separately labelled OS/Xcode 27 beta surface, and distinct orchestration patterns. |
+| DEV-128 | `4f0b66ef7061d842f333e2749e74614f5331c915` | SDK 26.5 compile-checked core, separately labelled OS/Xcode 27 beta surface, and distinct orchestration patterns. |
 | DEV-129 | `3db33eb957326b4d22ebe482c21925dd23b03af0` | One physical skill tree, narrow workflows, explicit generated Codex artifacts, host-specific loading, and no custom worker by default. |
-| DEV-130 | `5e27a1c81a4c45199c912a5cbb750a30a8c7bf17` | Fail-closed reducer, context/grant/effect boundaries, recovery, fallback, and metadata-only evidence. |
+| DEV-130 | `5e27a1c81a4c45199c912a5cbb750a30a8c7bf17` | Fail-closed reducer, context/grant/effect boundaries, recovery, fallback, metadata-only runtime evidence, and safe synthetic proof. |
 | DEV-131 | `3792e8c98a387b7f9c48bd210d25938b40cdd5fe` | Deterministic/rubric/real-host evidence separation, stable IDs, safe evidence, and explicit blocker semantics. |
 
 Apple API claims remain subordinate to current official Apple documentation,
@@ -48,7 +48,8 @@ shape for a repository devoted to one plugin.
 Root placement is conditional rather than assumed. DEV-135 and DEV-139 must
 prove cached-install integrity and fresh real invocation/reference loading on
 the installed Claude Code `2.1.91` and Codex `0.144.5` hosts. The effective
-cached payload must not expose repository-only fixtures as plugin capabilities.
+cached payload must exclude repository-only fixtures, tests, research, and
+private repository state; none may be exposed as plugin capabilities.
 
 ### Approved fallback: conventional plugin subdirectory
 
@@ -127,7 +128,7 @@ The proposed shared reference library is concern-owned:
 | --- | --- |
 | `references/architecture-and-state.md` | Common output schema, state model, ownership, transitions, termination, cancellation, retry, and repair |
 | `references/orchestration-patterns.md` | Baton-pass, isolated consultation, routing, transcript transfer, and pattern-selection tables |
-| `references/apple-api-availability.md` | SDK 26.x compiled surface, OS/Xcode 27 beta layer, errors, availability, cache caveats, PCC/providers, and runtime Skills disambiguation |
+| `references/apple-api-availability.md` | SDK 26.5 compiled surface, OS/Xcode 27 beta layer, errors, availability, cache caveats, PCC/providers, and runtime Skills disambiguation |
 | `references/security-context-and-recovery.md` | Trust boundaries, C0-C3 classification, grants, confirmation, tool provenance, effect ledger, fallback, traces, and residual risks |
 | `references/evaluation-and-observability.md` | Stable D/E IDs, datasets, rubric, evidence bundle, host matrix, Evaluations, Instruments, and blocker policy |
 
@@ -220,8 +221,9 @@ independent full guide.
 ```
 
 Root packaging passes only if cached payload inspection and real activation
-show that `fixtures/`, repository tests, research docs, and private repository
-state are not exposed as plugin capabilities/effective payload content.
+show that repository-only `fixtures/`, tests, research, and private repository
+state are absent from effective cached payload content and are not exposed as
+plugin capabilities.
 
 ### Approved conventional fallback
 
@@ -270,7 +272,7 @@ Skills, coding-session handoff, Apple Handoff, and App Intents remain separate.
 
 ## Apple API and model boundaries
 
-Runnable guidance uses the compile-checked SDK 26.x core: sessions, on-device
+Runnable guidance uses the compile-checked SDK 26.5 core: sessions, on-device
 availability/context, tools, runtime dynamic schemas, transcript Codable and
 rehydration, streaming shapes, prewarm, and the stable versioned error surface.
 Static macros remain blocked under the installed Command Line Tools because
@@ -370,15 +372,19 @@ untrusted proposals/data.
 | `transitioning` | commit before external uncertainty | Activate destination, transfer owner only for baton-pass, increment `stateVersion`, return `stable` |
 | `transitioning` | known pre-commit failure/cancellation | Restore checkpoint, clear pending state, return source identity to `stable` |
 | `transitioning` | possible/confirmed external commit or uncertain cancellation | Record one effect identity, retain repair facts, enter `recoveryRequired` |
-| `recoveryRequired` | explicit successful reconciliation | Resolve ledger truth, produce one valid stable state, then allow retry if policy/budget permit |
-| `recoveryRequired` | replay/late failure/cancellation | Preserve recovery evidence; emit no duplicate command |
-| any non-transitioning phase | budget exhaustion or no safe available path | Enter `terminated` or explicit unavailable/degraded terminal result without expanding trust |
+| `recoveryRequired` | explicit successful reconciliation | Establish external truth, resolve ledger truth, produce one valid stable state, then allow retry if policy/budget permit |
+| `recoveryRequired` | replayed or late event | Preserve phase, authority, pending/checkpoint state, counts, effect ledger, and repair facts exactly; emit no command |
+| `recoveryRequired` | no safe reconciliation path is currently available | Remain `recoveryRequired`, preserve the ledger and repair facts, and return an explicit repair-blocked/unavailable result until explicit reconciliation establishes external truth |
+| `stable` | budget exhaustion or no safe available path | Enter `terminated` or return an explicit unavailable/degraded terminal result without expanding trust |
 
 `policyVersion` changes only through a separate trusted policy operation.
-Commit increments `stateVersion`, not `policyVersion`. Late events cannot erase
-pending recovery. Transcript rollback never claims to undo an external effect.
-The guarantee is application-controlled at-most-once command emission plus
-reconciliation, never exactly-once external delivery.
+Commit increments `stateVersion`, not `policyVersion`. Late or replayed events
+cannot change authority, phase, pending state, checkpoint, counts, or ledger.
+Unresolved recovery cannot be relabelled `terminated`; only explicit successful
+reconciliation may establish external truth and leave `recoveryRequired`.
+Transcript rollback never claims to undo an external effect. The guarantee is
+application-controlled at-most-once command emission plus reconciliation,
+never exactly-once external delivery.
 
 ## Trust, context, tools, and confirmation
 
@@ -456,11 +462,19 @@ Every result status is `pass`, `fail`, `blocked`, or `not_applicable`. A zero
 denominator yields `not_applicable` with null value. One host's pass does not
 replace another host's blocker.
 
-Committed evidence is synthetic/redacted, allowlisted, normalized, hashed,
-metadata-only, and excludes raw real prompts/responses/reasoning, tool
-arguments/results, credentials, private configuration, real user data,
-`.trace`, and `.xcresult`. Raw Instruments traces remain outside the repository
-under separately approved access/retention/deletion policy.
+Runtime/live-host logs, traces, and derived capability telemetry may contribute
+only normalized metadata to committed evidence; their raw/source content is
+excluded. The canonical DEV-131 allowlist separately permits a hash-bound
+synthetic or approved-redacted rubric stimulus, rubric assessments with only
+the bounded rationales required for review, and a redacted summary. Those
+artifacts must pass the DEV-131 path, content, structured-key, classification,
+and hash scanners before commit.
+
+Raw/live prompts, responses, reasoning, tool arguments/results, credentials,
+private configuration, real user or third-party data, host identity, `.trace`,
+and `.xcresult` remain excluded. Raw Instruments traces and any other authorized
+live-host artifact remain outside the repository under separately approved
+access, retention, redaction, and deletion policy.
 
 ## Design-level E2E scenario suite
 
@@ -471,7 +485,7 @@ profile gathers evidence and a review profile takes over and answers the user.â€
 
 1. Activation selects `design-apple-foundation-models-handoff` because the
    request asks for a new handoff architecture.
-2. The workflow inspects repository and SDK evidence, labels SDK 26.x compiled
+2. The workflow inspects repository and SDK evidence, labels SDK 26.5 compiled
    primitives separately from OS/Xcode 27 dynamic-profile guidance, and does
    not invent a `BatonPass` type.
 3. Pattern selection chooses `baton_pass`: one session, selected shared
@@ -574,7 +588,7 @@ proposed tree are contracts for downstream issues, not files created here.
 The DEV-132 PR is stacked on DEV-131 and contains separately reviewable commits
 for design, plan, decision/evidence artifacts, and narrow review corrections.
 Before opening it, rebase onto the final reviewed DEV-131 head, verify issue
-blobs and the exact allowed path set, rerun the existing SDK 26.x, security, and
+blobs and the exact allowed path set, rerun the existing SDK 26.5, security, and
 evaluation regression gates, and obtain fresh whole-issue review.
 
 ## Completion criteria

@@ -73,20 +73,28 @@ the commit or PR. Any correction must modify one of the four allowed files.
 - Selected root source `./` only after cached-install integrity and fresh real
   activation/reference proof on both pinned hosts. Deterministic fallback is
   `./plugins/apple-foundation-models-handoff` with no external symlink.
-- Repository `fixtures/` remain test-only and outside the installed/effective
-  capability payload.
+- Repository-only fixtures, tests, research, and private repository state remain
+  outside both plugin capabilities and the effective cached payload.
 - Baton-pass and isolated consultation are distinct first-class patterns;
   routing, transcript transfer, Apple Handoff, App Intents, runtime Skills,
   Agent Skills, and coding-session handoff are not aliases.
-- SDK 26.x compiled core is separate from OS/Xcode 27 beta guidance.
+- SDK 26.5 compiled claims are separate from the broader SDK 26.x family
+  boundary and from OS/Xcode 27 beta guidance.
 - Deterministic reducer, independent `stateVersion` and `policyVersion`, phases
   `stable|transitioning|recoveryRequired|terminated`, one stable active
   profile/provider, finite budgets, C0-C3 classification, bound grant,
   confirmation, provenance, effect ledger, fail-closed transfer, reconciliation
-  before retry, and no exactly-once/rollback claim.
+  before retry, and no exactly-once/rollback claim. Ordinary budget/no-safe-path
+  termination applies only from `stable`; unresolved recovery preserves its
+  phase, authority, pending/checkpoint state, counts, ledger, and repair facts
+  and returns repair-blocked/unavailable until explicit reconciliation.
 - Evidence layers remain separate: deterministic `D-*`, exact seven-dimension
   human rubric, real-host `E-*`, and optional Apple evidence. Statuses are
   `pass|fail|blocked|not_applicable`; zero denominator is not applicable.
+  Runtime/live-host logs, traces, and derived capability telemetry are
+  metadata-only. The DEV-131 allowlist may contain a hash-bound synthetic or
+  approved-redacted rubric stimulus, assessments with bounded rationales, and
+  a redacted summary after all path/content/key/classification/hash scanners.
 
 ## Task 1: Publish the durable decision record
 
@@ -164,17 +172,22 @@ Use `apply_patch` to create the file. It must:
    references;
 4. distinguish canonical inputs, generated outputs, and edit rules;
 5. include the complete root candidate tree and complete conventional fallback
-   tree, the precise fallback triggers, and the marketplace source for each;
+   tree, the precise fallback triggers, marketplace source for each, and the
+   exclusion of repository-only material from capabilities and effective cached
+   payload content;
 6. state that root placement is conditional evidence, not a present success;
 7. define baton-pass and isolated consultation ownership/context differences
    and name the concepts that remain separate;
-8. separate compiled SDK 26.x, interface-only, beta, pseudocode, and blocked
-   claims;
+8. separate compiled SDK 26.5, interface-only SDK 26.5, beta, pseudocode, and
+   blocked claims;
 9. summarize the common output schema and workflow-specific additions;
 10. preserve state, trust, context, grant, confirmation, effect, replay,
-    recovery, and fallback invariants;
+    recovery, and fallback invariants, including stable-only termination and
+    `recoveryRequired` until explicit reconciliation establishes external truth;
 11. preserve all four evaluation layers, exact rubric dimensions/thresholds,
-    status meanings, and evidence exclusions;
+    status meanings, metadata-only runtime/live-host telemetry, the allowlisted
+    synthetic/approved-redacted rubric and summary exception, and all raw/live
+    evidence exclusions;
 12. record rejected alternatives and deferred work; and
 13. provide a decision-propagation table for DEV-133 through DEV-141 with
     source, rationale, inherited decision, and impact.
@@ -201,6 +214,7 @@ for token in \
   'validate-apple-foundation-models-handoff' \
   'plugins/apple-foundation-models-handoff' \
   'stateVersion' 'policyVersion' 'recoveryRequired' \
+  'no safe reconciliation' 'metadata-only' 'rubric stimulus' \
   'D-OWNER-001' 'not_applicable' 'DEV-141'; do
   rg -q -F "$token" "$record"
 done
@@ -249,7 +263,9 @@ Expected staged path: the decision record only.
 Give the implementer Task 2 only. It may change only the scenario JSON. Require
 normalized synthetic data, no raw prompt/response/reasoning/tool content, no
 real user data, no credentials, and no claim that a design-level case ran a
-real host, model, provider, or Apple runtime.
+real host, model, provider, or Apple runtime. Synthetic scenario evidence must
+still satisfy the DEV-131 path, content, structured-key, classification, and
+hash boundaries; this file does not authorize raw/live evidence.
 
 ### Step 2: Establish the JSON contract RED
 
@@ -323,7 +339,10 @@ Encode exactly these cases:
   uncertain allowed effect; debug skill; attempted pattern is `baton_pass`; C3
   envelope emits zero commands; uncertain effect retains exactly one
   command/effect and enters `recoveryRequired`; replay emits no second command;
-  reconciliation required.
+  reconciliation required. A late/replayed event changes no authority, phase,
+  pending/checkpoint state, counts, or ledger. If no safe reconciliation path is
+  currently available, the result is repair-blocked/unavailable while the
+  phase, ledger, and repair facts remain unchanged.
 
 Keep the two branches in Scenario 4 explicit so the blocked C3 envelope is not
 misrepresented as having been dispatched.
@@ -409,9 +428,13 @@ assert outcomes['C3_PROVIDER_ENVELOPE'] == 'blocked_zero_commands'
 assert outcomes['UNCERTAIN_ALLOWED_EFFECT'] == 'one_effect_one_command'
 assert outcomes['REPLAY'] == 'zero_additional_commands'
 assert outcomes['RETRY'] == 'blocked_until_reconciled'
+assert outcomes['LATE_OR_REPLAYED_EVENT'] == 'no_state_or_authority_mutation'
+assert outcomes['NO_SAFE_RECONCILIATION'] == (
+    'repair_blocked_remain_recovery_required'
+)
 
 allowed_labels = {
-    'compiled_sdk_26_x', 'interface_verified_sdk_26_x',
+    'compiled_sdk_26_5', 'interface_verified_sdk_26_5',
     'official_os_xcode_27_beta_locally_unverified',
     'pseudocode_deterministic_mock', 'blocked',
 }
@@ -438,8 +461,9 @@ Run two read-only reviewers in parallel because they share no mutable state:
 2. **Security and recovery risk reviewer:** compare Scenarios 2 and 4 against
    DEV-130. It must actively look for C3 serialization, conflated blocked and
    dispatched paths, unauthorized trust expansion, replay, exactly-once or
-   rollback overclaim, missing reconciliation, sensitive evidence, or
-   `stateVersion`/`policyVersion` drift.
+   rollback overclaim, missing reconciliation, termination before
+   reconciliation, late/replayed mutation of authority/phase/pending/checkpoint/
+   counts/ledger, sensitive evidence, or `stateVersion`/`policyVersion` drift.
 
 Reviewers do not edit. The Task 2 implementer resolves only confirmed findings;
 rerun the complete semantic oracle after each change.
