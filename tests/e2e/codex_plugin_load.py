@@ -17,10 +17,21 @@ PLUGIN_ID = "apple-foundation-models-handoff"
 MARKETPLACE = "agent-apple-foundation-handoff"
 PLUGIN_ROOT = ROOT / "plugins" / PLUGIN_ID
 VERSION_RE = re.compile(r"^codex-cli 0\.144\.5$")
+REFERENCE_FILES = {
+    f"references/{name}"
+    for name in (
+        "architecture-and-state.md",
+        "orchestration-patterns.md",
+        "apple-api-availability.md",
+        "security-context-and-recovery.md",
+        "evaluation-and-observability.md",
+    )
+}
 EXPECTED_CACHE_FILES = {
     ".claude-plugin/plugin.json",
     ".codex-plugin/plugin.json",
     "metadata/codex-interface.json",
+    *REFERENCE_FILES,
 }
 
 EVIDENCE_ID = "E-CODEX-LOAD-001"
@@ -511,13 +522,18 @@ def probe(
             "enabled": True,
             "capabilities": [],
             "cacheFiles": sorted(EXPECTED_CACHE_FILES),
+            "referenceFiles": sorted(REFERENCE_FILES),
+            "referenceSha256": {
+                relative_path: source_hashes[relative_path]
+                for relative_path in sorted(REFERENCE_FILES)
+            },
             "canonicalManifestSha256": source_hashes[
                 ".claude-plugin/plugin.json"
             ],
             "generatedManifestSha256": source_hashes[
                 ".codex-plugin/plugin.json"
             ],
-            "capabilityActivation": "blocked/production_skill_not_implemented",
+            "capabilityActivation": "blocked/production_skills_not_integrated",
         }
 
 
