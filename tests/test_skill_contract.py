@@ -110,6 +110,31 @@ RESULT_FIELDS = (
     "limitations",
 )
 
+POSITIVE_RESULT_LINES = (
+    "activationStatus = activated",
+    "selectedSkill",
+    "routerInput = { domain, requestedOperation, artifactState, evidenceState }",
+    "architectureResult",
+    '  architectureSchemaVersion: "1.0"',
+    "  stateVersion: <independent state schema version>",
+    "  policyVersion: <independent policy version>",
+    "  workflow",
+    "  scope",
+    "  pattern = baton_pass | isolated_consultation | deterministic_routing | "
+    "transcript_transfer",
+    "  source = { profile, provider }",
+    "  destination = { profile, provider }",
+    "  finalResponseOwner",
+    "  apiAvailability[] = { surface, versionLabel, compileStatus, source }",
+    "  stateModel",
+    "  trustBoundaries[]",
+    "  contextPolicy",
+    "  toolAndEffectPolicy",
+    "  failurePolicy",
+    "  verification[] = { id, layer, status, evidence }",
+    "  limitations[]",
+)
+
 COMMON_SECTIONS = (
     "Activation and Scope",
     "Pattern and Ownership",
@@ -232,6 +257,14 @@ CLARIFICATION_VALUES = {
     "missingInput": "domain | approved_contract",
     "question": "<one bounded question>",
 }
+
+CORE_SEMANTIC_SECTION_TITLES = (
+    "Routing and Inspection",
+    "Common Workflow Protocol",
+    "Output Contract",
+    "References",
+    "Guardrails",
+)
 
 
 @dataclass(frozen=True)
@@ -370,6 +403,21 @@ def assert_exact_shape(
     test_case.assertEqual(expected_values, values)
 
 
+def assert_exact_positive_result_shape(
+    test_case: unittest.TestCase, section: MarkdownSection
+) -> None:
+    fenced = re.fullmatch(
+        r"```text\n(?P<body>.*?)\n```",
+        section.direct_body,
+        flags=re.DOTALL,
+    )
+    if fenced is None:
+        test_case.fail(
+            "positive result must contain exactly one fenced normalized text block"
+        )
+    test_case.assertEqual("\n".join(POSITIVE_RESULT_LINES), fenced.group("body"))
+
+
 def assert_non_positive_exclusions(
     test_case: unittest.TestCase, section: MarkdownSection
 ) -> None:
@@ -459,6 +507,25 @@ def assert_exclusive_section_ownership(
     guardrails: MarkdownSection,
     skill: str,
 ) -> None:
+    core_owners = dict(
+        zip(
+            CORE_SEMANTIC_SECTION_TITLES,
+            (routing, protocol, output, references, guardrails),
+            strict=True,
+        )
+    )
+    for title, owner in core_owners.items():
+        matches = [
+            section
+            for section in sections
+            if normalize_title(section.title) == normalize_title(title)
+        ]
+        test_case.assertEqual(
+            [owner],
+            matches,
+            f"{title} must appear exactly once as its level-two owner",
+        )
+
     assignment_pattern = re.compile(
         r"(?m)^\s*(?:[-*]\s*)?`?([A-Za-z][A-Za-z0-9]*)`?\s*[:=]"
     )
@@ -666,18 +733,7 @@ def assert_structured_skill_contract(
                 f"common protocol step {number} lacks {pattern}",
             )
 
-    test_case.assertIn('architectureSchemaVersion: "1.0"', output.direct_body)
-    for field in RESULT_FIELDS:
-        test_case.assertRegex(
-            output.direct_body,
-            rf"(?<![A-Za-z0-9_]){re.escape(field)}(?![A-Za-z0-9_])",
-        )
-    normalized_output = re.sub(r"\s+", " ", output.direct_body)
-    for version_field in ("stateVersion", "policyVersion"):
-        test_case.assertRegex(
-            normalized_output,
-            rf"(?i)(?:independent.{{0,80}}{version_field}|{version_field}.{{0,80}}independent)",
-        )
+    assert_exact_positive_result_shape(test_case, output)
 
     expected_output_sections = (*COMMON_SECTIONS, *WORKFLOW_SECTIONS[skill])
     observed_output_sections = tuple(
@@ -769,20 +825,7 @@ def build_valid_skill_fixture(skill: str) -> str:
     router_lines = [
         f"{field} = {' | '.join(values)}" for field, values in ROUTER_ENUMS.items()
     ]
-    output_fields = "\n".join(
-        (
-            "```text",
-            "activationStatus = activated",
-            "selectedSkill = <selected skill>",
-            "routerInput = <four normalized router inputs>",
-            "architectureResult = <structured result>",
-            'architectureSchemaVersion: "1.0"',
-            "stateVersion = <independent state schema version>",
-            "policyVersion = <independent policy version>",
-            *(f"{field} = <value>" for field in RESULT_FIELDS[7:]),
-            "```",
-        )
-    )
+    output_fields = "\n".join(("```text", *POSITIVE_RESULT_LINES, "```"))
     rendered_sections = []
     for section in (*COMMON_SECTIONS, *WORKFLOW_SECTIONS[skill]):
         if section == "Verification and Evidence":
@@ -1011,6 +1054,81 @@ class SkillContractMutationTests(unittest.TestCase):
             with self.subTest(mutation=name):
                 self.assert_rejected(candidate)
 
+    def test_positive_result_requires_the_exact_normalized_machine_envelope(
+        self,
+    ) -> None:
+        fixture = build_valid_skill_fixture(self.skill)
+        output_start = fixture.index("## Output Contract\n") + len(
+            "## Output Contract\n"
+        )
+        output_end = fixture.index("\n\n### Activation and Scope", output_start)
+        prose_only = (
+            "Reviewer prose mentions every expected token: "
+            + " ".join(RESULT_FIELDS)
+            + ' architectureSchemaVersion: "1.0"; '
+            + "stateVersion is independent; policyVersion is independent."
+        )
+        mutation = fixture[:output_start] + prose_only + fixture[output_end:]
+
+        self.assert_rejected(mutation)
+
+    def test_positive_result_rejects_every_exact_shape_mutation(self) -> None:
+        fixture = build_valid_skill_fixture(self.skill)
+        selected = "selectedSkill\n"
+        router = (
+            "routerInput = { domain, requestedOperation, artifactState, evidenceState }\n"
+        )
+        schema = '  architectureSchemaVersion: "1.0"\n'
+        state_version = "  stateVersion: <independent state schema version>\n"
+        mutations = {
+            "wrong fence language": fixture.replace(
+                "## Output Contract\n```text\n",
+                "## Output Contract\n```yaml\n",
+                1,
+            ),
+            "extra line": fixture.replace(
+                "  limitations[]\n```",
+                "  limitations[]\n  extraField\n```",
+                1,
+            ),
+            "outer reorder": fixture.replace(
+                selected + router,
+                router + selected,
+                1,
+            ),
+            "outer duplicate": fixture.replace(
+                selected,
+                selected + selected,
+                1,
+            ),
+            "outer omission": fixture.replace("architectureResult\n", "", 1),
+            "router shape": fixture.replace(
+                router,
+                "routerInput = { domain, requestedOperation, evidenceState }\n",
+                1,
+            ),
+            "schema version": fixture.replace(
+                schema,
+                '  architectureSchemaVersion: "2.0"\n',
+                1,
+            ),
+            "nested reorder": fixture.replace(
+                schema + state_version,
+                state_version + schema,
+                1,
+            ),
+            "nested duplicate": fixture.replace(
+                state_version,
+                state_version + state_version,
+                1,
+            ),
+            "nested omission": fixture.replace("  limitations[]\n", "", 1),
+        }
+
+        for name, candidate in mutations.items():
+            with self.subTest(mutation=name):
+                self.assert_rejected(candidate)
+
     def test_output_omission_and_misplaced_guardrail_or_reference_are_rejected(self) -> None:
         fixture = build_valid_skill_fixture(self.skill)
         missing_output = fixture.replace(
@@ -1109,6 +1227,22 @@ class SkillContractMutationTests(unittest.TestCase):
                 f"## Guardrails\n{router_domain}\n",
                 1,
             ),
+        }
+
+        for name, candidate in mutations.items():
+            with self.subTest(mutation=name):
+                self.assert_rejected(candidate)
+
+    def test_core_semantic_headings_reject_wrong_level_copies(self) -> None:
+        fixture = build_valid_skill_fixture(self.skill)
+        mutations = {
+            f"level {level} {title}": fixture.replace(
+                "## References\n",
+                f"## References\n{'#' * level} {title}\nCopied contract content.\n",
+                1,
+            )
+            for level in (3, 4)
+            for title in CORE_SEMANTIC_SECTION_TITLES
         }
 
         for name, candidate in mutations.items():

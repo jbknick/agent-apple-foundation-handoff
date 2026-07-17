@@ -657,11 +657,17 @@ class RepositoryGuidanceTests(unittest.TestCase):
         valid = "# Repository guidance\n"
         assert_guidance_does_not_duplicate_skill_sections(self, valid)
 
-        for heading in SKILL_OWNED_SECTION_HEADINGS:
-            with self.subTest(heading=heading), self.assertRaises(AssertionError):
-                assert_guidance_does_not_duplicate_skill_sections(
-                    self, f"{valid}\n## {heading}\nDuplicated workflow content.\n"
-                )
+        for level in (3, 4):
+            for heading in SKILL_OWNED_SECTION_HEADINGS:
+                with (
+                    self.subTest(level=level, heading=heading),
+                    self.assertRaises(AssertionError),
+                ):
+                    assert_guidance_does_not_duplicate_skill_sections(
+                        self,
+                        f"{valid}\n{'#' * level} {heading}\n"
+                        "Duplicated workflow content.\n",
+                    )
 
     def test_guidance_preserves_safe_synthetic_and_redacted_evidence_exception(self):
         canonical_text = normalized_guide(CANONICAL)

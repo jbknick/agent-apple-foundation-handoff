@@ -500,6 +500,7 @@ class PluginContractTests(unittest.TestCase):
             "mcp/server.json",
             "package.json",
             f"skills/{SKILLS[0]}/SKILL-copy.md",
+            f"skills/{SKILLS[0]}/output-contract.json",
             f"skills/{SKILLS[0]}/agents/openai.yaml",
             f"skills/{SKILLS[0]}/references/copied.md",
         )
