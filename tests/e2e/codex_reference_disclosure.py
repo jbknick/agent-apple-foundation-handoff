@@ -900,6 +900,231 @@ class DirectedReferenceProbeTests(unittest.TestCase):
             observed_reference_reads(events, "synthetic-case")
         self.assertIn(raised.exception.reason, expected_reasons)
 
+    def direct_reader_events(
+        self,
+        command: str,
+        *,
+        surface: str,
+        cwd: Path,
+        identifier: str = "reader-1",
+    ) -> list[dict[str, Any]]:
+        if surface == "command_event":
+            return self.command_events(
+                command,
+                cwd=str(cwd),
+                identifier=identifier,
+            )
+        nested = {"payload": {"command": command, "cwd": str(cwd)}}
+        arguments: object = (
+            nested if surface == "nested_mapping" else json.dumps(nested)
+        )
+        return self.tool_events(
+            "mcp_tool_call",
+            {"arguments": arguments},
+            identifier=identifier,
+        )
+
+    def test_direct_rg_grep_accept_one_regular_owner_and_safe_search_operands(self):
+        relative_owner = (
+            f"{REFERENCE_ROOT_RELATIVE}/apple-api-availability.md"
+        )
+        absolute_owner = str(
+            REFERENCE_ROOT / "apple-api-availability.md"
+        )
+        commands = {
+            "rg_relative_n": (f"rg -n needle {relative_owner}", ROOT),
+            "rg_absolute_e": (
+                f"rg -e {shlex.quote('[;|&<>]')} {absolute_owner}",
+                ROOT,
+            ),
+            "rg_fixed_double_dash": (
+                f"rg --fixed-strings -- {shlex.quote('needle;|&')} "
+                f"{relative_owner}",
+                ROOT,
+            ),
+            "grep_relative_e": (
+                f"grep -n -e needle {relative_owner}",
+                ROOT,
+            ),
+            "grep_absolute_fixed": (
+                f"grep -F -- {shlex.quote('needle[;]')} {absolute_owner}",
+                ROOT,
+            ),
+            "grep_basename_from_owner_directory": (
+                "grep -n needle apple-api-availability.md",
+                REFERENCE_ROOT,
+            ),
+        }
+        for surface in (
+            "command_event",
+            "nested_mapping",
+            "json_string_arguments",
+        ):
+            for name, (command, cwd) in commands.items():
+                with self.subTest(surface=surface, form=name):
+                    self.assertEqual(
+                        {"apple-api-availability.md"},
+                        observed_reference_reads(
+                            self.direct_reader_events(
+                                command,
+                                surface=surface,
+                                cwd=cwd,
+                            ),
+                            "synthetic-case",
+                        ),
+                    )
+
+    def test_direct_rg_grep_reject_ambiguous_operands_options_and_dataflow(self):
+        owner = f"{REFERENCE_ROOT_RELATIVE}/apple-api-availability.md"
+        other = f"{REFERENCE_ROOT_RELATIVE}/architecture-and-state.md"
+        absolute_owner = str(
+            REFERENCE_ROOT / "apple-api-availability.md"
+        )
+        rejected = {
+            "owner_plus_dot": (f"rg needle {owner} .", ROOT),
+            "explicit_directory": (
+                f"rg needle {REFERENCE_ROOT_RELATIVE}",
+                ROOT,
+            ),
+            "implicit_dot": ("rg needle .", REFERENCE_ROOT),
+            "stdin": ("grep needle -", REFERENCE_ROOT),
+            "glob": (f"rg needle {REFERENCE_ROOT_RELATIVE}/*.md", ROOT),
+            "recursive": (f"grep -r needle {absolute_owner}", ROOT),
+            "multiple_files": (f"rg needle {owner} {other}", ROOT),
+            "duplicate_file": (f"grep needle {owner} {owner}", ROOT),
+            "basename_as_pattern": (
+                "rg apple-api-availability.md .",
+                REFERENCE_ROOT,
+            ),
+            "basename_as_option_value": (
+                "grep -e apple-api-availability.md architecture-and-state.md",
+                REFERENCE_ROOT,
+            ),
+            "rg_pattern_file_short": (f"rg -f {owner} {other}", ROOT),
+            "rg_pattern_file_long": (
+                f"rg --file {owner} {other}",
+                ROOT,
+            ),
+            "grep_pattern_file_short": (
+                f"grep -f {owner} {other}",
+                ROOT,
+            ),
+            "grep_pattern_file_long": (
+                f"grep --file={owner} {other}",
+                ROOT,
+            ),
+            "ignore_file_split": (
+                f"rg --ignore-file {owner} needle {owner}",
+                ROOT,
+            ),
+            "ignore_file_equals": (
+                f"rg --ignore-file={owner} needle {owner}",
+                ROOT,
+            ),
+            "pre_reader": (f"rg --pre {owner} needle {owner}", ROOT),
+            "pre_glob": (
+                f"rg --pre-glob {owner} needle {owner}",
+                ROOT,
+            ),
+            "search_zip": (f"rg --search-zip needle {owner}", ROOT),
+            "unknown_long_split": (f"rg --mystery needle {owner}", ROOT),
+            "unknown_long_equals": (
+                f"rg --mystery=value needle {owner}",
+                ROOT,
+            ),
+            "unknown_short": (f"grep -Q needle {owner}", ROOT),
+            "shell_wrapper": (
+                "bash -c " + shlex.quote(f"rg needle {owner}"),
+                ROOT,
+            ),
+            "pipeline": (f"rg needle {owner} | cat", ROOT),
+            "redirection": (f"grep needle {owner} > /tmp/reference", ROOT),
+        }
+        expected_reasons = {
+            "ambiguous_reference_read",
+            "bulk_reference_content_read",
+            "reference_directory_read",
+        }
+        for surface in (
+            "command_event",
+            "nested_mapping",
+            "json_string_arguments",
+        ):
+            for name, (command, cwd) in rejected.items():
+                with self.subTest(surface=surface, form=name):
+                    self.assert_probe_failure_in(
+                        self.direct_reader_events(
+                            command,
+                            surface=surface,
+                            cwd=cwd,
+                        ),
+                        expected_reasons,
+                    )
+
+    def test_duplicate_direct_reader_invocations_fail_instead_of_set_deduplication(self):
+        owner = f"{REFERENCE_ROOT_RELATIVE}/apple-api-availability.md"
+        command = f"rg -n needle {owner}"
+        for surface in (
+            "command_event",
+            "nested_mapping",
+            "json_string_arguments",
+        ):
+            with self.subTest(surface=surface):
+                events = self.direct_reader_events(
+                    command,
+                    surface=surface,
+                    cwd=ROOT,
+                    identifier="reader-1",
+                ) + self.direct_reader_events(
+                    command,
+                    surface=surface,
+                    cwd=ROOT,
+                    identifier="reader-2",
+                )
+                self.assert_probe_failure_in(
+                    events,
+                    {"ambiguous_reference_read", "bulk_reference_content_read"},
+                )
+
+    def test_syntactically_valid_wrong_direct_reader_owner_is_selection_mismatch(self):
+        wrong_owner = (
+            f"{REFERENCE_ROOT_RELATIVE}/architecture-and-state.md"
+        )
+        events = self.direct_reader_events(
+            f"grep -n needle {wrong_owner}",
+            surface="command_event",
+            cwd=ROOT,
+        )
+        with self.assertRaises(ProbeFailure) as raised:
+            observed = observed_reference_reads(events, "synthetic-case")
+            if observed != {"apple-api-availability.md"}:
+                raise ProbeFailure(
+                    "reference_selection_mismatch",
+                    "synthetic-case",
+                )
+        self.assertEqual("reference_selection_mismatch", raised.exception.reason)
+
+    def test_prior_authoritative_direct_reader_result_remains_failed(self):
+        evidence = (
+            ROOT
+            / "docs/research/evidence/dev-137-reference-library-e2e.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "The newest two-call-prompt final-code `DEV137-CODEX-REF-001` run "
+            "failed closed",
+            evidence,
+        )
+        self.assertIn(
+            "That newest result is authoritative and is not converted to a "
+            "prerequisite blocker or pass.",
+            " ".join(evidence.split()),
+        )
+        self.assertRegex(
+            evidence,
+            r"\| `DEV137-CODEX-REF-001` \| fail / "
+            r"`bulk_reference_content_read` at `pattern-final-owner`;",
+        )
+
     def test_prompt_requires_two_separate_calls_without_owner_hint(self):
         required_phrases = (
             "exactly two separate tool invocations",
