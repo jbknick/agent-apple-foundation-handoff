@@ -104,6 +104,42 @@ class GeneratedArtifactTests(unittest.TestCase):
             newline="\n",
         )
 
+    def _assert_rendered_json_is_rejected_before_destination_inspection(
+        self,
+        renderer_name: str,
+        rendered: bytes,
+        relative_path: Path,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            isolated_root = Path(directory)
+            self._copy_canonical_inputs(isolated_root)
+            self.assertTrue(sync.synchronize(isolated_root, write=True))
+            before = {
+                path: (isolated_root / path).read_bytes()
+                for path in GENERATED_OUTPUTS
+            }
+            diagnostic = io.StringIO()
+
+            with mock.patch.object(sync, renderer_name, return_value=rendered):
+                with mock.patch.object(sync, "_scan_generated_namespaces") as scan:
+                    with contextlib.redirect_stderr(diagnostic):
+                        synchronized = sync.synchronize(isolated_root, write=True)
+
+            self.assertFalse(synchronized)
+            scan.assert_not_called()
+            self.assertEqual(
+                f"{relative_path.as_posix()}: "
+                "unsafe or unwritable generated output\n",
+                diagnostic.getvalue(),
+            )
+            self.assertEqual(
+                before,
+                {
+                    path: (isolated_root / path).read_bytes()
+                    for path in GENERATED_OUTPUTS
+                },
+            )
+
     def test_expected_artifacts_are_the_exact_three_paths(self):
         artifacts = sync.expected_artifacts(ROOT)
 
@@ -173,6 +209,88 @@ class GeneratedArtifactTests(unittest.TestCase):
         self.assertEqual(["name", "interface", "plugins"], list(rendered))
         self.assertEqual(["name", "source", "policy", "category"], list(entry))
         self.assertEqual(content, sync.render_codex_marketplace(inputs))
+
+    def test_malformed_rendered_json_is_rejected_before_destination_inspection(self):
+        inputs = sync.load_canonical_inputs(ROOT)
+        marketplace_with_duplicate_key = sync.render_codex_marketplace(inputs).replace(
+            b'  "name": "agent-apple-foundation-handoff",\n',
+            b'  "name": "agent-apple-foundation-handoff",\n'
+            b'  "name": "agent-apple-foundation-handoff",\n',
+            1,
+        )
+        cases = (
+            (
+                "manifest malformed JSON",
+                "render_codex_manifest",
+                b"not-json\n",
+                GENERATED_OUTPUTS[2],
+            ),
+            (
+                "marketplace invalid UTF-8",
+                "render_codex_marketplace",
+                b"\xff\n",
+                GENERATED_OUTPUTS[1],
+            ),
+            (
+                "marketplace duplicate key",
+                "render_codex_marketplace",
+                marketplace_with_duplicate_key,
+                GENERATED_OUTPUTS[1],
+            ),
+        )
+
+        for name, renderer_name, rendered, relative_path in cases:
+            with self.subTest(name=name):
+                self._assert_rendered_json_is_rejected_before_destination_inspection(
+                    renderer_name, rendered, relative_path
+                )
+
+    def test_renderer_ownership_and_closed_shapes_are_enforced_before_writes(self):
+        inputs = sync.load_canonical_inputs(ROOT)
+        manifest_ownership_drift = json.loads(sync.render_codex_manifest(inputs))
+        manifest_ownership_drift["description"] = "Renderer-owned description drift."
+        manifest_extra_key = json.loads(sync.render_codex_manifest(inputs))
+        manifest_extra_key["skills"] = []
+        marketplace_ownership_drift = json.loads(sync.render_codex_marketplace(inputs))
+        marketplace_ownership_drift["plugins"][0]["name"] = "wrong-plugin"
+        marketplace_extra_key = json.loads(sync.render_codex_marketplace(inputs))
+        marketplace_extra_key["plugins"][0]["unexpected"] = True
+        cases = (
+            (
+                "manifest ownership drift",
+                "render_codex_manifest",
+                manifest_ownership_drift,
+                GENERATED_OUTPUTS[2],
+            ),
+            (
+                "manifest extra key",
+                "render_codex_manifest",
+                manifest_extra_key,
+                GENERATED_OUTPUTS[2],
+            ),
+            (
+                "marketplace ownership drift",
+                "render_codex_marketplace",
+                marketplace_ownership_drift,
+                GENERATED_OUTPUTS[1],
+            ),
+            (
+                "marketplace extra key",
+                "render_codex_marketplace",
+                marketplace_extra_key,
+                GENERATED_OUTPUTS[1],
+            ),
+        )
+
+        for name, renderer_name, rendered, relative_path in cases:
+            with self.subTest(name=name):
+                self._assert_rendered_json_is_rejected_before_destination_inspection(
+                    renderer_name,
+                    (json.dumps(rendered, ensure_ascii=False, indent=2) + "\n").encode(
+                        "utf-8"
+                    ),
+                    relative_path,
+                )
 
     def test_write_creates_all_outputs(self):
         with tempfile.TemporaryDirectory() as directory:

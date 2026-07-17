@@ -435,14 +435,70 @@ def render_codex_marketplace(inputs: CanonicalInputs) -> bytes:
     )
 
 
+def _rendered_json(encoded: bytes, relative_path: Path) -> Mapping[str, object]:
+    """Parse one rendered JSON output without exposing parser details."""
+
+    try:
+        if not isinstance(encoded, bytes):
+            raise TypeError("rendered JSON must be bytes")
+        value = json.loads(
+            encoded.decode("utf-8"), object_pairs_hook=_pairs_without_duplicates
+        )
+        if not isinstance(value, dict):
+            raise ValueError("rendered JSON must be an object")
+        return value
+    except (TypeError, UnicodeError, ValueError) as error:
+        raise GeneratedOutputError(relative_path) from error
+
+
+def _validate_rendered_codex_manifest(
+    encoded: bytes, inputs: CanonicalInputs
+) -> None:
+    """Validate the generated manifest's closed shape and canonical ownership."""
+
+    rendered = _rendered_json(encoded, CODEX_MANIFEST)
+    shared_fields = set(inputs.shared_manifest)
+    fields = shared_fields | {"interface"}
+    try:
+        rendered = _closed_object(rendered, fields, fields)
+        shared = {field: rendered[field] for field in inputs.shared_manifest}
+        _validate_shared_manifest(shared)
+        _validate_codex_interface(rendered["interface"])
+        if shared != inputs.shared_manifest:
+            raise ValueError("generated shared identity ownership")
+        if rendered["interface"] != inputs.codex_interface:
+            raise ValueError("generated interface ownership")
+    except (TypeError, ValueError) as error:
+        raise GeneratedOutputError(CODEX_MANIFEST) from error
+
+
+def _validate_rendered_codex_marketplace(
+    encoded: bytes, inputs: CanonicalInputs
+) -> None:
+    """Validate the generated marketplace's contract and canonical parity."""
+
+    rendered = _rendered_json(encoded, CODEX_MARKETPLACE)
+    try:
+        _validate_codex_marketplace(rendered, inputs.shared_manifest)
+        if rendered != inputs.codex_marketplace:
+            raise ValueError("generated marketplace ownership")
+    except (TypeError, ValueError) as error:
+        raise GeneratedOutputError(CODEX_MARKETPLACE) from error
+
+
 def expected_artifacts(root: Path) -> dict[Path, bytes]:
     """Render every generated artifact without writing it."""
 
     inputs = load_canonical_inputs(root)
+    agents = render_agents(inputs.guidance).encode("utf-8")
+    marketplace = render_codex_marketplace(inputs)
+    manifest = render_codex_manifest(inputs)
+    _validate_rendered_codex_marketplace(marketplace, inputs)
+    _validate_rendered_codex_manifest(manifest, inputs)
     return {
-        Path("AGENTS.md"): render_agents(inputs.guidance).encode("utf-8"),
-        CODEX_MARKETPLACE: render_codex_marketplace(inputs),
-        CODEX_MANIFEST: render_codex_manifest(inputs),
+        Path("AGENTS.md"): agents,
+        CODEX_MARKETPLACE: marketplace,
+        CODEX_MANIFEST: manifest,
     }
 
 
