@@ -1315,6 +1315,177 @@ class DirectedReferenceProbeTests(unittest.TestCase):
                         expected_reasons,
                     )
 
+    def test_direct_searches_cannot_hide_implicit_reference_scope(self):
+        owner = f"{REFERENCE_ROOT_RELATIVE}/apple-api-availability.md"
+        implicit_bulk = {
+            "implicit_repository_root": ("rg Apple", ROOT),
+            "explicit_repository_dot": ("rg Apple .", ROOT),
+            "recursive_repository_dot": ("grep -r Apple .", ROOT),
+            "package_relative_reference_directory": (
+                "rg Apple references",
+                REFERENCE_ROOT.parent,
+            ),
+            "owner_parent_from_reference_root": ("rg Apple ..", REFERENCE_ROOT),
+        }
+        expected_reasons = {
+            "ambiguous_reference_read",
+            "bulk_reference_content_read",
+            "reference_directory_read",
+            "reference_path_outside_package",
+        }
+        for surface in (
+            "command_event",
+            "nested_mapping",
+            "json_string_arguments",
+        ):
+            for name, (command, cwd) in implicit_bulk.items():
+                with self.subTest(surface=surface, form=name):
+                    self.assert_probe_failure_in(
+                        self.direct_reader_events(
+                            command,
+                            surface=surface,
+                            cwd=cwd,
+                        ),
+                        expected_reasons,
+                    )
+
+            with self.subTest(surface=surface, form="hidden_before_owner"):
+                events = self.direct_reader_events(
+                    "rg Apple .",
+                    surface=surface,
+                    cwd=ROOT,
+                    identifier="bulk-1",
+                ) + self.direct_reader_events(
+                    f"rg -n needle {owner}",
+                    surface=surface,
+                    cwd=ROOT,
+                    identifier="reader-1",
+                )
+                self.assert_probe_failure_in(events, expected_reasons)
+
+    def test_reference_access_sequence_is_exactly_discovery_then_one_read(self):
+        owner = f"{REFERENCE_ROOT_RELATIVE}/apple-api-availability.md"
+        discovery = self.command_events(
+            f"rg --files {REFERENCE_ROOT_RELATIVE}",
+            identifier="discovery-1",
+        )
+        second_discovery = self.command_events(
+            f"rg --files {REFERENCE_ROOT_RELATIVE}",
+            identifier="discovery-2",
+        )
+        read = self.command_events(
+            f"rg -n needle {owner}",
+            identifier="reader-1",
+        )
+
+        def strict_observed(events: list[dict[str, Any]]) -> set[str]:
+            try:
+                return observed_reference_reads(
+                    events,
+                    "synthetic-case",
+                    require_exact_sequence=True,
+                )
+            except TypeError:
+                self.fail(
+                    "observed_reference_reads has no strict sequence contract"
+                )
+
+        self.assertEqual(
+            {"apple-api-availability.md"},
+            strict_observed(discovery + read),
+        )
+        invalid_sequences = {
+            "read_without_discovery": read,
+            "discovery_without_read": discovery,
+            "duplicate_discovery": discovery + second_discovery + read,
+            "read_before_discovery": read + discovery,
+            "extra_discovery_after_read": discovery + read + second_discovery,
+        }
+        for name, events in invalid_sequences.items():
+            with self.subTest(sequence=name):
+                with self.assertRaises(ProbeFailure) as raised:
+                    strict_observed(events)
+                self.assertIn(
+                    raised.exception.reason,
+                    {"ambiguous_reference_read", "bulk_reference_content_read"},
+                )
+
+    def test_run_case_requires_the_exact_reference_access_sequence(self):
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=b'{"type":"turn.completed"}\n',
+            stderr=b"",
+        )
+        strict_arguments: list[bool] = []
+
+        def sequence_spy(
+            events: list[dict[str, Any]],
+            task_id: str,
+            *,
+            require_exact_sequence: bool = False,
+        ) -> set[str]:
+            strict_arguments.append(require_exact_sequence)
+            raise ProbeFailure("sequence_checked", task_id)
+
+        with (
+            patch(f"{__name__}.subprocess.run", return_value=completed),
+            patch(
+                f"{__name__}.observed_reference_reads",
+                side_effect=sequence_spy,
+            ),
+        ):
+            with self.assertRaises(ProbeFailure) as raised:
+                run_case(
+                    "codex",
+                    {},
+                    "pattern-final-owner",
+                    CASES["pattern-final-owner"],
+                )
+        self.assertEqual("sequence_checked", raised.exception.reason)
+        self.assertEqual([True], strict_arguments)
+
+    def test_nested_input_commands_preserve_declared_reference_cwd(self):
+        valid = "rg -n needle apple-api-availability.md"
+        implicit_bulk = "rg Apple ."
+        for as_json in (False, True):
+            arguments: object = {
+                "input": valid,
+                "cwd": str(REFERENCE_ROOT),
+            }
+            if as_json:
+                arguments = json.dumps(arguments)
+            with self.subTest(json_string=as_json, form="valid_owner"):
+                self.assertEqual(
+                    {"apple-api-availability.md"},
+                    observed_reference_reads(
+                        self.tool_events(
+                            "mcp_tool_call",
+                            {"arguments": arguments},
+                        ),
+                        "synthetic-case",
+                    ),
+                )
+
+            bulk_arguments: object = {
+                "input": implicit_bulk,
+                "cwd": str(REFERENCE_ROOT),
+            }
+            if as_json:
+                bulk_arguments = json.dumps(bulk_arguments)
+            with self.subTest(json_string=as_json, form="implicit_bulk"):
+                self.assert_probe_failure_in(
+                    self.tool_events(
+                        "mcp_tool_call",
+                        {"arguments": bulk_arguments},
+                    ),
+                    {
+                        "ambiguous_reference_read",
+                        "bulk_reference_content_read",
+                        "reference_directory_read",
+                    },
+                )
+
     def test_duplicate_direct_reader_invocations_fail_instead_of_set_deduplication(self):
         owner = f"{REFERENCE_ROOT_RELATIVE}/apple-api-availability.md"
         command = f"rg -n needle {owner}"
