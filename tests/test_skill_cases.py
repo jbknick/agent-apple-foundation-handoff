@@ -10,7 +10,6 @@ import tempfile
 import unittest
 from collections import Counter
 from pathlib import Path
-from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -419,6 +418,24 @@ def sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
+def canonical_payload_sha256(value) -> str:
+    payload = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return sha256_bytes(payload)
+
+
+def fixture_payload_sha256(fixture: dict) -> str:
+    return canonical_payload_sha256(fixture)
+
+
+def captured_executable_sha256() -> str:
+    return sha256_bytes(b"approved-synthetic-codex-executable-identity")
+
+
 def prompt_sha256(case: dict) -> str:
     return sha256_bytes(case["prompt"].encode("utf-8"))
 
@@ -428,13 +445,7 @@ def rubric_contract_sha256(fixture: dict, case: dict) -> str:
         "name": case["rubricContract"],
         "checks": fixture["rubricContracts"][case["rubricContract"]],
     }
-    canonical = json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return sha256_bytes(canonical)
+    return canonical_payload_sha256(payload)
 
 
 def token_is_present(text: str, token: str) -> bool:
@@ -1258,6 +1269,7 @@ def _forward_outputs(fixture: dict, **overrides: str) -> dict[str, dict]:
 def _passing_prerequisites(executable: str = "/opt/codex") -> dict:
     return {
         "resolvedExecutable": executable,
+        "executableSha256": captured_executable_sha256(),
         "version": "0.144.5",
         "authenticated": True,
         "modelAvailable": True,
@@ -1360,6 +1372,90 @@ def _assert_forward_evidence_schema(
     assert_private_values_absent(evidence)
 
 
+def _derived_status(verdicts: list[str]) -> str:
+    for status in ("fail", "blocked", "pass"):
+        if status in verdicts:
+            return status
+    return "not_applicable"
+
+
+def _assert_forward_evidence_derivations(
+    test: unittest.TestCase,
+    runner,
+    fixture: dict,
+    scorer_outputs: dict[str, dict],
+    evidence: dict,
+    *,
+    host_results: list[dict] | None = None,
+    executable_sha256: str | None = None,
+) -> None:
+    _assert_forward_evidence_schema(test, evidence)
+    test.assertEqual(fixture_payload_sha256(fixture), evidence["fixtureSha256"])
+    rows = evidence["cases"]
+    test.assertLessEqual(len(rows), len(fixture["cases"]))
+    for index, (case, row) in enumerate(
+        zip(fixture["cases"], rows, strict=False)
+    ):
+        scored = runner.score_case(case, scorer_outputs[case["id"]])
+        test.assertEqual(case["id"], row["caseId"])
+        test.assertEqual(case["skillUnderTest"], row["skillUnderTest"])
+        test.assertEqual(prompt_sha256(case), row["promptSha256"])
+        test.assertEqual(
+            rubric_contract_sha256(fixture, case),
+            row["rubricContractSha256"],
+        )
+        test.assertEqual(scored["assertions"], row["assertions"])
+        test.assertEqual(scored["verdict"], row["verdict"])
+        if host_results is None:
+            observation = scorer_outputs[case["id"]]
+            test.assertIsNone(row["codexExitCode"])
+            test.assertEqual(observation["responseSha256"], row["responseSha256"])
+            test.assertEqual(observation["responseBytes"], row["responseBytes"])
+            test.assertEqual(observation["toolEventCount"], row["toolEventCount"])
+        else:
+            result = host_results[index]
+            test.assertEqual(result["codexExitCode"], row["codexExitCode"])
+            test.assertEqual(result["responseSha256"], row["responseSha256"])
+            test.assertEqual(result["responseBytes"], row["responseBytes"])
+            test.assertEqual(result["toolEventCount"], row["toolEventCount"])
+
+    verdicts = [row["verdict"] for row in rows]
+    expected_summary = {
+        "fixtureCaseCount": len(fixture["cases"]),
+        "attemptedCount": len(rows),
+        "passedCount": verdicts.count("pass"),
+        "failedCount": verdicts.count("fail"),
+        "blockedCount": verdicts.count("blocked"),
+        "notApplicableCount": verdicts.count("not_applicable"),
+    }
+    test.assertEqual(expected_summary, evidence["summary"])
+    test.assertEqual(_derived_status(verdicts), evidence["status"])
+    test.assertEqual(
+        executable_sha256,
+        evidence["host"]["resolvedExecutableSha256"],
+    )
+
+
+def _write_bound_evidence(
+    runner,
+    path: Path,
+    evidence: dict,
+    fixture: dict,
+    scorer_outputs: dict[str, dict],
+    *,
+    executable_sha256: str | None = None,
+    fault_hook=None,
+) -> None:
+    runner.write_evidence(
+        path,
+        evidence,
+        fixture=fixture,
+        scorer_outputs=scorer_outputs,
+        executable_sha256=executable_sha256,
+        fault_hook=fault_hook,
+    )
+
+
 class _FakePrerequisiteChecker:
     def __init__(self, *snapshots: dict) -> None:
         self.snapshots = [copy.deepcopy(value) for value in snapshots]
@@ -1384,6 +1480,7 @@ class _FakeHostProcess:
         self.commands: list[list[str]] = []
         self.inputs: list[str] = []
         self.output_paths: list[Path] = []
+        self.results: list[dict] = []
         self.timeline = timeline if timeline is not None else []
 
     def __call__(self, command: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
@@ -1403,6 +1500,14 @@ class _FakeHostProcess:
                 '{"type":"turn.completed"}',
             )
         )
+        self.results.append(
+            {
+                "codexExitCode": returncode,
+                "responseSha256": sha256_bytes(response),
+                "responseBytes": len(response),
+                "toolEventCount": 1,
+            }
+        )
         return subprocess.CompletedProcess(command, returncode, jsonl, "")
 
 
@@ -1411,14 +1516,18 @@ class _FakeScorer:
         self,
         observations: dict[str, dict],
         timeline: list[str] | None = None,
+        error: Exception | None = None,
     ) -> None:
         self.observations = observations
         self.calls: list[str] = []
         self.timeline = timeline if timeline is not None else []
+        self.error = error
 
     def __call__(self, case: dict, response: bytes, tool_events: list[dict]) -> dict:
         self.calls.append(case["id"])
         self.timeline.append("score")
+        if self.error is not None:
+            raise self.error
         return copy.deepcopy(self.observations[case["id"]])
 
 
@@ -1448,6 +1557,15 @@ class _ExplodingScorerOutputs(dict):
         raise AssertionError("scorer outputs were read before fixture validation")
 
 
+class _AtomicFault:
+    def __init__(self, phase: str) -> None:
+        self.phase = phase
+
+    def __call__(self, phase: str) -> None:
+        if phase == self.phase:
+            raise OSError(f"injected {phase} failure")
+
+
 class CodexForwardRunnerContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -1465,7 +1583,8 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
         fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
         timeline: list[str] = []
         process = _FakeHostProcess(timeline=timeline)
-        scorer = _FakeScorer(_forward_outputs(fixture), timeline)
+        outputs = _forward_outputs(fixture)
+        scorer = _FakeScorer(outputs, timeline)
         checker = _FakePrerequisiteChecker(_passing_prerequisites("/captured/codex"))
         code, evidence = self.runner.run_host(
             fixture,
@@ -1493,6 +1612,15 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
         self.assertNotIn("--model", command)
         self.assertEqual(1, evidence["cases"][0]["toolEventCount"])
         self.assertFalse(Path(output_path).exists())
+        _assert_forward_evidence_derivations(
+            self,
+            self.runner,
+            fixture,
+            outputs,
+            evidence,
+            host_results=process.results,
+            executable_sha256=captured_executable_sha256(),
+        )
 
     def test_scoring_schema_is_closed_and_status_precedence_is_stable(self) -> None:
         case = self.fixture["cases"][0]
@@ -1553,7 +1681,13 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                 self.assertEqual(expected_code, code)
                 self.assertEqual("offline", evidence["mode"])
                 self.assertEqual(assertion_status, evidence["status"])
-                _assert_forward_evidence_schema(self, evidence)
+                _assert_forward_evidence_derivations(
+                    self,
+                    self.runner,
+                    fixture,
+                    outputs,
+                    evidence,
+                )
 
         aggregate = _forward_fixture(
             "DEV136-FWD-DESIGN-001",
@@ -1567,6 +1701,13 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
         code, evidence = self.runner.run_offline(aggregate, outputs)
         self.assertEqual(self.runner.FAIL, code)
         self.assertEqual("fail", evidence["status"])
+        _assert_forward_evidence_derivations(
+            self,
+            self.runner,
+            aggregate,
+            outputs,
+            evidence,
+        )
 
     def test_host_uses_fresh_processes_and_pre_post_checks_per_case(self) -> None:
         fixture = _forward_fixture(
@@ -1574,7 +1715,8 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
         )
         timeline: list[str] = []
         process = _FakeHostProcess(timeline=timeline)
-        scorer = _FakeScorer(_forward_outputs(fixture), timeline)
+        outputs = _forward_outputs(fixture)
+        scorer = _FakeScorer(outputs, timeline)
         checker = _FakePrerequisiteChecker(_passing_prerequisites())
 
         code, evidence = self.runner.run_host(
@@ -1602,12 +1744,23 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
         )
         self.assertEqual([1, 2], [row["sessionOrdinal"] for row in evidence["cases"]])
         self.assertTrue(all(not path.exists() for path in process.output_paths))
-        _assert_forward_evidence_schema(self, evidence)
+        _assert_forward_evidence_derivations(
+            self,
+            self.runner,
+            fixture,
+            outputs,
+            evidence,
+            host_results=process.results,
+            executable_sha256=captured_executable_sha256(),
+        )
 
     def test_host_blocks_exact_prerequisites_without_fallback(self) -> None:
         fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
         blockers = {
-            "missing_binary": {"resolvedExecutable": None},
+            "missing_binary": {
+                "resolvedExecutable": None,
+                "executableSha256": None,
+            },
             "version_mismatch": {"version": "0.144.4"},
             "authentication_unavailable": {"authenticated": False},
             "model_unavailable": {"modelAvailable": False},
@@ -1632,6 +1785,10 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                 self.assertEqual([], scorer.calls)
                 self.assertEqual(1, len(checker.calls))
                 self.assertEqual(reason, evidence["host"]["blockerReason"])
+                self.assertEqual(
+                    None if reason == "missing_binary" else captured_executable_sha256(),
+                    evidence["host"]["resolvedExecutableSha256"],
+                )
                 _assert_forward_evidence_schema(self, evidence)
 
     def test_post_capture_prerequisite_drift_fails_and_stops_without_retry(self) -> None:
@@ -1640,6 +1797,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
         )
         post_mutations = {
             "resolved_path": {"resolvedExecutable": "/opt/replaced-codex"},
+            "executable_bytes": {"executableSha256": "f" * 64},
             "version": {"version": "0.144.6"},
             "authentication": {"authenticated": False},
             "model": {"modelAvailable": False},
@@ -1663,6 +1821,9 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                 self.assertEqual(1, len(process.commands))
                 self.assertEqual([], scorer.calls)
                 self.assertEqual(2, len(checker.calls))
+                self.assertTrue(
+                    all(not path.exists() for path in process.output_paths)
+                )
                 self.assertEqual(
                     "post_capture_prerequisite_drift",
                     evidence["host"]["blockerReason"],
@@ -1689,6 +1850,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
         self.assertEqual(2, len(process.commands))
         self.assertEqual(4, len(checker.calls))
         self.assertEqual([fixture["cases"][0]["id"]], scorer.calls)
+        self.assertTrue(all(not path.exists() for path in process.output_paths))
 
         fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
         process = _FakeHostProcess(returncodes=[7])
@@ -1706,13 +1868,37 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
         self.assertEqual([], scorer.calls)
         self.assertEqual(2, len(checker.calls))
         self.assertEqual("process_failed", evidence["host"]["blockerReason"])
+        self.assertTrue(all(not path.exists() for path in process.output_paths))
+
+    def test_scorer_failure_cleans_raw_response_and_returns_stable_failure(self) -> None:
+        fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
+        process = _FakeHostProcess()
+        scorer = _FakeScorer(
+            _forward_outputs(fixture),
+            error=RuntimeError("injected scorer failure"),
+        )
+        checker = _FakePrerequisiteChecker(_passing_prerequisites())
+        code, evidence = self.runner.run_host(
+            fixture,
+            "/opt/codex",
+            process,
+            checker,
+            scorer,
+        )
+        self.assertEqual(self.runner.FAIL, code)
+        self.assertEqual([fixture["cases"][0]["id"]], scorer.calls)
+        self.assertEqual(2, len(checker.calls))
+        self.assertEqual("scoring_failed", evidence["host"]["blockerReason"])
+        self.assertNotIn("injected scorer failure", json.dumps(evidence))
+        self.assertTrue(all(not path.exists() for path in process.output_paths))
 
     def test_host_hashes_and_discards_raw_private_response_content(self) -> None:
         fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
         case = fixture["cases"][0]
         raw = b"Bearer synthetic-private-secret from /Users/private/customer.txt"
         process = _FakeHostProcess(responses=[raw])
-        scorer = _FakeScorer(_forward_outputs(fixture))
+        outputs = _forward_outputs(fixture)
+        scorer = _FakeScorer(outputs)
         code, evidence = self.runner.run_host(
             fixture,
             "/opt/codex",
@@ -1731,7 +1917,15 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
         self.assertNotIn("/Users/", serialized)
         self.assertNotIn(case["prompt"], serialized)
         self.assertFalse(process.output_paths[0].exists())
-        _assert_forward_evidence_schema(self, evidence)
+        _assert_forward_evidence_derivations(
+            self,
+            self.runner,
+            fixture,
+            outputs,
+            evidence,
+            host_results=process.results,
+            executable_sha256=captured_executable_sha256(),
+        )
 
     def assert_invalid_fixture_rejected_before_use(self, fixture: dict) -> None:
         offline_code, _ = self.runner.run_offline(
@@ -1798,7 +1992,8 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
     def test_structural_passes_never_substitute_for_behavioral_failure(self) -> None:
         fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
         process = _FakeHostProcess()
-        scorer = _FakeScorer(_forward_outputs(fixture, activation="fail"))
+        outputs = _forward_outputs(fixture, activation="fail")
+        scorer = _FakeScorer(outputs)
         code, evidence = self.runner.run_host(
             fixture,
             "/opt/codex",
@@ -1812,6 +2007,15 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
         self.assertEqual("pass", evidence["host"]["prerequisites"]["installation"])
         self.assertEqual(self.runner.FAIL, code)
         self.assertEqual("fail", evidence["status"])
+        _assert_forward_evidence_derivations(
+            self,
+            self.runner,
+            fixture,
+            outputs,
+            evidence,
+            host_results=process.results,
+            executable_sha256=captured_executable_sha256(),
+        )
 
     def test_cli_writes_evidence_and_returns_real_pass_fail_blocked_exits(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1864,7 +2068,13 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                     self.assertTrue(evidence_path.is_file())
                     evidence = load_json(evidence_path)
                     self.assertEqual(assertion_status, evidence["status"])
-                    _assert_forward_evidence_schema(self, evidence)
+                    _assert_forward_evidence_derivations(
+                        self,
+                        self.runner,
+                        self.fixture,
+                        outputs,
+                        evidence,
+                    )
 
             for flag, wrong_value, blocker_reason in (
                 ("--model", "fallback-model", "model_mismatch"),
@@ -1937,8 +2147,19 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
             _assert_forward_evidence_schema(self, blocked)
 
     def test_evidence_writer_rejects_recursive_schema_and_privacy_mutations(self) -> None:
-        fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
-        _, evidence = self.runner.run_offline(fixture, _forward_outputs(fixture))
+        fixture = _forward_fixture(
+            "DEV136-FWD-DESIGN-001",
+            "DEV136-FWD-REVIEW-001",
+        )
+        outputs = _forward_outputs(fixture)
+        _, evidence = self.runner.run_offline(fixture, outputs)
+
+        def falsify_score(value: dict) -> None:
+            value["cases"][0]["assertions"]["activation"] = "fail"
+            value["cases"][0]["verdict"] = "fail"
+            value["status"] = "fail"
+            value["summary"].update({"passedCount": 1, "failedCount": 1})
+
         mutations = {
             "top_extra": lambda value: value.update({"unexpected": True}),
             "host_missing": lambda value: value["host"].pop("sessionMode"),
@@ -1956,11 +2177,44 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
             "case_extra": lambda value: value["cases"][0].update(
                 {"rawResponse": "private"}
             ),
+            "row_order": lambda value: value["cases"].__setitem__(
+                slice(0, 2), list(reversed(value["cases"][:2]))
+            ),
+            "case_id_drift": lambda value: value["cases"][0].update(
+                {"caseId": value["cases"][1]["caseId"]}
+            ),
+            "skill_drift": lambda value: value["cases"][0].update(
+                {"skillUnderTest": SKILLS[1]}
+            ),
             "bad_hash": lambda value: value["cases"][0].update(
                 {"responseSha256": "not-a-hash"}
             ),
+            "arbitrary_response_hash": lambda value: value["cases"][0].update(
+                {"responseSha256": "b" * 64}
+            ),
+            "arbitrary_fixture_hash": lambda value: value.update(
+                {"fixtureSha256": "a" * 64}
+            ),
+            "arbitrary_prompt_hash": lambda value: value["cases"][0].update(
+                {"promptSha256": "a" * 64}
+            ),
+            "arbitrary_rubric_hash": lambda value: value["cases"][0].update(
+                {"rubricContractSha256": "a" * 64}
+            ),
+            "arbitrary_executable_hash": lambda value: value["host"].update(
+                {"resolvedExecutableSha256": "a" * 64}
+            ),
             "negative_count": lambda value: value["cases"][0].update(
                 {"responseBytes": -1}
+            ),
+            "response_count_drift": lambda value: value["cases"][0].update(
+                {"responseBytes": value["cases"][0]["responseBytes"] + 1}
+            ),
+            "tool_count_drift": lambda value: value["cases"][0].update(
+                {"toolEventCount": value["cases"][0]["toolEventCount"] + 1}
+            ),
+            "codex_exit_drift": lambda value: value["cases"][0].update(
+                {"codexExitCode": 0}
             ),
             "unknown_verdict": lambda value: value["cases"][0].update(
                 {"verdict": "unknown"}
@@ -1974,6 +2228,20 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
             "private_value": lambda value: value["host"].update(
                 {"blockerReason": "/Users/private/customer.txt"}
             ),
+            "changed_assertions_and_verdict": falsify_score,
+            "all_pass_under_failed_summary": lambda value: (
+                value.update({"status": "fail"}),
+                value["summary"].update({"passedCount": 1, "failedCount": 1}),
+            ),
+            "bucket_swap": lambda value: value["summary"].update(
+                {"passedCount": 1, "blockedCount": 1}
+            ),
+            "attempted_count_drift": lambda value: value["summary"].update(
+                {"attemptedCount": 3}
+            ),
+            "fixture_count_drift": lambda value: value["summary"].update(
+                {"fixtureCaseCount": 3}
+            ),
         }
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "evidence.json"
@@ -1983,7 +2251,13 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                     mutant = copy.deepcopy(evidence)
                     mutate(mutant)
                     with self.assertRaises(ValueError):
-                        self.runner.write_evidence(path, mutant)
+                        _write_bound_evidence(
+                            self.runner,
+                            path,
+                            mutant,
+                            fixture,
+                            outputs,
+                        )
                     self.assertEqual(
                         "old-evidence",
                         path.read_text(encoding="utf-8"),
@@ -1991,19 +2265,38 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
 
     def test_evidence_writer_is_closed_atomic_and_failure_safe(self) -> None:
         fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
-        _, evidence = self.runner.run_offline(fixture, _forward_outputs(fixture))
-        _assert_forward_evidence_schema(self, evidence)
+        outputs = _forward_outputs(fixture)
+        _, evidence = self.runner.run_offline(fixture, outputs)
+        _assert_forward_evidence_derivations(
+            self,
+            self.runner,
+            fixture,
+            outputs,
+            evidence,
+        )
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             path = root / "evidence.json"
             path.write_text("stale", encoding="utf-8")
-            self.runner.write_evidence(path, evidence)
+            _write_bound_evidence(
+                self.runner,
+                path,
+                evidence,
+                fixture,
+                outputs,
+            )
             self.assertEqual(evidence, load_json(path))
             self.assertEqual([path], list(root.iterdir()))
 
             mutant = {**evidence, "rawResponse": "private"}
             with self.assertRaises(ValueError):
-                self.runner.write_evidence(path, mutant)
+                _write_bound_evidence(
+                    self.runner,
+                    path,
+                    mutant,
+                    fixture,
+                    outputs,
+                )
 
             for operation in ("stage", "fsync", "replace"):
                 with self.subTest(operation=operation):
@@ -2011,13 +2304,15 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                     failure_root.mkdir()
                     destination = failure_root / "evidence.json"
                     destination.write_text("old-evidence", encoding="utf-8")
-                    with mock.patch.object(
-                        self.runner.tempfile if operation == "stage" else self.runner.os,
-                        "mkstemp" if operation == "stage" else operation,
-                        side_effect=OSError(f"injected {operation} failure"),
-                    ):
-                        with self.assertRaises(OSError):
-                            self.runner.write_evidence(destination, evidence)
+                    with self.assertRaises(OSError):
+                        _write_bound_evidence(
+                            self.runner,
+                            destination,
+                            evidence,
+                            fixture,
+                            outputs,
+                            fault_hook=_AtomicFault(operation),
+                        )
                     self.assertEqual(
                         "old-evidence",
                         destination.read_text(encoding="utf-8"),
@@ -2029,28 +2324,49 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
             symlink = root / "symlink-evidence.json"
             symlink.symlink_to(target)
             with self.assertRaises((OSError, ValueError)):
-                self.runner.write_evidence(symlink, evidence)
+                _write_bound_evidence(
+                    self.runner,
+                    symlink,
+                    evidence,
+                    fixture,
+                    outputs,
+                )
             self.assertEqual("private", target.read_text(encoding="utf-8"))
 
             directory_target = root / "directory-target"
             directory_target.mkdir()
             with self.assertRaises((OSError, ValueError)):
-                self.runner.write_evidence(directory_target, evidence)
+                _write_bound_evidence(
+                    self.runner,
+                    directory_target,
+                    evidence,
+                    fixture,
+                    outputs,
+                )
 
             real_parent = root / "real-parent"
             real_parent.mkdir()
             linked_parent = root / "linked-parent"
             linked_parent.symlink_to(real_parent, target_is_directory=True)
             with self.assertRaises((OSError, ValueError)):
-                self.runner.write_evidence(linked_parent / "evidence.json", evidence)
+                _write_bound_evidence(
+                    self.runner,
+                    linked_parent / "evidence.json",
+                    evidence,
+                    fixture,
+                    outputs,
+                )
             self.assertEqual([], list(real_parent.iterdir()))
 
             nonregular_parent = root / "nonregular-parent"
             nonregular_parent.write_text("not a directory", encoding="utf-8")
             with self.assertRaises((OSError, ValueError, NotADirectoryError)):
-                self.runner.write_evidence(
+                _write_bound_evidence(
+                    self.runner,
                     nonregular_parent / "evidence.json",
                     evidence,
+                    fixture,
+                    outputs,
                 )
 
 
