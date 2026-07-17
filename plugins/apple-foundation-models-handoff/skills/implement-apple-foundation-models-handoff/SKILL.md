@@ -106,20 +106,45 @@ Python checks, and verify the worktree before claiming no edits.
 Preserve the approved topology, source, destination, trigger, current owner, next
 owner, and final response owner. Map every code change back to that contract.
 
+Maintain exactly one stable owner at every state; only that owner authorizes the next
+transition, and model output, provider output, and tools never become the owner.
+
 ### Apple API Availability
 
 Verify each used Apple surface against installed interfaces before coding. Record its
 source, version label, local compilation state, and any unsupported boundary.
+
+versionLabel = compiled_sdk_26_5 | interface_verified_sdk_26_5 | official_os_xcode_27_beta_locally_unverified | pseudocode_deterministic_mock | blocked
+
+Record stable SDK 26.5 compile and interface errors separately from locally
+unverified OS/Xcode 27 beta errors.
 
 ### State and Lifecycle
 
 Implement only approved state fields, transitions, budgets, termination,
 cancellation, retry, idempotency, reconciliation, and migration behavior.
 
+For every allowed edge, define finite transition, tool-call, and external-effect
+budgets. Validate the event, source phase, allowed edge, grant, stateVersion, and
+policyVersion before mutating any budget. Persist the checkpoint before setting the
+phase to transitioning; only then may the reducer emit at most one executor command.
+
+Treat stateVersion and policyVersion as independent values, each with its own
+compatibility and migration rule. Terminate only from a stable phase with no
+unresolved pending command, pending effect, or recovery requirement.
+
 ### Trust and Model Boundaries
 
 Preserve each provider, session, profile, process, and external-service boundary.
 Require the approved grant before transferring control, context, tools, or effects.
+
+Classify every context field atomically as C0, C1, C2, or C3 before transfer; reject
+the whole envelope when any field is unknown or disallowed.
+
+Bind every grant to person, session, source profile, source provider, destination
+profile, destination provider, purpose, exact context classes, exact fields, tools,
+retention, expiry, C2 permission, stateVersion, and policyVersion. Invalidate and
+revalidate the grant before use whenever any binding drifts.
 
 ### Context Policy
 
@@ -131,10 +156,26 @@ retain required redaction, provenance, retention, and destination revalidation.
 Preserve tool provenance, confirmation timing, stable effect identity, result
 provenance, and at-most-once effect authority in code and tests.
 
+Accept a tool result only when its call ID, tool ID, tool version, provider, result
+type, and current state match the pending invocation; otherwise reject it.
+
+Require confirmation plus an application-controlled effect ID and application-owned
+effect ledger; execute every external effect at most once and reconcile ledger state
+with external truth before retry or replay.
+
 ### Failure Recovery and Fallback
 
 Implement fail-closed transitions, bounded retries, reconciliation before replay, and
 only the approved equal-or-lower-authority fallback.
+
+When external truth is uncertain, set recoveryRequired and remain in recovery until
+reconciliation proves the outcome. While recoveryRequired, late results, replay
+events, and cancellation preserve authority, pending command and effect, checkpoint,
+transition/tool/effect counts, effect ledger, and repair facts byte-identically and
+emit no executor command.
+
+Fallback never expands trust: it cannot widen context, provider, tool, effect,
+retention, grant, or authority boundaries.
 
 ### Verification and Evidence
 

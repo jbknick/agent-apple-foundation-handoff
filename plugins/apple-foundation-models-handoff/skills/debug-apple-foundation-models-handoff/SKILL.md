@@ -106,20 +106,45 @@ worktree before claiming no edits.
 Reconstruct the selected pattern, route, trigger, source, destination, current owner,
 next owner, and final response owner at the divergence boundary.
 
+Maintain exactly one stable owner at every state; only that owner authorizes the next
+transition, and model output, provider output, and tools never become the owner.
+
 ### Apple API Availability
 
 Compare claimed and installed Apple surfaces, version labels, compilation state, and
 error boundaries. Keep unsupported or locally unverified claims distinct.
+
+versionLabel = compiled_sdk_26_5 | interface_verified_sdk_26_5 | official_os_xcode_27_beta_locally_unverified | pseudocode_deterministic_mock | blocked
+
+Record stable SDK 26.5 compile and interface errors separately from locally
+unverified OS/Xcode 27 beta errors.
 
 ### State and Lifecycle
 
 Trace versioned reducer state and events to the first invalid edge. Check budgets,
 termination, cancellation, replay, idempotency, reconciliation, and repair facts.
 
+For every allowed edge, define finite transition, tool-call, and external-effect
+budgets. Validate the event, source phase, allowed edge, grant, stateVersion, and
+policyVersion before mutating any budget. Persist the checkpoint before setting the
+phase to transitioning; only then may the reducer emit at most one executor command.
+
+Treat stateVersion and policyVersion as independent values, each with its own
+compatibility and migration rule. Terminate only from a stable phase with no
+unresolved pending command, pending effect, or recovery requirement.
+
 ### Trust and Model Boundaries
 
 Test provider, session, profile, process, and external-service hypotheses without
 allowing authority or trust properties to cross an unproven boundary.
+
+Classify every context field atomically as C0, C1, C2, or C3 before transfer; reject
+the whole envelope when any field is unknown or disallowed.
+
+Bind every grant to person, session, source profile, source provider, destination
+profile, destination provider, purpose, exact context classes, exact fields, tools,
+retention, expiry, C2 permission, stateVersion, and policyVersion. Invalidate and
+revalidate the grant before use whenever any binding drifts.
 
 ### Context Policy
 
@@ -131,10 +156,26 @@ provenance, destination revalidation, and control-plane separation.
 Trace tool and result provenance, confirmation, stable effect identity, external
 truth, at-most-once behavior, and authority at the first divergent event.
 
+Accept a tool result only when its call ID, tool ID, tool version, provider, result
+type, and current state match the pending invocation; otherwise reject it.
+
+Require confirmation plus an application-controlled effect ID and application-owned
+effect ledger; execute every external effect at most once and reconcile ledger state
+with external truth before retry or replay.
+
 ### Failure Recovery and Fallback
 
 Keep uncertain external truth in recovery until reconciled. Do not retry or fall back
 through a broader context, provider, tool, effect, or retention boundary.
+
+When external truth is uncertain, set recoveryRequired and remain in recovery until
+reconciliation proves the outcome. While recoveryRequired, late results, replay
+events, and cancellation preserve authority, pending command and effect, checkpoint,
+transition/tool/effect counts, effect ledger, and repair facts byte-identically and
+emit no executor command.
+
+Fallback never expands trust: it cannot widen context, provider, tool, effect,
+retention, grant, or authority boundaries.
 
 ### Verification and Evidence
 

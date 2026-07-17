@@ -92,6 +92,7 @@ heading below verbatim and in order; do not rename, merge, or omit a heading.
 
 State the activation reason, design boundary, inspected artifacts, assumptions, and
 unavailable prerequisites. Keep adjacent Apple concepts outside the scope.
+Design is read-only: make no production edits.
 
 ### Pattern and Ownership
 
@@ -99,20 +100,45 @@ Compare baton pass, isolated consultation, deterministic routing, and transcript
 transfer. Select one pattern or an explicit no-handoff outcome. Name source,
 destination, trigger, current owner, next owner, and final response owner.
 
+Maintain exactly one stable owner at every state; only that owner authorizes the next
+transition, and model output, provider output, and tools never become the owner.
+
 ### Apple API Availability
 
 List each Apple surface used by the proposal with its evidence source, version label,
 and local compile or interface-inspection state. Keep unsupported surfaces labelled.
+
+versionLabel = compiled_sdk_26_5 | interface_verified_sdk_26_5 | official_os_xcode_27_beta_locally_unverified | pseudocode_deterministic_mock | blocked
+
+Record stable SDK 26.5 compile and interface errors separately from locally
+unverified OS/Xcode 27 beta errors.
 
 ### State and Lifecycle
 
 Define reducer authority, stable identities, valid transitions, termination,
 cancellation, retry budgets, idempotency, reconciliation, and version migration.
 
+For every allowed edge, define finite transition, tool-call, and external-effect
+budgets. Validate the event, source phase, allowed edge, grant, stateVersion, and
+policyVersion before mutating any budget. Persist the checkpoint before setting the
+phase to transitioning; only then may the reducer emit at most one executor command.
+
+Treat stateVersion and policyVersion as independent values, each with its own
+compatibility and migration rule. Terminate only from a stable phase with no
+unresolved pending command, pending effect, or recovery requirement.
+
 ### Trust and Model Boundaries
 
 Identify each session, profile, provider, process, and external service boundary.
 State the grant that permits each transfer and keep provider properties separate.
+
+Classify every context field atomically as C0, C1, C2, or C3 before transfer; reject
+the whole envelope when any field is unknown or disallowed.
+
+Bind every grant to person, session, source profile, source provider, destination
+profile, destination provider, purpose, exact context classes, exact fields, tools,
+retention, expiry, C2 permission, stateVersion, and policyVersion. Invalidate and
+revalidate the grant before use whenever any binding drifts.
 
 ### Context Policy
 
@@ -124,10 +150,26 @@ from model context and define redaction, retention, provenance, and revalidation
 Define tool provenance, allowed effects, confirmation timing, stable effect identity,
 result provenance, and the authority boundary for every requested side effect.
 
+Accept a tool result only when its call ID, tool ID, tool version, provider, result
+type, and current state match the pending invocation; otherwise reject it.
+
+Require confirmation plus an application-controlled effect ID and application-owned
+effect ledger; execute every external effect at most once and reconcile ledger state
+with external truth before retry or replay.
+
 ### Failure Recovery and Fallback
 
 Define fail-closed transitions, bounded retry, external-effect reconciliation,
 recovery prerequisites, and an equal-or-lower-authority fallback.
+
+When external truth is uncertain, set recoveryRequired and remain in recovery until
+reconciliation proves the outcome. While recoveryRequired, late results, replay
+events, and cancellation preserve authority, pending command and effect, checkpoint,
+transition/tool/effect counts, effect ledger, and repair facts byte-identically and
+emit no executor command.
+
+Fallback never expands trust: it cannot widen context, provider, tool, effect,
+retention, grant, or authority boundaries.
 
 ### Verification and Evidence
 
@@ -177,7 +219,8 @@ interface_verified_sdk_26_5 only for their proven local evidence boundaries.
 Compile-check Swift examples where supported; otherwise label pseudocode and
 unsupported APIs. A missing SDK, host, toolchain, binary, hardware, or prerequisite
 is blocked, never a pass. If a fixed reference target is absent, report the DEV-137
-integration prerequisite as blocked; do not create a substitute.
+integration prerequisite as blocked with reason `production_skills_not_integrated`;
+do not create a substitute.
 
 Non-positive results contain no architectureResult, workflow-specific sections,
 references, fabricated Apple claims, or host activation evidence.
