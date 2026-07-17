@@ -410,13 +410,13 @@ class RepositoryGuidanceTests(unittest.TestCase):
             r"(?<![A-Za-z0-9._-])/(?:pri" + r"vate/)?var/fol" + r"ders/",
             r"(?<![A-Za-z0-9._-])/t" + r"mp/",
             r"(?<![A-Za-z0-9])[A-Za-z]:[\\/]+Us" + r"ers[\\/]+",
-            r"(?<![\\/])(?:\\\\|//)[^\\/]+[\\/]+(?:Us"
+            r"(?<![:\\/])(?:\\\\|//)[^\\/]+[\\/]+(?:Us"
             + r"ers|ho"
             + r"me)[\\/]+",
-            r"(?<![A-Za-z0-9._-])/(?:[^/\\\s]+/)*" + host_executable,
-            r"(?<![A-Za-z0-9])[A-Za-z]:[\\/]+(?:[^\\/\s]+[\\/]+)*"
+            r"(?<![A-Za-z0-9._:/-])/(?:[^/\\\r\n\t]+/)*" + host_executable,
+            r"(?<![A-Za-z0-9])[A-Za-z]:[\\/]+(?:[^\\/\r\n\t]+[\\/]+)*"
             + host_executable,
-            r"(?<![\\/])(?:\\\\|//)[^\\/]+[\\/]+(?:[^\\/\s]+[\\/]+)*"
+            r"(?<![:\\/])(?:\\\\|//)[^\\/\r\n\t]+[\\/]+(?:[^\\/\r\n\t]+[\\/]+)*"
             + host_executable,
         )
         private_path = re.compile("|".join(private_patterns), re.IGNORECASE)
@@ -442,11 +442,16 @@ class RepositoryGuidanceTests(unittest.TestCase):
             "/srv/tools/cod" + "ex.exe",
             "D:\\Portable\\cla" + "ude.exe",
             "\\\\build-host\\tools\\cod" + "ex-0.144.5.exe",
+            "/Applications/Model Tools/cla" + "ude-2.1.91",
+            "D:\\Program Files\\Codex Tools\\cod" + "ex.exe",
+            "\\\\build-host\\Shared Tools\\cla" + "ude.exe",
         )
         safe_samples = (
             "docs/t" + "mp/example.md",
             "fixtures/var/fol" + "ders/example",
             "docs/tools/cla" + "ude.md",
+            "https://example.test/tools/cla" + "ude",
+            "http://localhost/docs/cod" + "ex",
             "<repo>",
             "<host-path>",
             "cla" + "ude",
