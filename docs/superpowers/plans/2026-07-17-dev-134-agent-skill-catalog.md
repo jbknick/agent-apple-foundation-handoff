@@ -492,40 +492,19 @@ separate single-purpose commit.
   import copy
   import hashlib
   import json
-  from pathlib import Path
+  from pathlib import Path, PurePosixPath
 
   artifact = Path('docs/research/evidence/dev-134-activation-prototype.json')
   data = json.loads(artifact.read_text())
-  assert set(data) == {
-      'schemaVersion', 'evidenceKind', 'sourceIssue', 'designArtifact',
-      'designArtifactSha256', 'contractArtifact', 'contractArtifactSha256',
-      'executionLayer', 'status', 'realHostRows', 'limitations', 'cases',
-  }
-  assert data['schemaVersion'] == '1.0'
-  assert data['evidenceKind'] == 'design_contract_prototype'
-  assert data['sourceIssue'] == 'DEV-134'
-  assert data['executionLayer'] == 'design_contract_prototype'
-  assert data['status'] == 'pass'
-  design = Path(data['designArtifact'])
-  contract = Path(data['contractArtifact'])
-  assert data['designArtifactSha256'] == hashlib.sha256(
-      design.read_bytes()
-  ).hexdigest()
-  assert data['contractArtifactSha256'] == hashlib.sha256(
-      contract.read_bytes()
-  ).hexdigest()
-  assert data['limitations']
-  assert data['realHostRows'] == {
-      'claude': {
-          'status': 'blocked',
-          'reason': 'production_skill_not_implemented',
-          'requiredEvidenceId': 'E-CLAUDE-ACTIVATE-001',
-      },
-      'codex': {
-          'status': 'blocked',
-          'reason': 'production_skill_not_implemented',
-          'requiredEvidenceId': 'E-CODEX-ACTIVATE-001',
-      },
+  EXPECTED_ARTIFACTS = {
+      'designArtifact': (
+          'docs/superpowers/specs/'
+          '2026-07-17-dev-134-agent-skill-catalog-design.md'
+      ),
+      'contractArtifact': (
+          'docs/architecture/'
+          'apple-foundation-models-handoff-skill-contract.md'
+      ),
   }
 
   COMMON = [
@@ -695,6 +674,49 @@ separate single-purpose commit.
       return built
 
   def check(candidate):
+      assert set(candidate) == {
+          'schemaVersion', 'evidenceKind', 'sourceIssue', 'designArtifact',
+          'designArtifactSha256', 'contractArtifact',
+          'contractArtifactSha256', 'executionLayer', 'status',
+          'realHostRows', 'limitations', 'cases',
+      }
+      assert candidate['schemaVersion'] == '1.0'
+      assert candidate['evidenceKind'] == 'design_contract_prototype'
+      assert candidate['sourceIssue'] == 'DEV-134'
+      assert candidate['executionLayer'] == 'design_contract_prototype'
+      assert candidate['status'] == 'pass'
+
+      # Exact binding is deliberately before Path construction or file reads.
+      for key, expected in EXPECTED_ARTIFACTS.items():
+          assert candidate[key] == expected
+
+      repository_root = Path.cwd().resolve()
+      for key, expected in EXPECTED_ARTIFACTS.items():
+          pure = PurePosixPath(expected)
+          assert not pure.is_absolute()
+          assert '..' not in pure.parts
+          assert pure.as_posix() == expected
+          bound = Path(expected)
+          assert not bound.is_symlink()
+          assert bound.is_file()
+          assert bound.resolve(strict=True).is_relative_to(repository_root)
+          assert candidate[f'{key}Sha256'] == hashlib.sha256(
+              bound.read_bytes()
+          ).hexdigest()
+
+      assert candidate['limitations']
+      assert candidate['realHostRows'] == {
+          'claude': {
+              'status': 'blocked',
+              'reason': 'production_skill_not_implemented',
+              'requiredEvidenceId': 'E-CLAUDE-ACTIVATE-001',
+          },
+          'codex': {
+              'status': 'blocked',
+              'reason': 'production_skill_not_implemented',
+              'requiredEvidenceId': 'E-CODEX-ACTIVATE-001',
+          },
+      }
       assert candidate['cases'] == expected_cases()
       for case in candidate['cases']:
           statuses = case['expectedGuardrails']
@@ -773,7 +795,33 @@ separate single-purpose commit.
           'Changed Paths'
       ),
   )
-  print('DEV134_ACTIVATION_MUTATION_PASS rejected=7')
+
+  def retarget(candidate, path_key, hash_key, value):
+      candidate[path_key] = value
+      candidate[hash_key] = hashlib.sha256(
+          Path(value).read_bytes()
+      ).hexdigest()
+
+  assert_rejected(
+      'wrong_file_retarget',
+      lambda d: retarget(
+          d, 'designArtifact', 'designArtifactSha256', 'README.md'
+      ),
+  )
+  assert_rejected(
+      'absolute_path_retarget',
+      lambda d: retarget(
+          d, 'contractArtifact', 'contractArtifactSha256', '/etc/hosts'
+      ),
+  )
+  assert_rejected(
+      'traversal_path_retarget',
+      lambda d: retarget(
+          d, 'designArtifact', 'designArtifactSha256',
+          'docs/../README.md'
+      ),
+  )
+  print('DEV134_ACTIVATION_MUTATION_PASS rejected=10')
   PY
   ```
 
@@ -781,7 +829,7 @@ separate single-purpose commit.
 
   ```text
   DEV134_ACTIVATION_PROTOTYPE_PASS total=15 positive=6 negative=6 ambiguous=3 full=2 hosts=blocked oracle=exact
-  DEV134_ACTIVATION_MUTATION_PASS rejected=7
+  DEV134_ACTIVATION_MUTATION_PASS rejected=10
   ```
 
 - [ ] **Step 5: Run DEV-131 safety scanners against the JSON**
