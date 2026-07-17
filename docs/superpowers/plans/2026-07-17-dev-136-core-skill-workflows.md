@@ -12,7 +12,7 @@ workflow skills without adding another plugin capability surface.
 router and result contracts, link to DEV-137's fixed references, and are advertised
 through authored metadata. DEV-135's generator remains the only writer of Codex
 manifests and generated root guidance. Offline tests prove structure and contracts;
-fresh Codex `sol` sessions prove activation and output behavior.
+fresh Codex `gpt-5.6-sol` sessions prove activation and output behavior.
 
 **Base:** `bdbfd335e32eba3efee32f2aac08bd3c2a100368`
 
@@ -31,7 +31,7 @@ fresh Codex `sol` sessions prove activation and output behavior.
 - Add no commands, hooks, MCP servers, agents, dependencies, runtime packages,
   per-skill YAML, or sixth workflow.
 - Do not invoke Claude. Record it as `blocked/owner-deferred`.
-- Use Codex `0.144.5` and explicitly select `sol` for model-backed tests.
+- Use Codex `0.144.5` and explicitly select `gpt-5.6-sol` for model-backed tests.
 
 Use DEV-134's exact router enums everywhere in fixtures, skills, tests, and evidence:
 
@@ -57,7 +57,7 @@ Require:
 - exactly five baseline cases, one per exact skill identifier;
 - exactly 20 forward cases, one `positive`, `negative`, `ambiguous`, and
   `complete-output` case per skill;
-- stable unique IDs, `sol` as required model, and no expected answer in prompts;
+- stable unique IDs, `gpt-5.6-sol` as required model, and no expected answer in prompts;
 - expected exact `requestedOperation`, `artifactState`, `evidenceState`, and rubric
   outside prompts, using only the normative enums above;
 - DEV-134's review-and-fix prompt as the review-ordering case;
@@ -87,7 +87,7 @@ python3 -m unittest tests.test_skill_cases -v
 
 ### Step 3: Capture baseline responses without the skills
 
-Run five fresh Codex `sol` sessions with the plugin absent. Initially use fresh
+Run five fresh Codex `gpt-5.6-sol` sessions with the plugin absent. Initially use fresh
 subagent sessions under `superpowers:writing-skills`; Task 6 replaces this with the
 repeatable host runner. Score only after response generation.
 
@@ -210,7 +210,7 @@ syntax checks must pass.
 
 ### Step 2: Fresh authoring probes
 
-For each new skill, run its positive and complete-output prompts in fresh Codex `sol`
+For each new skill, run its positive and complete-output prompts in fresh Codex `gpt-5.6-sol`
 sessions. Record failures and changes. Refactor only in response to observed behavior.
 
 ### Step 3: Commit skills
@@ -350,7 +350,7 @@ Commit boundary: canonical guide, mechanical adapter, and parity/status test.
 
 Using injected approved synthetic or redacted scorer outputs, require the runner to:
 
-- start a fresh session per case and explicitly use `-m sol`;
+- start a fresh session per case and explicitly use `-m gpt-5.6-sol`;
 - require Codex `0.144.5` or record an exact version blocker;
 - never invoke Claude;
 - score after generation without exposing expected answers;
@@ -374,7 +374,7 @@ Expected: FAIL because the runner is absent.
 Offline unit mode uses only approved synthetic or redacted scorer outputs and
 requires no network, credentials, or paid service. No raw live host response may be
 promoted into an offline fixture. Host mode runs one
-`codex exec --ephemeral -m sol`
+`codex exec --ephemeral -m gpt-5.6-sol`
 session per prompt using the discoverable plugin and existing authenticated host
 context without copying credentials.
 
@@ -384,13 +384,13 @@ Exact host command:
 CODEX_BIN="$(command -v codex)" \
 python3 tests/e2e/codex_skill_forward_tests.py \
   --mode host \
-  --model sol \
+  --model gpt-5.6-sol \
   --codex-version 0.144.5 \
   --cases tests/fixtures/dev-136-codex-skill-cases.json \
   --evidence docs/research/evidence/dev-136-codex-skill-tdd.json
 ```
 
-Stop blocked when `sol`, authentication, or plugin discovery is unavailable. Never
+Stop blocked when `gpt-5.6-sol`, authentication, or plugin discovery is unavailable. Never
 fall back to another model or directly inject skill text to bypass activation.
 
 ### Step 3: Update the plugin-load probe
@@ -503,7 +503,7 @@ codex --version
 CODEX_BIN="$(command -v codex)" \
 python3 tests/e2e/codex_skill_forward_tests.py \
   --mode host \
-  --model sol \
+  --model gpt-5.6-sol \
   --codex-version 0.144.5 \
   --cases tests/fixtures/dev-136-codex-skill-cases.json \
   --evidence docs/research/evidence/dev-136-codex-skill-tdd.json
@@ -565,7 +565,7 @@ Do not push, merge, publish, tag, or release without the authorized project step
 
 ### Step 3: Completion gate
 
-Complete DEV-136 only after all five workflows pass fresh Codex `sol` tests, all
+Complete DEV-136 only after all five workflows pass fresh Codex `gpt-5.6-sol` tests, all
 repository/generation/schema/fixture/package/link checks pass, generated files are in
 sync, the PR is independently reviewable, forbidden surfaces are absent, and evidence
 is durable in Linear. File existence, lint, or discovery alone is insufficient.

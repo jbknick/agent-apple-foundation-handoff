@@ -6,7 +6,7 @@
 
 **Base:** `bdbfd335e32eba3efee32f2aac08bd3c2a100368` (DEV-135)
 
-**Host boundary:** Codex `0.144.5` with model `sol`; Claude execution is owner-deferred
+**Host boundary:** Codex `0.144.5` with model `gpt-5.6-sol`; Claude execution is owner-deferred
 
 ## Purpose
 
@@ -204,7 +204,7 @@ Apply RED/GREEN/REFACTOR separately to all five skills.
 
 ### RED: baseline without each skill
 
-Run five fresh Codex `sol` sessions with the plugin unavailable and one representative
+Run five fresh Codex `gpt-5.6-sol` sessions with the plugin unavailable and one representative
 positive prompt per workflow. Score responses against DEV-134. Record an actual miss,
 such as wrong routing, absent version labels, incomplete ownership/trust data,
 unlabelled API claims, or a missing result section. If a baseline unexpectedly passes,
@@ -219,7 +219,7 @@ not sufficient.
 
 ### REFACTOR: fresh forward tests
 
-Run four fresh Codex `sol` cases for every skill, 20 total:
+Run four fresh Codex `gpt-5.6-sol` cases for every skill, 20 total:
 
 - positive activation and correct workflow selection;
 - negative non-activation for an adjacent domain;
@@ -238,7 +238,7 @@ unrelated user configuration.
 
 ## Codex-only host boundary
 
-This wave actively tests Codex `0.144.5` with `-m sol`. Claude CLI execution and
+This wave actively tests Codex `0.144.5` with `-m gpt-5.6-sol`. Claude CLI execution and
 cross-host comparison are `blocked/owner-deferred`; no Claude binary is invoked and no
 inference is presented as Claude evidence.
 
@@ -258,7 +258,7 @@ offline tests do not upgrade that blocker to a pass.
 | Fixture | Five baselines and 20 forward cases have exact coverage | Pass |
 | Skill contract | Router, versions, outputs, safety, and evidence rules | Pass |
 | Swift examples | Compile/type-check where supported | Pass or explicit blocked/not_applicable |
-| Codex host | Fresh `sol` sessions and deterministic rubric | Pass |
+| Codex host | Fresh `gpt-5.6-sol` sessions and deterministic rubric | Pass |
 | References | All fixed DEV-137 links resolve after rebase | Pass |
 | Claude host | No invocation in this wave | Blocked/owner-deferred |
 | Full repository | Python, BATS, generation, schema, fixture, and host checks | Pass |
@@ -281,6 +281,6 @@ themselves.
 
 DEV-136 completes only when all five skills exist, metadata is truthful, generated
 artifacts are synchronized, deterministic checks pass, DEV-137 links resolve, all 25
-fresh Codex `sol` sessions have durable rubric evidence, no forbidden capability
+fresh Codex `gpt-5.6-sol` sessions have durable rubric evidence, no forbidden capability
 surface exists, and host limitations are explicit blockers rather than false passes.
 Attach commands, results, evidence, and final commits in Linear before completion.
