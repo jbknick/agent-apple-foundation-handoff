@@ -51,6 +51,7 @@ TOOL_INPUT_KEYS = {
 }
 DISCOVERY_COMMANDS = {"fd", "find", "ls"}
 SHELL_WRAPPERS = {"bash", "sh", "zsh"}
+COMMAND_PREFIX_WRAPPERS = {"command", "env", "exec", "nohup", "sudo"}
 SHELL_CONTROL_CHARACTERS = frozenset("();<>|&")
 CONTENT_COMMANDS = {
     "awk",
@@ -627,6 +628,10 @@ def command_reference_reads(
         if reference_relevant or reference_context:
             raise ProbeFailure("bulk_reference_content_read", task_id)
         return observed, 0
+    if executable in COMMAND_PREFIX_WRAPPERS:
+        if reference_relevant or reference_context:
+            raise ProbeFailure("ambiguous_reference_read", task_id)
+        return observed, 0
     has_control, has_command_substitution = shell_syntax_flags(effective_command)
     has_xargs = executable == "xargs"
     if has_xargs:
@@ -664,6 +669,12 @@ def command_reference_reads(
         if access_sequence is not None:
             access_sequence.append(REFERENCE_CONTENT_ACCESS)
         return observed, 1
+    if (
+        reference_context
+        and executable in DISCOVERY_COMMANDS | CONTENT_COMMANDS
+        and not path_tokens
+    ):
+        raise ProbeFailure("bulk_reference_content_read", task_id)
     if not path_tokens:
         return observed, 0
     directory_discovery = executable in DISCOVERY_COMMANDS or is_rg_discovery
@@ -709,10 +720,8 @@ def mapping_reference_reads(
                     value,
                     object_pairs_hook=pairs_without_duplicates,
                 )
-            except (json.JSONDecodeError, DuplicateKeyError):
-                if is_reference_path_token(value):
-                    raise ProbeFailure("invalid_tool_event", task_id) from None
-                return observed, read_count
+            except (json.JSONDecodeError, ValueError):
+                raise ProbeFailure("invalid_tool_event", task_id) from None
             if isinstance(decoded, (dict, list)):
                 nested_observed, nested_count = mapping_reference_reads(
                     decoded, base, task_id, access_sequence
@@ -768,7 +777,9 @@ def mapping_reference_reads(
                 read_count += 1
                 if access_sequence is not None:
                     access_sequence.append(REFERENCE_CONTENT_ACCESS)
-        elif key == "command" and isinstance(nested, str):
+        elif key == "command":
+            if not isinstance(nested, str):
+                raise ProbeFailure("invalid_tool_event", task_id)
             nested_observed, nested_count = command_reference_reads(
                 nested, task_id, local_base, access_sequence
             )
@@ -804,19 +815,23 @@ def observed_reference_reads(
     read_count = 0
     access_sequence: list[str] = []
     for item in paired_successful_tool_items(events, task_id):
+        item_access_sequence: list[str] = []
         if item.get("type") == "command_execution":
             command = item.get("command")
             if not isinstance(command, str):
                 raise ProbeFailure("invalid_tool_event", task_id)
             base = declared_working_directory(item, ROOT, task_id)
             item_observed, item_count = command_reference_reads(
-                command, task_id, base, access_sequence
+                command, task_id, base, item_access_sequence
             )
         else:
             inputs = {key: item[key] for key in TOOL_INPUT_KEYS if key in item}
             item_observed, item_count = mapping_reference_reads(
-                inputs, ROOT, task_id, access_sequence
+                inputs, ROOT, task_id, item_access_sequence
             )
+        if len(item_access_sequence) > 1:
+            raise ProbeFailure("bulk_reference_content_read", task_id)
+        access_sequence.extend(item_access_sequence)
         observed.update(item_observed)
         read_count += item_count
         if read_count > 1:
