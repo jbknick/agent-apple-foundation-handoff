@@ -24,6 +24,8 @@ struct RecoverySnapshot: Codable, Equatable {
     let checkpoint: String
     let stableCheckpoint: String
     let effectLedger: [EffectSnapshot]
+    let repairFacts: RepairFacts
+    let auditEvents: [String]
 
     init(_ state: HandoffState) {
         authority = state.activeProfile
@@ -49,6 +51,8 @@ struct RecoverySnapshot: Codable, Equatable {
                 reconciled: $0.reconciled
             )
         }
+        repairFacts = state.repairFacts
+        auditEvents = state.auditEvents
     }
 }
 
@@ -66,8 +70,22 @@ struct ContextProbe: Codable {
 
 enum DeterministicScenarios {
     private static let effectID = "effect-001"
+    private static let executorBinding = ToolBinding(
+        name: "executor.run",
+        version: "1.0",
+        provider: "provider-b",
+        resultType: "ExecutionReceipt"
+    )
 
-    private static func defaultContext() -> [ContextField] {
+    private static let primaryBoundary = TrustBoundary(
+        providerRank: 2,
+        maximumDataClass: .c2Sensitive,
+        retentionRank: 1,
+        toolRank: 1,
+        effectBudget: 1
+    )
+
+    private static func defaultContext(stateVersion: Int = 2) -> [ContextField] {
         [
             ContextField(
                 name: "task_summary",
@@ -75,7 +93,8 @@ enum DeterministicScenarios {
                 dataClass: .c1TaskPrivate,
                 included: true,
                 redacted: false,
-                sourceMetadata: "source:task"
+                sourceMetadata: "source:task",
+                stateVersion: stateVersion
             ),
             ContextField(
                 name: "account_token",
@@ -83,7 +102,8 @@ enum DeterministicScenarios {
                 dataClass: .c2Sensitive,
                 included: false,
                 redacted: false,
-                sourceMetadata: "source:account"
+                sourceMetadata: "source:account",
+                stateVersion: stateVersion
             ),
             ContextField(
                 name: "raw_secret",
@@ -91,13 +111,40 @@ enum DeterministicScenarios {
                 dataClass: .c3NeverTransfer,
                 included: false,
                 redacted: false,
-                sourceMetadata: "source:secret"
+                sourceMetadata: "source:secret",
+                stateVersion: stateVersion
             ),
         ]
     }
 
-    private static func grant(stateVersion: Int = 2, policyVersion: Int = 7) -> BoundaryGrant {
-        BoundaryGrant(
+    private static func authorization(for state: HandoffState) -> ToolAuthorization {
+        ToolAuthorization(
+            actorProfile: state.activeProfile,
+            callID: "call-001",
+            binding: executorBinding,
+            stateVersion: state.stateVersion,
+            policyVersion: state.policyVersion
+        )
+    }
+
+    private static func result(for state: HandoffState) -> ToolResult {
+        ToolResult(
+            callID: "call-001",
+            binding: executorBinding,
+            stateVersion: state.stateVersion
+        )
+    }
+
+    private static func grant(
+        fields: [ContextField],
+        state: HandoffState,
+        authorization: ToolAuthorization
+    ) -> BoundaryGrant {
+        let transferred = fields.filter {
+            $0.included && ($0.dataClass == .c1TaskPrivate || $0.dataClass == .c2Sensitive)
+        }
+        let classes = Set(transferred.map(\.dataClass))
+        return BoundaryGrant(
             personID: "person-001",
             sessionID: "session-001",
             sourceProfile: "source",
@@ -105,37 +152,74 @@ enum DeterministicScenarios {
             destinationProfile: "destination",
             destinationProvider: "provider-b",
             purpose: "task-execution",
-            allowedDataClasses: [.c1TaskPrivate, .c2Sensitive],
-            allowedFields: ["task_summary", "customer_record"],
-            allowedTool: "executor.run",
+            allowedDataClasses: classes,
+            allowedFields: Set(transferred.map(\.name)),
+            allowedTools: [authorization.binding],
+            callID: authorization.callID,
             retention: "ephemeral",
             expiresAt: 200,
-            stateVersion: stateVersion,
-            policyVersion: policyVersion,
-            exceptionalC2Authorized: true
+            stateVersion: state.stateVersion,
+            policyVersion: state.policyVersion,
+            exceptionalC2Permission: classes.contains(.c2Sensitive) ? "approved" : "not-required"
         )
     }
 
-    private static func committedState() -> HandoffState {
+    private static func event(
+        _ state: HandoffState,
+        _ event: TrustedEvent
+    ) -> EventRecord {
+        EventRecord(
+            event: event,
+            before: state,
+            decision: HandoffReducer.reduce(state, event: event)
+        )
+    }
+
+    private static func batonExecution() -> (HandoffState, [EventRecord]) {
         var state = HandoffState.initial
-        state = HandoffReducer.reduce(state, event: .commitBaton).state
-        state = HandoffReducer.reduce(state, event: .execute(effectID: effectID)).state
-        return state
+        var records: [EventRecord] = []
+        for nextEvent in [TrustedEvent.proposeBaton, .commitBaton] {
+            let record = event(state, nextEvent)
+            records.append(record)
+            state = record.decision.state
+        }
+        var request = ExecutionRequest.fixture(state: state)
+        request.effectID = effectID
+        let execution = event(state, .execute(request: request))
+        records.append(execution)
+        state = execution.decision.state
+        return (state, records)
     }
 
-    private static func consultationState() -> HandoffState {
-        HandoffReducer.reduce(.initial, event: .completeConsultation).state
+    private static func committedExecution() -> (HandoffState, [EventRecord]) {
+        var state = HandoffState.initial
+        var records: [EventRecord] = []
+        for nextEvent in [TrustedEvent.proposeBaton, .commitBaton] {
+            let record = event(state, nextEvent)
+            records.append(record)
+            state = record.decision.state
+        }
+        return (state, records)
     }
 
-    private static func recoveryState() -> HandoffState {
-        HandoffReducer.reduce(
-            committedState(),
-            event: .commandUncertain(effectID: effectID)
-        ).state
+    private static func consultationExecution() -> (HandoffState, [EventRecord]) {
+        let record = event(.initial, .completeConsultation)
+        return (record.decision.state, [record])
+    }
+
+    private static func recoveryExecution() -> (HandoffState, [EventRecord]) {
+        var (state, records) = batonExecution()
+        let record = event(state, .commandUncertain(effectID: effectID))
+        records.append(record)
+        state = record.decision.state
+        return (state, records)
     }
 
     private static func base(_ caseID: String) -> ScenarioObservation {
-        ScenarioObservation(
+        let (state, records) = batonExecution()
+        let context = defaultContext()
+        let toolAuthorization = authorization(for: state)
+        return ScenarioObservation(
             schemaVersion: 1,
             caseID: caseID,
             pattern: .batonPass,
@@ -146,52 +230,106 @@ enum DeterministicScenarios {
             personID: "person-001",
             sessionID: "session-001",
             purpose: "task-execution",
-            tool: "executor.run",
             retention: "ephemeral",
-            routeAllowed: true,
-            transitionEdgeAllowed: true,
-            loopDetected: false,
-            handoffCommitted: true,
-            commandRequested: true,
-            commandAuthorized: true,
-            commandOriginTrusted: true,
-            untrustedResultAccepted: false,
+            route: RouteContract(
+                pattern: .batonPass,
+                destinationProfile: "destination",
+                destinationProvider: "provider-b",
+                allowedEdges: [.sourceToDestination]
+            ),
             requiredContextNames: ["task_summary"],
-            context: defaultContext(),
-            grant: grant(),
-            now: 100,
-            phaseRuleValid: true,
-            duplicateLedgerDetected: false,
-            replayCommandIssued: false,
-            retryBeforeReconciliation: false,
-            cancellationErasedRecovery: false,
-            fallback: .none,
-            fallbackExpandedTrust: false,
-            transcriptBalanced: true,
-            transcriptRepaired: false,
-            rawEvidence: [],
-            evidenceSanitized: true,
-            rubricComplete: true,
-            state: committedState()
+            context: context,
+            grant: grant(fields: context, state: state, authorization: toolAuthorization),
+            clock: 100,
+            toolAuthorization: toolAuthorization,
+            toolResult: result(for: state),
+            fallbackPlan: FallbackPlan(primary: primaryBoundary, selection: .primary),
+            transcript: [.text("synthetic-summary")],
+            evidence: [
+                EvidenceRecord(
+                    classification: .metadataOnly,
+                    pathKind: .normalizedRelative,
+                    artifactExtension: ".jsonl",
+                    redaction: .redacted,
+                    fingerprint: "sha256:synthetic"
+                )
+            ],
+            state: state,
+            eventRecords: records,
+            recoveryBaseline: nil,
+            auditFacts: ["commit:destination", "effect:effect-001"]
+        )
+    }
+
+    private static func rebind(_ observation: inout ScenarioObservation) {
+        for index in observation.context.indices {
+            observation.context[index].sourceProfile = observation.sourceProfile
+            observation.context[index].sourceProvider = observation.sourceProvider
+            observation.context[index].subject = observation.personID
+            observation.context[index].purpose = observation.purpose
+            observation.context[index].destinationProfile = observation.destinationProfile
+            observation.context[index].destinationProvider = observation.destinationProvider
+            observation.context[index].retention = observation.retention
+            observation.context[index].stateVersion = observation.state.stateVersion
+            observation.context[index].policyVersion = observation.state.policyVersion
+        }
+        observation.toolAuthorization = authorization(for: observation.state)
+        observation.toolResult = result(for: observation.state)
+        observation.grant = grant(
+            fields: observation.context,
+            state: observation.state,
+            authorization: observation.toolAuthorization
         )
     }
 
     private static func consultation(_ caseID: String) -> ScenarioObservation {
         var observation = base(caseID)
+        let (state, records) = consultationExecution()
         observation.pattern = .isolatedConsultation
-        observation.state = consultationState()
-        observation.grant = grant(stateVersion: 1)
+        observation.route.pattern = .isolatedConsultation
+        observation.state = state
+        observation.eventRecords = records
+        observation.auditFacts = ["consultation:isolated", "owner:source"]
+        rebind(&observation)
         return observation
     }
 
-    private static func setPrecommitState(
-        _ observation: inout ScenarioObservation,
-        event: TrustedEvent
+    private static func clearCommands(_ observation: inout ScenarioObservation) {
+        observation.state.executorCommandCount = 0
+        observation.state.commandHistory = []
+        observation.state.ledger = []
+        observation.toolResult = nil
+    }
+
+    private static func request(from observation: ScenarioObservation) -> ExecutionRequest {
+        ExecutionRequest(
+            effectID: effectID,
+            requiredContextNames: observation.requiredContextNames,
+            context: observation.context,
+            grant: observation.grant,
+            authorization: observation.toolAuthorization
+        )
+    }
+
+    private static func applyExecutionAttempt(
+        _ request: ExecutionRequest,
+        to observation: inout ScenarioObservation,
+        exposeRequestFacts: Bool = true
     ) {
-        observation.state = HandoffReducer.reduce(.initial, event: event).state
-        observation.grant = grant(stateVersion: 1)
-        observation.handoffCommitted = false
-        observation.commandRequested = false
+        let (committed, records) = committedExecution()
+        let attempt = event(committed, .execute(request: request))
+        observation.state = attempt.decision.state
+        observation.eventRecords = records + [attempt]
+        observation.toolResult = nil
+        if exposeRequestFacts {
+            observation.requiredContextNames = request.requiredContextNames
+            observation.context = request.context
+            observation.grant = request.grant
+            observation.toolAuthorization = request.authorization
+        } else {
+            rebind(&observation)
+            observation.toolResult = nil
+        }
     }
 
     static func all() -> [ScenarioObservation] {
@@ -200,8 +338,10 @@ enum DeterministicScenarios {
         scenarios.append(base("DEV138-BATON-VALID"))
 
         var budget = base("DEV138-BUDGET-EXCEEDED")
+        budget.state.transitionHistory = [.sourceToDestination, .sourceToDestination, .sourceToDestination]
         budget.state.transitionCount = 3
-        budget.state.auditEvents = ["transition:budget-exceeded"]
+        budget.state.visitedProfiles = ["source", "destination", "overflow-a", "overflow-b"]
+        budget.auditFacts = ["transition:budget-exceeded"]
         scenarios.append(budget)
 
         var c2Redacted = base("DEV138-C2-REDACTED")
@@ -212,7 +352,8 @@ enum DeterministicScenarios {
             ContextField(name: "task_summary", outputLabel: "task_summary", dataClass: .c1TaskPrivate, included: true, redacted: false, sourceMetadata: "source:task"),
         ]
         c2Redacted.requiredContextNames = ["customer_record", "task_summary"]
-        c2Redacted.state.auditEvents = ["context:C2:redacted", "handoff:committed"]
+        c2Redacted.auditFacts = ["context:C2:redacted", "handoff:committed"]
+        rebind(&c2Redacted)
         scenarios.append(c2Redacted)
 
         var c2Unredacted = c2Redacted
@@ -220,7 +361,9 @@ enum DeterministicScenarios {
         c2Unredacted.context[0].outputLabel = "customer_record:raw"
         c2Unredacted.context[0].redacted = false
         c2Unredacted.context.remove(at: 1)
-        c2Unredacted.state.auditEvents = ["context:C2:unredacted"]
+        c2Unredacted.auditFacts = ["context:C2:unredacted", "refusal:context-envelope"]
+        rebind(&c2Unredacted)
+        applyExecutionAttempt(request(from: c2Unredacted), to: &c2Unredacted)
         scenarios.append(c2Unredacted)
 
         var c3Blocked = base("DEV138-C3-BLOCKED")
@@ -228,251 +371,347 @@ enum DeterministicScenarios {
             ContextField(name: "raw_secret", outputLabel: "raw_secret", dataClass: .c3NeverTransfer, included: false, redacted: false, sourceMetadata: "source:secret", value: "blocked-" + "c3-sentinel"),
             ContextField(name: "task_summary", outputLabel: "task_summary", dataClass: .c1TaskPrivate, included: true, redacted: false, sourceMetadata: "source:task"),
         ]
-        c3Blocked.commandRequested = false
-        c3Blocked.state.executorCommandCount = 0
-        c3Blocked.state.ledger = []
-        c3Blocked.state.auditEvents = ["context:C3:blocked", "handoff:committed"]
+        rebind(&c3Blocked)
+        var blockedC3Request = request(from: c3Blocked)
+        blockedC3Request.context[0].included = true
+        applyExecutionAttempt(
+            blockedC3Request,
+            to: &c3Blocked,
+            exposeRequestFacts: false
+        )
+        c3Blocked.auditFacts = ["context:C3:blocked", "handoff:committed"]
         scenarios.append(c3Blocked)
 
         var c3Leak = c3Blocked
         c3Leak.caseID = "DEV138-C3-LEAK"
         c3Leak.context[0].included = true
-        c3Leak.commandRequested = true
-        c3Leak.state.executorCommandCount = 1
-        c3Leak.state.ledger = committedState().ledger
-        c3Leak.state.auditEvents = ["context:C3:included"]
+        rebind(&c3Leak)
+        applyExecutionAttempt(request(from: c3Leak), to: &c3Leak)
+        c3Leak.auditFacts = ["context:C3:included", "refusal:context-envelope"]
         scenarios.append(c3Leak)
 
         var cancellationErased = base("DEV138-CANCEL-ERASES-RECOVERY")
-        cancellationErased.state.ledger = []
-        cancellationErased.state.auditEvents = ["cancellation:erased-recovery", "ledger:erased"]
-        cancellationErased.cancellationErasedRecovery = true
+        let (recoveryBeforeCancellation, recoveryRecords) = recoveryExecution()
+        var corruptedAfterCancellation = recoveryBeforeCancellation
+        corruptedAfterCancellation.phase = .stable
+        corruptedAfterCancellation.pendingEffectID = nil
+        corruptedAfterCancellation.pendingTransition = nil
+        corruptedAfterCancellation.lastCheckpoint = nil
+        corruptedAfterCancellation.ledger = []
+        corruptedAfterCancellation.repairFacts = .none
+        let corruptedDecision = ReducerDecision(
+            state: corruptedAfterCancellation,
+            command: nil,
+            disposition: .applied,
+            outcome: .stateAdvanced,
+            auditEvents: ["cancellation:erased-recovery"]
+        )
+        cancellationErased.state = corruptedAfterCancellation
+        cancellationErased.eventRecords = recoveryRecords + [
+            EventRecord(event: .cancelUncertain, before: recoveryBeforeCancellation, decision: corruptedDecision)
+        ]
+        cancellationErased.recoveryBaseline = recoveryBeforeCancellation
+        cancellationErased.auditFacts = ["cancellation:erased-recovery", "ledger:erased"]
+        rebind(&cancellationErased)
         scenarios.append(cancellationErased)
 
         var cancellationPrecommit = base("DEV138-CANCEL-PRECOMMIT")
-        setPrecommitState(&cancellationPrecommit, event: .cancelPrecommit)
+        let proposalForCancellation = event(.initial, .proposeBaton)
+        let cancellation = event(proposalForCancellation.decision.state, .cancelPrecommit)
+        cancellationPrecommit.state = cancellation.decision.state
+        cancellationPrecommit.eventRecords = [proposalForCancellation, cancellation]
+        clearCommands(&cancellationPrecommit)
+        cancellationPrecommit.auditFacts = ["cancellation:precommit", "rollback:source"]
+        rebind(&cancellationPrecommit)
         scenarios.append(cancellationPrecommit)
 
         var cancellationUncertain = base("DEV138-CANCEL-UNCERTAIN")
-        cancellationUncertain.state = HandoffReducer.reduce(
-            recoveryState(),
-            event: .cancelUncertain
-        ).state
+        let (uncertainState, uncertainRecords) = recoveryExecution()
+        let lateCancellation = event(uncertainState, .cancelUncertain)
+        cancellationUncertain.state = lateCancellation.decision.state
+        cancellationUncertain.eventRecords = uncertainRecords + [lateCancellation]
+        cancellationUncertain.recoveryBaseline = uncertainState
+        cancellationUncertain.auditFacts = ["cancellation:recorded", "checkpoint=uncertain", "recovery:preserved"]
+        rebind(&cancellationUncertain)
         scenarios.append(cancellationUncertain)
 
         scenarios.append(consultation("DEV138-CONSULTATION-VALID"))
 
         var requiredMissing = base("DEV138-CONTEXT-REQUIRED-MISSING")
         requiredMissing.context.removeAll(where: { $0.name == "task_summary" })
-        requiredMissing.state.auditEvents = ["context:required-missing"]
+        requiredMissing.auditFacts = ["context:required-missing", "refusal:context-envelope"]
+        rebind(&requiredMissing)
+        applyExecutionAttempt(request(from: requiredMissing), to: &requiredMissing)
         scenarios.append(requiredMissing)
 
         var edgeInvalid = base("DEV138-EDGE-INVALID")
-        edgeInvalid.transitionEdgeAllowed = false
-        edgeInvalid.state.auditEvents = ["transition:edge-invalid"]
+        edgeInvalid.route.allowedEdges = []
+        edgeInvalid.auditFacts = ["transition:edge-invalid", "refusal:transition"]
         scenarios.append(edgeInvalid)
 
         var duplicateLedger = base("DEV138-EFFECT-DUPLICATE-LEDGER")
         duplicateLedger.state.ledger.append(duplicateLedger.state.ledger[0])
-        duplicateLedger.duplicateLedgerDetected = true
-        duplicateLedger.state.auditEvents = ["ledger:duplicate-effect-001"]
+        duplicateLedger.auditFacts = ["ledger:duplicate-effect-001"]
         scenarios.append(duplicateLedger)
 
         var replayCommand = base("DEV138-EFFECT-REPLAY-COMMAND")
-        replayCommand.state = recoveryState()
+        let (replayRecovery, replayRecords) = recoveryExecution()
+        replayCommand.state = replayRecovery
+        replayCommand.state.commandHistory.append(replayCommand.state.commandHistory[0])
         replayCommand.state.executorCommandCount = 2
-        replayCommand.state.auditEvents = ["effect:replay-command", "pendingEffect=effect-001"]
-        replayCommand.replayCommandIssued = true
+        replayCommand.eventRecords = replayRecords
+        replayCommand.auditFacts = ["effect:replay-command", "pendingEffect=effect-001", "refusal:replay"]
+        rebind(&replayCommand)
         scenarios.append(replayCommand)
 
-        var retryBeforeReconciliation = base("DEV138-EFFECT-RETRY-BEFORE-RECONCILE")
-        retryBeforeReconciliation.state = recoveryState()
-        retryBeforeReconciliation.state.executorCommandCount = 2
-        retryBeforeReconciliation.state.auditEvents = ["effect:retry-before-reconcile", "pendingEffect=effect-001"]
-        retryBeforeReconciliation.retryBeforeReconciliation = true
-        scenarios.append(retryBeforeReconciliation)
+        var prematureRetryScenario = base("DEV138-EFFECT-RETRY-BEFORE-RECONCILE")
+        let (retryRecovery, retryRecords) = recoveryExecution()
+        prematureRetryScenario.state = retryRecovery
+        let prematureRetry = ExecutorCommand(
+            effectID: effectID,
+            callID: "call-001-retry",
+            binding: executorBinding,
+            stateVersion: retryRecovery.stateVersion,
+            kind: .retry
+        )
+        prematureRetryScenario.state.commandHistory.append(prematureRetry)
+        prematureRetryScenario.state.executorCommandCount = 2
+        prematureRetryScenario.eventRecords = retryRecords
+        prematureRetryScenario.auditFacts = ["effect:retry-before-reconcile", "pendingEffect=effect-001", "refusal:retry"]
+        rebind(&prematureRetryScenario)
+        scenarios.append(prematureRetryScenario)
 
         var evidenceLeak = base("DEV138-EVIDENCE-LEAKAGE")
-        evidenceLeak.rawEvidence = [
-            "classification=C2",
-            "synthetic-" + "credential-sentinel",
-            "/" + "Users/fixture/private",
-            "session" + ".tr" + "ace",
-            "raw-evidence-" + "payload",
+        evidenceLeak.evidence = [
+            EvidenceRecord(
+                classification: .rawContent,
+                pathKind: .absolute,
+                artifactExtension: ".tr" + "ace",
+                redaction: .raw,
+                fingerprint: "synthetic-" + "credential-sentinel"
+            )
         ]
-        evidenceLeak.evidenceSanitized = false
-        evidenceLeak.state.auditEvents = ["evidence:prohibited-content-detected", "evidence:redaction-failed"]
+        evidenceLeak.auditFacts = ["evidence:prohibited-content-detected", "evidence:redaction-failed"]
         scenarios.append(evidenceLeak)
 
         var unsafeFallback = base("DEV138-FALLBACK-EXPANDS-TRUST")
-        unsafeFallback.fallback = .unsafeExpandedTrust
-        unsafeFallback.fallbackExpandedTrust = true
-        unsafeFallback.state.auditEvents = ["fallback:expanded-trust"]
+        unsafeFallback.fallbackPlan.selection = .chosen(
+            TrustBoundary(providerRank: 3, maximumDataClass: .c3NeverTransfer, retentionRank: 2, toolRank: 2, effectBudget: 2)
+        )
+        unsafeFallback.auditFacts = ["fallback:expanded-trust", "refusal:fallback"]
         scenarios.append(unsafeFallback)
 
         var grantExpired = base("DEV138-GRANT-AUTH-EXPIRED")
         grantExpired.grant.expiresAt = 99
-        grantExpired.state.auditEvents = ["grant:authorization-expired"]
+        applyExecutionAttempt(request(from: grantExpired), to: &grantExpired)
+        grantExpired.auditFacts = ["grant:authorization-expired", "refusal:grant"]
         scenarios.append(grantExpired)
 
         var grantClass = base("DEV138-GRANT-CLASS-MISMATCH")
         grantClass.grant.allowedDataClasses = [.c2Sensitive]
-        grantClass.state.auditEvents = ["grant:class-mismatch"]
+        applyExecutionAttempt(request(from: grantClass), to: &grantClass)
+        grantClass.auditFacts = ["grant:class-mismatch", "refusal:grant"]
         scenarios.append(grantClass)
 
         var grantDestination = base("DEV138-GRANT-DESTINATION-MISMATCH")
         grantDestination.grant.destinationProfile = "other-profile"
-        grantDestination.state.auditEvents = ["grant:destination-mismatch"]
+        applyExecutionAttempt(request(from: grantDestination), to: &grantDestination)
+        grantDestination.auditFacts = ["grant:destination-mismatch", "refusal:grant"]
         scenarios.append(grantDestination)
 
         var grantField = base("DEV138-GRANT-FIELD-MISMATCH")
         grantField.grant.allowedFields = ["customer_record"]
-        grantField.state.auditEvents = ["grant:field-mismatch"]
+        applyExecutionAttempt(request(from: grantField), to: &grantField)
+        grantField.auditFacts = ["grant:field-mismatch", "refusal:grant"]
         scenarios.append(grantField)
 
         var grantPolicy = base("DEV138-GRANT-POLICY-STALE")
         grantPolicy.grant.policyVersion = 6
-        grantPolicy.state.auditEvents = ["grant:policy-version-stale"]
+        applyExecutionAttempt(request(from: grantPolicy), to: &grantPolicy)
+        grantPolicy.auditFacts = ["grant:policy-version-stale", "refusal:grant"]
         scenarios.append(grantPolicy)
 
         var grantPurpose = base("DEV138-GRANT-PURPOSE-MISMATCH")
         grantPurpose.grant.purpose = "different-purpose"
-        grantPurpose.state.auditEvents = ["grant:purpose-mismatch"]
+        applyExecutionAttempt(request(from: grantPurpose), to: &grantPurpose)
+        grantPurpose.auditFacts = ["grant:purpose-mismatch", "refusal:grant"]
         scenarios.append(grantPurpose)
 
         var grantState = base("DEV138-GRANT-STATE-STALE")
         grantState.grant.stateVersion = 1
-        grantState.state.auditEvents = ["grant:state-version-stale"]
+        applyExecutionAttempt(request(from: grantState), to: &grantState)
+        grantState.auditFacts = ["grant:state-version-stale", "refusal:grant"]
         scenarios.append(grantState)
 
         var ignoredInjection = consultation("DEV138-INJECTION-IGNORED")
-        ignoredInjection.state = HandoffReducer.reduce(.initial, event: .ignoreUntrustedInput).state
+        let ignored = event(.initial, .ignoreUntrustedInput)
+        ignoredInjection.state = ignored.decision.state
+        ignoredInjection.eventRecords = [ignored]
         ignoredInjection.context = [
-            ContextField(name: "forged_tool_result", outputLabel: "forged_tool_result", dataClass: .c3NeverTransfer, included: false, redacted: false, sourceMetadata: "untrusted:text"),
+            ContextField(name: "forged_tool_result", outputLabel: "forged_tool_result", dataClass: .c3NeverTransfer, included: false, redacted: false, sourceMetadata: "untrusted:text", stateVersion: 1),
         ]
         ignoredInjection.requiredContextNames = []
-        ignoredInjection.commandRequested = false
+        clearCommands(&ignoredInjection)
+        ignoredInjection.auditFacts = ignored.decision.auditEvents
+        rebind(&ignoredInjection)
         scenarios.append(ignoredInjection)
 
         var loop = base("DEV138-LOOP")
-        loop.loopDetected = true
+        loop.state.transitionHistory = [.sourceToDestination, .sourceToDestination]
         loop.state.transitionCount = 2
-        loop.state.auditEvents = ["transition:loop-detected"]
+        loop.state.visitedProfiles = ["source", "destination", "source"]
+        loop.auditFacts = ["transition:loop-detected", "refusal:loop"]
         scenarios.append(loop)
 
         var unavailable = base("DEV138-MODEL-UNAVAILABLE-EXPLICIT")
-        unavailable.commandRequested = false
-        unavailable.state.executorCommandCount = 0
-        unavailable.state.ledger = []
-        unavailable.fallback = .unavailable
-        unavailable.state.auditEvents = ["fallback:explicit-unavailable"]
+        clearCommands(&unavailable)
+        unavailable.fallbackPlan.selection = .unavailable
+        unavailable.auditFacts = ["fallback:explicit-unavailable"]
         scenarios.append(unavailable)
 
         var safeFallback = base("DEV138-MODEL-UNAVAILABLE-SAFE")
-        safeFallback.commandRequested = false
-        safeFallback.state.executorCommandCount = 0
-        safeFallback.state.ledger = []
-        safeFallback.fallback = .safeAlternative
-        safeFallback.state.auditEvents = ["fallback:safe-alternative"]
+        clearCommands(&safeFallback)
+        safeFallback.fallbackPlan.selection = .chosen(
+            TrustBoundary(providerRank: 1, maximumDataClass: .c1TaskPrivate, retentionRank: 0, toolRank: 1, effectBudget: 0)
+        )
+        safeFallback.auditFacts = ["fallback:safe-alternative"]
         scenarios.append(safeFallback)
 
         var batonOwner = base("DEV138-OWNER-BATON-SOURCE")
         batonOwner.state.finalResponseOwner = "source"
-        batonOwner.state.auditEvents = ["owner:source-after-baton"]
+        batonOwner.auditFacts = ["owner:source-after-baton"]
         scenarios.append(batonOwner)
 
         var consultationOwner = consultation("DEV138-OWNER-CONSULT-CHILD")
         consultationOwner.state.activeProfile = "destination"
+        consultationOwner.state.activeProvider = "provider-b"
         consultationOwner.state.finalResponseOwner = "destination"
-        consultationOwner.state.auditEvents = ["owner:child-after-consultation"]
+        consultationOwner.auditFacts = ["owner:child-after-consultation"]
+        rebind(&consultationOwner)
         scenarios.append(consultationOwner)
 
         var invalidPhase = base("DEV138-PHASE-INVALID")
-        invalidPhase.commandRequested = false
-        invalidPhase.phaseRuleValid = false
         invalidPhase.state.phase = .transitioning
-        invalidPhase.state.executorCommandCount = 0
-        invalidPhase.state.ledger = []
-        invalidPhase.state.auditEvents = ["phase:invalid-command"]
+        invalidPhase.state.pendingTransition = nil
+        clearCommands(&invalidPhase)
+        invalidPhase.auditFacts = ["phase:invalid-command", "refusal:phase"]
+        rebind(&invalidPhase)
         scenarios.append(invalidPhase)
 
         var precommitRollback = base("DEV138-PRECOMMIT-ROLLBACK")
-        setPrecommitState(&precommitRollback, event: .failPrecommit)
+        let proposalForFailure = event(.initial, .proposeBaton)
+        let failure = event(proposalForFailure.decision.state, .failPrecommit)
+        precommitRollback.state = failure.decision.state
+        precommitRollback.eventRecords = [proposalForFailure, failure]
+        clearCommands(&precommitRollback)
+        precommitRollback.auditFacts = ["failure:precommit", "rollback:source"]
+        rebind(&precommitRollback)
         scenarios.append(precommitRollback)
 
         var reconciledRetry = base("DEV138-RECONCILED-RETRY")
-        var reconciled = HandoffReducer.reduce(recoveryState(), event: .reconcileSucceeded).state
-        reconciled = HandoffReducer.reduce(
-            reconciled,
-            event: .retryReconciled(effectID: effectID)
-        ).state
-        reconciledRetry.state = reconciled
+        var (reconciledState, reconciledRecords) = recoveryExecution()
+        let reconciliation = event(reconciledState, .reconcileSucceeded)
+        reconciledRecords.append(reconciliation)
+        reconciledState = reconciliation.decision.state
+        let retry = event(reconciledState, .retryReconciled(effectID: effectID))
+        reconciledRecords.append(retry)
+        reconciledState = retry.decision.state
+        reconciledRetry.state = reconciledState
+        reconciledRetry.eventRecords = reconciledRecords
+        reconciledRetry.auditFacts = ["reconciliation:succeeded", "retry:effect-001"]
+        rebind(&reconciledRetry)
         scenarios.append(reconciledRetry)
 
         var reconciliationUnavailable = base("DEV138-RECONCILIATION-UNAVAILABLE")
-        reconciliationUnavailable.state = HandoffReducer.reduce(
-            recoveryState(),
-            event: .reconciliationUnavailable
-        ).state
+        let (repairBlockedState, repairRecords) = recoveryExecution()
+        let blocked = event(repairBlockedState, .reconciliationUnavailable)
+        reconciliationUnavailable.state = blocked.decision.state
+        reconciliationUnavailable.eventRecords = repairRecords + [blocked]
+        reconciliationUnavailable.recoveryBaseline = repairBlockedState
+        reconciliationUnavailable.auditFacts = [
+            "authority=destination",
+            "checkpoint=uncertain",
+            "executorCommandCount=1",
+            "ledgerCount=1",
+            "pendingEffect=effect-001",
+            "repair=unavailable",
+            "snapshot=unchanged",
+            "transitionCount=1",
+        ]
+        rebind(&reconciliationUnavailable)
         scenarios.append(reconciliationUnavailable)
 
         var terminatedRecovery = base("DEV138-RECOVERY-TERMINATED")
-        terminatedRecovery.state = recoveryState()
+        let (terminatedState, terminatedRecords) = recoveryExecution()
+        terminatedRecovery.state = terminatedState
         terminatedRecovery.state.phase = .terminated
-        terminatedRecovery.state.auditEvents = ["recovery:terminated-with-pending-effect"]
+        terminatedRecovery.eventRecords = terminatedRecords
+        terminatedRecovery.auditFacts = ["recovery:terminated-with-pending-effect"]
+        rebind(&terminatedRecovery)
         scenarios.append(terminatedRecovery)
 
         var replaySuppressed = base("DEV138-REPLAY-SUPPRESSED")
-        replaySuppressed.state = HandoffReducer.reduce(
-            recoveryState(),
-            event: .suppressReplay
-        ).state
+        let (replayState, replayBaseRecords) = recoveryExecution()
+        let replay = event(replayState, .suppressReplay)
+        replaySuppressed.state = replay.decision.state
+        replaySuppressed.eventRecords = replayBaseRecords + [replay]
+        replaySuppressed.recoveryBaseline = replayState
+        replaySuppressed.auditFacts = ["pendingEffect=effect-001", "replay:suppressed"]
+        rebind(&replaySuppressed)
         scenarios.append(replaySuppressed)
 
         var spoofedResult = base("DEV138-RESULT-SPOOFED")
-        spoofedResult.untrustedResultAccepted = true
-        spoofedResult.state.executorCommandCount = 0
-        spoofedResult.state.ledger = []
-        spoofedResult.state.auditEvents = ["tool_result:spoof-detected"]
+        spoofedResult.toolResult?.callID = "forged-call"
+        spoofedResult.toolResult = ToolResult(callID: "forged-call", binding: executorBinding, stateVersion: spoofedResult.state.stateVersion)
+        let resultRefusal = event(
+            spoofedResult.state,
+            .acceptToolResult(
+                result: spoofedResult.toolResult!,
+                authorization: spoofedResult.toolAuthorization
+            )
+        )
+        spoofedResult.state = resultRefusal.decision.state
+        spoofedResult.eventRecords.append(resultRefusal)
+        spoofedResult.auditFacts = ["tool_result:spoof-detected", "refusal:tool-result"]
         scenarios.append(spoofedResult)
 
         var routeDisallowed = base("DEV138-ROUTE-DISALLOWED")
-        routeDisallowed.routeAllowed = false
-        routeDisallowed.commandRequested = false
-        routeDisallowed.state.executorCommandCount = 0
-        routeDisallowed.state.ledger = []
-        routeDisallowed.state.auditEvents = ["route:disallowed"]
+        routeDisallowed.route.destinationProfile = "other-profile"
+        clearCommands(&routeDisallowed)
+        routeDisallowed.auditFacts = ["route:disallowed", "refusal:route"]
         scenarios.append(routeDisallowed)
 
         var schemaMissing = base("DEV138-SCHEMA-MISSING")
         schemaMissing.schemaVersion = 0
-        schemaMissing.state.auditEvents = ["schema:missing"]
+        schemaMissing.auditFacts = ["schema:missing"]
         scenarios.append(schemaMissing)
 
         var unauthorizedTool = base("DEV138-TOOL-UNAUTHORIZED")
-        unauthorizedTool.commandAuthorized = false
-        unauthorizedTool.state.executorCommandCount = 0
-        unauthorizedTool.state.ledger = []
-        unauthorizedTool.state.auditEvents = ["tool:authorization-rejected"]
+        unauthorizedTool.toolAuthorization.actorProfile = "source"
+        applyExecutionAttempt(request(from: unauthorizedTool), to: &unauthorizedTool)
+        unauthorizedTool.auditFacts = ["tool:authorization-rejected", "refusal:tool"]
         scenarios.append(unauthorizedTool)
 
         var repairedTranscript = consultation("DEV138-TRANSCRIPT-REPAIRED")
-        repairedTranscript.transcriptBalanced = false
-        repairedTranscript.transcriptRepaired = true
-        repairedTranscript.state = HandoffReducer.reduce(
-            repairedTranscript.state,
-            event: .repairTranscript
-        ).state
+        repairedTranscript.transcript = [.call("call-001"), .result("call-001")]
+        let repair = event(repairedTranscript.state, .repairTranscript)
+        repairedTranscript.state = repair.decision.state
+        repairedTranscript.eventRecords.append(repair)
+        repairedTranscript.auditFacts = ["transcript:repaired", "transcript:reused"]
+        rebind(&repairedTranscript)
         scenarios.append(repairedTranscript)
 
         var unbalancedTranscript = consultation("DEV138-TRANSCRIPT-UNBALANCED")
-        unbalancedTranscript.transcriptBalanced = false
-        unbalancedTranscript.transcriptRepaired = false
-        unbalancedTranscript.state.auditEvents = ["transcript:unbalanced"]
+        unbalancedTranscript.transcript = [.call("call-001")]
+        unbalancedTranscript.auditFacts = ["transcript:unbalanced", "refusal:transcript-reuse"]
         scenarios.append(unbalancedTranscript)
 
         var uncertainRecovery = base("DEV138-UNCERTAIN-RECOVERY")
-        uncertainRecovery.state = recoveryState()
+        let (uncertainRecoveryState, uncertainRecoveryRecords) = recoveryExecution()
+        uncertainRecovery.state = uncertainRecoveryState
+        uncertainRecovery.eventRecords = uncertainRecoveryRecords
+        uncertainRecovery.auditFacts = ["checkpoint=uncertain", "pendingEffect=effect-001", "recovery:persistent"]
+        rebind(&uncertainRecovery)
         scenarios.append(uncertainRecovery)
 
         return scenarios.sorted { $0.caseID < $1.caseID }
@@ -483,26 +722,31 @@ enum DeterministicScenarios {
 
         switch name {
         case "tool_unauthorized":
-            observation.commandAuthorized = false
+            observation.toolAuthorization.actorProfile = "source"
         case "context_required_missing":
             observation.context.removeAll(where: { $0.name == "task_summary" })
+            rebind(&observation)
         case "context_c3_leak":
             observation.context.append(
                 ContextField(name: "never_transfer", outputLabel: "never_transfer", dataClass: .c3NeverTransfer, included: true, redacted: false, sourceMetadata: "source:secret")
             )
+            rebind(&observation)
         case "phase_invalid":
-            observation.phaseRuleValid = false
+            observation.state.phase = .transitioning
+            observation.state.pendingTransition = nil
         case "effect_duplicate":
             observation.state.ledger.append(observation.state.ledger[0])
         case "effect_replay":
-            observation.replayCommandIssued = true
+            observation.state.commandHistory.append(observation.state.commandHistory[0])
+            observation.state.executorCommandCount = 2
         case "fallback_expands_trust":
-            observation.fallbackExpandedTrust = true
+            observation.fallbackPlan.selection = .chosen(
+                TrustBoundary(providerRank: 3, maximumDataClass: .c3NeverTransfer, retentionRank: 2, toolRank: 2, effectBudget: 2)
+            )
         case "evidence_leak":
-            observation.rawEvidence = ["private-evidence"]
-            observation.evidenceSanitized = false
-        case "rubric_incomplete":
-            observation.rubricComplete = false
+            observation.evidence = [
+                EvidenceRecord(classification: .rawContent, pathKind: .absolute, artifactExtension: ".trace", redaction: .raw, fingerprint: "synthetic")
+            ]
         case "grant_person_mismatch":
             observation.grant.personID = "other-person"
         case "grant_session_mismatch":
@@ -518,11 +762,19 @@ enum DeterministicScenarios {
         case "grant_purpose_mismatch":
             observation.grant.purpose = "other-purpose"
         case "grant_class_mismatch":
-            observation.grant.allowedDataClasses = [.c2Sensitive]
+            observation.grant.allowedDataClasses = []
+        case "grant_extra_class":
+            observation.grant.allowedDataClasses.insert(.c2Sensitive)
+        case "grant_extra_c3_class":
+            observation.grant.allowedDataClasses.insert(.c3NeverTransfer)
         case "grant_field_mismatch":
-            observation.grant.allowedFields = ["customer_record"]
+            observation.grant.allowedFields = []
+        case "grant_extra_field":
+            observation.grant.allowedFields.insert("extra_field")
         case "grant_tool_mismatch":
-            observation.grant.allowedTool = "other.tool"
+            observation.grant.allowedTools = [
+                ToolBinding(name: "other.tool", version: "1.0", provider: "provider-b", resultType: "ExecutionReceipt")
+            ]
         case "grant_retention_mismatch":
             observation.grant.retention = "persistent"
         case "grant_expired":
@@ -531,11 +783,22 @@ enum DeterministicScenarios {
             observation.context.append(
                 ContextField(name: "customer_record", outputLabel: "customer_record:redacted", dataClass: .c2Sensitive, included: true, redacted: true, sourceMetadata: "source:customer")
             )
-            observation.grant.exceptionalC2Authorized = false
+            rebind(&observation)
+            observation.grant.exceptionalC2Permission = "denied"
         case "grant_state_version_stale":
             observation.grant.stateVersion = 1
         case "grant_policy_version_stale":
             observation.grant.policyVersion = 6
+        case "result_call_id_mismatch":
+            observation.toolResult?.callID = "other-call"
+        case "result_tool_version_mismatch":
+            observation.toolResult?.binding.version = "2.0"
+        case "result_provider_mismatch":
+            observation.toolResult?.binding.provider = "other-provider"
+        case "result_type_mismatch":
+            observation.toolResult?.binding.resultType = "OtherResult"
+        case "result_state_version_stale":
+            observation.toolResult?.stateVersion = 1
         default:
             return nil
         }
@@ -544,25 +807,23 @@ enum DeterministicScenarios {
     }
 
     static func recoveryProbe(named name: String) -> RecoveryProbe? {
-        let before = recoveryState()
-        let decision: ReducerDecision
-        let outcome: String
-
+        let (before, _) = recoveryExecution()
+        let event: TrustedEvent
         switch name {
         case "reconciliation-unavailable":
-            decision = HandoffReducer.reduce(before, event: .reconciliationUnavailable)
-            outcome = "repair-blocked/unavailable"
+            event = .reconciliationUnavailable
         case "replay-suppressed":
-            decision = HandoffReducer.reduce(before, event: .suppressReplay)
-            outcome = "replay-suppressed"
+            event = .suppressReplay
         default:
             return nil
         }
-
+        let decision = HandoffReducer.reduce(before, event: event)
         return RecoveryProbe(
             before: RecoverySnapshot(before),
             after: RecoverySnapshot(decision.state),
-            outcome: outcome,
+            outcome: decision.outcome.rawValue == "repairBlockedUnavailable"
+                ? "repair-blocked/unavailable"
+                : "replay-suppressed",
             commandEmitted: decision.command != nil
         )
     }
@@ -570,12 +831,8 @@ enum DeterministicScenarios {
     static func contextProbe() -> ContextProbe {
         let byID = Dictionary(uniqueKeysWithValues: all().map { ($0.caseID, $0) })
         return ContextProbe(
-            blockedPayload: HandoffReducer.serializeContextForProvider(
-                byID["DEV138-C3-BLOCKED"]!
-            ),
-            rejectedLeakPayload: HandoffReducer.serializeContextForProvider(
-                byID["DEV138-C3-LEAK"]!
-            )
+            blockedPayload: HandoffReducer.serializeContextForProvider(byID["DEV138-C3-BLOCKED"]!),
+            rejectedLeakPayload: HandoffReducer.serializeContextForProvider(byID["DEV138-C3-LEAK"]!)
         )
     }
 }
@@ -602,7 +859,6 @@ struct DeterministicScenarioRunner {
         }
 
         let observations: [ScenarioObservation]
-
         if arguments.count == 2, arguments[0] == "--mutation" {
             guard let mutation = DeterministicScenarios.mutation(named: arguments[1]) else {
                 FileHandle.standardError.write(Data("unknown mutation\n".utf8))
@@ -617,8 +873,7 @@ struct DeterministicScenarioRunner {
         }
 
         for observation in observations {
-            let result = HandoffReducer.makeResult(observation)
-            try write(result, with: encoder)
+            try write(HandoffReducer.makeResult(observation), with: encoder)
         }
     }
 

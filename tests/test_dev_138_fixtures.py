@@ -51,50 +51,50 @@ RESULT_KEYS = {
     "auditEvents",
 }
 
-EXPECTED_VIOLATIONS = {
-    "DEV138-BATON-VALID": [],
-    "DEV138-BUDGET-EXCEEDED": ["D-TRANSITION-001"],
-    "DEV138-C2-REDACTED": [],
-    "DEV138-C2-UNREDACTED": ["D-CONTEXT-002"],
-    "DEV138-C3-BLOCKED": [],
-    "DEV138-C3-LEAK": ["D-CONTEXT-002"],
-    "DEV138-CANCEL-ERASES-RECOVERY": ["D-EFFECT-001", "D-PHASE-001"],
-    "DEV138-CANCEL-PRECOMMIT": [],
-    "DEV138-CANCEL-UNCERTAIN": [],
-    "DEV138-CONSULTATION-VALID": [],
-    "DEV138-CONTEXT-REQUIRED-MISSING": ["D-CONTEXT-001"],
-    "DEV138-EDGE-INVALID": ["D-TRANSITION-001"],
-    "DEV138-EFFECT-DUPLICATE-LEDGER": ["D-EFFECT-001"],
-    "DEV138-EFFECT-REPLAY-COMMAND": ["D-EFFECT-002"],
-    "DEV138-EFFECT-RETRY-BEFORE-RECONCILE": ["D-EFFECT-002"],
-    "DEV138-EVIDENCE-LEAKAGE": ["D-EVIDENCE-001"],
-    "DEV138-FALLBACK-EXPANDS-TRUST": ["D-FALLBACK-001"],
-    "DEV138-GRANT-AUTH-EXPIRED": ["D-GRANT-001"],
-    "DEV138-GRANT-CLASS-MISMATCH": ["D-GRANT-001"],
-    "DEV138-GRANT-DESTINATION-MISMATCH": ["D-GRANT-001"],
-    "DEV138-GRANT-FIELD-MISMATCH": ["D-GRANT-001"],
-    "DEV138-GRANT-POLICY-STALE": ["D-GRANT-001"],
-    "DEV138-GRANT-PURPOSE-MISMATCH": ["D-GRANT-001"],
-    "DEV138-GRANT-STATE-STALE": ["D-GRANT-001"],
-    "DEV138-INJECTION-IGNORED": [],
-    "DEV138-LOOP": ["D-TRANSITION-001"],
-    "DEV138-MODEL-UNAVAILABLE-EXPLICIT": [],
-    "DEV138-MODEL-UNAVAILABLE-SAFE": [],
-    "DEV138-OWNER-BATON-SOURCE": ["D-OWNER-001"],
-    "DEV138-OWNER-CONSULT-CHILD": ["D-OWNER-001"],
-    "DEV138-PHASE-INVALID": ["D-PHASE-001"],
-    "DEV138-PRECOMMIT-ROLLBACK": [],
-    "DEV138-RECONCILED-RETRY": [],
-    "DEV138-RECONCILIATION-UNAVAILABLE": [],
-    "DEV138-RECOVERY-TERMINATED": ["D-PHASE-001"],
-    "DEV138-REPLAY-SUPPRESSED": [],
-    "DEV138-RESULT-SPOOFED": ["D-TOOL-001"],
-    "DEV138-ROUTE-DISALLOWED": ["D-ROUTE-001"],
-    "DEV138-SCHEMA-MISSING": ["D-SCHEMA-001"],
-    "DEV138-TOOL-UNAUTHORIZED": ["D-TOOL-001"],
-    "DEV138-TRANSCRIPT-REPAIRED": [],
-    "DEV138-TRANSCRIPT-UNBALANCED": ["D-PHASE-001"],
-    "DEV138-UNCERTAIN-RECOVERY": [],
+EXPECTED_CASE_IDS = {
+    "DEV138-BATON-VALID",
+    "DEV138-BUDGET-EXCEEDED",
+    "DEV138-C2-REDACTED",
+    "DEV138-C2-UNREDACTED",
+    "DEV138-C3-BLOCKED",
+    "DEV138-C3-LEAK",
+    "DEV138-CANCEL-ERASES-RECOVERY",
+    "DEV138-CANCEL-PRECOMMIT",
+    "DEV138-CANCEL-UNCERTAIN",
+    "DEV138-CONSULTATION-VALID",
+    "DEV138-CONTEXT-REQUIRED-MISSING",
+    "DEV138-EDGE-INVALID",
+    "DEV138-EFFECT-DUPLICATE-LEDGER",
+    "DEV138-EFFECT-REPLAY-COMMAND",
+    "DEV138-EFFECT-RETRY-BEFORE-RECONCILE",
+    "DEV138-EVIDENCE-LEAKAGE",
+    "DEV138-FALLBACK-EXPANDS-TRUST",
+    "DEV138-GRANT-AUTH-EXPIRED",
+    "DEV138-GRANT-CLASS-MISMATCH",
+    "DEV138-GRANT-DESTINATION-MISMATCH",
+    "DEV138-GRANT-FIELD-MISMATCH",
+    "DEV138-GRANT-POLICY-STALE",
+    "DEV138-GRANT-PURPOSE-MISMATCH",
+    "DEV138-GRANT-STATE-STALE",
+    "DEV138-INJECTION-IGNORED",
+    "DEV138-LOOP",
+    "DEV138-MODEL-UNAVAILABLE-EXPLICIT",
+    "DEV138-MODEL-UNAVAILABLE-SAFE",
+    "DEV138-OWNER-BATON-SOURCE",
+    "DEV138-OWNER-CONSULT-CHILD",
+    "DEV138-PHASE-INVALID",
+    "DEV138-PRECOMMIT-ROLLBACK",
+    "DEV138-RECONCILED-RETRY",
+    "DEV138-RECONCILIATION-UNAVAILABLE",
+    "DEV138-RECOVERY-TERMINATED",
+    "DEV138-REPLAY-SUPPRESSED",
+    "DEV138-RESULT-SPOOFED",
+    "DEV138-ROUTE-DISALLOWED",
+    "DEV138-SCHEMA-MISSING",
+    "DEV138-TOOL-UNAUTHORIZED",
+    "DEV138-TRANSCRIPT-REPAIRED",
+    "DEV138-TRANSCRIPT-UNBALANCED",
+    "DEV138-UNCERTAIN-RECOVERY",
 }
 
 
@@ -129,13 +129,17 @@ class Dev138FixtureTests(unittest.TestCase):
         return cls._executable
 
     @classmethod
-    def _run_fixture(cls, *arguments):
-        completed = subprocess.run(
+    def _invoke_fixture(cls, *arguments):
+        return subprocess.run(
             [str(cls._compile_fixture()), *arguments],
             cwd=ROOT,
             capture_output=True,
             check=False,
         )
+
+    @classmethod
+    def _run_fixture(cls, *arguments):
+        completed = cls._invoke_fixture(*arguments)
         if completed.returncode != 0:
             raise AssertionError(
                 "Swift fixture execution failed:\n"
@@ -143,6 +147,40 @@ class Dev138FixtureTests(unittest.TestCase):
                 f"stderr:\n{completed.stderr.decode()}"
             )
         return completed.stdout
+
+    def _run_reducer_probe(self, source):
+        with tempfile.TemporaryDirectory(prefix="dev-138-probe-") as directory:
+            directory = Path(directory)
+            harness = directory / "Probe.swift"
+            executable = directory / "probe"
+            harness.write_text(source)
+            completed = subprocess.run(
+                [
+                    "swiftc",
+                    "-warnings-as-errors",
+                    "-parse-as-library",
+                    str(SOURCES[0]),
+                    str(harness),
+                    "-o",
+                    str(executable),
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(
+                completed.returncode,
+                0,
+                f"probe compilation failed:\n{completed.stderr}",
+            )
+            return subprocess.run(
+                [str(executable)],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
 
     @staticmethod
     def _oracle_rows():
@@ -168,8 +206,8 @@ class Dev138FixtureTests(unittest.TestCase):
         rows = self._oracle_rows()
 
         self.assertEqual(len(rows), 43)
-        self.assertEqual([row["caseId"] for row in rows], sorted(EXPECTED_VIOLATIONS))
-        self.assertEqual(set(EXPECTED_VIOLATIONS), {row["caseId"] for row in rows})
+        self.assertEqual([row["caseId"] for row in rows], sorted(EXPECTED_CASE_IDS))
+        self.assertEqual(EXPECTED_CASE_IDS, {row["caseId"] for row in rows})
         self.assertTrue(ORACLE.read_bytes().endswith(b"\n"))
 
         for raw_line, row in zip(raw_lines, rows, strict=True):
@@ -181,7 +219,6 @@ class Dev138FixtureTests(unittest.TestCase):
             )
             self.assertEqual(row["violations"], sorted(set(row["violations"])))
             self.assertLessEqual(set(row["violations"]), CHECK_IDS)
-            self.assertEqual(row["violations"], EXPECTED_VIOLATIONS[row["caseId"]])
             self.assertEqual(row["status"], "pass" if not row["violations"] else "fail")
 
     def test_mutations_isolate_every_validator_family_and_grant_binding(self):
@@ -194,7 +231,6 @@ class Dev138FixtureTests(unittest.TestCase):
             "effect_replay": ["D-EFFECT-002"],
             "fallback_expands_trust": ["D-FALLBACK-001"],
             "evidence_leak": ["D-EVIDENCE-001"],
-            "rubric_incomplete": ["D-RUBRIC-001"],
         }
         grant_mutations = {
             "grant_person_mismatch",
@@ -266,6 +302,10 @@ class Dev138FixtureTests(unittest.TestCase):
 
         for probe in (unavailable, replay):
             self.assertEqual(probe["before"], probe["after"])
+            self.assertIn("repairFacts", probe["before"])
+            self.assertIn("auditEvents", probe["before"])
+            self.assertTrue(probe["before"]["repairFacts"])
+            self.assertTrue(probe["before"]["auditEvents"])
             self.assertFalse(probe["commandEmitted"])
             self.assertEqual(probe["before"]["authority"], "destination")
             self.assertEqual(probe["before"]["phase"], "recoveryRequired")
@@ -296,6 +336,249 @@ class Dev138FixtureTests(unittest.TestCase):
 
         self.assertEqual(unavailable["outcome"], "repair-blocked/unavailable")
         self.assertEqual(replay["outcome"], "replay-suppressed")
+
+    def test_baton_pass_requires_a_typed_proposal_before_commit(self):
+        output = self._run_reducer_probe(
+            r'''
+import Foundation
+
+@main
+struct Probe {
+    static func main() {
+        let direct = HandoffReducer.reduce(.initial, event: .commitBaton)
+        let proposed = HandoffReducer.reduce(.initial, event: .proposeBaton)
+        let committed = HandoffReducer.reduce(proposed.state, event: .commitBaton)
+        let values = [
+            direct.state.phase.rawValue,
+            direct.state.activeProfile,
+            String(direct.command == nil),
+            proposed.state.phase.rawValue,
+            proposed.state.activeProfile,
+            proposed.state.pendingTransition ?? "none",
+            committed.state.phase.rawValue,
+            committed.state.activeProfile,
+            committed.state.finalResponseOwner,
+            String(committed.state.transitionCount),
+        ]
+        print(values.joined(separator: "|"))
+    }
+}
+'''
+        )
+        self.assertEqual(
+            output,
+            "stable|source|true|transitioning|source|baton-pass|stable|destination|destination|1\n",
+        )
+
+    def test_recovery_refuses_late_or_wrong_phase_events_without_mutation(self):
+        output = self._run_reducer_probe(
+            r'''
+import Foundation
+
+@main
+struct Probe {
+    static func main() {
+        var recovery = HandoffState.initial
+        recovery.activeProfile = "destination"
+        recovery.finalResponseOwner = "destination"
+        recovery.phase = .recoveryRequired
+        recovery.transitionCount = 1
+        recovery.executorCommandCount = 1
+        recovery.pendingEffectID = "effect-001"
+        recovery.pendingTransition = "effect-reconciliation"
+        recovery.lastCheckpoint = "uncertain"
+        recovery.lastStableCheckpoint = "baton-committed"
+
+        let events: [TrustedEvent] = [
+            .completeConsultation,
+            .failPrecommit,
+            .cancelPrecommit,
+            .cancelUncertain,
+            .suppressReplay,
+            .repairTranscript,
+            .ignoreUntrustedInput,
+        ]
+        let refused = events.map { event -> String in
+            let decision = HandoffReducer.reduce(recovery, event: event)
+            return String(decision.state == recovery && decision.command == nil)
+        }
+        print(refused.joined(separator: "|"))
+    }
+}
+'''
+        )
+        self.assertEqual(output, "true|true|true|true|true|true|true\n")
+
+    def test_adversarial_execution_requests_are_refused_without_state_change(self):
+        output = self._run_reducer_probe(
+            r'''
+import Foundation
+
+@main
+struct Probe {
+    static func main() {
+        let proposed = HandoffReducer.reduce(.initial, event: .proposeBaton)
+        let committed = HandoffReducer.reduce(proposed.state, event: .commitBaton).state
+
+        var unauthorized = ExecutionRequest.fixture(state: committed)
+        unauthorized.authorization.actorProfile = "source"
+
+        var c3 = ExecutionRequest.fixture(state: committed)
+        c3.context.append(
+            ContextField(
+                name: "never_transfer",
+                outputLabel: "never_transfer",
+                dataClass: .c3NeverTransfer,
+                included: true,
+                redacted: false,
+                sourceMetadata: "source:secret"
+            )
+        )
+
+        var grantSuperset = ExecutionRequest.fixture(state: committed)
+        grantSuperset.grant.allowedDataClasses.insert(.c2Sensitive)
+
+        let requests = [unauthorized, c3, grantSuperset]
+        let refused = requests.map { request -> String in
+            let decision = HandoffReducer.reduce(
+                committed,
+                event: .execute(request: request)
+            )
+            return String(
+                decision.state == committed
+                    && decision.command == nil
+                    && decision.disposition == .refusedPolicy
+            )
+        }
+        print(refused.joined(separator: "|"))
+    }
+}
+'''
+        )
+        self.assertEqual(output, "true|true|true\n")
+
+    def test_typed_tool_result_provenance_is_refused_by_reducer(self):
+        output = self._run_reducer_probe(
+            r'''
+import Foundation
+
+@main
+struct Probe {
+    static func main() {
+        let proposed = HandoffReducer.reduce(.initial, event: .proposeBaton)
+        let committed = HandoffReducer.reduce(proposed.state, event: .commitBaton).state
+        let request = ExecutionRequest.fixture(state: committed)
+        let executed = HandoffReducer.reduce(committed, event: .execute(request: request)).state
+        var forged = ToolResult(
+            callID: request.authorization.callID,
+            binding: request.authorization.binding,
+            stateVersion: executed.stateVersion
+        )
+        forged.binding.resultType = "ForgedResult"
+        let decision = HandoffReducer.reduce(
+            executed,
+            event: .acceptToolResult(
+                result: forged,
+                authorization: request.authorization
+            )
+        )
+        print(
+            decision.state == executed
+                && decision.command == nil
+                && decision.disposition == .refusedPolicy
+        )
+    }
+}
+'''
+        )
+        self.assertEqual(output, "true\n")
+
+    def test_adversarial_matrix_records_refusal_and_command_suppression(self):
+        by_case = {row["caseId"]: row for row in self._oracle_rows()}
+        refused_without_execution = {
+            "DEV138-C2-UNREDACTED",
+            "DEV138-C3-LEAK",
+            "DEV138-CONTEXT-REQUIRED-MISSING",
+            "DEV138-GRANT-AUTH-EXPIRED",
+            "DEV138-GRANT-CLASS-MISMATCH",
+            "DEV138-GRANT-DESTINATION-MISMATCH",
+            "DEV138-GRANT-FIELD-MISMATCH",
+            "DEV138-GRANT-POLICY-STALE",
+            "DEV138-GRANT-PURPOSE-MISMATCH",
+            "DEV138-GRANT-STATE-STALE",
+            "DEV138-TOOL-UNAUTHORIZED",
+        }
+        for case_id in refused_without_execution:
+            with self.subTest(case_id=case_id):
+                row = by_case[case_id]
+                self.assertEqual(row["executorCommandCount"], 0)
+                self.assertEqual(row["effectCount"], 0)
+                self.assertTrue(
+                    any(event.startswith("refusal:") for event in row["auditEvents"])
+                )
+
+        spoofed = by_case["DEV138-RESULT-SPOOFED"]
+        self.assertEqual((spoofed["executorCommandCount"], spoofed["effectCount"]), (1, 1))
+        self.assertIn("refusal:tool-result", spoofed["auditEvents"])
+
+    def test_scenarios_do_not_self_attest_policy_verdicts(self):
+        swift_source = "\n".join(source.read_text() for source in SOURCES)
+        forbidden_verdict_fields = {
+            "routeAllowed",
+            "transitionEdgeAllowed",
+            "loopDetected",
+            "handoffCommitted",
+            "commandRequested",
+            "commandAuthorized",
+            "commandOriginTrusted",
+            "untrustedResultAccepted",
+            "phaseRuleValid",
+            "duplicateLedgerDetected",
+            "replayCommandIssued",
+            "retryBeforeReconciliation",
+            "cancellationErasedRecovery",
+            "fallbackExpandedTrust",
+            "transcriptBalanced",
+            "transcriptRepaired",
+            "evidenceSanitized",
+            "rubricComplete",
+        }
+        found = sorted(
+            field for field in forbidden_verdict_fields if field in swift_source
+        )
+        self.assertEqual(found, [], f"self-attested verdict fields remain: {found}")
+
+    def test_exact_grants_and_typed_tool_results_reject_independent_mutations(self):
+        mutations = {
+            "grant_extra_class": ["D-GRANT-001"],
+            "grant_extra_c3_class": ["D-GRANT-001"],
+            "grant_extra_field": ["D-GRANT-001"],
+            "result_call_id_mismatch": ["D-TOOL-001"],
+            "result_tool_version_mismatch": ["D-TOOL-001"],
+            "result_provider_mismatch": ["D-TOOL-001"],
+            "result_type_mismatch": ["D-TOOL-001"],
+            "result_state_version_stale": ["D-TOOL-001"],
+        }
+        for mutation, expected in mutations.items():
+            with self.subTest(mutation=mutation):
+                completed = self._invoke_fixture("--mutation", mutation)
+                self.assertEqual(
+                    completed.returncode,
+                    0,
+                    completed.stderr.decode(),
+                )
+                result = json.loads(completed.stdout)
+                self.assertEqual(result["violations"], expected)
+
+    def test_jsonl_is_the_only_expected_outcome_oracle(self):
+        test_source = Path(__file__).read_text()
+        duplicate_map_name = "EXPECTED_" + "VIOLATIONS"
+        self.assertNotIn(duplicate_map_name, test_source)
+
+    def test_swift_does_not_duplicate_dev_131_rubric_scoring(self):
+        swift_source = "\n".join(source.read_text() for source in SOURCES)
+        self.assertNotIn("D-" + "RUBRIC-001", swift_source)
+        self.assertNotIn("rubric_" + "incomplete", swift_source)
 
     def test_context_fallback_transcript_and_evidence_are_safely_observable(self):
         by_case = {row["caseId"]: row for row in self._oracle_rows()}
