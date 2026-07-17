@@ -266,6 +266,69 @@ CORE_SEMANTIC_SECTION_TITLES = (
     "Guardrails",
 )
 
+CONTROLLED_AVAILABILITY_LABELS = (
+    "compiled_sdk_26_5",
+    "interface_verified_sdk_26_5",
+    "official_os_xcode_27_beta_locally_unverified",
+    "pseudocode_deterministic_mock",
+    "blocked",
+)
+
+STABLE_INVARIANT_SENTENCES = {
+    "Pattern and Ownership": (
+        "Maintain exactly one stable owner at every state; only that owner authorizes "
+        "the next transition, and model output, provider output, and tools never "
+        "become the owner.",
+    ),
+    "State and Lifecycle": (
+        "For every allowed edge, define finite transition, tool-call, and "
+        "external-effect budgets.",
+        "Validate the event, source phase, allowed edge, grant, stateVersion, and "
+        "policyVersion before mutating any budget.",
+        "Persist the checkpoint before setting the phase to transitioning; only then "
+        "may the reducer emit at most one executor command.",
+        "Treat stateVersion and policyVersion as independent values, each with its "
+        "own compatibility and migration rule.",
+        "Terminate only from a stable phase with no unresolved pending command, "
+        "pending effect, or recovery requirement.",
+    ),
+    "Trust and Model Boundaries": (
+        "Classify every context field atomically as C0, C1, C2, or C3 before "
+        "transfer; reject the whole envelope when any field is unknown or "
+        "disallowed.",
+        "Bind every grant to person, session, source profile, source provider, "
+        "destination profile, destination provider, purpose, exact context classes, "
+        "exact fields, tools, retention, expiry, C2 permission, stateVersion, and "
+        "policyVersion. Invalidate and revalidate the grant before use whenever any "
+        "binding drifts.",
+    ),
+    "Tools Effects and Confirmation": (
+        "Accept a tool result only when its call ID, tool ID, tool version, provider, "
+        "result type, and current state match the pending invocation; otherwise "
+        "reject it.",
+        "Require confirmation plus an application-controlled effect ID and "
+        "application-owned effect ledger; execute every external effect at most once "
+        "and reconcile ledger state with external truth before retry or replay.",
+    ),
+    "Failure Recovery and Fallback": (
+        "When external truth is uncertain, set recoveryRequired and remain in "
+        "recovery until reconciliation proves the outcome.",
+        "While recoveryRequired, late results, replay events, and cancellation "
+        "preserve authority, pending command and effect, checkpoint, "
+        "transition/tool/effect counts, effect ledger, and repair facts "
+        "byte-identically and emit no executor command.",
+        "Fallback never expands trust: it cannot widen context, provider, tool, "
+        "effect, retention, grant, or authority boundaries.",
+    ),
+}
+
+AVAILABILITY_ERROR_BOUNDARY_SENTENCE = (
+    "Record stable SDK 26.5 compile and interface errors separately from locally "
+    "unverified OS/Xcode 27 beta errors."
+)
+DESIGN_READ_ONLY_SENTENCE = "Design is read-only: make no production edits."
+INTEGRATION_BLOCKER_REASON = "production_skills_not_integrated"
+
 
 @dataclass(frozen=True)
 class MarkdownSection:
@@ -465,6 +528,29 @@ def section_owns(section: MarkdownSection, position: int) -> bool:
     return section.heading_start <= position < section.end
 
 
+def flexible_phrase_pattern(phrase: str) -> re.Pattern[str]:
+    return re.compile(
+        r"\s+".join(re.escape(token) for token in phrase.split()),
+        re.IGNORECASE,
+    )
+
+
+def assert_single_owned_phrase(
+    test_case: unittest.TestCase,
+    text: str,
+    owner: MarkdownSection,
+    phrase: str,
+    label: str,
+) -> None:
+    matches = tuple(flexible_phrase_pattern(phrase).finditer(text))
+    test_case.assertEqual(1, len(matches), f"missing stable invariant: {label}")
+    match = matches[0]
+    test_case.assertTrue(
+        owner.content_start <= match.start() and match.end() <= owner.end,
+        f"{label} must occur only under {owner.title}",
+    )
+
+
 def assert_pattern_owned(
     test_case: unittest.TestCase,
     text: str,
@@ -478,6 +564,74 @@ def assert_pattern_owned(
         test_case.assertTrue(
             section_owns(owner, match.start()),
             f"{label} must occur only under {owner.title}",
+        )
+
+
+def assert_stable_handoff_invariants(
+    test_case: unittest.TestCase,
+    text: str,
+    sections: tuple[MarkdownSection, ...],
+    output: MarkdownSection,
+    guardrails: MarkdownSection,
+    skill: str,
+) -> None:
+    for title, phrases in STABLE_INVARIANT_SENTENCES.items():
+        owner = child_named(test_case, sections, output, title)
+        for index, phrase in enumerate(phrases, start=1):
+            assert_single_owned_phrase(
+                test_case,
+                text,
+                owner,
+                phrase,
+                f"{title} invariant {index}",
+            )
+
+    availability = child_named(
+        test_case, sections, output, "Apple API Availability"
+    )
+    assignment_pattern = re.compile(
+        r"(?mi)^\s*(?:[-*]\s*)?`?versionLabel`?\s*[:=]\s*(.+?)\s*$"
+    )
+    assignments = tuple(assignment_pattern.finditer(text))
+    test_case.assertEqual(
+        1,
+        len(assignments),
+        "versionLabel must have exactly one controlled-vocabulary assignment",
+    )
+    assignment = assignments[0]
+    test_case.assertTrue(
+        availability.content_start <= assignment.start()
+        and assignment.end() <= availability.end,
+        "versionLabel vocabulary must be owned by Apple API Availability",
+    )
+    test_case.assertEqual(
+        CONTROLLED_AVAILABILITY_LABELS,
+        tuple(re.findall(r"\b[a-z][a-z0-9_]*\b", assignment.group(1))),
+        "versionLabel vocabulary must be exact and closed",
+    )
+    assert_single_owned_phrase(
+        test_case,
+        text,
+        availability,
+        AVAILABILITY_ERROR_BOUNDARY_SENTENCE,
+        "stable SDK versus OS/Xcode 27 beta error boundary",
+    )
+
+    if skill == "design-apple-foundation-models-handoff":
+        activation = child_named(test_case, sections, output, "Activation and Scope")
+        assert_single_owned_phrase(
+            test_case,
+            text,
+            activation,
+            DESIGN_READ_ONLY_SENTENCE,
+            "design no-production-edit boundary",
+        )
+        assert_single_owned_phrase(
+            test_case,
+            text,
+            guardrails,
+            INTEGRATION_BLOCKER_REASON,
+            "design missing-reference blocker reason",
         )
 
 
@@ -588,6 +742,20 @@ def assert_exclusive_section_ownership(
             f"output heading {title} must be owned by Output Contract",
         )
 
+    availability = child_named(
+        test_case, sections, output, "Apple API Availability"
+    )
+    evidence_label_pair = re.compile(
+        r"compiled_sdk_26_5.{0,60}interface_verified_sdk_26_5",
+        re.IGNORECASE | re.DOTALL,
+    )
+    for match in evidence_label_pair.finditer(text):
+        test_case.assertTrue(
+            section_owns(availability, match.start())
+            or section_owns(guardrails, match.start()),
+            "controlled evidence labels belong only to Apple API Availability or Guardrails",
+        )
+
     expected_targets = tuple(f"../../references/{name}" for name in REFERENCE_NAMES)
     for target in expected_targets:
         matches = tuple(re.finditer(re.escape(target), text))
@@ -599,7 +767,8 @@ def assert_exclusive_section_ownership(
 
     guardrail_patterns = (
         re.compile(
-            r"compiled_sdk_26_5.{0,40}interface_verified_sdk_26_5",
+            r"Use(?: exact)?\s+compiled_sdk_26_5.{0,60}"
+            r"interface_verified_sdk_26_5.{0,60}(?:only|labels)",
             re.IGNORECASE | re.DOTALL,
         ),
         re.compile(
@@ -740,6 +909,14 @@ def assert_structured_skill_contract(
         child.title.strip().strip("*`") for child in direct_children(sections, output)
     )
     test_case.assertEqual(expected_output_sections, observed_output_sections)
+    assert_stable_handoff_invariants(
+        test_case,
+        text,
+        sections,
+        output,
+        guardrails,
+        skill,
+    )
 
     verification = child_named(
         test_case, sections, output, "Verification and Evidence"
@@ -828,11 +1005,26 @@ def build_valid_skill_fixture(skill: str) -> str:
     output_fields = "\n".join(("```text", *POSITIVE_RESULT_LINES, "```"))
     rendered_sections = []
     for section in (*COMMON_SECTIONS, *WORKFLOW_SECTIONS[skill]):
+        invariant_sentences = list(STABLE_INVARIANT_SENTENCES.get(section, ()))
+        if section == "Apple API Availability":
+            invariant_sentences.extend(
+                (
+                    "versionLabel = " + " | ".join(CONTROLLED_AVAILABILITY_LABELS),
+                    AVAILABILITY_ERROR_BOUNDARY_SENTENCE,
+                )
+            )
+        if (
+            skill == "design-apple-foundation-models-handoff"
+            and section == "Activation and Scope"
+        ):
+            invariant_sentences.append(DESIGN_READ_ONLY_SENTENCE)
         if section == "Verification and Evidence":
             body = (
                 "status = pass | fail | blocked | not_applicable\n"
                 "A zero denominator produces not_applicable with a null value."
             )
+        elif invariant_sentences:
+            body = "\n".join(invariant_sentences)
         else:
             body = f"Required structured output for {section}."
         rendered_sections.append(f"### {section}\n{body}")
@@ -874,7 +1066,12 @@ def build_valid_skill_fixture(skill: str) -> str:
         "interface_verified_sdk_26_5 labels. Compile-check Swift examples where "
         "supported; label pseudocode and unsupported APIs. Missing SDK, host, "
         "toolchain, binary, hardware, or prerequisite support is blocked.\n"
-        "Non-positive results contain no architectureResult, workflow-specific sections, "
+        + (
+            f"A missing fixed reference reports {INTEGRATION_BLOCKER_REASON}.\n"
+            if skill == "design-apple-foundation-models-handoff"
+            else ""
+        )
+        + "Non-positive results contain no architectureResult, workflow-specific sections, "
         "references, fabricated Apple claims, or host activation evidence.\n"
     )
 
@@ -929,6 +1126,10 @@ class SkillContractMutationTests(unittest.TestCase):
         with self.assertRaises(AssertionError):
             assert_structured_skill_contract(self, text, self.skill)
 
+    def assert_skill_rejected(self, text: str, skill: str) -> None:
+        with self.assertRaises(AssertionError):
+            assert_structured_skill_contract(self, text, skill)
+
     def test_reference_fixture_satisfies_the_structured_oracle(self) -> None:
         assert_structured_skill_contract(
             self, build_valid_skill_fixture(self.skill), self.skill
@@ -939,6 +1140,110 @@ class SkillContractMutationTests(unittest.TestCase):
         flat_dump = re.sub(r"(?m)^#{2,6}\s+", "", fixture)
 
         self.assert_rejected(flat_dump)
+
+    def test_stable_invariant_removal_misplacement_and_token_dumps_are_rejected(
+        self,
+    ) -> None:
+        for skill in SKILLS:
+            fixture = build_valid_skill_fixture(skill)
+            cases = [
+                (title, phrase)
+                for title, phrases in STABLE_INVARIANT_SENTENCES.items()
+                for phrase in phrases
+            ]
+            cases.append(
+                ("Apple API Availability", AVAILABILITY_ERROR_BOUNDARY_SENTENCE)
+            )
+            if skill == "design-apple-foundation-models-handoff":
+                cases.append(("Activation and Scope", DESIGN_READ_ONLY_SENTENCE))
+
+            for owner_title, phrase in cases:
+                removed = fixture.replace(phrase, "", 1)
+                misplaced = removed.replace(
+                    "## Guardrails\n",
+                    f"## Guardrails\n{phrase}\n",
+                    1,
+                )
+                tokens = sorted(
+                    set(re.findall(r"[A-Za-z][A-Za-z0-9_-]*", phrase.lower()))
+                )
+                token_dump = fixture.replace(
+                    phrase,
+                    "Invariant tokens: " + " | ".join(tokens) + ".",
+                    1,
+                )
+                for mutation, candidate in (
+                    ("removed", removed),
+                    ("misplaced", misplaced),
+                    ("token dump", token_dump),
+                ):
+                    with self.subTest(
+                        skill=skill,
+                        owner=owner_title,
+                        invariant=phrase,
+                        mutation=mutation,
+                    ):
+                        self.assert_skill_rejected(candidate, skill)
+
+    def test_availability_vocabulary_mutations_are_rejected_for_every_skill(
+        self,
+    ) -> None:
+        assignment = "versionLabel = " + " | ".join(
+            CONTROLLED_AVAILABILITY_LABELS
+        )
+        for skill in SKILLS:
+            fixture = build_valid_skill_fixture(skill)
+            removed = fixture.replace(assignment, "", 1)
+            misplaced = removed.replace(
+                "## Guardrails\n",
+                f"## Guardrails\n{assignment}\n",
+                1,
+            )
+            token_dump = fixture.replace(
+                assignment,
+                "Availability tokens: " + " | ".join(CONTROLLED_AVAILABILITY_LABELS),
+                1,
+            )
+            extra = fixture.replace(
+                assignment,
+                assignment + " | invented_label",
+                1,
+            )
+            for mutation, candidate in (
+                ("removed", removed),
+                ("misplaced", misplaced),
+                ("token dump", token_dump),
+                ("extra label", extra),
+            ):
+                with self.subTest(skill=skill, mutation=mutation):
+                    self.assert_skill_rejected(candidate, skill)
+
+    def test_design_read_only_and_integration_reason_are_owned_and_required(
+        self,
+    ) -> None:
+        skill = "design-apple-foundation-models-handoff"
+        fixture = build_valid_skill_fixture(skill)
+        mutations = {
+            "read-only removed": fixture.replace(DESIGN_READ_ONLY_SENTENCE, "", 1),
+            "read-only misplaced": fixture.replace(
+                DESIGN_READ_ONLY_SENTENCE, "", 1
+            ).replace(
+                "## Guardrails\n",
+                f"## Guardrails\n{DESIGN_READ_ONLY_SENTENCE}\n",
+                1,
+            ),
+            "reason removed": fixture.replace(INTEGRATION_BLOCKER_REASON, "", 1),
+            "reason misplaced": fixture.replace(
+                INTEGRATION_BLOCKER_REASON, "", 1
+            ).replace(
+                "## Routing and Inspection\n",
+                f"## Routing and Inspection\n{INTEGRATION_BLOCKER_REASON}\n",
+                1,
+            ),
+        }
+        for mutation, candidate in mutations.items():
+            with self.subTest(mutation=mutation):
+                self.assert_skill_rejected(candidate, skill)
 
     def test_removed_and_reordered_protocol_steps_are_rejected(self) -> None:
         fixture = build_valid_skill_fixture(self.skill)
