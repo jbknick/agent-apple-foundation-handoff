@@ -3789,6 +3789,281 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                 (code, evidence["host"]["blockerReason"], scorer.calls),
             )
 
+    def test_codex_01445_noncommand_item_lifecycles_and_statuses_are_exact(self) -> None:
+        def item_event(event_type: str, item: dict) -> dict:
+            return {"type": event_type, "item": copy.deepcopy(item)}
+
+        def stream(events: list[dict]) -> str:
+            records = [
+                {"type": "thread.started", "thread_id": "thread_synthetic"},
+                {"type": "turn.started"},
+                *events,
+                {"type": "turn.completed", "usage": _codex_usage()},
+            ]
+            return "\n".join(
+                json.dumps(record, sort_keys=True) for record in records
+            )
+
+        items = {
+            "agent_message": {
+                "id": "agent_0", "type": "agent_message", "text": "synthetic",
+            },
+            "reasoning": {
+                "id": "reasoning_0", "type": "reasoning", "text": "synthetic",
+            },
+            "file_change": {
+                "id": "file_0",
+                "type": "file_change",
+                "changes": [{"path": "synthetic.txt", "kind": "update"}],
+                "status": "completed",
+            },
+            "mcp_tool_call": {
+                "id": "mcp_0",
+                "type": "mcp_tool_call",
+                "server": "synthetic",
+                "tool": "lookup",
+                "arguments": {},
+                "result": None,
+                "error": None,
+                "status": "in_progress",
+            },
+            "collab_tool_call": {
+                "id": "collab_0",
+                "type": "collab_tool_call",
+                "tool": "wait",
+                "sender_thread_id": "thread_synthetic",
+                "receiver_thread_ids": [],
+                "prompt": None,
+                "agents_states": {},
+                "status": "in_progress",
+            },
+            "web_search": {
+                "id": "web_0",
+                "type": "web_search",
+                "query": "synthetic",
+                "action": {"type": "other"},
+            },
+            "todo_list": {
+                "id": "todo_0",
+                "type": "todo_list",
+                "items": [{"text": "synthetic", "completed": False}],
+            },
+            "error": {
+                "id": "error_0", "type": "error", "message": "synthetic",
+            },
+        }
+
+        def status_item(item_type: str, status: str) -> dict:
+            value = copy.deepcopy(items[item_type])
+            value["status"] = status
+            return value
+
+        valid_streams = {
+            "completion_only_agent_message": [
+                item_event("item.completed", items["agent_message"]),
+            ],
+            "completion_only_reasoning": [
+                item_event("item.completed", items["reasoning"]),
+            ],
+            "completion_only_file_change_completed": [
+                item_event("item.completed", items["file_change"]),
+            ],
+            "completion_only_file_change_failed": [
+                item_event(
+                    "item.completed", status_item("file_change", "failed")
+                ),
+            ],
+            "completion_only_error": [
+                item_event("item.completed", items["error"]),
+            ],
+            "paired_mcp_completed": [
+                item_event("item.started", items["mcp_tool_call"]),
+                item_event(
+                    "item.completed", status_item("mcp_tool_call", "completed")
+                ),
+            ],
+            "paired_mcp_failed": [
+                item_event("item.started", items["mcp_tool_call"]),
+                item_event(
+                    "item.completed", status_item("mcp_tool_call", "failed")
+                ),
+            ],
+            "paired_collab_completed": [
+                item_event("item.started", items["collab_tool_call"]),
+                item_event(
+                    "item.completed",
+                    status_item("collab_tool_call", "completed"),
+                ),
+            ],
+            "paired_collab_failed": [
+                item_event("item.started", items["collab_tool_call"]),
+                item_event(
+                    "item.completed", status_item("collab_tool_call", "failed")
+                ),
+            ],
+            "paired_web_search": [
+                item_event("item.started", items["web_search"]),
+                item_event("item.completed", items["web_search"]),
+            ],
+            "paired_todo_with_update": [
+                item_event("item.started", items["todo_list"]),
+                item_event("item.updated", items["todo_list"]),
+                item_event("item.completed", items["todo_list"]),
+            ],
+        }
+        for name, events in valid_streams.items():
+            with self.subTest(valid_control=name):
+                parsed = self.runner._codex_jsonl_events(stream(events))
+                self.assertEqual("turn.completed", parsed[-1]["type"])
+
+        invalid_streams = {
+            "agent_message_cannot_start": [
+                item_event("item.started", items["agent_message"]),
+                item_event("item.completed", items["agent_message"]),
+            ],
+            "reasoning_cannot_start": [
+                item_event("item.started", items["reasoning"]),
+                item_event("item.completed", items["reasoning"]),
+            ],
+            "file_change_cannot_start": [
+                item_event(
+                    "item.started", status_item("file_change", "in_progress")
+                ),
+                item_event("item.completed", items["file_change"]),
+            ],
+            "file_change_completion_cannot_be_in_progress": [
+                item_event(
+                    "item.completed", status_item("file_change", "in_progress")
+                ),
+            ],
+            "mcp_completion_requires_start": [
+                item_event(
+                    "item.completed", status_item("mcp_tool_call", "completed")
+                ),
+            ],
+            "mcp_start_requires_in_progress": [
+                item_event(
+                    "item.started", status_item("mcp_tool_call", "completed")
+                ),
+                item_event(
+                    "item.completed", status_item("mcp_tool_call", "completed")
+                ),
+            ],
+            "mcp_completion_requires_terminal_status": [
+                item_event("item.started", items["mcp_tool_call"]),
+                item_event("item.completed", items["mcp_tool_call"]),
+            ],
+            "collab_completion_requires_start": [
+                item_event(
+                    "item.completed",
+                    status_item("collab_tool_call", "completed"),
+                ),
+            ],
+            "collab_start_requires_in_progress": [
+                item_event(
+                    "item.started",
+                    status_item("collab_tool_call", "completed"),
+                ),
+                item_event(
+                    "item.completed",
+                    status_item("collab_tool_call", "completed"),
+                ),
+            ],
+            "collab_completion_requires_terminal_status": [
+                item_event("item.started", items["collab_tool_call"]),
+                item_event("item.completed", items["collab_tool_call"]),
+            ],
+            "web_search_completion_requires_start": [
+                item_event("item.completed", items["web_search"]),
+            ],
+            "todo_completion_requires_start": [
+                item_event("item.completed", items["todo_list"]),
+            ],
+            "error_cannot_start": [
+                item_event("item.started", items["error"]),
+                item_event("item.completed", items["error"]),
+            ],
+        }
+        for name, events in invalid_streams.items():
+            with self.subTest(invalid_lifecycle=name):
+                with self.assertRaises(ValueError):
+                    self.runner._codex_jsonl_events(stream(events))
+
+    def test_nonstandard_json_constants_fail_closed_in_jsonl_and_parser_inputs(self) -> None:
+        constants = {
+            "NaN": float("nan"),
+            "Infinity": float("inf"),
+            "-Infinity": float("-inf"),
+        }
+
+        def mcp_stream(arguments) -> str:
+            def item(status: str) -> dict:
+                return {
+                    "id": "mcp_0",
+                    "type": "mcp_tool_call",
+                    "server": "synthetic",
+                    "tool": "lookup",
+                    "arguments": arguments,
+                    "result": None,
+                    "error": None,
+                    "status": status,
+                }
+
+            records = (
+                {"type": "thread.started", "thread_id": "thread_synthetic"},
+                {"type": "turn.started"},
+                {"type": "item.started", "item": item("in_progress")},
+                {"type": "item.completed", "item": item("completed")},
+                {"type": "turn.completed", "usage": _codex_usage()},
+            )
+            return "\n".join(
+                json.dumps(record, sort_keys=True) for record in records
+            )
+
+        for name, value in constants.items():
+            with self.subTest(jsonl_constant=name):
+                with self.assertRaises(ValueError):
+                    self.runner._codex_jsonl_events(mcp_stream(value))
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plugin_root, listing = _build_forward_plugin_tree(root / "plugin-json")
+            with mock.patch.object(self.runner, "ROOT", root / "plugin-json"):
+                for name in constants:
+                    manifest = (
+                        '{"name":"apple-foundation-models-handoff",'
+                        '"interface":{"capabilities":'
+                        + json.dumps(list(WORKFLOW_SECTIONS))
+                        + f'}},"nonStandard":{name}}}'
+                    )
+                    (plugin_root / ".codex-plugin/plugin.json").write_text(
+                        manifest, encoding="utf-8"
+                    )
+                    with self.subTest(plugin_manifest_constant=name):
+                        self.assertFalse(
+                            self.runner._plugin_is_installed_enabled_with_capabilities(
+                                json.dumps(listing)
+                            )
+                        )
+
+            for name, value in constants.items():
+                stale = {key: None for key in FORWARD_EVIDENCE_KEYS}
+                stale.update(
+                    {
+                        "schemaVersion": "1.0",
+                        "sourceIssue": "DEV-136",
+                        "evidenceKind": "codex_skill_forward_test",
+                        "status": "pass",
+                        "cases": value,
+                    }
+                )
+                path = root / f"stale-{name}.json"
+                path.write_text(json.dumps(stale), encoding="utf-8")
+                with self.subTest(stale_evidence_constant=name):
+                    self.assertFalse(
+                        self.runner._existing_evidence_is_stale_success(path)
+                    )
+
     def test_evidence_prerequisites_are_derived_from_mode_blocker_and_rows(self) -> None:
         fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
         fixture_bytes = deterministic_fixture_bytes(fixture)
@@ -3882,8 +4157,12 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
         for placeholder in (
             "not specified",
             "not-specified",
+            " not specified ",
+            " not_specified ",
             "unchanged existing version",
             "unchanged-existing-version",
+            " unchanged-existing-version ",
+            " unchanged_existing_version ",
         ):
             with self.subTest(version_placeholder=placeholder):
                 observation = self.runner.live_score(
@@ -3915,6 +4194,32 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                 "fail",
                 observation["assertions"]["review_first_ordering"],
             )
+
+    def test_live_score_rejects_contracted_full_clause_negations(self) -> None:
+        case = _forward_fixture("DEV136-FWD-REVIEW-001")["cases"][0]
+        negated_boundaries = {
+            "isn't": "A separate authorized follow-on boundary isn't required.",
+            "aren't": "Separate authorized follow-on changes aren't required.",
+            "wasn't": "A separate authorized follow-on boundary wasn't established.",
+            "weren't": "Separate authorized follow-on changes weren't established.",
+            "doesn't": "A separate authorized follow-on boundary doesn't exist.",
+            "don't": "Separate follow-on changes don't require authorization.",
+            "can't": "A separate follow-on change can't be authorized.",
+            "cannot": "A separate authorized follow-on boundary cannot exist.",
+        }
+        for contraction, review_boundary in negated_boundaries.items():
+            with self.subTest(contracted_negation=contraction):
+                observation = self.runner.live_score(
+                    case,
+                    _canonical_live_response(
+                        case, review_boundary=review_boundary
+                    ),
+                    [],
+                )
+                self.assertEqual(
+                    "fail",
+                    observation["assertions"]["review_first_ordering"],
+                )
 
     def test_model_unavailable_is_bound_to_exact_model_and_diagnostic_grammar(self) -> None:
         def completed(*, stderr: str = "", stdout: str = ""):
