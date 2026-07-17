@@ -32,6 +32,13 @@ HEADER = (
     "<!-- Generated from CLAUDE.md by scripts/sync_generated_artifacts.py. "
     "Do not edit directly. -->\n\n"
 )
+WORKFLOW_SKILLS = (
+    "design-apple-foundation-models-handoff",
+    "implement-apple-foundation-models-handoff",
+    "review-apple-foundation-models-handoff",
+    "debug-apple-foundation-models-handoff",
+    "validate-apple-foundation-models-handoff",
+)
 
 
 spec = importlib.util.spec_from_file_location("sync_generated_artifacts", SCRIPT)
@@ -547,25 +554,21 @@ class RepositoryGuidanceTests(unittest.TestCase):
         canonical_text = normalized_guide(CANONICAL)
         generated_text = normalized_guide(GENERATED)
         required_contracts = (
-            "captured approved `2.1.91` executable with session-only `--plugin-dir "
-            "<repo>` or an isolated packaging/cache install",
-            "Codex `0.144.5` uses its captured executable with isolated `CODEX_HOME`, "
-            "marketplace registration, plugin install/add, then a fresh task",
-            "`codex --plugin-dir` is not approved",
-            "Claude `2.1.140` is diagnostic-only and cannot substitute",
-            "non-executable scaffold with zero capabilities",
-            "Exactly five package reference files are present as documentation-only "
-            "inputs and provide zero runtime capabilities",
-            "Skills, hooks, commands, agents, MCP servers, package scripts, "
-            "dependencies, and runtime code remain absent",
-            "Normalize the repository as `<repo>` and executable as `<host-path>`",
-            "never commit literal resolutions, other private absolute paths, or raw "
-            "`PATH`",
-            "Before host operations, a missing/non-runnable executable, malformed/"
-            "unavailable version, or baseline mismatch emits normalized `blocked` "
-            "with stable reason/version metadata",
-            "After capture, resolution or version drift emits normalized `fail`, "
-            "invalidates the row, and requires a fresh run",
+            "Claude Code uses the captured approved `2.1.91` executable with "
+            "session-only `--plugin-dir <repo>` or an isolated install for packaging "
+            "and cache tests.",
+            "Codex `0.144.5` uses the captured executable with isolated `CODEX_HOME`, "
+            "marketplace registration, plugin install/add, and then a fresh task.",
+            "`codex --plugin-dir` is not an approved workflow for Codex `0.144.5`.",
+            "Claude Code `2.1.140` is diagnostic only and cannot substitute.",
+            "DEV-135 provides metadata for structural discovery and installation.",
+            "Normalize repository location as `<repo>` and executable identity as "
+            "`<host-path>`; never commit their literal resolutions or raw `PATH`.",
+            "Before host operations, a missing or non-runnable executable, unavailable "
+            "or malformed version, or approved-baseline mismatch emits a normalized "
+            "`blocked` row with stable reason/version metadata before exit.",
+            "After successful capture, resolution or version drift emits normalized "
+            "`fail` before exit, invalidates the row, and requires a fresh run.",
         )
 
         for text in (canonical_text, generated_text):
@@ -573,6 +576,43 @@ class RepositoryGuidanceTests(unittest.TestCase):
             for contract in required_contracts:
                 with self.subTest(contract=contract, guide=text[:12]):
                     self.assertIn(contract, text)
+
+    def test_guidance_truthfully_names_implemented_workflows_and_host_evidence_boundary(
+        self,
+    ):
+        canonical_text = CANONICAL.read_text(encoding="utf-8")
+        generated_text = GENERATED.read_text(encoding="utf-8")
+        stale_claims = (
+            "remain unimplemented",
+            "must not be advertised as active",
+            "DEV-136 will create",
+        )
+        required_contracts = (
+            "The five production workflows are implemented",
+            "DEV-136 host evidence is Codex-only",
+            "Claude execution and cross-host comparison are `blocked/owner-deferred`",
+        )
+
+        for text in (canonical_text, generated_text):
+            normalized_text = re.sub(r"\s+", " ", text)
+            for skill in WORKFLOW_SKILLS:
+                with self.subTest(skill=skill, guide=text[:12]):
+                    self.assertTrue(
+                        skill in normalized_text,
+                        f"missing workflow: {skill}",
+                    )
+            for claim in stale_claims:
+                with self.subTest(stale_claim=claim, guide=text[:12]):
+                    self.assertFalse(
+                        claim in normalized_text,
+                        f"stale workflow guidance remains: {claim}",
+                    )
+            for contract in required_contracts:
+                with self.subTest(contract=contract, guide=text[:12]):
+                    self.assertTrue(
+                        contract in normalized_text,
+                        f"missing workflow guidance contract: {contract}",
+                    )
 
     def test_guidance_preserves_safe_synthetic_and_redacted_evidence_exception(self):
         canonical_text = normalized_guide(CANONICAL)

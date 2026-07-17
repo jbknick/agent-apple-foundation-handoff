@@ -29,11 +29,19 @@ REFERENCE_FILES = {
         "evaluation-and-observability.md",
     )
 }
+SKILLS = (
+    "design-apple-foundation-models-handoff",
+    "implement-apple-foundation-models-handoff",
+    "review-apple-foundation-models-handoff",
+    "debug-apple-foundation-models-handoff",
+    "validate-apple-foundation-models-handoff",
+)
 ALLOWED_PACKAGE_FILES = {
     ".claude-plugin/plugin.json",
     ".codex-plugin/plugin.json",
     "metadata/codex-interface.json",
     *REFERENCE_FILES,
+    *(f"skills/{skill}/SKILL.md" for skill in SKILLS),
 }
 ALLOWED_PACKAGE_ENTRIES = {
     ".claude-plugin": "directory",
@@ -44,9 +52,17 @@ ALLOWED_PACKAGE_ENTRIES = {
     "metadata/codex-interface.json": "file",
     "references": "directory",
     **{name: "file" for name in REFERENCE_FILES},
+    "skills": "directory",
+    **{
+        entry: entry_type
+        for skill in SKILLS
+        for entry, entry_type in (
+            (f"skills/{skill}", "directory"),
+            (f"skills/{skill}/SKILL.md", "file"),
+        )
+    },
 }
 FORBIDDEN_SURFACES = (
-    "skills",
     "agents",
     "hooks",
     "mcp",
@@ -214,17 +230,17 @@ class PluginContractTests(unittest.TestCase):
         self.assertEqual(VERSION, manifest["version"])
         self.assertEqual(REPOSITORY, manifest["homepage"])
         self.assertEqual(REPOSITORY, manifest["repository"])
-        self.assertNotIn("skills", manifest)
+        self.assertEqual("./skills/", manifest.get("skills"))
         for field in ("hooks", "mcpServers", "apps", "commands", "agents"):
             self.assertNotIn(field, manifest)
 
-    def test_codex_interface_has_zero_capabilities(self):
+    def test_codex_interface_advertises_the_exact_ordered_workflow_capabilities(self):
         interface = load_json(
             "plugins/apple-foundation-models-handoff/metadata/codex-interface.json"
         )
 
         self.assertEqual("Developer Tools", interface["category"])
-        self.assertEqual([], interface["capabilities"])
+        self.assertEqual(list(SKILLS), interface["capabilities"])
         self.assertEqual(1, len(interface["defaultPrompt"]))
         self.assertLessEqual(len(interface["defaultPrompt"][0]), 128)
 
@@ -269,7 +285,7 @@ class PluginContractTests(unittest.TestCase):
             with self.subTest(field=field):
                 self.assertEqual(shared[field], generated[field])
         self.assertEqual(interface, generated["interface"])
-        self.assertNotIn("skills", generated)
+        self.assertEqual("./skills/", generated.get("skills"))
         for field in ("hooks", "mcpServers", "apps", "commands", "agents"):
             self.assertNotIn(field, generated)
 
@@ -321,7 +337,9 @@ class PluginContractTests(unittest.TestCase):
         self.assertEqual(
             {"const": "Developer Tools"}, interface_properties["category"]
         )
-        self.assertEqual({"const": []}, interface_properties["capabilities"])
+        self.assertEqual(
+            {"const": list(SKILLS)}, interface_properties["capabilities"]
+        )
         self.assertEqual(
             {"type": "string", "pattern": "^https://"},
             interface_properties["websiteURL"],
@@ -396,7 +414,19 @@ class PluginContractTests(unittest.TestCase):
         sync._validate_codex_marketplace(canonical_marketplace, shared_manifest)
 
         interface_boundary_mutations = (
-            ("non-empty capabilities", ("capabilities",), ["unimplemented"]),
+            ("missing capabilities", ("capabilities",), []),
+            ("reordered capabilities", ("capabilities",), list(reversed(SKILLS))),
+            ("incomplete capabilities", ("capabilities",), list(SKILLS[:-1])),
+            (
+                "duplicated capability",
+                ("capabilities",),
+                [*SKILLS[:-1], SKILLS[-2]],
+            ),
+            (
+                "extra capability",
+                ("capabilities",),
+                [*SKILLS, "extra-apple-foundation-models-handoff"],
+            ),
             ("empty presentation string", ("displayName",), ""),
             ("missing prompt", ("defaultPrompt",), []),
             ("too many prompts", ("defaultPrompt",), ["prompt"] * 4),
@@ -425,7 +455,7 @@ class PluginContractTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     sync._validate_codex_marketplace(mutated, shared_manifest)
 
-    def test_plugin_package_contains_only_approved_contract_files(self):
+    def test_plugin_package_contains_only_approved_references_and_workflow_skills(self):
         plugin_root = ROOT / "plugins" / PLUGIN_ID
         assert_plugin_package_contract(self, plugin_root)
 
@@ -443,6 +473,8 @@ class PluginContractTests(unittest.TestCase):
             plugin_root = temporary_root / PLUGIN_ID
             shutil.copytree(ROOT / "plugins" / PLUGIN_ID, plugin_root)
             skills = plugin_root / "skills"
+            if skills.exists():
+                shutil.rmtree(skills)
             skills.symlink_to(temporary_root / "missing-skills", target_is_directory=True)
 
             self.assertTrue(os.path.lexists(skills))
