@@ -342,8 +342,28 @@ def internal_field_context_is_present(text: str, field: str) -> bool:
 
 
 def output_heading_is_present(text: str, heading: str) -> bool:
-    pattern = rf"(?im)^[ \t]*(?:#{{1,6}}[ \t]+)?{re.escape(heading)}[ \t]*:?[ \t]*$"
-    return re.search(pattern, text) is not None
+    escaped = re.escape(heading)
+    patterns = (
+        rf"(?im)^[ \t]*(?:#{{1,6}}[ \t]+)?{escaped}[ \t]*:?[ \t]*$",
+        rf"(?i)\b(?:include|add|provide|return|emit|use)\s+"
+        rf"(?:(?:an?|the)\s+)?{escaped}\s+(?:section|heading)\b",
+        rf"(?i)\b(?:include|add|provide|return|emit|put)\s+"
+        rf"(?:(?:an?|the)\s+)?{escaped}\s+(?:in|within|to)\s+"
+        rf"(?:(?:an?|the)\s+)?(?:result|output|response)\b",
+        rf"(?i)[\"'`]{escaped}[\"'`]\s*[:=]",
+        rf"(?i)\b(?:key|field)\s+(?:named|called)\s+{escaped}\b",
+        rf"(?i)\b(?:result|output|response)\s+"
+        rf"(?:(?:must|should|will)\s+)?(?:include|contain|use)\s+"
+        rf"(?:(?:an?|the)\s+)?{escaped}\b",
+    )
+    return any(re.search(pattern, text) is not None for pattern in patterns)
+
+
+def prompt_privacy_pattern_is_present(text: str, name: str, pattern: str) -> bool:
+    candidate = text
+    if name == "absolute_unix_path":
+        candidate = re.sub(r"(?i)\bhttps://[^\s<>\"']+", "", candidate)
+    return re.search(pattern, candidate) is not None
 
 
 class SkillCaseFixtureTests(unittest.TestCase):
@@ -493,17 +513,30 @@ class SkillCaseFixtureTests(unittest.TestCase):
         for case in self.require_fixture()["cases"]:
             for name, pattern in PROMPT_PRIVACY_PATTERNS.items():
                 with self.subTest(case=case["id"], privacy_pattern=name):
-                    self.assertNotRegex(case["prompt"], pattern)
+                    self.assertFalse(
+                        prompt_privacy_pattern_is_present(
+                            case["prompt"],
+                            name,
+                            pattern,
+                        )
+                    )
 
     def test_natural_prose_may_use_ordinary_contract_words(self) -> None:
-        fixture = copy.deepcopy(self.require_fixture())
-        fixture["cases"][0]["prompt"] = (
+        accepted_prompts = (
             "Describe a workflow whose scope uses a pattern with a source and "
-            "destination, then discuss verification and limitations in natural prose."
+            "destination, then discuss verification and limitations in natural prose.",
+            "Summarize the findings in prose, then explain activation and scope as "
+            "architecture concepts.",
+            "The result can describe why activation and scope matter without "
+            "prescribing output sections.",
         )
-        validator = SkillCaseFixtureTests()
-        validator.fixture = fixture
-        validator.test_prompts_do_not_leak_expected_answers_or_contract_tokens()
+        for prompt in accepted_prompts:
+            with self.subTest(prompt=prompt):
+                fixture = copy.deepcopy(self.require_fixture())
+                fixture["cases"][0]["prompt"] = prompt
+                validator = SkillCaseFixtureTests()
+                validator.fixture = fixture
+                validator.test_prompts_do_not_leak_expected_answers_or_contract_tokens()
 
     def test_prototype_sources_resolve_with_exact_category_and_activation(self) -> None:
         prototype_cases = {
@@ -982,6 +1015,42 @@ class ContractMutationReproductionTests(unittest.TestCase):
                 validator.fixture = mutant
                 with self.assertRaises(AssertionError):
                     validator.test_approved_synthetic_prompts_match_reviewed_hashes()
+                with self.assertRaises(AssertionError):
+                    validator.test_approved_synthetic_prompts_contain_no_private_material()
+
+    def test_rejects_inline_output_heading_contexts_case_insensitively(self) -> None:
+        prompt_suffixes = {
+            "workflow_section": " Include a FINDINGS section.",
+            "common_result": " Include ACTIVATION AND SCOPE in the result.",
+            "common_key": ' Add "ACTIVATION AND SCOPE": as an output key.',
+        }
+        for name, suffix in prompt_suffixes.items():
+            with self.subTest(mutation=name):
+                mutant = copy.deepcopy(self.fixture)
+                mutant["cases"][5]["prompt"] += suffix
+                validator = SkillCaseFixtureTests()
+                validator.fixture = mutant
+                with self.assertRaises(AssertionError):
+                    validator.test_prompts_do_not_leak_expected_answers_or_contract_tokens()
+
+    def test_path_privacy_accepts_https_and_rejects_file_or_absolute_paths(self) -> None:
+        accepted = copy.deepcopy(self.fixture)
+        accepted["cases"][5]["prompt"] += (
+            " Consult https://developer.apple.com/documentation/foundationmodels."
+        )
+        validator = SkillCaseFixtureTests()
+        validator.fixture = accepted
+        validator.test_approved_synthetic_prompts_contain_no_private_material()
+
+        rejected_suffixes = {
+            "absolute_path": " Read /Users/private/customer.txt.",
+            "file_uri": " Read file:///Users/private/customer.txt.",
+        }
+        for name, suffix in rejected_suffixes.items():
+            with self.subTest(mutation=name):
+                mutant = copy.deepcopy(self.fixture)
+                mutant["cases"][5]["prompt"] += suffix
+                validator.fixture = mutant
                 with self.assertRaises(AssertionError):
                     validator.test_approved_synthetic_prompts_contain_no_private_material()
 
