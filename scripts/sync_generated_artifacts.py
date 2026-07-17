@@ -285,6 +285,96 @@ def _validate_codex_interface(value: object) -> None:
     _https(value["websiteURL"])
 
 
+def _open_bound_directory_at(
+    parent_fd: int,
+    name: str,
+) -> tuple[int, os.stat_result]:
+    metadata = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    if not stat.S_ISDIR(metadata.st_mode):
+        raise ValueError("directory")
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(name, _directory_flags(), dir_fd=parent_fd)
+        opened = os.fstat(descriptor)
+        if not stat.S_ISDIR(opened.st_mode) or not _same_file(metadata, opened):
+            raise ValueError("directory identity")
+        result = descriptor
+        descriptor = None
+        return result, opened
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+
+
+def _recheck_bound_directory_at(
+    parent_fd: int,
+    name: str,
+    descriptor: int,
+    opened: os.stat_result,
+) -> None:
+    current = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    held = os.fstat(descriptor)
+    if (
+        not stat.S_ISDIR(current.st_mode)
+        or not stat.S_ISDIR(held.st_mode)
+        or not _same_file(current, opened)
+        or not _same_file(held, opened)
+    ):
+        raise ValueError("directory identity")
+
+
+def _read_bound_regular_file(parent_fd: int, name: str) -> str:
+    metadata = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    if not stat.S_ISREG(metadata.st_mode):
+        raise ValueError("regular file")
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(name, flags, dir_fd=parent_fd)
+        opened = os.fstat(descriptor)
+        if not stat.S_ISREG(opened.st_mode) or not _same_file(metadata, opened):
+            raise ValueError("file identity")
+        with os.fdopen(os.dup(descriptor), "rb") as stream:
+            encoded = stream.read()
+        current = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        held = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(current.st_mode)
+            or not stat.S_ISREG(held.st_mode)
+            or not _same_file(current, opened)
+            or not _same_file(held, opened)
+        ):
+            raise ValueError("file identity")
+        return encoded.decode("utf-8")
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+
+
+def _validate_skill_frontmatter(skill_text: str, capability: str) -> None:
+    lines = skill_text.splitlines()
+    if not lines or lines[0] != "---":
+        raise ValueError("frontmatter opening delimiter")
+    try:
+        closing = lines.index("---", 1)
+    except ValueError as error:
+        raise ValueError("frontmatter closing delimiter") from error
+    if closing != 3 or closing + 1 >= len(lines):
+        raise ValueError("frontmatter boundary")
+
+    fields: list[tuple[str, str]] = []
+    for line in lines[1:closing]:
+        key, separator, value = line.partition(": ")
+        if not separator or not key or not value or value != value.strip():
+            raise ValueError("frontmatter field")
+        fields.append((key, value))
+    if [key for key, _ in fields] != ["name", "description"]:
+        raise ValueError("frontmatter fields")
+    if fields[0][1] != capability:
+        raise ValueError("skill identity")
+
+
 def _validate_skill_component(
     root: object,
     shared_manifest: Mapping[str, object],
@@ -297,42 +387,91 @@ def _validate_skill_component(
     if codex_interface["capabilities"] != list(EXPECTED_CAPABILITIES):
         raise ValueError("capabilities")
 
-    skills_root = root / SKILLS_COMPONENT
+    descriptors: list[int] = []
     try:
-        root_metadata = skills_root.lstat()
-        if not stat.S_ISDIR(root_metadata.st_mode) or stat.S_ISLNK(
-            root_metadata.st_mode
+        root_metadata = root.lstat()
+        if not stat.S_ISDIR(root_metadata.st_mode):
+            raise ValueError("repository root")
+        root_fd = os.open(root, _directory_flags())
+        descriptors.append(root_fd)
+        opened_root = os.fstat(root_fd)
+        if not stat.S_ISDIR(opened_root.st_mode) or not _same_file(
+            root_metadata, opened_root
         ):
-            raise ValueError("skills root")
-        with os.scandir(skills_root) as entries:
-            discovered = {entry.name: entry for entry in entries}
-        if set(discovered) != set(EXPECTED_CAPABILITIES):
+            raise ValueError("repository root identity")
+
+        plugins_fd, opened_plugins = _open_bound_directory_at(root_fd, "plugins")
+        descriptors.append(plugins_fd)
+        plugin_fd, opened_plugin = _open_bound_directory_at(plugins_fd, PLUGIN_ID)
+        descriptors.append(plugin_fd)
+        skills_fd, opened_skills = _open_bound_directory_at(plugin_fd, "skills")
+        descriptors.append(skills_fd)
+
+        with os.scandir(skills_fd) as entries:
+            discovered = {entry.name for entry in entries}
+        if discovered != set(EXPECTED_CAPABILITIES):
             raise ValueError("skill directories")
 
         for capability in EXPECTED_CAPABILITIES:
-            entry = discovered[capability]
-            metadata = entry.stat(follow_symlinks=False)
-            if not stat.S_ISDIR(metadata.st_mode):
-                raise ValueError("skill directory")
-            skill_directory = skills_root / capability
-            with os.scandir(skill_directory) as children:
-                child_entries = {child.name: child for child in children}
-            if set(child_entries) != {"SKILL.md"}:
-                raise ValueError("skill contents")
-            skill_entry = child_entries["SKILL.md"]
-            skill_metadata = skill_entry.stat(follow_symlinks=False)
-            if not stat.S_ISREG(skill_metadata.st_mode):
-                raise ValueError("skill file")
+            skill_fd, opened_skill = _open_bound_directory_at(
+                skills_fd, capability
+            )
+            descriptors.append(skill_fd)
             try:
-                skill_text = _read_canonical(skill_directory / "SKILL.md").decode(
-                    "utf-8"
+                with os.scandir(skill_fd) as children:
+                    child_names = {child.name for child in children}
+                if child_names != {"SKILL.md"}:
+                    raise ValueError("skill contents")
+                skill_text = _read_bound_regular_file(skill_fd, "SKILL.md")
+                _validate_skill_frontmatter(skill_text, capability)
+                _recheck_bound_directory_at(
+                    skills_fd,
+                    capability,
+                    skill_fd,
+                    opened_skill,
                 )
-            except (CanonicalInputError, UnicodeError) as error:
-                raise ValueError("skill file") from error
-            if not skill_text.startswith(f"---\nname: {capability}\n"):
-                raise ValueError("skill identity")
-    except (OSError, ValueError) as error:
+            finally:
+                descriptors.pop()
+                os.close(skill_fd)
+
+        _recheck_bound_directory_at(
+            plugin_fd,
+            "skills",
+            skills_fd,
+            opened_skills,
+        )
+        _recheck_bound_directory_at(
+            plugins_fd,
+            PLUGIN_ID,
+            plugin_fd,
+            opened_plugin,
+        )
+        _recheck_bound_directory_at(
+            root_fd,
+            "plugins",
+            plugins_fd,
+            opened_plugins,
+        )
+        current_root = root.lstat()
+        held_root = os.fstat(root_fd)
+        if (
+            not stat.S_ISDIR(current_root.st_mode)
+            or not stat.S_ISDIR(held_root.st_mode)
+            or not _same_file(current_root, opened_root)
+            or not _same_file(held_root, opened_root)
+        ):
+            raise ValueError("repository root identity")
+    except (OSError, UnicodeError, ValueError) as error:
         raise ValueError("skills component") from error
+    finally:
+        cleanup_error: OSError | None = None
+        for descriptor in reversed(descriptors):
+            try:
+                os.close(descriptor)
+            except OSError as error:
+                cleanup_error = cleanup_error or error
+        if cleanup_error is not None:
+            raise ValueError("skills component cleanup") from cleanup_error
 
 
 def _validate_claude_marketplace(
