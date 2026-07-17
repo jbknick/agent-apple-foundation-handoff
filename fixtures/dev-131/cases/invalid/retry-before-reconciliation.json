@@ -17,10 +17,18 @@
       ],
       [
         "proposed",
+        "executing"
+      ],
+      [
+        "executing",
+        "recoveryRequired"
+      ],
+      [
+        "recoveryRequired",
         "complete"
       ]
     ],
-    "transitionBudget": 3,
+    "transitionBudget": 5,
     "toolAllowlist": {
       "architect": [
         "read_reference"
@@ -75,6 +83,14 @@
       },
       {
         "from": "proposed",
+        "to": "executing"
+      },
+      {
+        "from": "executing",
+        "to": "recoveryRequired"
+      },
+      {
+        "from": "recoveryRequired",
         "to": "complete"
       }
     ],
@@ -107,6 +123,14 @@
         "event": "approve"
       },
       {
+        "phase": "executing",
+        "event": "execute"
+      },
+      {
+        "phase": "recoveryRequired",
+        "event": "reconcile"
+      },
+      {
         "phase": "complete",
         "event": "finalize"
       }
@@ -114,12 +138,22 @@
     "effects": [
       {
         "effectId": "effect-uncertain-1",
-        "ledgerEntryCount": 1,
-        "replayExecutorCommandCount": 0,
         "uncertainCommit": true,
         "retryAttempted": true,
-        "reconciledBeforeRetry": false
+        "observations": [
+          {"kind": "original", "effectId": "effect-uncertain-1"},
+          {"kind": "uncertain_commit", "effectId": "effect-uncertain-1"},
+          {"kind": "retry", "effectId": "effect-uncertain-1"},
+          {"kind": "reconciliation", "effectId": "effect-uncertain-1"},
+          {"kind": "replay", "effectId": "effect-uncertain-1"}
+        ]
       }
+    ],
+    "effectLedger": [
+      {"effectId": "effect-uncertain-1"}
+    ],
+    "executorCommands": [
+      {"effectId": "effect-uncertain-1", "sourceObservation": "original"}
     ],
     "fallback": "return_to_owner",
     "evidence": {

@@ -114,12 +114,19 @@
     "effects": [
       {
         "effectId": "effect-read-1",
-        "ledgerEntryCount": 1,
-        "replayExecutorCommandCount": 0,
         "uncertainCommit": false,
         "retryAttempted": false,
-        "reconciledBeforeRetry": false
+        "observations": [
+          {"kind": "original", "effectId": "effect-read-1"},
+          {"kind": "replay", "effectId": "effect-read-1"}
+        ]
       }
+    ],
+    "effectLedger": [
+      {"effectId": "effect-read-1"}
+    ],
+    "executorCommands": [
+      {"effectId": "effect-read-1", "sourceObservation": "original"}
     ],
     "fallback": "return_to_owner",
     "evidence": {

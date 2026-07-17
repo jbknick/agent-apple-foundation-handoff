@@ -138,12 +138,22 @@
     "effects": [
       {
         "effectId": "effect-commit-1",
-        "ledgerEntryCount": 1,
-        "replayExecutorCommandCount": 0,
         "uncertainCommit": true,
         "retryAttempted": true,
-        "reconciledBeforeRetry": true
+        "observations": [
+          {"kind": "original", "effectId": "effect-commit-1"},
+          {"kind": "uncertain_commit", "effectId": "effect-commit-1"},
+          {"kind": "reconciliation", "effectId": "effect-commit-1"},
+          {"kind": "retry", "effectId": "effect-commit-1"},
+          {"kind": "replay", "effectId": "effect-commit-1"}
+        ]
       }
+    ],
+    "effectLedger": [
+      {"effectId": "effect-commit-1"}
+    ],
+    "executorCommands": [
+      {"effectId": "effect-commit-1", "sourceObservation": "original"}
     ],
     "fallback": "return_to_owner",
     "evidence": {

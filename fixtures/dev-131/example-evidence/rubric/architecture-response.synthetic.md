@@ -1,35 +1,37 @@
 # Synthetic handoff architecture response
 
-## handoff architecture fit
+## pattern selection
 
-Route the normalized design request to one reviewer and return exactly one
-final result to the declared owner. The transition graph is finite and bounded.
+Use a deterministic relay for the bounded, reviewable handoff and keep the
+application as the authority for routing, ownership, effects, and recovery.
 
-## context preservation
+## Apple API grounding and version labeling
 
-Include the request and constraints. Exclude the synthetic private-data marker.
+Use `LanguageModelSession` for generation and `Transcript` for session records
+on supported Foundation Models hosts. Label the installed SDK 26 interfaces as
+stable and the optional Evaluations evidence layer as requiring Xcode 27.
 
-## tool and authority correctness
+## security-policy completeness
 
-Only the named actor may use the allowlisted synthetic tool under the matching
-state and policy revisions.
+Only the named actor may use the allowlisted synthetic tool under matching
+state and policy revisions. Authority remains application policy.
+
+## context minimization
+
+Include only the request and constraints. Exclude the synthetic private-data
+marker and keep raw user content outside committed evidence.
 
 ## failure and recovery behavior
 
 Record one effect ledger entry. A replay emits no executor command, and an
 uncertain commit is reconciled before retry.
 
-## security and privacy discipline
-
-Authority is application policy. Evidence is synthetic, redacted, allowlisted,
-and hash verified.
-
-## evidence quality
+## testability and observability
 
 Stable check IDs, exact negative oracles, commands, and capability facts make
 the result reproducible without a model or network.
 
-## limitations and host-boundary honesty
+## limitation honesty
 
 This offline result does not prove host activation, Foundation Models runtime
 availability, Apple Evaluations execution, or Instruments profiling.

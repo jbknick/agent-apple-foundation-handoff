@@ -11,6 +11,12 @@ that oracle. The example evidence bundle is allowlisted and SHA-256 verified.
 Rubric validation proves record integrity and thresholds, while a human reviewer
 owns semantic scores.
 
+Effect fixtures require a stable ID, one ledger record, an original executor
+command, and a replay observation with no second command. This proves
+at-most-once execution plus reconciliation for the synthetic record; it does
+not claim exactly-once delivery, external-effect rollback, or transcript-based
+undo.
+
 Run the complete proof with:
 
 ```bash

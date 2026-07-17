@@ -1,21 +1,21 @@
 {
   "schemaVersion": "1.0",
   "reviewerType": "human",
-  "stimulusSha256": "ff25709cf4bec5e3a9190dd40e191c1a3007a0418c20872a6f547b062c807b69",
+  "stimulusSha256": "2bf08422c3be5b264b87626478cd46f65f35d384280305c46f1b92b26e2047fc",
   "dimensions": [
-    {"id":"handoff_architecture_fit","score":4,"rationale":"Owner and graph rules are explicit.","anchor":"handoff architecture fit"},
-    {"id":"context_preservation","score":3,"rationale":"Required and excluded context are named.","anchor":"context preservation"},
-    {"id":"tool_authority_correctness","score":4,"rationale":"Actor, tool, and revision gates are explicit.","anchor":"tool and authority correctness"},
+    {"id":"pattern_selection","score":4,"rationale":"The bounded relay pattern and application ownership are explicit.","anchor":"pattern selection"},
+    {"id":"apple_api_grounding_version_labeling","score":3,"rationale":"Foundation Models surfaces and the Xcode 27 boundary are labeled.","anchor":"Apple API grounding and version labeling"},
+    {"id":"security_policy_completeness","score":4,"rationale":"Actor, tool, revision, and authority gates are explicit.","anchor":"security-policy completeness"},
+    {"id":"context_minimization","score":4,"rationale":"Required and excluded context are narrowly named.","anchor":"context minimization"},
     {"id":"failure_recovery_behavior","score":4,"rationale":"Replay and uncertain-commit recovery are explicit.","anchor":"failure and recovery behavior"},
-    {"id":"security_privacy_discipline","score":4,"rationale":"Evidence and authority boundaries are explicit.","anchor":"security and privacy discipline"},
-    {"id":"evidence_quality","score":3,"rationale":"Checks and reproducible command classes are named.","anchor":"evidence quality"},
-    {"id":"limitations_host_boundary_honesty","score":4,"rationale":"Unproved host and Apple capabilities are named.","anchor":"limitations and host-boundary honesty"}
+    {"id":"testability_observability","score":3,"rationale":"Stable checks and reproducible evidence are named.","anchor":"testability and observability"},
+    {"id":"limitation_honesty","score":4,"rationale":"Unproved host and Apple capabilities are named.","anchor":"limitation honesty"}
   ],
   "meanScore": 3.71,
   "thresholds": {
     "meanMinimum": 3.0,
     "criticalMinimum": 3,
-    "criticalDimensions": ["tool_authority_correctness","failure_recovery_behavior","security_privacy_discipline","limitations_host_boundary_honesty"]
+    "criticalDimensions": ["security_policy_completeness","failure_recovery_behavior","limitation_honesty"]
   },
   "verdict": "pass"
 }
