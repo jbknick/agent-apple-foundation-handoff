@@ -573,10 +573,13 @@ unresolved alternative in the expected flow.
 A host row selects one explicit executable or records the first executable
 resolved from its controlled `PATH` before validation starts. Every operation
 in that row invokes the captured executable. Resolution is checked again before
-the row finishes; any change invalidates the row and requires a fresh run.
-Committed evidence identifies the captured executable as normalized
-`<host-path>` plus its exact version. Literal local executable paths and the raw
-`PATH` are never committed.
+the row finishes. Before operations, a missing or non-runnable executable,
+unavailable version, or exact approved-baseline version mismatch produces a
+normalized `blocked` row; the alternate installed version cannot substitute.
+After a successful capture, resolution or version drift is `fail`, invalidates
+the evidence, and requires a fresh run. Committed evidence identifies the
+captured executable as normalized `<host-path>` plus its exact observed version
+or `null`. Literal local executable paths and the raw `PATH` are never committed.
 
 The primary controlled-shell baseline remains Claude Code `2.1.91` and Codex
 `0.144.5`. Claude Code `2.1.91` supports structural validation and session-only
@@ -619,6 +622,7 @@ DEV-132 is complete only when:
 - DEV-133 through DEV-141 contain the decisions they inherit;
 - existing DEV-128/130/131 regression gates still pass;
 - each host row records normalized `<host-path>` identity and exact version,
-  uses one captured executable throughout, and rejects resolution drift;
+  emits prerequisite blockers before exit, uses one captured executable
+  throughout, and fails/invalidates resolution or version drift;
 - unsupported host/toolchain capabilities remain explicit blockers; and
 - the issue-scoped branch/PR contains no production implementation.

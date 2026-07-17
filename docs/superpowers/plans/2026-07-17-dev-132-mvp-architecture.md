@@ -503,14 +503,16 @@ set -e
 base=3792e8c98a387b7f9c48bd210d25938b40cdd5fe
 git merge-base --is-ancestor "$base" HEAD
 git diff --check "$base"..HEAD
-git diff --name-only "$base"..HEAD | sort > /tmp/dev132-actual-paths
+actual_paths_file="$(mktemp)"
+expected_paths_file="$(mktemp)"
+git diff --name-only "$base"..HEAD | sort > "$actual_paths_file"
 printf '%s\n' \
   docs/architecture/apple-foundation-models-handoff-mvp-decision-record.md \
   docs/research/evidence/dev-132-architecture-scenarios.json \
   docs/superpowers/plans/2026-07-17-dev-132-mvp-architecture.md \
   docs/superpowers/specs/2026-07-17-dev-132-mvp-architecture-design.md \
-  | sort > /tmp/dev132-expected-paths
-diff -u /tmp/dev132-expected-paths /tmp/dev132-actual-paths
+  | sort > "$expected_paths_file"
+diff -u "$expected_paths_file" "$actual_paths_file"
 git status --short
 ```
 
@@ -620,35 +622,86 @@ the literal resolution or raw `PATH`:
 
 ```bash
 set -e
-claude_bin="$(command -v claude)"
-codex_bin="$(command -v codex)"
-test -n "$claude_bin"
-test -n "$codex_bin"
-test -x "$claude_bin"
-test -x "$codex_bin"
-claude_version_output="$("$claude_bin" --version)"
-codex_version_output="$("$codex_bin" --version)"
-test "$claude_version_output" = '2.1.91 (Claude Code)'
-test "$codex_version_output" = 'codex-cli 0.144.5'
-printf 'claudeExecutable=<host-path>\nclaudeVersion=%s\n' \
-  "$claude_version_output"
-printf 'codexExecutable=<host-path>\ncodexVersion=%s\n' \
-  "$codex_version_output"
 
-xcode-select -p
 set +e
-xcodebuild -version
+claude_bin="$(command -v claude 2>/dev/null)"
+claude_lookup_rc=$?
+codex_bin="$(command -v codex 2>/dev/null)"
+codex_lookup_rc=$?
+set -e
+
+claude_version_output=null
+claude_version_rc=1
+claude_row_state=blocked
+claude_row_reason=executable_missing
+if test "$claude_lookup_rc" -eq 0 && test -n "$claude_bin"; then
+  if test ! -x "$claude_bin"; then
+    claude_row_reason=executable_not_runnable
+  else
+    set +e
+    claude_version_output="$("$claude_bin" --version 2>/dev/null)"
+    claude_version_rc=$?
+    set -e
+    if test "$claude_version_rc" -ne 0 || test -z "$claude_version_output"; then
+      claude_version_output=null
+      claude_row_reason=version_unavailable
+    elif test "$claude_version_output" = '2.1.91 (Claude Code)'; then
+      claude_row_state=pass
+      claude_row_reason=approved_baseline
+    else
+      claude_row_reason=version_mismatch
+    fi
+  fi
+fi
+
+codex_version_output=null
+codex_version_rc=1
+codex_row_state=blocked
+codex_row_reason=executable_missing
+if test "$codex_lookup_rc" -eq 0 && test -n "$codex_bin"; then
+  if test ! -x "$codex_bin"; then
+    codex_row_reason=executable_not_runnable
+  else
+    set +e
+    codex_version_output="$("$codex_bin" --version 2>/dev/null)"
+    codex_version_rc=$?
+    set -e
+    if test "$codex_version_rc" -ne 0 || test -z "$codex_version_output"; then
+      codex_version_output=null
+      codex_row_reason=version_unavailable
+    elif test "$codex_version_output" = 'codex-cli 0.144.5'; then
+      codex_row_state=pass
+      codex_row_reason=approved_baseline
+    else
+      codex_row_reason=version_mismatch
+    fi
+  fi
+fi
+
+printf 'host=claude phase=prerequisite executable=<host-path> version=%s status=%s reason=%s\n' \
+  "$claude_version_output" "$claude_row_state" "$claude_row_reason"
+printf 'host=codex phase=prerequisite executable=<host-path> version=%s status=%s reason=%s\n' \
+  "$codex_version_output" "$codex_row_state" "$codex_row_reason"
+if test "$claude_row_state" != pass || test "$codex_row_state" != pass; then
+  exit 1
+fi
+
+developer_dir="$(xcode-select -p)"
+set +e
+xcodebuild_output="$(xcodebuild -version 2>&1)"
 xcodebuild_rc=$?
-xcrun --find instruments
+instruments_output="$(xcrun --find instruments 2>&1)"
 instruments_rc=$?
-xcrun --find xctrace
+xctrace_output="$(xcrun --find xctrace 2>&1)"
 xctrace_rc=$?
-xcrun --sdk iphoneos --show-sdk-path
+iphoneos_output="$(xcrun --sdk iphoneos --show-sdk-path 2>&1)"
 iphoneos_rc=$?
-xcrun --find simctl
+simctl_output="$(xcrun --find simctl 2>&1)"
 simctl_rc=$?
-printf 'import Evaluations\n' > /tmp/dev132-evaluations.swift
-xcrun swiftc -typecheck /tmp/dev132-evaluations.swift
+evaluations_dir="$(mktemp -d)"
+evaluations_source="$evaluations_dir/evaluations.swift"
+printf 'import Evaluations\n' > "$evaluations_source"
+evaluations_output="$(xcrun swiftc -typecheck "$evaluations_source" 2>&1)"
 evaluations_rc=$?
 set -e
 test "$xcodebuild_rc" -ne 0
@@ -657,22 +710,80 @@ test "$xctrace_rc" -ne 0
 test "$iphoneos_rc" -ne 0
 test "$simctl_rc" -ne 0
 test "$evaluations_rc" -ne 0
-test "$(command -v claude)" = "$claude_bin"
-test "$(command -v codex)" = "$codex_bin"
-test "$("$claude_bin" --version)" = "$claude_version_output"
-test "$("$codex_bin" --version)" = "$codex_version_output"
+printf 'developerDirectory=<developer-dir>\n'
+print_probe() {
+  printf 'probe=%s rc=%s diagnostic=\n' "$1" "$2"
+  printf '%s\n' "$3" | sed \
+    -e "s|$developer_dir|<developer-dir>|g" \
+    -e "s|$evaluations_source|<temp-path>|g"
+}
+print_probe xcodebuild "$xcodebuild_rc" "$xcodebuild_output"
+print_probe instruments "$instruments_rc" "$instruments_output"
+print_probe xctrace "$xctrace_rc" "$xctrace_output"
+print_probe iphoneos "$iphoneos_rc" "$iphoneos_output"
+print_probe simctl "$simctl_rc" "$simctl_output"
+print_probe evaluations "$evaluations_rc" "$evaluations_output"
+
+set +e
+claude_bin_after="$(command -v claude 2>/dev/null)"
+claude_lookup_after_rc=$?
+codex_bin_after="$(command -v codex 2>/dev/null)"
+codex_lookup_after_rc=$?
+claude_version_after="$("$claude_bin" --version 2>/dev/null)"
+claude_version_after_rc=$?
+codex_version_after="$("$codex_bin" --version 2>/dev/null)"
+codex_version_after_rc=$?
+set -e
+
+claude_integrity_state=pass
+claude_integrity_reason=stable_resolution_and_version
+if test "$claude_lookup_after_rc" -ne 0 || \
+   test "$claude_bin_after" != "$claude_bin" || \
+   test "$claude_version_after_rc" -ne 0 || \
+   test "$claude_version_after" != "$claude_version_output"; then
+  claude_integrity_state=fail
+  claude_integrity_reason=resolution_or_version_drift
+  if test "$claude_version_after_rc" -ne 0 || test -z "$claude_version_after"; then
+    claude_version_after=null
+  fi
+fi
+
+codex_integrity_state=pass
+codex_integrity_reason=stable_resolution_and_version
+if test "$codex_lookup_after_rc" -ne 0 || \
+   test "$codex_bin_after" != "$codex_bin" || \
+   test "$codex_version_after_rc" -ne 0 || \
+   test "$codex_version_after" != "$codex_version_output"; then
+  codex_integrity_state=fail
+  codex_integrity_reason=resolution_or_version_drift
+  if test "$codex_version_after_rc" -ne 0 || test -z "$codex_version_after"; then
+    codex_version_after=null
+  fi
+fi
+
+printf 'host=claude phase=integrity executable=<host-path> version=%s status=%s reason=%s\n' \
+  "$claude_version_after" "$claude_integrity_state" "$claude_integrity_reason"
+printf 'host=codex phase=integrity executable=<host-path> version=%s status=%s reason=%s\n' \
+  "$codex_version_after" "$codex_integrity_state" "$codex_integrity_reason"
+if test "$claude_integrity_state" != pass || \
+   test "$codex_integrity_state" != pass; then
+  exit 1
+fi
 ```
 
 Expected on the planning host: Command Line Tools path is available;
 `xcodebuild`, Instruments/xctrace, iPhone SDK, simctl, and Evaluations remain
-blocked; Claude reports 2.1.91 and Codex reports 0.144.5. Version commands prove
-binary prerequisites only. The committed row contains normalized `<host-path>`
-identities plus exact versions; a changed resolution fails and invalidates the
-row. All later
-Claude/Codex operations must use `"$claude_bin"` and `"$codex_bin"`. The
-Alternate-PATH Claude Code 2.1.140 observation is neither a substitute nor an
-extra acceptance row. DEV-132 does not claim plugin discovery, activation,
-reference loading, model execution, device execution, or Xcode 27 evidence.
+blocked. Before operations, a missing/non-runnable executable, unavailable
+version, or version other than the approved baseline produces a normalized
+`blocked` row with `<host-path>` and observed exact version or `null`; only then
+does the command exit. Claude 2.1.91 and Codex 0.144.5 produce prerequisite
+`pass`, but version output proves binary prerequisites only. All later
+Claude/Codex operations use `"$claude_bin"` and `"$codex_bin"`. After successful
+capture, resolution or version drift emits normalized `fail`, invalidates the
+row, and then exits. Alternate-PATH Claude Code 2.1.140 is neither a substitute
+nor an extra acceptance row. DEV-132 does not claim plugin discovery,
+activation, reference loading, model execution, device execution, or Xcode 27
+evidence.
 
 ### Step 7: Verify downstream Linear propagation
 
