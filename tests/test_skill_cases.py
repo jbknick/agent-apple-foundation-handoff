@@ -2,6 +2,7 @@ import copy
 import hashlib
 import json
 import re
+import subprocess
 import unittest
 from collections import Counter
 from pathlib import Path
@@ -219,7 +220,7 @@ BASELINE_ROW_KEYS = {
 }
 
 INITIAL_CAPTURE_HEAD = "fbe50c1852778f72ec30ffe4c60614d2b4a9c206"
-REVIEW_RECAPTURE_HEAD = "9b2c399fda3790d36ac200c3770f733c0ab55b33"
+REVIEW_RECAPTURE_HEAD = "9b2c3990af8d56dfb57775fc6e7f7994f581a04f"
 
 APPROVED_LIMITATIONS = (
     "The five responses were scored only as no-skill RED controls and are not capability evidence.",
@@ -227,7 +228,35 @@ APPROVED_LIMITATIONS = (
     "Claude was not invoked in this wave.",
 )
 
-INTERNAL_RESULT_TOKENS = (
+APPROVED_PROMPT_SHA256_BY_CASE = {
+    "DEV136-BASE-DESIGN-001": "cdc8b25f1db7d95f85e37ba6a916f5ccb2b4312726c1f032d55423747e268833",
+    "DEV136-BASE-IMPLEMENT-001": "0f602d0a9eb90d619728be4a99d8590c1583020b3a7d56206e34d423bd7914a1",
+    "DEV136-BASE-REVIEW-001": "53c421f4ef049225ca052c393f85c4f5196d35376ce49f92bb4781ce3c7c55fa",
+    "DEV136-BASE-DEBUG-001": "5aa0f73c4d9528249022718abd6237840d8023d40ec2869029f188d1a0544de4",
+    "DEV136-BASE-VALIDATE-001": "19f364ecf794839bdcebd4e5b2de5f573126080106361b8ed8b9e21584a43faf",
+    "DEV136-FWD-DESIGN-001": "6a97d3b4c474d08314907fe17a6a7ee95377b4d6cdad563bbe540467654ad72a",
+    "DEV136-FWD-DESIGN-002": "7258d92acab4ce7ccf4cbb019f9bf59afa68123556887091b9c71da4b7837ad3",
+    "DEV136-FWD-DESIGN-003": "d8d239e830b12c9883fb7596024fd2c5d932dee325d3d0383846ed6e86846adb",
+    "DEV136-FWD-DESIGN-004": "1f3673bb927808ccb7967e074883352d1bc37f115909e769d9ce45e38fe2573d",
+    "DEV136-FWD-IMPLEMENT-001": "bc03f6ad9d9332ef02f769b34cb58f92a19cc30774e7b554f54280cd31a3ee56",
+    "DEV136-FWD-IMPLEMENT-002": "bbba3d3c685681496317c80fd646afc74b0b62cdd1f214b3626cfb9b95c99f7c",
+    "DEV136-FWD-IMPLEMENT-003": "6b09de346ca348ca6734d6d4cbac8db46d2bef52b699d03748d4b75d18e661ab",
+    "DEV136-FWD-IMPLEMENT-004": "5613b02a220966212ed05d4fcbc98825d6eb658c3072bb88ab9aa2f6f00d1336",
+    "DEV136-FWD-REVIEW-001": "128ad2bb3a23ee3017098bee1d50b395f5cd3f086618f4b02ff2966d610863a1",
+    "DEV136-FWD-REVIEW-002": "5dd735c54afec3e6f32dd7843e1d92409ac0414f403eb26f8b3a693e1a86e6d0",
+    "DEV136-FWD-REVIEW-003": "ed476f4c874372904783c3e3143c1717224ee601080757b3414888e385fba8e0",
+    "DEV136-FWD-REVIEW-004": "5205bca70575277a56b080b4cd5e6588dbe7e6a8a75f733c50ae54e2dbb19eee",
+    "DEV136-FWD-DEBUG-001": "27d89e2bfccf51b9c4b62cbf901caadba443546c6b98e80309658c253ec2e9d7",
+    "DEV136-FWD-DEBUG-002": "f0c0363ee8376343a9432f71d683c72b63c5b77b36f1021f0c6d0e2e188d18ad",
+    "DEV136-FWD-DEBUG-003": "e3d58d1dd7dfaebdb324066871e8240b5931e78a0b2d24ecd0014155ca36ac5e",
+    "DEV136-FWD-DEBUG-004": "f4a1b570c2605ebb919159dbf901bb0c9490d043efe8d39c91e0bfbe35edd154",
+    "DEV136-FWD-VALIDATE-001": "3c53a023eecc7572a302836b9d54a747520cf44c0932d085b5cc97985c8592d4",
+    "DEV136-FWD-VALIDATE-002": "6026011bc55e5d4ab242e45aaaeb642cd5da469aecbee9656655a801da0e740c",
+    "DEV136-FWD-VALIDATE-003": "77b647196bd891d2337646056c8eea5ab02293f6031a47423634f554feda7778",
+    "DEV136-FWD-VALIDATE-004": "0d07a828298e3776af2887b250de273c3d3f72a59aad309dcd4509d96d86f14e",
+}
+
+DISTINCTIVE_INTERNAL_TOKENS = (
     "activationStatus",
     "reasonCode",
     "clarificationKind",
@@ -238,11 +267,6 @@ INTERNAL_RESULT_TOKENS = (
     "architectureSchemaVersion",
     "stateVersion",
     "policyVersion",
-    "workflow",
-    "scope",
-    "pattern",
-    "source",
-    "destination",
     "finalResponseOwner",
     "apiAvailability",
     "stateModel",
@@ -250,10 +274,30 @@ INTERNAL_RESULT_TOKENS = (
     "contextPolicy",
     "toolAndEffectPolicy",
     "failurePolicy",
+    "requestedOperation",
+    "artifactState",
+    "evidenceState",
+)
+
+CONTEXTUAL_INTERNAL_FIELDS = (
+    "domain",
+    "workflow",
+    "scope",
+    "pattern",
+    "source",
+    "destination",
     "verification",
     "limitations",
-    *ROUTER_ENUMS.keys(),
 )
+
+PROMPT_PRIVACY_PATTERNS = {
+    "absolute_unix_path": r"(?<![A-Za-z0-9_.-])/(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+",
+    "windows_path": r"[A-Za-z]:\\",
+    "bearer_credential": r"(?i)\bbearer\s+[a-z0-9._~+/-]{8,}",
+    "api_key": r"\b(?:sk|pk)-[A-Za-z0-9_-]{8,}",
+    "host_identity": r"(?i)\b(?:host(?:name| identity)|machine name|computer name)\s*[:=]",
+    "raw_user_material": r"(?i)\b(?:raw user (?:material|prompt|transcript)|verbatim user material)\s*[:=]",
+}
 
 
 def load_json(path: Path) -> dict:
@@ -285,6 +329,21 @@ def rubric_contract_sha256(fixture: dict, case: dict) -> str:
 def token_is_present(text: str, token: str) -> bool:
     pattern = rf"(?<![a-z0-9_]){re.escape(token.lower())}(?![a-z0-9_])"
     return re.search(pattern, text.lower()) is not None
+
+
+def internal_field_context_is_present(text: str, field: str) -> bool:
+    escaped = re.escape(field)
+    pattern = rf"""(?ix)
+        (?:[\"'`]{escaped}[\"'`]\s*[:=])
+        |(?:\b{escaped}\s*=)
+        |(?:(?:\{{|,)\s*{escaped}\s*:)
+    """
+    return re.search(pattern, text) is not None
+
+
+def output_heading_is_present(text: str, heading: str) -> bool:
+    pattern = rf"(?im)^[ \t]*(?:#{{1,6}}[ \t]+)?{re.escape(heading)}[ \t]*:?[ \t]*$"
+    return re.search(pattern, text) is not None
 
 
 class SkillCaseFixtureTests(unittest.TestCase):
@@ -393,21 +452,58 @@ class SkillCaseFixtureTests(unittest.TestCase):
                     self.assertIn(case["routerInput"][field], values)
 
     def test_prompts_do_not_leak_expected_answers_or_contract_tokens(self) -> None:
-        hidden_tokens = (
-            *SKILLS,
+        output_headings = (
             *COMMON_SECTIONS,
             *(section for sections in WORKFLOW_SECTIONS.values() for section in sections),
-            *INTERNAL_RESULT_TOKENS,
         )
         for case in self.require_fixture()["cases"]:
             with self.subTest(case=case["id"]):
                 prompt = case["prompt"]
-                for token in hidden_tokens:
+                for token in (*SKILLS, *DISTINCTIVE_INTERNAL_TOKENS):
                     self.assertFalse(
                         token_is_present(prompt, token),
                         f"prompt leaks hidden contract token {token!r}",
                     )
+                for field in CONTEXTUAL_INTERNAL_FIELDS:
+                    self.assertFalse(
+                        internal_field_context_is_present(prompt, field),
+                        f"prompt leaks internal field context {field!r}",
+                    )
+                for heading in output_headings:
+                    self.assertFalse(
+                        output_heading_is_present(prompt, heading),
+                        f"prompt leaks expected output heading {heading!r}",
+                    )
                 self.assertNotRegex(prompt.lower(), r"expected[ _-]answer")
+
+    def test_approved_synthetic_prompts_match_reviewed_hashes(self) -> None:
+        cases = self.require_fixture()["cases"]
+        self.assertEqual(
+            set(APPROVED_PROMPT_SHA256_BY_CASE),
+            {case["id"] for case in cases},
+        )
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                self.assertEqual(
+                    APPROVED_PROMPT_SHA256_BY_CASE[case["id"]],
+                    prompt_sha256(case),
+                )
+
+    def test_approved_synthetic_prompts_contain_no_private_material(self) -> None:
+        for case in self.require_fixture()["cases"]:
+            for name, pattern in PROMPT_PRIVACY_PATTERNS.items():
+                with self.subTest(case=case["id"], privacy_pattern=name):
+                    self.assertNotRegex(case["prompt"], pattern)
+
+    def test_natural_prose_may_use_ordinary_contract_words(self) -> None:
+        fixture = copy.deepcopy(self.require_fixture())
+        fixture["cases"][0]["prompt"] = (
+            "Describe a workflow whose scope uses a pattern with a source and "
+            "destination, then discuss verification and limitations in natural prose."
+        )
+        validator = SkillCaseFixtureTests()
+        validator.fixture = fixture
+        validator.test_prompts_do_not_leak_expected_answers_or_contract_tokens()
 
     def test_prototype_sources_resolve_with_exact_category_and_activation(self) -> None:
         prototype_cases = {
@@ -675,6 +771,49 @@ class SkillBaselineEvidenceTests(unittest.TestCase):
             evidence["summary"],
         )
 
+    def test_capture_heads_resolve_and_follow_task_1_ancestry(self) -> None:
+        evidence = self.require_evidence()
+        current_head = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        expected_by_case = {
+            case_id: (
+                REVIEW_RECAPTURE_HEAD
+                if case_id == "DEV136-BASE-REVIEW-001"
+                else INITIAL_CAPTURE_HEAD
+            )
+            for case_id, *_ in EXPECTED_CASES[:5]
+        }
+
+        for row in evidence["baselines"]:
+            capture_head = row["repositoryHeadAtCapture"]
+            with self.subTest(case=row["caseId"]):
+                self.assertRegex(capture_head, r"^[0-9a-f]{40}$")
+                resolved = subprocess.run(
+                    ["git", "rev-parse", "--verify", f"{capture_head}^{{commit}}"],
+                    cwd=ROOT,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(0, resolved.returncode, resolved.stderr)
+                self.assertEqual(capture_head, resolved.stdout.strip())
+                self.assertEqual(expected_by_case[row["caseId"]], capture_head)
+                for ancestor, descendant in (
+                    (INITIAL_CAPTURE_HEAD, capture_head),
+                    (capture_head, current_head),
+                ):
+                    ancestry = subprocess.run(
+                        ["git", "merge-base", "--is-ancestor", ancestor, descendant],
+                        cwd=ROOT,
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertEqual(0, ancestry.returncode, ancestry.stderr)
+
     def test_evidence_contains_no_raw_host_payload_fields_or_local_paths(self) -> None:
         evidence = self.require_evidence()
         forbidden_keys = {"prompt", "response", "transcript", "events", "command"}
@@ -713,6 +852,8 @@ class ContractMutationReproductionTests(unittest.TestCase):
             validator.test_fixture_has_exact_baseline_and_forward_coverage()
             validator.test_every_case_has_exact_shape_and_normative_router_values()
             validator.test_prompts_do_not_leak_expected_answers_or_contract_tokens()
+            validator.test_approved_synthetic_prompts_match_reviewed_hashes()
+            validator.test_approved_synthetic_prompts_contain_no_private_material()
             validator.test_prototype_sources_resolve_with_exact_category_and_activation()
             validator.test_activation_output_and_rubric_expectations_match_category()
             validator.test_negative_cases_cover_all_adjacent_domains()
@@ -726,6 +867,7 @@ class ContractMutationReproductionTests(unittest.TestCase):
             validator.test_evidence_host_and_privacy_metadata_are_exact()
             validator.test_evidence_has_one_real_failing_baseline_per_skill()
             validator.test_evidence_schema_binding_and_derivations_are_exact()
+            validator.test_capture_heads_resolve_and_follow_task_1_ancestry()
             validator.test_evidence_contains_no_raw_host_payload_fields_or_local_paths()
 
     def test_rejects_closed_schema_and_private_value_mutations(self) -> None:
@@ -806,10 +948,16 @@ class ContractMutationReproductionTests(unittest.TestCase):
                 }
             ),
             "workflow_heading": lambda value: value["cases"][0].update(
-                {"prompt": value["cases"][0]["prompt"] + " FINDINGS"}
+                {"prompt": value["cases"][0]["prompt"] + "\n## FINDINGS"}
             ),
             "internal_result_token": lambda value: value["cases"][0].update(
                 {"prompt": value["cases"][0]["prompt"] + " ARCHITECTURERESULT"}
+            ),
+            "common_heading": lambda value: value["cases"][0].update(
+                {"prompt": value["cases"][0]["prompt"] + "\nLIMITATIONS:"}
+            ),
+            "contextual_internal_field": lambda value: value["cases"][0].update(
+                {"prompt": value["cases"][0]["prompt"] + '\n{"SCOPE": "handoff"}'}
             ),
         }
         for name, mutate in mutations.items():
@@ -817,6 +965,40 @@ class ContractMutationReproductionTests(unittest.TestCase):
                 mutant = copy.deepcopy(self.fixture)
                 mutate(mutant)
                 self.assert_fixture_mutation_rejected(mutant)
+
+    def test_rejects_private_prompt_drift(self) -> None:
+        prompt_suffixes = {
+            "credential": " Credential: Bearer synthetic-secret-value",
+            "private_path": " Private path: /Users/private/customer.txt",
+            "windows_private_path": r" Private path: C:\Users\private\customer.txt",
+            "host_identity": " Host identity: joes-macbook-pro",
+            "raw_user_material": " Raw user material: customer-alpha text",
+        }
+        for name, suffix in prompt_suffixes.items():
+            with self.subTest(mutation=name):
+                mutant = copy.deepcopy(self.fixture)
+                mutant["cases"][5]["prompt"] += suffix
+                validator = SkillCaseFixtureTests()
+                validator.fixture = mutant
+                with self.assertRaises(AssertionError):
+                    validator.test_approved_synthetic_prompts_match_reviewed_hashes()
+                with self.assertRaises(AssertionError):
+                    validator.test_approved_synthetic_prompts_contain_no_private_material()
+
+    def test_rejects_nonexistent_and_wrong_resolving_capture_heads(self) -> None:
+        capture_heads = {
+            "nonexistent": "9b2c399fda3790d36ac200c3770f733c0ab55b33",
+            "wrong_resolving": INITIAL_CAPTURE_HEAD,
+        }
+        for name, capture_head in capture_heads.items():
+            with self.subTest(mutation=name):
+                mutant = copy.deepcopy(self.evidence)
+                mutant["baselines"][2]["repositoryHeadAtCapture"] = capture_head
+                validator = SkillBaselineEvidenceTests()
+                validator.evidence = mutant
+                validator.fixture = self.fixture
+                with self.assertRaises(AssertionError):
+                    validator.test_capture_heads_resolve_and_follow_task_1_ancestry()
 
 
 if __name__ == "__main__":

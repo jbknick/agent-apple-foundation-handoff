@@ -127,7 +127,7 @@
       "caseId": "DEV136-BASE-REVIEW-001",
       "skillUnderTest": "review-apple-foundation-models-handoff",
       "sessionOrdinal": 3,
-      "repositoryHeadAtCapture": "9b2c399fda3790d36ac200c3770f733c0ab55b33",
+      "repositoryHeadAtCapture": "9b2c3990af8d56dfb57775fc6e7f7994f581a04f",
       "promptSha256": "53c421f4ef049225ca052c393f85c4f5196d35376ce49f92bb4781ce3c7c55fa",
       "rubricContractSha256": "77537b823a135ee1cf11a377023980fd3e47091214a13af2f5a8afd30c623278",
       "codexExitCode": 0,
