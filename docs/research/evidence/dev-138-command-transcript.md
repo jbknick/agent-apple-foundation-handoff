@@ -1,0 +1,277 @@
+# DEV-138 deterministic Swift fixture command transcript
+
+Evidence date: `2026-07-17`
+
+This transcript records the final offline validation matrix for DEV-138. All
+results are normalized to compiler version, target, SDK version, interface
+hash, evidence label, stable diagnostic class, exit code, count, and status.
+It contains no executable location, SDK location, environment search value,
+raw compiler diagnostic, model content, prompt, response, tool payload,
+credential, or private configuration.
+
+## Identity and scope
+
+- Issue base: `bdbfd335e32eba3efee32f2aac08bd3c2a100368`
+- Candidate tested before this evidence commit:
+  `da2875f4f790600683a65f0e877d7ae669752de2`
+- Branch: `codex/dev-138-deterministic-swift-fixtures`
+- Plan commit: `149826e7f2271b7c16e6d431f56996495abeb230`
+- Plan-only SDK interface correction:
+  `76cb42d55f70b3b15de3374ba116f706eadca6a2`
+
+The issue delta contains two approved planning paths, which are not counted as
+implementation:
+
+1. `docs/superpowers/plans/2026-07-17-dev-138-deterministic-swift-fixtures.md`
+2. `docs/superpowers/specs/2026-07-17-dev-138-deterministic-swift-fixtures-design.md`
+
+The implementation scope is exactly these seven paths:
+
+1. `fixtures/dev-138/HandoffReducer.swift`
+2. `fixtures/dev-138/DeterministicScenarios.swift`
+3. `fixtures/dev-138/expected-results.jsonl`
+4. `fixtures/dev-138/README.md`
+5. `tests/test_dev_138_fixtures.py`
+6. `tests/test_plugin_contract.py`
+7. `docs/research/evidence/dev-138-command-transcript.md`
+
+The plan correction changes only the approved plan. It is not an eighth
+implementation path. No package metadata, generator, generated artifact,
+production skill, reference, hook, agent, command, MCP server, dependency, or
+runtime was added or modified by DEV-138.
+
+## TDD provenance
+
+The original Task 2 and Task 3 intermediate RED steps are
+`unproven/not_captured`. No missing historical output is reconstructed or
+claimed as evidence.
+
+The later review-defect REDs are valid implementation records:
+
+| Defect RED | Status | Resolution |
+| --- | --- | --- |
+| Adversarial outcomes were not sufficiently reducer-derived and command suppression was not proven through the reducer | `valid/observed_before_fix` | `96b714e19314904c7b1678eed0be83e9181d42d2` |
+| Fallback, typed proposal, transcript repair, evidence hashing, grant binding, and recovery semantics were incomplete | `valid/observed_before_fix` | `e90d3586203e179fa321f22e6af1c63c6bafd469` |
+
+Task 5 has a separate captured contract RED. The focused command ran three
+tests and exited `1` with two failures: the DEV-134 mapping table and the
+repository-only package assertion were absent. After the smallest additions,
+the same three tests passed. This contract RED does not retroactively prove the
+uncaptured Task 2 or Task 3 intermediate RED steps.
+
+## Deterministic DEV-138 oracle
+
+Commands:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
+  tests.test_dev_138_fixtures -v
+
+TMPDIR="$(mktemp -d)"
+swiftc -warnings-as-errors -parse-as-library \
+  fixtures/dev-138/HandoffReducer.swift \
+  fixtures/dev-138/DeterministicScenarios.swift \
+  -o "$TMPDIR/dev-138-fixtures"
+"$TMPDIR/dev-138-fixtures" >"$TMPDIR/dev138-first.jsonl"
+"$TMPDIR/dev-138-fixtures" >"$TMPDIR/dev138-second.jsonl"
+cmp "$TMPDIR/dev138-first.jsonl" "$TMPDIR/dev138-second.jsonl"
+diff -u fixtures/dev-138/expected-results.jsonl \
+  "$TMPDIR/dev138-first.jsonl"
+shasum -a 256 fixtures/dev-138/expected-results.jsonl \
+  "$TMPDIR/dev138-first.jsonl" "$TMPDIR/dev138-second.jsonl"
+```
+
+Normalized result:
+
+| Gate | Exit | Result |
+| --- | ---: | --- |
+| DEV-138 unit module | `0` | `27/27` tests passed |
+| Fixture compile | `0` | `pseudocode_deterministic_mock` |
+| Canonical cases | `0` | `43` unique sorted cases |
+| Passing fixtures | `0` | `15` |
+| Deliberately failing fixtures | `0` | `28` with exact sorted violations |
+| First/second run comparison | `0` | byte-identical |
+| Oracle/run comparison | `0` | byte-identical |
+
+All three JSONL artifacts have SHA-256:
+
+```text
+be33fa294cf64ba731889718bdba8c5885f657c7a6cef5c8da819b5b67665f2f
+```
+
+The Swift scenarios do not contain a second expected-outcome oracle, do not
+self-attest policy verdicts, and do not implement DEV-131 rubric scoring.
+
+## Apple SDK 26.5 matrix
+
+The exact positive and expected-blocker command blocks are also retained in
+`fixtures/dev-138/README.md`. They were rerun with one captured compiler and
+SDK identity; resolution, version, and SDK stability were checked before and
+after each SDK test.
+
+Normalized environment:
+
+| Field | Value | Status |
+| --- | --- | --- |
+| Apple Swift compiler | `6.3.2` | `pass` |
+| Default compiler target | `arm64-apple-macosx26.0` | `pass` |
+| Explicit fixture target | `arm64-apple-macos26.0` | `pass` |
+| macOS SDK | `26.5` | `pass` |
+| Foundation Models arm64e interface SHA-256 | `ff2285670b0966addb9827dc895a3ee3c9db6e186baae62c034fed012632aacc` | `pass` |
+
+Positive commands:
+
+```bash
+SDK="$(xcrun --sdk macosx --show-sdk-path)"
+TARGET=arm64-apple-macos26.0
+
+swiftc -typecheck -target "$TARGET" -sdk "$SDK" \
+  fixtures/dev-128/compiled/stable-surface.swift
+swiftc -parse-as-library -target "$TARGET" -sdk "$SDK" \
+  fixtures/dev-128/compiled/availability-probe.swift -o "$TMPDIR/availability"
+"$TMPDIR/availability" >"$TMPDIR/availability.out"
+rg -q '^availability=' "$TMPDIR/availability.out"
+rg -q '^isAvailable=' "$TMPDIR/availability.out"
+rg -q '^contextSize=[0-9]+$' "$TMPDIR/availability.out"
+rg -q '^supportsCurrentLocale=' "$TMPDIR/availability.out"
+swiftc -parse-as-library -target "$TARGET" -sdk "$SDK" \
+  fixtures/dev-128/compiled/transcript-roundtrip.swift -o "$TMPDIR/transcript"
+swiftc -parse-as-library -target "$TARGET" -sdk "$SDK" \
+  fixtures/dev-128/compiled/session-isolation.swift -o "$TMPDIR/isolation"
+swiftc -parse-as-library -target "$TARGET" -sdk "$SDK" \
+  fixtures/dev-128/compiled/baton-pass-state.swift -o "$TMPDIR/baton"
+```
+
+| Row | Evidence | Exit | Status |
+| --- | --- | ---: | --- |
+| Stable surface | `compiled_sdk_26_5` | `0` | `pass` |
+| Availability shape | `compiled_sdk_26_5` | `0` | `pass` |
+| Transcript round trip | `compiled_sdk_26_5` | `0` | `pass` |
+| Session isolation | `compiled_sdk_26_5` | `0` | `pass` |
+| Baton state | `pseudocode_deterministic_mock` | `0` | `pass` |
+| Installed interface identity | `interface_verified_sdk_26_5` | `0` | `pass` |
+
+Expected-blocker commands:
+
+```bash
+swiftc -typecheck -target arm64-apple-macos26.0 -sdk "$SDK" \
+  fixtures/dev-128/blocked/generable-macro.swift
+swiftc -typecheck -target arm64-apple-macos27.0 -sdk "$SDK" \
+  fixtures/dev-128/blocked/os-27-beta-surface.swift
+swiftc -typecheck -target arm64-apple-macos27.0 -sdk "$SDK" \
+  fixtures/dev-128/blocked/evaluations-import.swift
+```
+
+Raw diagnostics were transient and are not reproduced here. Every blocked row
+required nonzero compilation plus its complete stable diagnostic-class match.
+
+| Row | Diagnostic class | Exit | Status |
+| --- | --- | ---: | --- |
+| Generable macro | `macro_implementation_unavailable` | `1` | `blocked` |
+| OS 27 beta surface | `dynamic_profile_profile_initializer_tool_calling_mode_unavailable` | `1` | `blocked` |
+| Evaluations import | `evaluations_module_unavailable` | `1` | `blocked` |
+| OS 27 runtime behavior | `installed_sdk_26_5_only` | not run | `blocked` |
+| Xcode 27 capability | `installed_sdk_26_5_only` | not run | `blocked` |
+
+These blocker matches establish only that the pinned SDK lacks the named
+capabilities. They are not Apple runtime, beta SDK, router, or host proof.
+
+## Inherited validation
+
+Commands:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+  -s tests -p 'test_*.py' -v
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+  -s fixtures/dev-131/tests -p 'test_*.py' -v
+python3 fixtures/dev-131/proof_runner.py >"$TMPDIR/dev131.json"
+PYTHONPYCACHEPREFIX="$TMPDIR/pycache" \
+  python3 -m compileall -q fixtures/dev-131
+
+swiftc -warnings-as-errors -parse-as-library \
+  fixtures/dev-130/HandoffSecurityPolicy.swift \
+  fixtures/dev-130/AdversarialScenarios.swift \
+  -o "$TMPDIR/dev130"
+"$TMPDIR/dev130" >"$TMPDIR/dev130.out"
+diff -u fixtures/dev-130/expected-output.txt "$TMPDIR/dev130.out"
+
+bats tests/plugin_skeleton.bats
+PYTHONDONTWRITEBYTECODE=1 \
+  python3 scripts/sync_generated_artifacts.py --check
+git diff --exit-code -- AGENTS.md .agents/plugins/marketplace.json \
+  plugins/apple-foundation-models-handoff/.codex-plugin/plugin.json
+```
+
+| Gate | Exit | Result |
+| --- | ---: | --- |
+| Repository discovery | `0` | `74/74` tests passed |
+| DEV-131 unit suite | `0` | `26/26` tests passed |
+| DEV-131 proof runner | `0` | `11/11` executed cases matched the oracle; top-level status `pass` |
+| DEV-131 compileall | `0` | `pass` |
+| DEV-130 Swift compile/golden | `0` | `7/7` scenarios passed; seven scenario lines plus one exact summary line |
+| BATS skeleton | `0` | `3/3` passed |
+| Generator check | `0` | synchronized |
+| Generated-file diff | `0` | no generated change |
+
+## Mapping and package boundary
+
+Command:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
+  tests.test_dev_138_fixtures.Dev138ContractTests \
+  tests.test_plugin_contract.PluginContractTests.test_dev_138_fixtures_are_repository_only \
+  -v
+```
+
+Result: exit `0`; `3/3` tests passed.
+
+- The DEV-134 prototype remains exactly `6` positive, `6` negative, and `3`
+  ambiguous identities with stable guardrails.
+- The exact baton, consultation, flawed-reducer, recovery, and review-first
+  mappings resolve only to deterministic DEV-138 invariant cases.
+- The mapping does not prove router activation, review-first/no-edit behavior,
+  host capability, or Apple runtime behavior. DEV-131 retains rubric ownership.
+- A temporary local copy of the effective plugin preserves the canonical
+  package contract and contains no repository fixture, DEV-138, test, docs,
+  research, private-state, credential-sentinel, or prohibited runtime artifact.
+- Packaging uses no network, credential, host install, or external state.
+
+## Deferred rows and nonclaims
+
+The following owner-deferred tools were not invoked or substituted:
+
+| Row | Exit | Status |
+| --- | --- | --- |
+| Claude Code | not run | `blocked/deferred_by_owner` |
+| pre-commit | not run | `blocked/deferred_by_owner` |
+| markdownlint | not run | `blocked/deferred_by_owner` |
+
+DEV-138 is an offline, deterministic, repository-only proof. It performs no
+network call, PCC call, provider request, credential lookup, paid-service call,
+live model generation, model-selected tool call, entitlement operation, device
+hardware gate, host activation, or release operation. It does not prove a
+production router is enabled, a host can discover or activate future skills,
+or Foundation Models runtime behavior.
+
+## Final gates
+
+The final evidence commit is gated by:
+
+```bash
+test -z "$(find . -name '__pycache__' -o -name '*.pyc')"
+git diff --check
+git diff --cached --check
+git diff --exit-code -- AGENTS.md .agents/plugins/marketplace.json \
+  plugins/apple-foundation-models-handoff/.codex-plugin/plugin.json
+git status --short
+```
+
+A content scanner also constructs the prohibited private-root, credential, key,
+and runtime-artifact markers from separate string fragments and scans the
+oracle, fixture README, transcript, and copied plugin payload. This avoids
+placing a prohibited literal into the evidence file merely to describe its
+absence. The final committed-head result is recorded in the DEV-138 handoff;
+no push, merge, tag, publication, release, or downstream issue mutation is part
+of this task.
