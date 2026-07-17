@@ -3,7 +3,7 @@
 Capture date: `2026-07-17`
 
 Working directory:
-`/Users/josephknickerbocker/.codex/worktrees/agent-apple-foundation-handoff/dev-131`
+`<repo>`
 
 The timestamps below are local IDT (`UTC+03:00`). Command output is quoted or
 summarized without changing an unavailable prerequisite into a pass. The state
