@@ -1,8 +1,12 @@
 import copy
 import hashlib
+import importlib.util
+import inspect
 import json
 import re
 import subprocess
+import sys
+import tempfile
 import unittest
 from collections import Counter
 from pathlib import Path
@@ -12,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_PATH = ROOT / "tests/fixtures/dev-136-codex-skill-cases.json"
 EVIDENCE_PATH = ROOT / "docs/research/evidence/dev-136-codex-skill-tdd.json"
 PROTOTYPE_PATH = ROOT / "docs/research/evidence/dev-134-activation-prototype.json"
+RUNNER_PATH = ROOT / "tests/e2e/codex_skill_forward_tests.py"
 
 SKILLS = (
     "design-apple-foundation-models-handoff",
@@ -299,9 +304,35 @@ PROMPT_PRIVACY_PATTERNS = {
     "raw_user_material": r"(?i)\b(?:raw user (?:material|prompt|transcript)|verbatim user material)\s*[:=]",
 }
 
+FORWARD_ASSERTIONS = (
+    "activation",
+    "routing",
+    "one_clarification",
+    "review_first_ordering",
+    "independent_version_labels",
+    "common_sections",
+    "workflow_sections",
+)
+
 
 def load_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def load_forward_runner():
+    if not RUNNER_PATH.is_file():
+        raise AssertionError(
+            "DEV-136 RED: tests/e2e/codex_skill_forward_tests.py is absent"
+        )
+    spec = importlib.util.spec_from_file_location(
+        "codex_skill_forward_tests_contract", RUNNER_PATH
+    )
+    if spec is None or spec.loader is None:
+        raise AssertionError("DEV-136 RED: forward runner cannot be imported")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def sha256_bytes(value: bytes) -> str:
@@ -1110,6 +1141,354 @@ class ContractMutationReproductionTests(unittest.TestCase):
                 validator.fixture = self.fixture
                 with self.assertRaises(AssertionError):
                     validator.test_capture_heads_resolve_and_follow_task_1_ancestry()
+
+
+def _forward_fixture(*case_ids: str) -> dict:
+    fixture = copy.deepcopy(load_json(FIXTURE_PATH))
+    selected = [case for case in fixture["cases"] if case["id"] in case_ids]
+    fixture["cases"] = selected
+    fixture["caseCount"] = len(selected)
+    return fixture
+
+
+def _forward_assertions(case: dict, **overrides: str) -> dict[str, str]:
+    assertions = {name: "pass" for name in FORWARD_ASSERTIONS}
+    assertions.update(overrides)
+    return assertions
+
+
+def _forward_observation(case: dict, **assertion_overrides: str) -> dict:
+    response = f"approved-redacted:{case['id']}".encode()
+    return {
+        "provenance": "approved_redacted",
+        "responseSha256": sha256_bytes(response),
+        "responseBytes": len(response),
+        "toolEventCount": 0,
+        "assertions": _forward_assertions(case, **assertion_overrides),
+    }
+
+
+def _passing_prerequisites(executable: str = "/opt/codex") -> dict:
+    return {
+        "resolvedExecutable": executable,
+        "version": "0.144.5",
+        "authenticated": True,
+        "modelAvailable": True,
+        "pluginAvailable": True,
+        "discovery": "pass",
+        "installation": "pass",
+    }
+
+
+class _FakePrerequisiteChecker:
+    def __init__(self, *snapshots: dict) -> None:
+        self.snapshots = [copy.deepcopy(value) for value in snapshots]
+        self.calls: list[tuple[str, str, str]] = []
+
+    def __call__(self, executable: str, model: str, version: str) -> dict:
+        self.calls.append((executable, model, version))
+        index = min(len(self.calls) - 1, len(self.snapshots) - 1)
+        return copy.deepcopy(self.snapshots[index])
+
+
+class _FakeProcessRunner:
+    def __init__(
+        self,
+        observations: dict[str, dict],
+        *,
+        responses: list[bytes] | None = None,
+        returncodes: list[int] | None = None,
+    ) -> None:
+        self.observations = observations
+        self.responses = responses or [b"approved synthetic response"]
+        self.returncodes = returncodes or [0]
+        self.commands: list[list[str]] = []
+        self.score_calls: list[str] = []
+        self.events: list[str] = []
+
+    def __call__(self, command: list[str]) -> subprocess.CompletedProcess[bytes]:
+        index = len(self.commands)
+        self.commands.append(command)
+        self.events.append("execute")
+        response = self.responses[min(index, len(self.responses) - 1)]
+        returncode = self.returncodes[min(index, len(self.returncodes) - 1)]
+        return subprocess.CompletedProcess(command, returncode, response, b"")
+
+    def score(self, case: dict, response: bytes) -> dict:
+        self.score_calls.append(case["id"])
+        self.events.append("score")
+        return copy.deepcopy(self.observations[case["id"]])
+
+
+class CodexForwardRunnerContractTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.runner = load_forward_runner()
+        cls.fixture = load_json(FIXTURE_PATH)
+
+    def test_public_api_constants_and_exact_command(self) -> None:
+        runner = self.runner
+        self.assertEqual((0, 1, 2), (runner.PASS, runner.FAIL, runner.BLOCKED))
+        self.assertEqual("gpt-5.6-sol", runner.EXPECTED_MODEL)
+        self.assertEqual("0.144.5", runner.EXPECTED_CODEX_VERSION)
+        signatures = {
+            "build_codex_command": ("executable", "prompt"),
+            "score_case": ("case", "normalized_observation"),
+            "run_offline": ("fixture", "scorer_outputs"),
+            "run_host": (
+                "fixture",
+                "executable",
+                "process_runner",
+                "prerequisite_checker",
+            ),
+            "write_evidence": ("path", "evidence"),
+        }
+        for name, parameters in signatures.items():
+            with self.subTest(name=name):
+                function = getattr(runner, name)
+                self.assertEqual(parameters, tuple(inspect.signature(function).parameters))
+
+        prompt = "Approved synthetic prompt."
+        self.assertEqual(
+            ["/opt/codex", "exec", "--ephemeral", "-m", "gpt-5.6-sol", prompt],
+            runner.build_codex_command("/opt/codex", prompt),
+        )
+        with self.assertRaises(TypeError):
+            runner.build_codex_command("/opt/codex", prompt, model="fallback")
+
+    def test_score_case_is_closed_and_derives_exact_verdicts(self) -> None:
+        case = self.fixture["cases"][0]
+        for status, expected in (
+            ("pass", "pass"),
+            ("blocked", "blocked"),
+            ("fail", "fail"),
+        ):
+            with self.subTest(status=status):
+                observation = _forward_observation(case, activation=status)
+                result = self.runner.score_case(case, observation)
+                self.assertEqual(expected, result["verdict"])
+                self.assertEqual(set(FORWARD_ASSERTIONS), set(result["assertions"]))
+
+        invalid = _forward_observation(case)
+        invalid["assertions"]["unexpected"] = "pass"
+        for mutation in (
+            invalid,
+            {**_forward_observation(case), "provenance": "raw_live"},
+            {**_forward_observation(case), "rawResponse": "Bearer private-secret"},
+        ):
+            with self.assertRaises(ValueError):
+                self.runner.score_case(case, mutation)
+
+    def test_offline_mode_derives_pass_fail_and_blocked_exit_codes(self) -> None:
+        fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
+        case = fixture["cases"][0]
+        for assertion_status, expected_code in (
+            ("pass", self.runner.PASS),
+            ("fail", self.runner.FAIL),
+            ("blocked", self.runner.BLOCKED),
+        ):
+            with self.subTest(status=assertion_status):
+                outputs = {
+                    case["id"]: _forward_observation(
+                        case, activation=assertion_status
+                    )
+                }
+                code, evidence = self.runner.run_offline(fixture, outputs)
+                self.assertEqual(expected_code, code)
+                self.assertEqual("offline", evidence["mode"])
+
+    def test_host_uses_one_fresh_process_per_case_and_scores_after_generation(self) -> None:
+        fixture = _forward_fixture(
+            "DEV136-FWD-DESIGN-001", "DEV136-FWD-REVIEW-001"
+        )
+        outputs = {
+            case["id"]: _forward_observation(case) for case in fixture["cases"]
+        }
+        process = _FakeProcessRunner(outputs)
+        snapshot = _passing_prerequisites()
+        checker = _FakePrerequisiteChecker(snapshot, snapshot)
+
+        code, evidence = self.runner.run_host(
+            fixture, "/opt/codex", process, checker
+        )
+
+        self.assertEqual(self.runner.PASS, code)
+        self.assertEqual(["execute", "score"] * 2, process.events)
+        self.assertEqual(2, len(process.commands))
+        for command, case in zip(process.commands, fixture["cases"], strict=True):
+            self.assertEqual(
+                [
+                    "/opt/codex",
+                    "exec",
+                    "--ephemeral",
+                    "-m",
+                    "gpt-5.6-sol",
+                    case["prompt"],
+                ],
+                command,
+            )
+            self.assertNotIn("claude", " ".join(command).lower())
+        self.assertEqual(
+            [("/opt/codex", "gpt-5.6-sol", "0.144.5")] * 4,
+            checker.calls,
+        )
+        self.assertEqual([1, 2], [row["sessionOrdinal"] for row in evidence["cases"]])
+
+    def test_host_blocks_exact_prerequisites_without_fallback(self) -> None:
+        fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
+        case = fixture["cases"][0]
+        blockers = {
+            "missing_binary": {"resolvedExecutable": None},
+            "version_mismatch": {"version": "0.144.4"},
+            "authentication_unavailable": {"authenticated": False},
+            "model_unavailable": {"modelAvailable": False},
+            "plugin_activation_unavailable": {"pluginAvailable": False},
+        }
+        for reason, mutation in blockers.items():
+            with self.subTest(reason=reason):
+                snapshot = _passing_prerequisites()
+                snapshot.update(mutation)
+                process = _FakeProcessRunner(
+                    {case["id"]: _forward_observation(case)}
+                )
+                code, evidence = self.runner.run_host(
+                    fixture,
+                    "/opt/codex",
+                    process,
+                    _FakePrerequisiteChecker(snapshot),
+                )
+                self.assertEqual(self.runner.BLOCKED, code)
+                self.assertEqual([], process.commands)
+                self.assertEqual(reason, evidence["host"]["blockerReason"])
+
+    def test_host_detects_drift_and_never_retries_failed_processes(self) -> None:
+        fixture = _forward_fixture(
+            "DEV136-FWD-DESIGN-001", "DEV136-FWD-REVIEW-001"
+        )
+        output = {
+            case["id"]: _forward_observation(case) for case in fixture["cases"]
+        }
+        for mutation in (
+            {"resolvedExecutable": "/opt/replaced-codex"},
+            {"version": "0.144.6"},
+        ):
+            with self.subTest(mutation=mutation):
+                final = _passing_prerequisites()
+                final.update(mutation)
+                process = _FakeProcessRunner(output)
+                code, evidence = self.runner.run_host(
+                    fixture,
+                    "/opt/codex",
+                    process,
+                    _FakePrerequisiteChecker(_passing_prerequisites(), final),
+                )
+                self.assertEqual(self.runner.FAIL, code)
+                self.assertEqual(1, len(process.commands))
+                self.assertEqual(
+                    "host_resolution_or_version_drift",
+                    evidence["host"]["blockerReason"],
+                )
+
+        fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
+        case = fixture["cases"][0]
+        output = {case["id"]: _forward_observation(case)}
+        process = _FakeProcessRunner(output, returncodes=[1])
+        code, _ = self.runner.run_host(
+            fixture,
+            "/opt/codex",
+            process,
+            _FakePrerequisiteChecker(_passing_prerequisites()),
+        )
+        self.assertEqual(self.runner.FAIL, code)
+        self.assertEqual(1, len(process.commands))
+        self.assertEqual([], process.score_calls)
+
+    def test_host_hashes_and_discards_raw_private_response_content(self) -> None:
+        fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
+        case = fixture["cases"][0]
+        raw = b"Bearer private-secret from /Users/private/customer.txt"
+        process = _FakeProcessRunner(
+            {case["id"]: _forward_observation(case)}, responses=[raw]
+        )
+        code, evidence = self.runner.run_host(
+            fixture,
+            "/opt/codex",
+            process,
+            _FakePrerequisiteChecker(
+                _passing_prerequisites(), _passing_prerequisites()
+            ),
+        )
+        serialized = json.dumps(evidence, sort_keys=True)
+        self.assertEqual(self.runner.PASS, code)
+        self.assertEqual(sha256_bytes(raw), evidence["cases"][0]["responseSha256"])
+        self.assertEqual(len(raw), evidence["cases"][0]["responseBytes"])
+        self.assertNotIn("private-secret", serialized)
+        self.assertNotIn("/Users/", serialized)
+        self.assertNotIn(case["prompt"], serialized)
+
+    def test_expected_answer_leaks_are_rejected_before_host_execution(self) -> None:
+        fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
+        fixture["cases"][0]["prompt"] += " Expected answer: selectedSkill."
+        process = _FakeProcessRunner({})
+        code, _ = self.runner.run_host(
+            fixture,
+            "/opt/codex",
+            process,
+            _FakePrerequisiteChecker(_passing_prerequisites()),
+        )
+        self.assertEqual(self.runner.FAIL, code)
+        self.assertEqual([], process.commands)
+
+    def test_structural_passes_never_substitute_for_behavioral_failure(self) -> None:
+        fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
+        case = fixture["cases"][0]
+        process = _FakeProcessRunner(
+            {case["id"]: _forward_observation(case, activation="fail")}
+        )
+        code, evidence = self.runner.run_host(
+            fixture,
+            "/opt/codex",
+            process,
+            _FakePrerequisiteChecker(
+                _passing_prerequisites(), _passing_prerequisites()
+            ),
+        )
+        self.assertEqual("pass", evidence["host"]["prerequisites"]["discovery"])
+        self.assertEqual("pass", evidence["host"]["prerequisites"]["installation"])
+        self.assertEqual(self.runner.FAIL, code)
+        self.assertEqual("fail", evidence["status"])
+
+    def test_evidence_write_is_closed_atomic_and_symlink_safe(self) -> None:
+        fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
+        case = fixture["cases"][0]
+        _, evidence = self.runner.run_offline(
+            fixture, {case["id"]: _forward_observation(case)}
+        )
+        expected_keys = {
+            "schemaVersion", "sourceIssue", "evidenceKind", "mode", "status",
+            "model", "codexVersion", "fixtureSha256", "host", "privacy",
+            "summary", "cases",
+        }
+        self.assertEqual(expected_keys, set(evidence))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "evidence.json"
+            path.write_text("stale", encoding="utf-8")
+            self.runner.write_evidence(path, evidence)
+            self.assertEqual(evidence, load_json(path))
+            self.assertEqual([], list(root.glob(".evidence.json.*.tmp")))
+
+            mutant = {**evidence, "rawResponse": "private"}
+            with self.assertRaises(ValueError):
+                self.runner.write_evidence(path, mutant)
+
+            target = root / "private-target"
+            target.write_text("private", encoding="utf-8")
+            symlink = root / "symlink-evidence.json"
+            symlink.symlink_to(target)
+            with self.assertRaises((OSError, ValueError)):
+                self.runner.write_evidence(symlink, evidence)
+            self.assertEqual("private", target.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
