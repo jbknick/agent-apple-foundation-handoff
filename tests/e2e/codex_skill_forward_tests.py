@@ -41,11 +41,13 @@ ASSERTIONS = (
 )
 STATUSES = {"pass", "fail", "blocked", "not_applicable"}
 EARLY_STOP_REASONS = {
+    "event_stream_invalid",
     "post_capture_prerequisite_drift",
     "process_failed",
     "scoring_failed",
 }
 PRE_RESPONSE_REASONS = {
+    "fixture_contract_invalid",
     "missing_binary",
     "nonregular_binary",
     "nonexecutable_binary",
@@ -160,7 +162,7 @@ SKILL_PAYLOAD_SHA256 = {
 }
 CODEX_JSONL_EVENT_TYPES = {
     "thread.started", "turn.started", "turn.completed", "turn.failed",
-    "item.started", "item.updated", "item.completed",
+    "item.started", "item.updated", "item.completed", "error",
 }
 CODEX_JSONL_ITEM_TYPES = {
     "agent_message", "reasoning", "command_execution", "file_change",
@@ -197,7 +199,7 @@ def _fixture_contract() -> dict[str, Any]:
     raw = CANONICAL_FIXTURE.read_bytes()
     if _sha256(raw) != OFFICIAL_FIXTURE_SHA256:
         raise ValueError("canonical fixture identity mismatch")
-    value = json.loads(raw)
+    value = json.loads(raw, object_pairs_hook=_json_object_without_duplicates)
     if not isinstance(value, dict):
         raise ValueError("canonical fixture must be an object")
     return value
@@ -207,7 +209,9 @@ def _validate_fixture(fixture: dict[str, Any], fixture_bytes: bytes) -> None:
     if type(fixture) is not dict or type(fixture_bytes) is not bytes:
         raise ValueError("fixture and exact fixture bytes are required")
     try:
-        decoded = json.loads(fixture_bytes)
+        decoded = json.loads(
+            fixture_bytes, object_pairs_hook=_json_object_without_duplicates
+        )
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError("fixture bytes are not valid JSON") from error
     if decoded != fixture:
@@ -323,6 +327,61 @@ def _prerequisite_statuses(
     return values
 
 
+def _evidence_prerequisite_statuses(
+    mode: str,
+    blocker: str | None,
+    executable_sha256: str | None,
+    *,
+    activation_proven: bool,
+) -> dict[str, str]:
+    """Derive committed prerequisite facts only from committed evidence facts."""
+    values = {key: "not_applicable" for key in PREREQUISITE_KEYS}
+    if blocker == "fixture_contract_invalid":
+        return values
+    if mode == "offline":
+        if blocker == "model_mismatch":
+            values["model"] = "blocked"
+        elif blocker == "version_mismatch":
+            values["version"] = "blocked"
+        return values
+
+    has_identity = executable_sha256 is not None
+    if blocker in {"missing_binary", "nonregular_binary", "nonexecutable_binary"}:
+        values["binary"] = "blocked"
+        return values
+    if blocker == "model_mismatch":
+        values["model"] = "blocked"
+        return values
+    if blocker == "version_mismatch":
+        values["binary"] = "pass" if has_identity else "not_applicable"
+        values["version"] = "blocked"
+        return values
+
+    values["binary"] = "pass" if has_identity else "blocked"
+    values["version"] = "pass"
+    if blocker == "authentication_unavailable":
+        values["authentication"] = "blocked"
+        return values
+
+    values["authentication"] = "pass"
+    if blocker == "plugin_activation_unavailable":
+        values["pluginActivation"] = "blocked"
+        values["discovery"] = "blocked"
+        values["installation"] = "blocked"
+        return values
+
+    values["discovery"] = "pass"
+    values["installation"] = "pass"
+    if blocker == "model_unavailable":
+        values["model"] = "blocked"
+        return values
+    if blocker in {"event_stream_invalid", "scoring_failed"} or blocker is None:
+        values["model"] = "pass"
+    if blocker is None and activation_proven:
+        values["pluginActivation"] = "pass"
+    return values
+
+
 def _host_metadata(
     mode: str,
     snapshot: dict[str, Any] | None = None,
@@ -330,15 +389,19 @@ def _host_metadata(
     *,
     activation_proven: bool = False,
 ) -> dict[str, Any]:
+    executable_sha256 = None if snapshot is None else snapshot.get("executableSha256")
     return {
         "name": "codex",
         "version": EXPECTED_CODEX_VERSION,
         "model": EXPECTED_MODEL,
         "modelSelection": "explicit_cli_argument",
         "sessionMode": "fresh_ephemeral" if mode == "host" else "not_applicable",
-        "resolvedExecutableSha256": None if snapshot is None else snapshot.get("executableSha256"),
-        "prerequisites": _prerequisite_statuses(
-            snapshot, blocker, activation_proven=activation_proven
+        "resolvedExecutableSha256": executable_sha256,
+        "prerequisites": _evidence_prerequisite_statuses(
+            mode,
+            blocker,
+            executable_sha256,
+            activation_proven=activation_proven,
         ),
         "blockerReason": blocker,
         "claudeInvoked": False,
@@ -713,9 +776,179 @@ def _json_object_without_duplicates(
     return value
 
 
+def _require_closed_object(
+    value: Any, keys: set[str], label: str
+) -> dict[str, Any]:
+    if type(value) is not dict or set(value) != keys:
+        raise ValueError(f"{label} schema is not closed")
+    return value
+
+
+def _require_string(value: Any, label: str, *, nonempty: bool = True) -> str:
+    if type(value) is not str or (nonempty and not value):
+        raise ValueError(f"{label} must be a string")
+    return value
+
+
+def _validate_web_search_action(action: Any) -> None:
+    if type(action) is not dict or type(action.get("type")) is not str:
+        raise ValueError("web search action is malformed")
+    action_type = action["type"]
+    allowed = {
+        "search": {"type", "query", "queries"},
+        "open_page": {"type", "url"},
+        "find_in_page": {"type", "url", "pattern"},
+        "other": {"type"},
+    }
+    if action_type not in allowed or not set(action).issubset(allowed[action_type]):
+        raise ValueError("web search action schema is not closed")
+    if action_type == "search":
+        if "query" in action and type(action["query"]) is not str:
+            raise ValueError("web search query is malformed")
+        if "queries" in action and (
+            type(action["queries"]) is not list
+            or any(type(query) is not str for query in action["queries"])
+        ):
+            raise ValueError("web search queries are malformed")
+    else:
+        for key in set(action) - {"type"}:
+            if type(action[key]) is not str:
+                raise ValueError("web search action value is malformed")
+
+
+def _validate_codex_item(item: Any, event_type: str) -> dict[str, Any]:
+    if type(item) is not dict:
+        raise ValueError("Codex JSONL item must be an object")
+    item_type = item.get("type")
+    if type(item_type) is not str or item_type not in CODEX_JSONL_ITEM_TYPES:
+        raise ValueError("Codex JSONL item type is unknown")
+    _require_string(item.get("id"), "item id")
+
+    if item_type in {"agent_message", "reasoning"}:
+        _require_closed_object(item, {"id", "type", "text"}, item_type)
+        _require_string(item["text"], f"{item_type} text", nonempty=False)
+    elif item_type == "error":
+        _require_closed_object(item, {"id", "type", "message"}, "error item")
+        _require_string(item["message"], "error item message", nonempty=False)
+    elif item_type == "command_execution":
+        _require_closed_object(
+            item,
+            {"id", "type", "command", "aggregated_output", "exit_code", "status"},
+            "command item",
+        )
+        _require_string(item["command"], "command", nonempty=False)
+        _require_string(item["aggregated_output"], "aggregated output", nonempty=False)
+        if item["exit_code"] is not None and type(item["exit_code"]) is not int:
+            raise ValueError("command exit code is malformed")
+        if item["status"] not in {"in_progress", "completed", "failed", "declined"}:
+            raise ValueError("command status is malformed")
+        if event_type == "item.started" and (
+            item["status"] != "in_progress"
+            or item["aggregated_output"] != ""
+            or item["exit_code"] is not None
+        ):
+            raise ValueError("command start state is malformed")
+        if event_type == "item.updated":
+            raise ValueError("command items do not emit updates")
+        if event_type == "item.completed":
+            status = item["status"]
+            exit_code = item["exit_code"]
+            valid_terminal = (
+                (status == "completed" and exit_code == 0)
+                or (
+                    status == "failed"
+                    and type(exit_code) is int
+                    and exit_code != 0
+                )
+                or (status == "declined" and exit_code == -1)
+            )
+            if not valid_terminal:
+                raise ValueError("command completion state is malformed")
+    elif item_type == "file_change":
+        _require_closed_object(item, {"id", "type", "changes", "status"}, "file change")
+        if item["status"] not in {"in_progress", "completed", "failed"}:
+            raise ValueError("file change status is malformed")
+        if type(item["changes"]) is not list:
+            raise ValueError("file changes are malformed")
+        for change in item["changes"]:
+            _require_closed_object(change, {"path", "kind"}, "file update")
+            _require_string(change["path"], "file update path", nonempty=False)
+            if change["kind"] not in {"add", "delete", "update"}:
+                raise ValueError("file update kind is malformed")
+    elif item_type == "mcp_tool_call":
+        _require_closed_object(
+            item,
+            {"id", "type", "server", "tool", "arguments", "result", "error", "status"},
+            "MCP tool call",
+        )
+        _require_string(item["server"], "MCP server", nonempty=False)
+        _require_string(item["tool"], "MCP tool", nonempty=False)
+        if item["status"] not in {"in_progress", "completed", "failed"}:
+            raise ValueError("MCP status is malformed")
+        if item["result"] is not None:
+            result = item["result"]
+            if type(result) is not dict or set(result) not in (
+                {"content", "structured_content"},
+                {"content", "_meta", "structured_content"},
+            ):
+                raise ValueError("MCP result schema is not closed")
+            if type(result["content"]) is not list:
+                raise ValueError("MCP result content is malformed")
+        if item["error"] is not None:
+            error = _require_closed_object(item["error"], {"message"}, "MCP error")
+            _require_string(error["message"], "MCP error message", nonempty=False)
+    elif item_type == "collab_tool_call":
+        _require_closed_object(
+            item,
+            {
+                "id", "type", "tool", "sender_thread_id", "receiver_thread_ids",
+                "prompt", "agents_states", "status",
+            },
+            "collab tool call",
+        )
+        if item["tool"] not in {"spawn_agent", "send_input", "wait", "close_agent"}:
+            raise ValueError("collab tool is malformed")
+        _require_string(item["sender_thread_id"], "collab sender")
+        if type(item["receiver_thread_ids"]) is not list or any(
+            type(thread_id) is not str for thread_id in item["receiver_thread_ids"]
+        ):
+            raise ValueError("collab receivers are malformed")
+        if item["prompt"] is not None and type(item["prompt"]) is not str:
+            raise ValueError("collab prompt is malformed")
+        if type(item["agents_states"]) is not dict:
+            raise ValueError("collab agent states are malformed")
+        for state in item["agents_states"].values():
+            _require_closed_object(state, {"status", "message"}, "collab agent state")
+            if state["status"] not in {
+                "pending_init", "running", "interrupted", "completed", "errored",
+                "shutdown", "not_found",
+            }:
+                raise ValueError("collab agent status is malformed")
+            if state["message"] is not None and type(state["message"]) is not str:
+                raise ValueError("collab agent message is malformed")
+        if item["status"] not in {"in_progress", "completed", "failed"}:
+            raise ValueError("collab tool status is malformed")
+    elif item_type == "web_search":
+        _require_closed_object(item, {"id", "type", "query", "action"}, "web search")
+        _require_string(item["query"], "web search query", nonempty=False)
+        _validate_web_search_action(item["action"])
+    elif item_type == "todo_list":
+        _require_closed_object(item, {"id", "type", "items"}, "todo list")
+        if type(item["items"]) is not list:
+            raise ValueError("todo items are malformed")
+        for todo in item["items"]:
+            _require_closed_object(todo, {"text", "completed"}, "todo item")
+            _require_string(todo["text"], "todo text", nonempty=False)
+            if type(todo["completed"]) is not bool:
+                raise ValueError("todo completion is malformed")
+    return item
+
+
 def _codex_jsonl_events(stdout: str) -> list[dict[str, Any]]:
     parsed: list[dict[str, Any]] = []
     terminal_seen = False
+    open_items: dict[str, dict[str, Any]] = {}
+    top_level_error_seen = False
     lines = stdout.splitlines()
     if not lines:
         raise ValueError("Codex JSONL stream is empty")
@@ -735,15 +968,74 @@ def _codex_jsonl_events(stdout: str) -> list[dict[str, Any]]:
             raise ValueError("Codex JSONL event type is unknown")
         if terminal_seen:
             raise ValueError("Codex JSONL stream continues after its terminal event")
-        if event_type.startswith("item."):
-            item = value.get("item")
-            if (
-                type(item) is not dict
-                or type(item.get("type")) is not str
-                or item["type"] not in CODEX_JSONL_ITEM_TYPES
-            ):
-                raise ValueError("Codex JSONL item type is unknown")
+        if not parsed:
+            if event_type != "thread.started":
+                raise ValueError("Codex JSONL stream must start with thread.started")
+        elif len(parsed) == 1:
+            if event_type != "turn.started":
+                raise ValueError("Codex JSONL turn must start after its thread")
+        elif event_type in {"thread.started", "turn.started"}:
+            raise ValueError("Codex JSONL start event is out of order")
+
+        if event_type == "thread.started":
+            _require_closed_object(value, {"type", "thread_id"}, "thread.started")
+            _require_string(value["thread_id"], "thread id")
+        elif event_type == "turn.started":
+            _require_closed_object(value, {"type"}, "turn.started")
+        elif event_type == "turn.completed":
+            _require_closed_object(value, {"type", "usage"}, "turn.completed")
+            usage = _require_closed_object(
+                value["usage"],
+                {
+                    "input_tokens", "cached_input_tokens", "output_tokens",
+                    "reasoning_output_tokens",
+                },
+                "turn usage",
+            )
+            if any(type(count) is not int or count < 0 for count in usage.values()):
+                raise ValueError("turn usage is malformed")
+            if top_level_error_seen:
+                raise ValueError("successful stream contains a top-level error")
+        elif event_type == "turn.failed":
+            _require_closed_object(value, {"type", "error"}, "turn.failed")
+            error = _require_closed_object(value["error"], {"message"}, "turn error")
+            _require_string(error["message"], "turn error message", nonempty=False)
+        elif event_type == "error":
+            _require_closed_object(value, {"type", "message"}, "stream error")
+            _require_string(value["message"], "stream error message", nonempty=False)
+            if top_level_error_seen:
+                raise ValueError("Codex JSONL stream has duplicate top-level errors")
+            top_level_error_seen = True
+        elif event_type.startswith("item."):
+            _require_closed_object(value, {"type", "item"}, event_type)
+            item = _validate_codex_item(value["item"], event_type)
+            item_id = item["id"]
+            if event_type == "item.started":
+                if item_id in open_items:
+                    raise ValueError("Codex JSONL item started more than once")
+                open_items[item_id] = copy.deepcopy(item)
+            elif event_type == "item.updated":
+                opened = open_items.get(item_id)
+                if opened is None or opened["type"] != item["type"]:
+                    raise ValueError("Codex JSONL item update is unpaired")
+                if item["type"] != "todo_list":
+                    raise ValueError("Codex JSONL item type does not emit updates")
+            else:
+                opened = open_items.get(item_id)
+                if item["type"] == "command_execution":
+                    if opened is None or opened["type"] != "command_execution":
+                        raise ValueError("command completion is unpaired")
+                    if opened["command"] != item["command"]:
+                        raise ValueError("command completion identity is mismatched")
+                if opened is not None:
+                    if opened["type"] != item["type"]:
+                        raise ValueError("Codex JSONL item type changed")
+                    del open_items[item_id]
         if event_type in {"turn.completed", "turn.failed"}:
+            if open_items:
+                raise ValueError("Codex JSONL stream has unterminated items")
+            if top_level_error_seen and event_type != "turn.failed":
+                raise ValueError("top-level error requires a failed turn")
             terminal_seen = True
         parsed.append(value)
     if not terminal_seen:
@@ -766,12 +1058,23 @@ def _tool_events(stdout: str) -> list[dict[str, Any]]:
 def _is_model_unavailable(completed: subprocess.CompletedProcess[str]) -> bool:
     if completed.returncode == 0:
         return False
-    patterns = (
-        r"(?i)\bmodel\b.{0,120}\b(?:unavailable|not available|not found|unsupported)\b",
-        r"(?i)\b(?:no|not)\s+access\b.{0,120}\bmodel\b",
-        r"(?i)\bmodel\b.{0,120}\b(?:access denied|permission denied)\b",
+    model = re.escape(EXPECTED_MODEL)
+    message_pattern = re.compile(
+        rf"(?:model {model} (?:is |was )?"
+        rf"(?:unavailable|not available|not found|unsupported|access denied|permission denied)"
+        rf"|(?:no|not) access to model {model})",
+        re.IGNORECASE,
     )
-    diagnostics = [completed.stderr]
+
+    def exact_message(value: Any) -> bool:
+        return type(value) is str and message_pattern.fullmatch(value.strip()) is not None
+
+    if re.fullmatch(
+        rf"Error: {message_pattern.pattern}",
+        completed.stderr.strip(),
+        re.IGNORECASE,
+    ) is not None:
+        return True
     for line in completed.stdout.splitlines():
         try:
             value = json.loads(
@@ -781,20 +1084,18 @@ def _is_model_unavailable(completed: subprocess.CompletedProcess[str]) -> bool:
             continue
         if type(value) is not dict:
             continue
-        event_type = value.get("type")
-        candidate: Any = None
-        if event_type == "error":
-            candidate = value.get("message")
-        elif event_type == "turn.failed":
-            error = value.get("error")
-            candidate = error.get("message") if type(error) is dict else error
-        if type(candidate) is str:
-            diagnostics.append(candidate)
-    return any(
-        re.search(pattern, diagnostic) is not None
-        for diagnostic in diagnostics
-        for pattern in patterns
-    )
+        if set(value) == {"type", "message"} and value.get("type") == "error":
+            if exact_message(value["message"]):
+                return True
+        elif set(value) == {"type", "error"} and value.get("type") == "turn.failed":
+            error = value["error"]
+            if (
+                type(error) is dict
+                and set(error) == {"message"}
+                and exact_message(error["message"])
+            ):
+                return True
+    return False
 
 
 def run_host(
@@ -820,6 +1121,12 @@ def run_host(
             raise ValueError("prerequisite checker returned invalid snapshot")
         if first_snapshot is None:
             first_snapshot = copy.deepcopy(pre)
+        elif _snapshot_identity(pre) != _snapshot_identity(first_snapshot):
+            evidence = _evidence(
+                "host", fixture, fixture_bytes, rows, snapshot=first_snapshot,
+                blocker="post_capture_prerequisite_drift", forced_status="fail",
+            )
+            return FAIL, evidence
         blocker = _precondition_blocker(pre)
         if blocker is not None:
             evidence = _evidence(
@@ -877,12 +1184,13 @@ def run_host(
             except Exception:
                 post = {}
             try:
-                identity_stable = _capture_matches_snapshot(pre)
+                identity_stable = _capture_matches_snapshot(first_snapshot)
             except (OSError, ValueError):
                 identity_stable = False
             if (
                 not identity_stable
-                or _snapshot_identity(pre) != _snapshot_identity(post)
+                or _snapshot_identity(pre) != _snapshot_identity(first_snapshot)
+                or _snapshot_identity(post) != _snapshot_identity(first_snapshot)
             ):
                 evidence = _evidence(
                     "host", fixture, fixture_bytes, rows, snapshot=first_snapshot,
@@ -907,7 +1215,7 @@ def run_host(
             except (OSError, ValueError):
                 evidence = _evidence(
                     "host", fixture, fixture_bytes, rows, snapshot=first_snapshot,
-                    blocker="process_failed", forced_status="fail",
+                    blocker="event_stream_invalid", forced_status="fail",
                 )
                 return FAIL, evidence
             host_result = {
@@ -1019,6 +1327,26 @@ def _validate_evidence(
     if type(rows) is not list or len(rows) > len(fixture["cases"]):
         raise ValueError("evidence rows are invalid")
     blocker = host["blockerReason"]
+    activation_proven = (
+        evidence["mode"] == "host"
+        and blocker is None
+        and bool(rows)
+        and len(rows) == len(fixture["cases"])
+        and all(
+            type(row) is dict
+            and type(row.get("assertions")) is dict
+            and row["assertions"].get("activation") == "pass"
+            for row in rows
+        )
+    )
+    expected_prerequisites = _evidence_prerequisite_statuses(
+        evidence["mode"],
+        blocker,
+        executable_sha256,
+        activation_proven=activation_proven,
+    )
+    if prerequisites != expected_prerequisites:
+        raise ValueError("prerequisite derivation mismatch")
     if blocker is None and len(rows) != len(fixture["cases"]):
         raise ValueError("complete evidence must cover every fixture case")
     if len(rows) < len(fixture["cases"]):
@@ -1052,8 +1380,12 @@ def _validate_evidence(
     if len(rows) == len(fixture["cases"]):
         if evidence["status"] != derived or blocker is not None:
             raise ValueError("complete status derivation mismatch")
-    elif evidence["status"] == "pass":
-        raise ValueError("partial evidence cannot pass")
+    else:
+        expected_stop_status = (
+            "blocked" if blocker in PRE_RESPONSE_REASONS else "fail"
+        )
+        if evidence["status"] != expected_stop_status:
+            raise ValueError("partial stop status derivation mismatch")
     _validate_private_evidence(evidence)
 
 
@@ -1075,21 +1407,12 @@ def _open_destination_parent(path: Path) -> int:
         raise
 
 
-def write_evidence(
+def _atomic_write_evidence(
     path: Path | str,
     evidence: dict[str, Any],
     *,
-    fixture: dict[str, Any],
-    fixture_bytes: bytes,
-    scorer_outputs: dict[str, dict[str, Any]],
-    host_results: list[dict[str, Any]] | None = None,
-    executable_sha256: str | None = None,
     fault_hook: Callable[[str], None] | None = None,
 ) -> None:
-    _validate_evidence(
-        evidence, fixture, fixture_bytes, scorer_outputs, host_results,
-        executable_sha256,
-    )
     destination = Path(path)
     if not destination.is_absolute():
         destination = destination.absolute()
@@ -1132,19 +1455,102 @@ def write_evidence(
         os.close(parent_descriptor)
 
 
-def _probe(command: list[str]) -> subprocess.CompletedProcess[str] | None:
+def write_evidence(
+    path: Path | str,
+    evidence: dict[str, Any],
+    *,
+    fixture: dict[str, Any],
+    fixture_bytes: bytes,
+    scorer_outputs: dict[str, dict[str, Any]],
+    host_results: list[dict[str, Any]] | None = None,
+    executable_sha256: str | None = None,
+    fault_hook: Callable[[str], None] | None = None,
+) -> None:
+    _validate_evidence(
+        evidence, fixture, fixture_bytes, scorer_outputs, host_results,
+        executable_sha256,
+    )
+    _atomic_write_evidence(path, evidence, fault_hook=fault_hook)
+
+
+def _probe(
+    command: list[str],
+    *,
+    executable_override: str | None = None,
+) -> subprocess.CompletedProcess[str] | None:
     try:
         return subprocess.run(
-            command, capture_output=True, text=True, check=False, timeout=20
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=20,
+            **(
+                {"executable": executable_override}
+                if executable_override is not None
+                else {}
+            ),
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
 
 
+def _plugin_skill_payloads_are_exact(plugin_root: Path) -> bool:
+    skills_root = plugin_root / "skills"
+    skills_descriptor = -1
+    try:
+        skills_descriptor = _open_directory_no_symlinks(skills_root)
+        names = os.listdir(skills_descriptor)
+        if set(names) != set(SKILL_PAYLOAD_SHA256) or len(names) != len(
+            SKILL_PAYLOAD_SHA256
+        ):
+            return False
+        for skill, expected_digest in SKILL_PAYLOAD_SHA256.items():
+            metadata = os.stat(
+                skill, dir_fd=skills_descriptor, follow_symlinks=False
+            )
+            if not stat.S_ISDIR(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
+                return False
+            skill_descriptor = os.open(
+                skill,
+                os.O_RDONLY
+                | getattr(os, "O_DIRECTORY", 0)
+                | getattr(os, "O_NOFOLLOW", 0)
+                | getattr(os, "O_CLOEXEC", 0),
+                dir_fd=skills_descriptor,
+            )
+            try:
+                if os.listdir(skill_descriptor) != ["SKILL.md"]:
+                    return False
+                payload_metadata = os.stat(
+                    "SKILL.md", dir_fd=skill_descriptor, follow_symlinks=False
+                )
+                if (
+                    not stat.S_ISREG(payload_metadata.st_mode)
+                    or stat.S_ISLNK(payload_metadata.st_mode)
+                ):
+                    return False
+            finally:
+                os.close(skill_descriptor)
+            payload = _read_regular_file_no_symlinks(
+                skills_root / skill / "SKILL.md"
+            )
+            if _sha256(payload) != expected_digest:
+                return False
+        return True
+    except (OSError, ValueError):
+        return False
+    finally:
+        if skills_descriptor >= 0:
+            os.close(skills_descriptor)
+
+
 def _plugin_is_installed_enabled_with_capabilities(stdout: str) -> bool:
     try:
-        listing = json.loads(stdout)
-    except json.JSONDecodeError:
+        listing = json.loads(
+            stdout, object_pairs_hook=_json_object_without_duplicates
+        )
+    except (json.JSONDecodeError, ValueError):
         return False
     if (
         type(listing) is not dict
@@ -1178,13 +1584,10 @@ def _plugin_is_installed_enabled_with_capabilities(stdout: str) -> bool:
         return False
     manifest_path = plugin_root / ".codex-plugin/plugin.json"
     try:
-        manifest = json.loads(_read_regular_file_no_symlinks(manifest_path))
-        for skill, expected_digest in SKILL_PAYLOAD_SHA256.items():
-            payload = _read_regular_file_no_symlinks(
-                plugin_root / "skills" / skill / "SKILL.md"
-            )
-            if _sha256(payload) != expected_digest:
-                return False
+        manifest = json.loads(
+            _read_regular_file_no_symlinks(manifest_path),
+            object_pairs_hook=_json_object_without_duplicates,
+        )
     except (OSError, ValueError, json.JSONDecodeError):
         return False
     interface = manifest.get("interface") if type(manifest) is dict else None
@@ -1192,6 +1595,7 @@ def _plugin_is_installed_enabled_with_capabilities(stdout: str) -> bool:
     return (
         manifest.get("name") == PLUGIN_ID
         and capabilities == list(WORKFLOW_SECTIONS)
+        and _plugin_skill_payloads_are_exact(plugin_root)
     )
 
 
@@ -1219,32 +1623,61 @@ def default_prerequisite_checker(executable: str, model: str, version: str) -> d
             "captureError": "nonregular_binary",
         }
     captured_executable = captured["resolvedExecutable"]
-    version_probe = _probe([captured_executable, "--version"])
-    expected_version_line = f"codex-cli {EXPECTED_CODEX_VERSION}"
-    observed_version = None
-    if (
-        version_probe is not None
-        and version_probe.returncode == 0
-        and version_probe.stderr == ""
-        and version_probe.stdout == f"{expected_version_line}\n"
-    ):
-        observed_version = EXPECTED_CODEX_VERSION
-    login_probe = _probe([captured_executable, "login", "status"])
-    authenticated = (
-        login_probe is not None
-        and login_probe.returncode == 0
-        and login_probe.stdout == ""
-        and login_probe.stderr == "Logged in using ChatGPT\n"
-    )
-    plugin_probe = _probe(
-        [captured_executable, "plugin", "list", "--json"]
-    )
-    plugin_available = (
-        plugin_probe is not None
-        and plugin_probe.returncode == 0
-        and plugin_probe.stderr == ""
-        and _plugin_is_installed_enabled_with_capabilities(plugin_probe.stdout)
-    )
+    try:
+        execution_path, bound_path, bound_root = _bound_executable_copy(captured)
+    except (OSError, ValueError):
+        return {
+            **captured,
+            "version": None,
+            "authenticated": False,
+            "modelAvailable": False,
+            "pluginAvailable": False,
+            "discovery": "blocked",
+            "installation": "blocked",
+            "captureError": "nonregular_binary",
+        }
+    try:
+        override = str(bound_path)
+        version_probe = _probe(
+            [execution_path, "--version"], executable_override=override
+        )
+        expected_version_line = f"codex-cli {EXPECTED_CODEX_VERSION}"
+        observed_version = None
+        if (
+            version_probe is not None
+            and version_probe.returncode == 0
+            and version_probe.stderr == ""
+            and version_probe.stdout == f"{expected_version_line}\n"
+        ):
+            observed_version = EXPECTED_CODEX_VERSION
+        login_probe = _probe(
+            [execution_path, "login", "status"], executable_override=override
+        )
+        authenticated = (
+            login_probe is not None
+            and login_probe.returncode == 0
+            and login_probe.stdout == ""
+            and login_probe.stderr == "Logged in using ChatGPT\n"
+        )
+        plugin_probe = _probe(
+            [execution_path, "plugin", "list", "--json"],
+            executable_override=override,
+        )
+        plugin_available = (
+            plugin_probe is not None
+            and plugin_probe.returncode == 0
+            and plugin_probe.stderr == ""
+            and _plugin_is_installed_enabled_with_capabilities(plugin_probe.stdout)
+        )
+    finally:
+        try:
+            bound_path.unlink()
+        except FileNotFoundError:
+            pass
+        try:
+            bound_root.rmdir()
+        except FileNotFoundError:
+            pass
     return {
         **captured,
         "version": observed_version,
@@ -1338,6 +1771,7 @@ def _usable_version(value: str | None) -> bool:
     if value is None:
         return False
     normalized = value.strip().strip('"\'').lower()
+    normalized = re.sub(r"[-_\s]+", "_", normalized)
     return bool(normalized) and normalized not in {
         "unknown", "n/a", "none", "null", "tbd", "placeholder",
         "not_specified", "unchanged_existing_version",
@@ -1357,16 +1791,20 @@ def _has_authorized_follow_on_boundary(text: str) -> bool:
     )
     if boundary is None:
         return False
-    prefix = normalized[max(0, boundary.start() - 32):boundary.start()]
-    phrase = normalized[boundary.start():boundary.end()]
-    return re.search(
-        r"\b(?:no|not|never|without)\b(?:\s+\w+){0,5}\s*$",
-        prefix,
-    ) is None and re.search(
-        r"\b(?:no|not|never|without)\b(?:\s+\w+){0,5}\s+"
-        r"(?:separate|authorized|authorization|follow(?:-| )on)\b",
-        phrase,
-    ) is None
+    clause_start = max(
+        normalized.rfind(".", 0, boundary.start()),
+        normalized.rfind("!", 0, boundary.start()),
+        normalized.rfind("?", 0, boundary.start()),
+        normalized.rfind(";", 0, boundary.start()),
+    ) + 1
+    clause_ends = [
+        position
+        for token in (".", "!", "?", ";")
+        if (position := normalized.find(token, boundary.end())) >= 0
+    ]
+    clause_end = min(clause_ends) if clause_ends else len(normalized)
+    clause = normalized[clause_start:clause_end]
+    return re.search(r"\b(?:no|not|never|without)\b", clause) is None
 
 
 def live_score(
@@ -1464,6 +1902,64 @@ def _blocked_cli_evidence(
     )
 
 
+def _invalid_fixture_evidence(mode: str, fixture_bytes: bytes) -> dict[str, Any]:
+    return {
+        "schemaVersion": "1.0",
+        "sourceIssue": "DEV-136",
+        "evidenceKind": "codex_skill_forward_test",
+        "mode": mode,
+        "status": "fail",
+        "model": EXPECTED_MODEL,
+        "codexVersion": EXPECTED_CODEX_VERSION,
+        "fixtureSha256": _sha256(fixture_bytes),
+        "host": _host_metadata(mode, blocker="fixture_contract_invalid"),
+        "privacy": copy.deepcopy(PRIVACY),
+        "summary": {
+            "fixtureCaseCount": 0,
+            "attemptedCount": 0,
+            "passedCount": 0,
+            "failedCount": 0,
+            "blockedCount": 0,
+            "notApplicableCount": 0,
+        },
+        "cases": [],
+    }
+
+
+def _existing_evidence_is_stale_success(path: Path) -> bool:
+    try:
+        value = json.loads(
+            _read_regular_file_no_symlinks(path),
+            object_pairs_hook=_json_object_without_duplicates,
+        )
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+        return False
+    return (
+        type(value) is dict
+        and set(value) == EVIDENCE_KEYS
+        and value.get("schemaVersion") == "1.0"
+        and value.get("sourceIssue") == "DEV-136"
+        and value.get("evidenceKind") == "codex_skill_forward_test"
+        and value.get("status") == "pass"
+    )
+
+
+def _write_invalid_fixture_evidence_if_safe(
+    path: Path, mode: str, fixture_bytes: bytes
+) -> None:
+    destination = path if path.is_absolute() else path.absolute()
+    try:
+        destination.lstat()
+    except FileNotFoundError:
+        should_write = True
+    else:
+        should_write = _existing_evidence_is_stale_success(destination)
+    if should_write:
+        evidence = _invalid_fixture_evidence(mode, fixture_bytes)
+        _validate_private_evidence(evidence)
+        _atomic_write_evidence(destination, evidence)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=("offline", "host"), required=True)
@@ -1474,11 +1970,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--evidence", type=Path, required=True)
     args = parser.parse_args(argv)
 
+    fixture_bytes = b""
     try:
         fixture_bytes = args.cases.read_bytes()
-        fixture = json.loads(fixture_bytes)
+        fixture = json.loads(
+            fixture_bytes, object_pairs_hook=_json_object_without_duplicates
+        )
         _validate_fixture(fixture, fixture_bytes)
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+        try:
+            _write_invalid_fixture_evidence_if_safe(
+                args.evidence, args.mode, fixture_bytes
+            )
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+            pass
         sys.stderr.write("fixture_contract_invalid\n")
         return FAIL
     if args.model != EXPECTED_MODEL or args.codex_version != EXPECTED_CODEX_VERSION:
@@ -1494,7 +1999,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.scorer_outputs is None:
             parser.error("--scorer-outputs is required in offline mode")
         try:
-            scorer_outputs = json.loads(args.scorer_outputs.read_bytes())
+            scorer_outputs = json.loads(
+                args.scorer_outputs.read_bytes(),
+                object_pairs_hook=_json_object_without_duplicates,
+            )
             _validate_scorer_outputs(fixture, scorer_outputs)
         except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
             evidence = _evidence(
