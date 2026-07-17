@@ -392,7 +392,6 @@ FORBIDDEN_FORWARD_EVIDENCE_KEYS = {
     "rawPrompt",
     "rawReasoning",
     "rawResponse",
-    "rawToolEvents",
     "resolvedExecutable",
     "response",
     "transcript",
