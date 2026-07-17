@@ -328,6 +328,10 @@ AVAILABILITY_ERROR_BOUNDARY_SENTENCE = (
 )
 DESIGN_READ_ONLY_SENTENCE = "Design is read-only: make no production edits."
 INTEGRATION_BLOCKER_REASON = "production_skills_not_integrated"
+INTEGRATION_BLOCKER_SENTENCE = (
+    "A missing fixed reference is reported as blocked with reason "
+    f"`{INTEGRATION_BLOCKER_REASON}`."
+)
 
 
 @dataclass(frozen=True)
@@ -626,12 +630,29 @@ def assert_stable_handoff_invariants(
             DESIGN_READ_ONLY_SENTENCE,
             "design no-production-edit boundary",
         )
-        assert_single_owned_phrase(
-            test_case,
-            text,
-            guardrails,
-            INTEGRATION_BLOCKER_REASON,
-            "design missing-reference blocker reason",
+        blocker_relationship = re.compile(
+            r"(?:If\s+a\s+fixed\s+reference\s+target\s+is\s+absent|"
+            r"A\s+missing\s+fixed\s+reference)"
+            r"[^.]{0,160}?"
+            r"(?:is\s+reported|report(?:s|ed)?)"
+            r"[^.]{0,160}?"
+            r"as\s+blocked\s+with\s+reason\s+`"
+            + re.escape(INTEGRATION_BLOCKER_REASON)
+            + r"`",
+            re.IGNORECASE,
+        )
+        blocker_matches = tuple(blocker_relationship.finditer(text))
+        test_case.assertEqual(
+            1,
+            len(blocker_matches),
+            "design must bind a missing fixed reference to blocked with the exact "
+            "integration reason",
+        )
+        blocker_match = blocker_matches[0]
+        test_case.assertTrue(
+            guardrails.content_start <= blocker_match.start()
+            and blocker_match.end() <= guardrails.end,
+            "design missing-reference blocker relationship belongs only to Guardrails",
         )
 
 
@@ -1067,7 +1088,7 @@ def build_valid_skill_fixture(skill: str) -> str:
         "supported; label pseudocode and unsupported APIs. Missing SDK, host, "
         "toolchain, binary, hardware, or prerequisite support is blocked.\n"
         + (
-            f"A missing fixed reference reports {INTEGRATION_BLOCKER_REASON}.\n"
+            f"{INTEGRATION_BLOCKER_SENTENCE}\n"
             if skill == "design-apple-foundation-models-handoff"
             else ""
         )
@@ -1223,6 +1244,7 @@ class SkillContractMutationTests(unittest.TestCase):
     ) -> None:
         skill = "design-apple-foundation-models-handoff"
         fixture = build_valid_skill_fixture(skill)
+        bounded_reason = INTEGRATION_BLOCKER_SENTENCE
         mutations = {
             "read-only removed": fixture.replace(DESIGN_READ_ONLY_SENTENCE, "", 1),
             "read-only misplaced": fixture.replace(
@@ -1233,6 +1255,23 @@ class SkillContractMutationTests(unittest.TestCase):
                 1,
             ),
             "reason removed": fixture.replace(INTEGRATION_BLOCKER_REASON, "", 1),
+            "reason token dump": fixture.replace(
+                bounded_reason,
+                f"Blocker token dump: {INTEGRATION_BLOCKER_REASON}.",
+                1,
+            ),
+            "reason unrelated": fixture.replace(
+                bounded_reason,
+                "A missing fixed reference is noted. An unrelated prerequisite is "
+                f"blocked with reason `{INTEGRATION_BLOCKER_REASON}`.",
+                1,
+            ),
+            "reason reversed": fixture.replace(
+                bounded_reason,
+                f"Reason `{INTEGRATION_BLOCKER_REASON}` blocks an unrelated "
+                "prerequisite; a fixed reference is missing.",
+                1,
+            ),
             "reason misplaced": fixture.replace(
                 INTEGRATION_BLOCKER_REASON, "", 1
             ).replace(
