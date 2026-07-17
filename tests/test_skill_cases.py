@@ -1,3 +1,5 @@
+import copy
+import hashlib
 import json
 import re
 import unittest
@@ -8,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_PATH = ROOT / "tests/fixtures/dev-136-codex-skill-cases.json"
 EVIDENCE_PATH = ROOT / "docs/research/evidence/dev-136-codex-skill-tdd.json"
+PROTOTYPE_PATH = ROOT / "docs/research/evidence/dev-134-activation-prototype.json"
 
 SKILLS = (
     "design-apple-foundation-models-handoff",
@@ -130,19 +133,158 @@ CLARIFICATION_RUBRIC = (
     "architecture_result_absent",
 )
 
-FAILURE_CLASSES = {
-    "missing_result_envelope",
-    "missing_skill_selection",
-    "missing_router_envelope",
-    "missing_version_labels",
-    "missing_common_sections",
-    "missing_workflow_sections",
-    "missing_evidence_status_vocabulary",
+FAILURE_CLASS_BY_CHECK = {
+    "result_envelope_complete": "missing_result_envelope",
+    "selected_skill_named": "missing_skill_selection",
+    "router_envelope_complete": "missing_router_envelope",
+    "version_labels_complete": "missing_version_labels",
+    "common_sections_complete": "missing_common_sections",
+    "workflow_sections_complete": "missing_workflow_sections",
+    "evidence_vocabulary_complete": "missing_evidence_status_vocabulary",
 }
+
+FAILURE_CLASSES = set(FAILURE_CLASS_BY_CHECK.values())
+
+EXPECTED_CASES = (
+    ("DEV136-BASE-DESIGN-001", SKILLS[0], "baseline", "positive", ("DEV134-POS-001",)),
+    ("DEV136-BASE-IMPLEMENT-001", SKILLS[1], "baseline", "positive", ("DEV134-POS-003",)),
+    ("DEV136-BASE-REVIEW-001", SKILLS[2], "baseline", "positive", ("DEV134-POS-002",)),
+    ("DEV136-BASE-DEBUG-001", SKILLS[3], "baseline", "positive", ("DEV134-POS-004",)),
+    ("DEV136-BASE-VALIDATE-001", SKILLS[4], "baseline", "positive", ("DEV134-POS-005",)),
+    ("DEV136-FWD-DESIGN-001", SKILLS[0], "forward", "positive", ("DEV134-POS-006",)),
+    ("DEV136-FWD-DESIGN-002", SKILLS[0], "forward", "negative", ("DEV134-NEG-001",)),
+    ("DEV136-FWD-DESIGN-003", SKILLS[0], "forward", "ambiguous", ("DEV134-AMB-001",)),
+    ("DEV136-FWD-DESIGN-004", SKILLS[0], "forward", "complete-output", ("DEV134-POS-001",)),
+    ("DEV136-FWD-IMPLEMENT-001", SKILLS[1], "forward", "positive", ("DEV134-POS-003",)),
+    ("DEV136-FWD-IMPLEMENT-002", SKILLS[1], "forward", "negative", ("DEV134-NEG-003",)),
+    ("DEV136-FWD-IMPLEMENT-003", SKILLS[1], "forward", "ambiguous", ("DEV134-AMB-002",)),
+    ("DEV136-FWD-IMPLEMENT-004", SKILLS[1], "forward", "complete-output", ("DEV134-POS-003",)),
+    ("DEV136-FWD-REVIEW-001", SKILLS[2], "forward", "positive", ("DEV134-AMB-003", "DEV134-POS-002")),
+    ("DEV136-FWD-REVIEW-002", SKILLS[2], "forward", "negative", ("DEV134-NEG-002",)),
+    ("DEV136-FWD-REVIEW-003", SKILLS[2], "forward", "ambiguous", ("DEV134-AMB-001",)),
+    ("DEV136-FWD-REVIEW-004", SKILLS[2], "forward", "complete-output", ("DEV134-POS-002",)),
+    ("DEV136-FWD-DEBUG-001", SKILLS[3], "forward", "positive", ("DEV134-POS-004",)),
+    ("DEV136-FWD-DEBUG-002", SKILLS[3], "forward", "negative", ("DEV134-NEG-005",)),
+    ("DEV136-FWD-DEBUG-003", SKILLS[3], "forward", "ambiguous", ("DEV134-AMB-001",)),
+    ("DEV136-FWD-DEBUG-004", SKILLS[3], "forward", "complete-output", ("DEV134-POS-004",)),
+    ("DEV136-FWD-VALIDATE-001", SKILLS[4], "forward", "positive", ("DEV134-POS-005",)),
+    ("DEV136-FWD-VALIDATE-002", SKILLS[4], "forward", "negative", ("DEV134-NEG-004", "DEV134-NEG-006")),
+    ("DEV136-FWD-VALIDATE-003", SKILLS[4], "forward", "ambiguous", ("DEV134-AMB-001",)),
+    ("DEV136-FWD-VALIDATE-004", SKILLS[4], "forward", "complete-output", ("DEV134-POS-005",)),
+)
+
+FIXTURE_KEYS = {
+    "schemaVersion",
+    "sourceIssue",
+    "evidenceKind",
+    "model",
+    "caseCount",
+    "privacy",
+    "routerEnums",
+    "commonOutputSections",
+    "workflowSpecificSections",
+    "rubricContracts",
+    "cases",
+}
+
+EVIDENCE_KEYS = {
+    "schemaVersion",
+    "sourceIssue",
+    "evidenceKind",
+    "status",
+    "initialRepositoryHeadAtCapture",
+    "caseContract",
+    "fixtureSha256",
+    "host",
+    "privacy",
+    "preResponseBlockerObservations",
+    "summary",
+    "baselines",
+    "limitations",
+}
+
+BASELINE_ROW_KEYS = {
+    "caseId",
+    "skillUnderTest",
+    "sessionOrdinal",
+    "repositoryHeadAtCapture",
+    "promptSha256",
+    "rubricContractSha256",
+    "codexExitCode",
+    "responseSha256",
+    "responseBytes",
+    "toolEventCount",
+    "rubricOutcome",
+    "observedFailureClasses",
+}
+
+INITIAL_CAPTURE_HEAD = "fbe50c1852778f72ec30ffe4c60614d2b4a9c206"
+REVIEW_RECAPTURE_HEAD = "9b2c399fda3790d36ac200c3770f733c0ab55b33"
+
+APPROVED_LIMITATIONS = (
+    "The five responses were scored only as no-skill RED controls and are not capability evidence.",
+    "Raw prompts, responses, and tool events were deleted after normalization.",
+    "Claude was not invoked in this wave.",
+)
+
+INTERNAL_RESULT_TOKENS = (
+    "activationStatus",
+    "reasonCode",
+    "clarificationKind",
+    "missingInput",
+    "selectedSkill",
+    "routerInput",
+    "architectureResult",
+    "architectureSchemaVersion",
+    "stateVersion",
+    "policyVersion",
+    "workflow",
+    "scope",
+    "pattern",
+    "source",
+    "destination",
+    "finalResponseOwner",
+    "apiAvailability",
+    "stateModel",
+    "trustBoundaries",
+    "contextPolicy",
+    "toolAndEffectPolicy",
+    "failurePolicy",
+    "verification",
+    "limitations",
+    *ROUTER_ENUMS.keys(),
+)
 
 
 def load_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def sha256_bytes(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def prompt_sha256(case: dict) -> str:
+    return sha256_bytes(case["prompt"].encode("utf-8"))
+
+
+def rubric_contract_sha256(fixture: dict, case: dict) -> str:
+    payload = {
+        "name": case["rubricContract"],
+        "checks": fixture["rubricContracts"][case["rubricContract"]],
+    }
+    canonical = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return sha256_bytes(canonical)
+
+
+def token_is_present(text: str, token: str) -> bool:
+    pattern = rf"(?<![a-z0-9_]){re.escape(token.lower())}(?![a-z0-9_])"
+    return re.search(pattern, text.lower()) is not None
 
 
 class SkillCaseFixtureTests(unittest.TestCase):
@@ -163,6 +305,7 @@ class SkillCaseFixtureTests(unittest.TestCase):
 
     def test_fixture_metadata_is_exact(self) -> None:
         fixture = self.require_fixture()
+        self.assertEqual(FIXTURE_KEYS, set(fixture))
         self.assertEqual("1.0", fixture["schemaVersion"])
         self.assertEqual("DEV-136", fixture["sourceIssue"])
         self.assertEqual("approved_synthetic_skill_tdd_cases", fixture["evidenceKind"])
@@ -197,6 +340,18 @@ class SkillCaseFixtureTests(unittest.TestCase):
 
     def test_fixture_has_exact_baseline_and_forward_coverage(self) -> None:
         cases = self.require_fixture()["cases"]
+        self.assertEqual(
+            [expected[:4] for expected in EXPECTED_CASES],
+            [
+                (
+                    case["id"],
+                    case["skillUnderTest"],
+                    case["phase"],
+                    case["category"],
+                )
+                for case in cases
+            ],
+        )
         self.assertEqual(25, len(cases))
         self.assertEqual(25, len({case["id"] for case in cases}))
 
@@ -204,6 +359,7 @@ class SkillCaseFixtureTests(unittest.TestCase):
         forwards = [case for case in cases if case["phase"] == "forward"]
         self.assertEqual(5, len(baselines))
         self.assertEqual(20, len(forwards))
+        self.assertTrue(all(case["category"] == "positive" for case in baselines))
         self.assertEqual(set(SKILLS), {case["skillUnderTest"] for case in baselines})
 
         coverage = Counter(
@@ -239,19 +395,49 @@ class SkillCaseFixtureTests(unittest.TestCase):
     def test_prompts_do_not_leak_expected_answers_or_contract_tokens(self) -> None:
         hidden_tokens = (
             *SKILLS,
-            "architectureSchemaVersion",
-            "stateVersion",
-            "policyVersion",
-            "selectedSkill",
-            "routerInput",
             *COMMON_SECTIONS,
+            *(section for sections in WORKFLOW_SECTIONS.values() for section in sections),
+            *INTERNAL_RESULT_TOKENS,
         )
         for case in self.require_fixture()["cases"]:
             with self.subTest(case=case["id"]):
                 prompt = case["prompt"]
                 for token in hidden_tokens:
-                    self.assertNotIn(token, prompt)
+                    self.assertFalse(
+                        token_is_present(prompt, token),
+                        f"prompt leaks hidden contract token {token!r}",
+                    )
                 self.assertNotRegex(prompt.lower(), r"expected[ _-]answer")
+
+    def test_prototype_sources_resolve_with_exact_category_and_activation(self) -> None:
+        prototype_cases = {
+            case["id"]: case for case in load_json(PROTOTYPE_PATH)["cases"]
+        }
+        fixture_cases = self.require_fixture()["cases"]
+        for case, expected in zip(fixture_cases, EXPECTED_CASES, strict=True):
+            expected_sources = expected[4]
+            with self.subTest(case=case["id"]):
+                self.assertEqual(list(expected_sources), case["sourcePrototypeIds"])
+                sources = [prototype_cases[source_id] for source_id in expected_sources]
+                self.assertTrue(
+                    all(
+                        source["expectedActivation"] == case["expectedActivation"]
+                        for source in sources
+                    )
+                )
+                if case["phase"] == "baseline" or case["category"] == "complete-output":
+                    self.assertTrue(all(source["category"] == "positive" for source in sources))
+                elif case["category"] == "negative":
+                    self.assertTrue(all(source["category"] == "negative" for source in sources))
+                elif case["category"] == "ambiguous":
+                    self.assertTrue(all(source["category"] == "ambiguous" for source in sources))
+                elif case["skillUnderTest"] == SKILLS[2]:
+                    self.assertEqual(
+                        ["ambiguous", "positive"],
+                        [source["category"] for source in sources],
+                    )
+                else:
+                    self.assertTrue(all(source["category"] == "positive" for source in sources))
 
     def test_activation_output_and_rubric_expectations_match_category(self) -> None:
         for case in self.require_fixture()["cases"]:
@@ -407,6 +593,88 @@ class SkillBaselineEvidenceTests(unittest.TestCase):
                     set(row["observedFailureClasses"]), FAILURE_CLASSES
                 )
 
+    def test_evidence_schema_binding_and_derivations_are_exact(self) -> None:
+        evidence = self.require_evidence()
+        fixture = self.fixture
+        self.assertEqual(EVIDENCE_KEYS, set(evidence))
+        self.assertEqual(INITIAL_CAPTURE_HEAD, evidence["initialRepositoryHeadAtCapture"])
+        self.assertEqual(
+            "tests/fixtures/dev-136-codex-skill-cases.json",
+            evidence["caseContract"],
+        )
+        self.assertEqual(
+            sha256_bytes(FIXTURE_PATH.read_bytes()),
+            evidence["fixtureSha256"],
+        )
+        self.assertEqual(list(APPROVED_LIMITATIONS), evidence["limitations"])
+        self.assertEqual(
+            {"sessionCount", "failedBaselineCount", "passedBaselineCount"},
+            set(evidence["summary"]),
+        )
+
+        fixture_by_id = {case["id"]: case for case in fixture["cases"]}
+        baselines = evidence["baselines"]
+        expected_baselines = EXPECTED_CASES[:5]
+        self.assertEqual(len(expected_baselines), len(baselines))
+
+        for ordinal, (row, expected) in enumerate(
+            zip(baselines, expected_baselines, strict=True), 1
+        ):
+            case_id, skill, phase, category, _ = expected
+            case = fixture_by_id[case_id]
+            with self.subTest(case=case_id):
+                self.assertEqual(BASELINE_ROW_KEYS, set(row))
+                self.assertEqual("baseline", phase)
+                self.assertEqual("positive", category)
+                self.assertEqual(case_id, row["caseId"])
+                self.assertEqual(skill, row["skillUnderTest"])
+                self.assertEqual(ordinal, row["sessionOrdinal"])
+                expected_head = (
+                    REVIEW_RECAPTURE_HEAD
+                    if case_id == "DEV136-BASE-REVIEW-001"
+                    else INITIAL_CAPTURE_HEAD
+                )
+                self.assertEqual(expected_head, row["repositoryHeadAtCapture"])
+                self.assertEqual(prompt_sha256(case), row["promptSha256"])
+                self.assertEqual(
+                    rubric_contract_sha256(fixture, case),
+                    row["rubricContractSha256"],
+                )
+                self.assertEqual(0, row["codexExitCode"])
+                self.assertRegex(row["responseSha256"], r"^[0-9a-f]{64}$")
+                self.assertIs(type(row["responseBytes"]), int)
+                self.assertGreater(row["responseBytes"], 0)
+                self.assertIs(type(row["toolEventCount"]), int)
+                self.assertGreaterEqual(row["toolEventCount"], 0)
+
+                outcome = row["rubricOutcome"]
+                self.assertEqual({"checks", "failedChecks", "verdict"}, set(outcome))
+                self.assertEqual(list(POSITIVE_RUBRIC), list(outcome["checks"]))
+                self.assertTrue(
+                    all(type(value) is bool for value in outcome["checks"].values())
+                )
+                false_checks = [
+                    check for check, passed in outcome["checks"].items() if not passed
+                ]
+                self.assertEqual(false_checks, outcome["failedChecks"])
+                self.assertEqual("fail" if false_checks else "pass", outcome["verdict"])
+                self.assertEqual(
+                    [FAILURE_CLASS_BY_CHECK[check] for check in false_checks],
+                    row["observedFailureClasses"],
+                )
+
+        failed_count = sum(
+            row["rubricOutcome"]["verdict"] == "fail" for row in baselines
+        )
+        self.assertEqual(
+            {
+                "sessionCount": len(baselines),
+                "failedBaselineCount": failed_count,
+                "passedBaselineCount": len(baselines) - failed_count,
+            },
+            evidence["summary"],
+        )
+
     def test_evidence_contains_no_raw_host_payload_fields_or_local_paths(self) -> None:
         evidence = self.require_evidence()
         forbidden_keys = {"prompt", "response", "transcript", "events", "command"}
@@ -422,8 +690,133 @@ class SkillBaselineEvidenceTests(unittest.TestCase):
 
         walk(evidence)
         serialized = json.dumps(evidence, sort_keys=True)
-        self.assertNotRegex(serialized, r"/Users/|/home/|[A-Za-z]:\\\\")
+        self.assertNotRegex(
+            serialized,
+            r"(?<![A-Za-z0-9_.-])/(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+",
+        )
+        self.assertNotRegex(serialized, r"[A-Za-z]:\\\\")
         self.assertNotRegex(serialized, r"sk-[A-Za-z0-9_-]{8,}")
+        self.assertNotRegex(serialized.lower(), r"\bbearer\s+[a-z0-9._~+/-]{8,}")
+
+
+class ContractMutationReproductionTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.fixture = load_json(FIXTURE_PATH)
+        cls.evidence = load_json(EVIDENCE_PATH)
+
+    def assert_fixture_mutation_rejected(self, fixture: dict) -> None:
+        validator = SkillCaseFixtureTests()
+        validator.fixture = fixture
+        with self.assertRaises(AssertionError):
+            validator.test_fixture_metadata_is_exact()
+            validator.test_fixture_has_exact_baseline_and_forward_coverage()
+            validator.test_every_case_has_exact_shape_and_normative_router_values()
+            validator.test_prompts_do_not_leak_expected_answers_or_contract_tokens()
+            validator.test_prototype_sources_resolve_with_exact_category_and_activation()
+            validator.test_activation_output_and_rubric_expectations_match_category()
+            validator.test_negative_cases_cover_all_adjacent_domains()
+            validator.test_review_and_fix_is_the_review_positive_ordering_case()
+
+    def assert_evidence_mutation_rejected(self, evidence: dict) -> None:
+        validator = SkillBaselineEvidenceTests()
+        validator.evidence = evidence
+        validator.fixture = self.fixture
+        with self.assertRaises(AssertionError):
+            validator.test_evidence_host_and_privacy_metadata_are_exact()
+            validator.test_evidence_has_one_real_failing_baseline_per_skill()
+            validator.test_evidence_schema_binding_and_derivations_are_exact()
+            validator.test_evidence_contains_no_raw_host_payload_fields_or_local_paths()
+
+    def test_rejects_closed_schema_and_private_value_mutations(self) -> None:
+        mutations = {
+            "raw_reasoning": lambda value: value["baselines"][0].update(
+                {"rawReasoning": "transient reasoning"}
+            ),
+            "tool_arguments": lambda value: value["baselines"][0][
+                "rubricOutcome"
+            ].update({"toolArguments": {"path": "synthetic"}}),
+            "host_identity": lambda value: value.update(
+                {"hostIdentity": "unapproved-host"}
+            ),
+            "unix_path": lambda value: value["limitations"].append(
+                "/tmp/private-host-output"
+            ),
+            "bearer_value": lambda value: value["limitations"].append(
+                "Bearer synthetic-secret-value"
+            ),
+        }
+        for name, mutate in mutations.items():
+            with self.subTest(mutation=name):
+                mutant = copy.deepcopy(self.evidence)
+                mutate(mutant)
+                self.assert_evidence_mutation_rejected(mutant)
+
+    def test_evidence_declares_fixture_prompt_and_rubric_hashes(self) -> None:
+        self.assertIn("fixtureSha256", self.evidence)
+        for row in self.evidence["baselines"]:
+            with self.subTest(case=row["caseId"]):
+                self.assertIn("promptSha256", row)
+                self.assertIn("rubricContractSha256", row)
+
+    def test_rejects_evidence_mapping_and_derivation_mutations(self) -> None:
+        mutations = {
+            "row_order": lambda value: value["baselines"].__setitem__(
+                slice(0, 2), list(reversed(value["baselines"][:2]))
+            ),
+            "skill_swap": lambda value: (
+                value["baselines"][0].update(
+                    {"skillUnderTest": SKILLS[1]}
+                ),
+                value["baselines"][1].update(
+                    {"skillUnderTest": SKILLS[0]}
+                ),
+            ),
+            "arbitrary_check": lambda value: value["baselines"][0][
+                "rubricOutcome"
+            ]["checks"].update({"arbitrary_check": False}),
+            "failed_check_drift": lambda value: value["baselines"][0][
+                "rubricOutcome"
+            ]["failedChecks"].pop(),
+            "failure_class_drift": lambda value: value["baselines"][0][
+                "observedFailureClasses"
+            ].__setitem__(0, "missing_skill_selection"),
+        }
+        for name, mutate in mutations.items():
+            with self.subTest(mutation=name):
+                mutant = copy.deepcopy(self.evidence)
+                mutate(mutant)
+                self.assert_evidence_mutation_rejected(mutant)
+
+    def test_rejects_fixture_identity_prototype_and_leakage_mutations(self) -> None:
+        mutations = {
+            "case_order": lambda value: value["cases"].__setitem__(
+                slice(0, 2), list(reversed(value["cases"][:2]))
+            ),
+            "baseline_category": lambda value: value["cases"][0].update(
+                {"category": "complete-output"}
+            ),
+            "prototype_activation": lambda value: value["cases"][0].update(
+                {"sourcePrototypeIds": ["DEV134-NEG-001"]}
+            ),
+            "case_insensitive_skill": lambda value: value["cases"][0].update(
+                {
+                    "prompt": value["cases"][0]["prompt"]
+                    + " DESIGN-APPLE-FOUNDATION-MODELS-HANDOFF"
+                }
+            ),
+            "workflow_heading": lambda value: value["cases"][0].update(
+                {"prompt": value["cases"][0]["prompt"] + " FINDINGS"}
+            ),
+            "internal_result_token": lambda value: value["cases"][0].update(
+                {"prompt": value["cases"][0]["prompt"] + " ARCHITECTURERESULT"}
+            ),
+        }
+        for name, mutate in mutations.items():
+            with self.subTest(mutation=name):
+                mutant = copy.deepcopy(self.fixture)
+                mutate(mutant)
+                self.assert_fixture_mutation_rejected(mutant)
 
 
 if __name__ == "__main__":

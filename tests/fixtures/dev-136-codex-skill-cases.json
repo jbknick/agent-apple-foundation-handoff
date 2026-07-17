@@ -153,7 +153,7 @@
       "skillUnderTest": "review-apple-foundation-models-handoff",
       "model": "gpt-5.6-sol",
       "sourcePrototypeIds": ["DEV134-POS-002"],
-      "prompt": "Review this supplied synthetic Foundation Models handoff reducer against its approved architecture contract, return findings, and make no edits. The pseudocode sets active profiles directly from a proposal, applies every proposed next transition without a budget, copies the full transcript, treats model approval as authorization, executes an effect, and terminates immediately when the effect times out.",
+      "prompt": "Review this supplied synthetic Foundation Models handoff reducer against its approved architecture contract, report the issues, and make no edits. The pseudocode sets active profiles directly from a proposal, applies every proposed next transition without a budget, copies the full transcript, treats model approval as authorization, executes an effect, and terminates immediately when the effect times out.",
       "routerInput": {
         "domain": "foundation_models_handoff",
         "requestedOperation": "review",
@@ -433,7 +433,7 @@
       "skillUnderTest": "review-apple-foundation-models-handoff",
       "model": "gpt-5.6-sol",
       "sourcePrototypeIds": ["DEV134-POS-002"],
-      "prompt": "Return a complete findings-only review of this synthetic Apple Foundation Models handoff reducer and make no edits. It installs proposal profiles directly, follows proposed transitions without a budget, transfers a full transcript, treats model approval as authorization, executes an effect, and terminates on timeout.",
+      "prompt": "Return a complete issue-focused review of this synthetic Apple Foundation Models handoff reducer and make no edits. It installs proposal profiles directly, follows proposed transitions without a budget, transfers a full transcript, treats model approval as authorization, executes an effect, and terminates on timeout.",
       "routerInput": {
         "domain": "foundation_models_handoff",
         "requestedOperation": "review",
