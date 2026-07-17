@@ -10,13 +10,11 @@ update `CLAUDE.md`, then use `scripts/sync_generated_artifacts.py`.
 
 ### Scope and capability ownership
 
-- The plugin ID is `apple-foundation-models-handoff`. It helps Apple-platform
-  engineers design, implement, review, debug, and validate Foundation Models
-  handoff architectures. It is not generic Apple Intelligence education.
-- Keep exactly five narrow skills: `design-apple-foundation-models-handoff`,
-  `implement-apple-foundation-models-handoff`,
-  `review-apple-foundation-models-handoff`,
-  `debug-apple-foundation-models-handoff`, and
+- The plugin ID is `apple-foundation-models-handoff`. It helps Apple-platform engineers
+  design, implement, review, debug, and validate Foundation Models handoff architectures;
+  it is not generic Apple Intelligence education.
+- Keep exactly five narrow skills: `design-apple-foundation-models-handoff`, `implement-apple-foundation-models-handoff`,
+  `review-apple-foundation-models-handoff`, `debug-apple-foundation-models-handoff`, and
   `validate-apple-foundation-models-handoff`.
 - Select the one skill matching the request, then progressively disclose only
   the directly linked reference needed for that concern. Do not copy complete
@@ -27,12 +25,10 @@ update `CLAUDE.md`, then use `scripts/sync_generated_artifacts.py`.
 
 ### Canonical and generated paths
 
-- Authored canonical inputs include `CLAUDE.md`, `.claude-plugin/plugin.json`,
-  `.claude-plugin/marketplace.json`, `metadata/codex-interface.json`,
-  `metadata/codex-marketplace.json`, `skills/**`, and `references/**`.
-- `AGENTS.md`, `.codex-plugin/plugin.json`, and
-  `.agents/plugins/marketplace.json` are generated, non-editable outputs of the
-  shared synchronization entry point.
+- Authored canonical inputs include `CLAUDE.md`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`,
+  `metadata/codex-interface.json`, `metadata/codex-marketplace.json`, `skills/**`, and `references/**`.
+- `AGENTS.md`, `.codex-plugin/plugin.json`, and `.agents/plugins/marketplace.json` are generated,
+  non-editable outputs of the shared synchronization entry point.
 - Preferred source `./` is conditional on isolated cache inspection and fresh
   real-host activation/reference proof. The deterministic fallback is
   `./plugins/apple-foundation-models-handoff`; it changes placement only and
@@ -57,18 +53,27 @@ update `CLAUDE.md`, then use `scripts/sync_generated_artifacts.py`.
 
 ### Host, security, and evidence boundaries
 
-- Capture one explicit executable before each host row, invoke only it, and
-  recheck resolution and version afterward. The approved primary baselines are
-  Claude Code `2.1.91` and Codex CLI `0.144.5`. Claude Code `2.1.140` is
-  diagnostic only and cannot substitute for the approved Claude row.
-- Initial absence, non-executability, or version mismatch is `blocked`.
-  Post-capture resolution or version drift is `fail` and invalidates the row.
-- Accept only a strict single-line version. Normalize malformed, multiline, or
-  path-bearing output to `null`; committed evidence uses normalized `<host-path>`,
-  exact version or `null`, stable diagnostic class, exit code, and status.
-  Never commit literal private or executable paths, raw `PATH`, raw blocker
-  diagnostics, prompts, responses, reasoning, tool content, credentials, private
-  configuration, real user/third-party data, `.trace`, or `.xcresult`.
+- Capture one explicit executable before each host row, invoke only it, and recheck resolution and version afterward.
+  Primary baselines are Claude Code `2.1.91` and Codex CLI `0.144.5`; Claude Code `2.1.140` is diagnostic only and cannot substitute.
+- Claude Code uses the captured approved `2.1.91` executable with session-only `--plugin-dir <repo>` or an isolated
+  install for packaging and cache tests. Codex `0.144.5` uses the captured executable with isolated `CODEX_HOME`,
+  marketplace registration, plugin install/add, and then a fresh task. `codex --plugin-dir` is not an approved
+  workflow for Codex `0.144.5`.
+- Until DEV-135 creates plugin metadata, these loading flows are planned and conditional; they claim no discovery,
+  installation, activation, reference, or capability success.
+- Normalize repository location as `<repo>` and executable identity as `<host-path>`; never commit their literal
+  resolutions or raw `PATH`. Never commit other private absolute paths. Initial absence, non-executability, or version mismatch is `blocked`.
+- Before host operations, a missing or non-runnable executable, unavailable or malformed version, or approved-baseline
+  mismatch emits a normalized `blocked` row with stable reason/version metadata before exit.
+- After successful capture, resolution or version drift emits normalized `fail` before exit, invalidates the row,
+  and requires a fresh run. Post-capture resolution or version drift is `fail` and invalidates the row.
+- Accept only a strict single-line version. Normalize malformed, multiline, or path-bearing output to `null`; committed
+  evidence uses normalized `<host-path>`, exact version or `null`, stable diagnostic class, exit code, and status.
+- Raw/live prompts, responses, reasoning, tool arguments/results, credentials, private configuration, real
+  user/third-party data, raw diagnostics, `.trace`, and `.xcresult` remain excluded.
+- A hash-bound synthetic or approved-redacted rubric stimulus, rubric assessments with only bounded rationales, and a
+  redacted summary may be committed only after the DEV-131 path, content, structured-key, classification, and hash
+  scanners pass. Runtime/live-host logs, traces, and derived capability telemetry contribute normalized metadata only.
 - Model output cannot grant authority or prove an effect. Enforce application-
   owned C0-C3 context classification, destination/purpose/retention grants,
   confirmation and tool gates, effect-ledger reconciliation, fail-closed

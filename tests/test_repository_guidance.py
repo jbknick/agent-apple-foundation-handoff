@@ -169,6 +169,56 @@ class RepositoryGuidanceTests(unittest.TestCase):
             with self.subTest(contract=contract):
                 self.assertIn(contract, canonical_text)
 
+    def test_guidance_defines_conditional_host_loading_and_status_lifecycle(self):
+        canonical_text = CANONICAL.read_text(encoding="utf-8")
+        generated_text = GENERATED.read_text(encoding="utf-8")
+        required_contracts = (
+            "Claude Code uses the captured approved `2.1.91` executable with "
+            "session-only `--plugin-dir <repo>` or an isolated install for packaging "
+            "and cache tests.",
+            "Codex `0.144.5` uses the captured executable with isolated `CODEX_HOME`, "
+            "marketplace registration, plugin install/add, and then a fresh task.",
+            "`codex --plugin-dir` is not an approved workflow for Codex `0.144.5`.",
+            "Claude Code `2.1.140` is diagnostic only and cannot substitute.",
+            "Until DEV-135 creates plugin metadata, these loading flows are planned "
+            "and conditional; they claim no discovery, installation, activation, "
+            "reference, or capability success.",
+            "Normalize repository location as `<repo>` and executable identity as "
+            "`<host-path>`; never commit their literal resolutions or raw `PATH`.",
+            "Before host operations, a missing or non-runnable executable, unavailable "
+            "or malformed version, or approved-baseline mismatch emits a normalized "
+            "`blocked` row with stable reason/version metadata before exit.",
+            "After successful capture, resolution or version drift emits normalized "
+            "`fail` before exit, invalidates the row, and requires a fresh run.",
+        )
+
+        for text in (canonical_text, generated_text):
+            normalized_text = re.sub(r"\s+", " ", text)
+            for contract in required_contracts:
+                with self.subTest(contract=contract, guide=text[:12]):
+                    self.assertIn(contract, normalized_text)
+
+    def test_guidance_preserves_safe_synthetic_and_redacted_evidence_exception(self):
+        canonical_text = CANONICAL.read_text(encoding="utf-8")
+        generated_text = GENERATED.read_text(encoding="utf-8")
+        required_contracts = (
+            "Raw/live prompts, responses, reasoning, tool arguments/results, "
+            "credentials, private configuration, real user/third-party data, raw "
+            "diagnostics, `.trace`, and `.xcresult` remain excluded.",
+            "A hash-bound synthetic or approved-redacted rubric stimulus, rubric "
+            "assessments with only bounded rationales, and a redacted summary may be "
+            "committed only after the DEV-131 path, content, structured-key, "
+            "classification, and hash scanners pass.",
+            "Runtime/live-host logs, traces, and derived capability telemetry "
+            "contribute normalized metadata only.",
+        )
+
+        for text in (canonical_text, generated_text):
+            normalized_text = re.sub(r"\s+", " ", text)
+            for contract in required_contracts:
+                with self.subTest(contract=contract, guide=text[:12]):
+                    self.assertIn(contract, normalized_text)
+
     def test_guidance_contains_no_literal_private_paths_or_placeholders(self):
         combined = CANONICAL.read_text(encoding="utf-8") + GENERATED.read_text(
             encoding="utf-8"
