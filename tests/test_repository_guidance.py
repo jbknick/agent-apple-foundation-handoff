@@ -39,6 +39,18 @@ WORKFLOW_SKILLS = (
     "debug-apple-foundation-models-handoff",
     "validate-apple-foundation-models-handoff",
 )
+STALE_WORKFLOW_CLAIMS = (
+    "remain unimplemented",
+    "must not be advertised as active",
+    "DEV-136 will create",
+)
+WORKFLOW_GUIDANCE_CONTRACTS = (
+    "The five production workflows are implemented",
+    "DEV-136 host evidence is Codex-only",
+    "Claude execution and cross-host comparison are `blocked/owner-deferred`",
+    "Discovery, file presence, and installation are structural prerequisites and "
+    "cannot prove behavioral or capability activation",
+)
 
 
 spec = importlib.util.spec_from_file_location("sync_generated_artifacts", SCRIPT)
@@ -105,6 +117,27 @@ def mutate_after_read(read_number: int, mutation):
         sync_generated_artifacts.os, "fdopen", side_effect=wrapped_fdopen
     ):
         yield
+
+
+def assert_workflow_guidance_contract(
+    test_case: unittest.TestCase, text: str
+) -> None:
+    normalized_text = re.sub(r"\s+", " ", text)
+    for skill in WORKFLOW_SKILLS:
+        test_case.assertTrue(
+            skill in normalized_text,
+            f"missing workflow: {skill}",
+        )
+    for claim in STALE_WORKFLOW_CLAIMS:
+        test_case.assertFalse(
+            claim in normalized_text,
+            f"stale workflow guidance remains: {claim}",
+        )
+    for contract in WORKFLOW_GUIDANCE_CONTRACTS:
+        test_case.assertTrue(
+            contract in normalized_text,
+            f"missing workflow guidance contract: {contract}",
+        )
 
 
 class RepositoryGuidanceTests(unittest.TestCase):
@@ -582,37 +615,18 @@ class RepositoryGuidanceTests(unittest.TestCase):
     ):
         canonical_text = CANONICAL.read_text(encoding="utf-8")
         generated_text = GENERATED.read_text(encoding="utf-8")
-        stale_claims = (
-            "remain unimplemented",
-            "must not be advertised as active",
-            "DEV-136 will create",
-        )
-        required_contracts = (
-            "The five production workflows are implemented",
-            "DEV-136 host evidence is Codex-only",
-            "Claude execution and cross-host comparison are `blocked/owner-deferred`",
-        )
 
         for text in (canonical_text, generated_text):
-            normalized_text = re.sub(r"\s+", " ", text)
-            for skill in WORKFLOW_SKILLS:
-                with self.subTest(skill=skill, guide=text[:12]):
-                    self.assertTrue(
-                        skill in normalized_text,
-                        f"missing workflow: {skill}",
-                    )
-            for claim in stale_claims:
-                with self.subTest(stale_claim=claim, guide=text[:12]):
-                    self.assertFalse(
-                        claim in normalized_text,
-                        f"stale workflow guidance remains: {claim}",
-                    )
-            for contract in required_contracts:
-                with self.subTest(contract=contract, guide=text[:12]):
-                    self.assertTrue(
-                        contract in normalized_text,
-                        f"missing workflow guidance contract: {contract}",
-                    )
+            with self.subTest(guide=text[:12]):
+                assert_workflow_guidance_contract(self, text)
+
+    def test_guidance_oracle_rejects_structural_prerequisite_as_capability_proof(self):
+        valid = " ".join((*WORKFLOW_SKILLS, *WORKFLOW_GUIDANCE_CONTRACTS))
+        mutation = valid.replace(WORKFLOW_GUIDANCE_CONTRACTS[-1], "", 1)
+
+        assert_workflow_guidance_contract(self, valid)
+        with self.assertRaises(AssertionError):
+            assert_workflow_guidance_contract(self, mutation)
 
     def test_guidance_preserves_safe_synthetic_and_redacted_evidence_exception(self):
         canonical_text = normalized_guide(CANONICAL)

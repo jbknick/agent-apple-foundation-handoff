@@ -205,6 +205,17 @@ def assert_dev_138_repository_only_package(test_case: unittest.TestCase) -> None
             test_case.assertNotIn(prohibited, payload)
 
 
+def create_reference_plugin_package(plugin_root: Path) -> None:
+    plugin_root.mkdir()
+    for relative_path, entry_type in ALLOWED_PACKAGE_ENTRIES.items():
+        target = plugin_root / relative_path
+        if entry_type == "directory":
+            target.mkdir(parents=True, exist_ok=True)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("reference fixture\n", encoding="utf-8")
+
+
 class PluginContractTests(unittest.TestCase):
     def test_canonical_guidance_truthfully_names_present_references(self):
         canonical = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
@@ -480,6 +491,29 @@ class PluginContractTests(unittest.TestCase):
             self.assertTrue(os.path.lexists(skills))
             with self.assertRaises(AssertionError):
                 assert_plugin_package_contract(self, plugin_root)
+
+    def test_package_oracle_rejects_forbidden_capability_and_runtime_surfaces(self):
+        forbidden_paths = (
+            "agents/openai.yaml",
+            "commands/extra.md",
+            "hooks/hooks.json",
+            "mcp/server.json",
+            "package.json",
+        )
+        for relative_path in forbidden_paths:
+            with (
+                self.subTest(relative_path=relative_path),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                plugin_root = Path(directory) / PLUGIN_ID
+                create_reference_plugin_package(plugin_root)
+                assert_plugin_package_contract(self, plugin_root)
+                forbidden = plugin_root / relative_path
+                forbidden.parent.mkdir(parents=True, exist_ok=True)
+                forbidden.write_text("forbidden surface\n", encoding="utf-8")
+
+                with self.assertRaises(AssertionError):
+                    assert_plugin_package_contract(self, plugin_root)
 
     def test_package_oracle_rejects_unexpected_external_directory_symlink(self):
         with tempfile.TemporaryDirectory() as directory:
