@@ -452,10 +452,16 @@ separate single-purpose commit.
   hostExpectations = { claude, codex }
   expectedReferences
   expectedOutputSections
-  expectedGuardrails
+  expectedGuardrails = {
+    applicable = [ordered stable D IDs]
+    not_applicable = [ordered stable D IDs explicitly documented N/A]
+  }
   fullWalkthrough
   resolution
   ```
+
+  A guardrail ID omitted from both arrays is outside the case's asserted
+  coverage; omission is not an implicit `not_applicable` status.
 
   Case outcomes are:
 
@@ -483,6 +489,7 @@ separate single-purpose commit.
 
   ```bash
   PYTHONDONTWRITEBYTECODE=1 python3 - <<'PY'
+  import copy
   import hashlib
   import json
   from pathlib import Path
@@ -501,100 +508,281 @@ separate single-purpose commit.
   assert data['status'] == 'pass'
   design = Path(data['designArtifact'])
   contract = Path(data['contractArtifact'])
-  assert data['designArtifactSha256'] == hashlib.sha256(design.read_bytes()).hexdigest()
-  assert data['contractArtifactSha256'] == hashlib.sha256(contract.read_bytes()).hexdigest()
+  assert data['designArtifactSha256'] == hashlib.sha256(
+      design.read_bytes()
+  ).hexdigest()
+  assert data['contractArtifactSha256'] == hashlib.sha256(
+      contract.read_bytes()
+  ).hexdigest()
   assert data['limitations']
-
-  rows = data['realHostRows']
-  assert set(rows) == {'claude', 'codex'}
-  assert rows['claude'] == {
-      'status': 'blocked',
-      'reason': 'production_skill_not_implemented',
-      'requiredEvidenceId': 'E-CLAUDE-ACTIVATE-001',
+  assert data['realHostRows'] == {
+      'claude': {
+          'status': 'blocked',
+          'reason': 'production_skill_not_implemented',
+          'requiredEvidenceId': 'E-CLAUDE-ACTIVATE-001',
+      },
+      'codex': {
+          'status': 'blocked',
+          'reason': 'production_skill_not_implemented',
+          'requiredEvidenceId': 'E-CODEX-ACTIVATE-001',
+      },
   }
-  assert rows['codex'] == {
-      'status': 'blocked',
-      'reason': 'production_skill_not_implemented',
-      'requiredEvidenceId': 'E-CODEX-ACTIVATE-001',
-  }
 
-  cases = data['cases']
-  assert len(cases) == 15
-  assert len({case['id'] for case in cases}) == 15
-  assert [case['id'] for case in cases] == [
-      *(f'DEV134-POS-{i:03d}' for i in range(1, 7)),
-      *(f'DEV134-NEG-{i:03d}' for i in range(1, 7)),
-      *(f'DEV134-AMB-{i:03d}' for i in range(1, 4)),
-  ]
-  required_case_keys = {
-      'id', 'category', 'inputClass', 'requestedOperation', 'artifactState',
-      'evidenceState', 'expectedActivation', 'hostExpectations',
-      'expectedReferences', 'expectedOutputSections', 'expectedGuardrails',
-      'fullWalkthrough', 'resolution',
-  }
-  assert all(set(case) == required_case_keys for case in cases)
-  assert all(case['hostExpectations'] == {
-      'claude': case['expectedActivation'],
-      'codex': case['expectedActivation'],
-  } for case in cases)
-  assert sum(case['category'] == 'positive' for case in cases) == 6
-  assert sum(case['category'] == 'negative' for case in cases) == 6
-  assert sum(case['category'] == 'ambiguous' for case in cases) == 3
-
-  by_id = {case['id']: case for case in cases}
-  expected = {
-      'DEV134-POS-001': 'design-apple-foundation-models-handoff',
-      'DEV134-POS-002': 'review-apple-foundation-models-handoff',
-      'DEV134-POS-003': 'implement-apple-foundation-models-handoff',
-      'DEV134-POS-004': 'debug-apple-foundation-models-handoff',
-      'DEV134-POS-005': 'validate-apple-foundation-models-handoff',
-      'DEV134-POS-006': 'design-apple-foundation-models-handoff',
-      **{f'DEV134-NEG-{i:03d}': 'no_activation' for i in range(1, 7)},
-      'DEV134-AMB-001': 'clarification_required',
-      'DEV134-AMB-002': 'clarification_required',
-      'DEV134-AMB-003': 'review-apple-foundation-models-handoff',
-  }
-  assert {case_id: by_id[case_id]['expectedActivation'] for case_id in expected} == expected
-
-  for i in range(1, 7):
-      case = by_id[f'DEV134-NEG-{i:03d}']
-      assert not case['expectedReferences']
-      assert not case['expectedOutputSections']
-      assert case['resolution'] == 'reject_out_of_domain'
-
-  assert by_id['DEV134-AMB-001']['resolution'] == 'bounded_domain_clarification'
-  assert by_id['DEV134-AMB-002']['resolution'] == 'bounded_contract_clarification'
-  assert by_id['DEV134-AMB-003']['resolution'] == 'documented_default_review_first'
-
-  common_sections = {
-      'Activation and Scope', 'Pattern and Ownership', 'Apple API Availability',
-      'State and Lifecycle', 'Trust and Model Boundaries', 'Context Policy',
+  COMMON = [
+      'Activation and Scope', 'Pattern and Ownership',
+      'Apple API Availability', 'State and Lifecycle',
+      'Trust and Model Boundaries', 'Context Policy',
       'Tools Effects and Confirmation', 'Failure Recovery and Fallback',
       'Verification and Evidence', 'Limitations',
+  ]
+  OUTPUTS = {
+      'none': [],
+      'design': COMMON + [
+          'Alternatives', 'Decision Rationale', 'Proposed Components',
+          'Implementation and Test Plan',
+      ],
+      'review': COMMON + ['Findings'],
+      'implement': COMMON + [
+          'Approved Decision', 'Change Boundary', 'Changed Paths',
+          'Compilation and Regression Results',
+      ],
+      'debug': COMMON + [
+          'Observed and Expected State', 'First Divergence', 'Root Cause',
+          'Correction', 'Regression Proof',
+      ],
+      'validate': COMMON + [
+          'Layer Matrix', 'Counts and Hashes', 'Rubric Result',
+          'Blockers and Skips', 'Release Implication',
+      ],
   }
-  design_sections = {
-      'Alternatives', 'Decision Rationale', 'Proposed Components',
-      'Implementation and Test Plan',
+  REFERENCES = {
+      'none': [],
+      'all': [
+          'state', 'patterns', 'apple-availability', 'security-recovery',
+          'evaluation',
+      ],
+      'debug': ['state', 'security-recovery', 'evaluation'],
   }
-  review_sections = {'Findings'}
-  full = [case for case in cases if case['fullWalkthrough']]
-  assert [case['id'] for case in full] == ['DEV134-POS-001', 'DEV134-POS-002']
-  assert common_sections | design_sections <= set(by_id['DEV134-POS-001']['expectedOutputSections'])
-  assert common_sections | review_sections <= set(by_id['DEV134-POS-002']['expectedOutputSections'])
-  assert {
-      'D-ROUTE-001', 'D-OWNER-001', 'D-TRANSITION-001',
-      'D-CONTEXT-001', 'D-CONTEXT-002', 'D-GRANT-001', 'D-EVIDENCE-001',
-  } <= set(by_id['DEV134-POS-001']['expectedGuardrails'])
-  assert {
-      'D-OWNER-001', 'D-TRANSITION-001', 'D-CONTEXT-001', 'D-CONTEXT-002',
-  } <= set(by_id['DEV134-POS-002']['expectedGuardrails'])
-  assert all(case['expectedGuardrails'] for case in cases)
-  print('DEV134_ACTIVATION_PROTOTYPE_PASS total=15 positive=6 negative=6 ambiguous=3 full=2 hosts=blocked')
+  GUARDRAILS = {
+      'design': [
+          'D-ROUTE-001', 'D-OWNER-001', 'D-TRANSITION-001',
+          'D-CONTEXT-001', 'D-CONTEXT-002', 'D-GRANT-001',
+          'D-PHASE-001', 'D-FALLBACK-001', 'D-EVIDENCE-001',
+          'D-RUBRIC-001',
+      ],
+      'review': [
+          'D-OWNER-001', 'D-TRANSITION-001', 'D-TOOL-001',
+          'D-CONTEXT-001', 'D-CONTEXT-002', 'D-GRANT-001',
+          'D-PHASE-001', 'D-EFFECT-001', 'D-EFFECT-002',
+          'D-FALLBACK-001', 'D-EVIDENCE-001', 'D-RUBRIC-001',
+      ],
+      'implement': [
+          'D-SCHEMA-001', 'D-ROUTE-001', 'D-OWNER-001',
+          'D-TRANSITION-001', 'D-CONTEXT-001', 'D-CONTEXT-002',
+          'D-GRANT-001', 'D-PHASE-001', 'D-FALLBACK-001',
+          'D-EVIDENCE-001', 'D-RUBRIC-001',
+      ],
+      'debug': [
+          'D-SCHEMA-001', 'D-ROUTE-001', 'D-OWNER-001',
+          'D-TRANSITION-001', 'D-TOOL-001', 'D-CONTEXT-001',
+          'D-CONTEXT-002', 'D-GRANT-001', 'D-PHASE-001',
+          'D-EFFECT-001', 'D-EFFECT-002', 'D-FALLBACK-001',
+          'D-EVIDENCE-001', 'D-RUBRIC-001',
+      ],
+      'validate': [
+          'D-SCHEMA-001', 'D-ROUTE-001', 'D-OWNER-001',
+          'D-TRANSITION-001', 'D-TOOL-001', 'D-CONTEXT-001',
+          'D-CONTEXT-002', 'D-GRANT-001', 'D-PHASE-001',
+          'D-EFFECT-001', 'D-EFFECT-002', 'D-FALLBACK-001',
+          'D-EVIDENCE-001', 'D-RUBRIC-001',
+      ],
+      'route': ['D-ROUTE-001'],
+      'compound_review': [
+          'D-ROUTE-001', 'D-OWNER-001', 'D-TRANSITION-001',
+          'D-TOOL-001', 'D-CONTEXT-001', 'D-CONTEXT-002',
+          'D-GRANT-001', 'D-PHASE-001', 'D-EFFECT-001',
+          'D-EFFECT-002', 'D-FALLBACK-001', 'D-EVIDENCE-001',
+          'D-RUBRIC-001',
+      ],
+  }
+  POS1_NOT_APPLICABLE = [
+      'D-TOOL-001', 'D-EFFECT-001', 'D-EFFECT-002',
+  ]
+  SPECS = [
+      ('DEV134-POS-001', 'positive', 'new_baton_pass_architecture',
+       'design', 'absent', 'missing',
+       'design-apple-foundation-models-handoff', 'all', 'design', 'design',
+       POS1_NOT_APPLICABLE, True, 'baton_pass_destination_owner_selected'),
+      ('DEV134-POS-002', 'positive', 'flawed_reducer_findings_review',
+       'review', 'implementation', 'failing',
+       'review-apple-foundation-models-handoff', 'all', 'review', 'review',
+       [], True, 'reject_flawed_reducer_with_findings'),
+      ('DEV134-POS-003', 'positive', 'approved_bounded_contract_change',
+       'implement', 'approved_contract', 'available',
+       'implement-apple-foundation-models-handoff', 'all', 'implement',
+       'implement', [], False, 'bounded_approved_contract_change'),
+      ('DEV134-POS-004', 'positive', 'uncertain_effect_recovery_failure',
+       'debug', 'implementation', 'failing',
+       'debug-apple-foundation-models-handoff', 'debug', 'debug', 'debug',
+       [], False, 'recovery_required_reconciliation_without_replay'),
+      ('DEV134-POS-005', 'positive', 'proof_only_evidence_matrix',
+       'validate', 'evidence_bundle', 'available',
+       'validate-apple-foundation-models-handoff', 'all', 'validate',
+       'validate', [], False, 'proof_matrix_without_edits'),
+      ('DEV134-POS-006', 'positive', 'isolated_consultation_architecture',
+       'design', 'absent', 'missing',
+       'design-apple-foundation-models-handoff', 'all', 'design', 'design',
+       [], False, 'isolated_consultation_parent_owner_selected'),
+      ('DEV134-NEG-001', 'negative', 'app_intents_request', 'unspecified',
+       'unknown', 'unknown', 'no_activation', 'none', 'none', 'route', [],
+       False, 'reject_out_of_domain'),
+      ('DEV134-NEG-002', 'negative', 'apple_handoff_request', 'unspecified',
+       'unknown', 'unknown', 'no_activation', 'none', 'none', 'route', [],
+       False, 'reject_out_of_domain'),
+      ('DEV134-NEG-003', 'negative', 'generic_swift_request', 'unspecified',
+       'unknown', 'unknown', 'no_activation', 'none', 'none', 'route', [],
+       False, 'reject_out_of_domain'),
+      ('DEV134-NEG-004', 'negative', 'generic_foundation_models_education',
+       'unspecified', 'unknown', 'unknown', 'no_activation', 'none', 'none',
+       'route', [], False, 'reject_out_of_domain'),
+      ('DEV134-NEG-005', 'negative', 'coding_session_handoff_request',
+       'unspecified', 'unknown', 'unknown', 'no_activation', 'none', 'none',
+       'route', [], False, 'reject_out_of_domain'),
+      ('DEV134-NEG-006', 'negative',
+       'foundation_models_runtime_skills_request', 'unspecified', 'unknown',
+       'unknown', 'no_activation', 'none', 'none', 'route', [], False,
+       'reject_out_of_domain'),
+      ('DEV134-AMB-001', 'ambiguous', 'ambiguous_apple_handoff_domain',
+       'unspecified', 'unknown', 'unknown', 'clarification_required', 'none',
+       'none', 'route', [], False, 'bounded_domain_clarification'),
+      ('DEV134-AMB-002', 'ambiguous',
+       'implementation_without_approved_contract', 'implement', 'unknown',
+       'missing', 'clarification_required', 'none', 'none', 'route', [],
+       False, 'bounded_contract_clarification'),
+      ('DEV134-AMB-003', 'ambiguous', 'compound_review_and_fix',
+       'compound_review_fix', 'implementation', 'failing',
+       'review-apple-foundation-models-handoff', 'all', 'review',
+       'compound_review', [], False, 'documented_default_review_first'),
+  ]
+
+  def expected_cases():
+      built = []
+      for spec in SPECS:
+          (case_id, category, input_class, operation, artifact_state,
+           evidence_state, activation, refs, outputs, guards, not_applicable,
+           full, resolution) = spec
+          built.append({
+              'id': case_id,
+              'category': category,
+              'inputClass': input_class,
+              'requestedOperation': operation,
+              'artifactState': artifact_state,
+              'evidenceState': evidence_state,
+              'expectedActivation': activation,
+              'hostExpectations': {
+                  'claude': activation,
+                  'codex': activation,
+              },
+              'expectedReferences': REFERENCES[refs],
+              'expectedOutputSections': OUTPUTS[outputs],
+              'expectedGuardrails': {
+                  'applicable': GUARDRAILS[guards],
+                  'not_applicable': not_applicable,
+              },
+              'fullWalkthrough': full,
+              'resolution': resolution,
+          })
+      return built
+
+  def check(candidate):
+      assert candidate['cases'] == expected_cases()
+      for case in candidate['cases']:
+          statuses = case['expectedGuardrails']
+          assert set(statuses) == {'applicable', 'not_applicable'}
+          assert not set(statuses['applicable']) & set(
+              statuses['not_applicable']
+          )
+
+  check(data)
+  print(
+      'DEV134_ACTIVATION_PROTOTYPE_PASS total=15 positive=6 negative=6 '
+      'ambiguous=3 full=2 hosts=blocked oracle=exact'
+  )
+
+  def case(candidate, case_id):
+      return next(row for row in candidate['cases'] if row['id'] == case_id)
+
+  def assert_rejected(name, mutate):
+      candidate = copy.deepcopy(data)
+      mutate(candidate)
+      try:
+          check(candidate)
+      except AssertionError:
+          print(f'DEV134_HARD_ORACLE_MUTATION_REJECTED name={name}')
+          return
+      raise AssertionError(f'mutation accepted: {name}')
+
+  assert_rejected(
+      'implementation_absent_contract',
+      lambda d: case(d, 'DEV134-POS-003').update(
+          artifactState='absent', evidenceState='missing'
+      ),
+  )
+  assert_rejected(
+      'unsafe_retry',
+      lambda d: case(d, 'DEV134-POS-004').update(
+          resolution='retry_effect_immediately_without_reconciliation'
+      ),
+  )
+  assert_rejected(
+      'missing_review_guardrails',
+      lambda d: case(d, 'DEV134-POS-002')['expectedGuardrails'][
+          'applicable'
+      ].remove('D-GRANT-001'),
+  )
+  assert_rejected(
+      'missing_validation_refs',
+      lambda d: case(d, 'DEV134-POS-005')['expectedReferences'].remove(
+          'evaluation'
+      ),
+  )
+
+  def add_pos001_effect_ids(candidate):
+      statuses = case(candidate, 'DEV134-POS-001')['expectedGuardrails']
+      statuses['applicable'].extend(statuses['not_applicable'])
+      statuses['not_applicable'] = []
+
+  assert_rejected('pos001_effect_ids', add_pos001_effect_ids)
+
+  def route_ambiguous_to_effect(candidate):
+      row = case(candidate, 'DEV134-AMB-001')
+      row.update(
+          inputClass='uncertain_effect_recovery_failure',
+          requestedOperation='debug',
+          artifactState='implementation',
+          evidenceState='failing',
+      )
+      row['expectedGuardrails']['applicable'].extend([
+          'D-EFFECT-001', 'D-EFFECT-002',
+      ])
+
+  assert_rejected('ambiguous_route_to_effect', route_ambiguous_to_effect)
+  assert_rejected(
+      'missing_output_section',
+      lambda d: case(d, 'DEV134-POS-003')['expectedOutputSections'].remove(
+          'Changed Paths'
+      ),
+  )
+  print('DEV134_ACTIVATION_MUTATION_PASS rejected=7')
   PY
   ```
 
   Expected:
-  `DEV134_ACTIVATION_PROTOTYPE_PASS total=15 positive=6 negative=6 ambiguous=3 full=2 hosts=blocked`.
+
+  ```text
+  DEV134_ACTIVATION_PROTOTYPE_PASS total=15 positive=6 negative=6 ambiguous=3 full=2 hosts=blocked oracle=exact
+  DEV134_ACTIVATION_MUTATION_PASS rejected=7
+  ```
 
 - [ ] **Step 5: Run DEV-131 safety scanners against the JSON**
 
