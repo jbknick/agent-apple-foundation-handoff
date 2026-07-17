@@ -42,6 +42,36 @@ EXPECTED_CAPABILITIES = (
     "debug-apple-foundation-models-handoff",
     "validate-apple-foundation-models-handoff",
 )
+EXPECTED_SKILL_DESCRIPTIONS = {
+    "design-apple-foundation-models-handoff": (
+        "Design an Apple Foundation Models handoff architecture, topology, pattern, "
+        "state model, or trust boundary when the user is creating or materially "
+        "revising how sessions, profiles, or providers transfer control or provide "
+        "isolated consultation."
+    ),
+    "implement-apple-foundation-models-handoff": (
+        "Implement an Apple Foundation Models handoff architecture when an approved "
+        "architecture or decision reference and an exact application change boundary "
+        "already exist."
+    ),
+    "review-apple-foundation-models-handoff": (
+        "Review an existing Apple Foundation Models handoff artifact when the user "
+        "wants severity-ranked findings about architecture, Apple API grounding, "
+        "state, security, recovery, or evidence claims rather than changes."
+    ),
+    "debug-apple-foundation-models-handoff": (
+        "Debug an Apple Foundation Models handoff when an observed routing, ownership, "
+        "transition, context, tool, effect, recovery, fallback, availability, or "
+        "version-labelled behavior differs from its expected contract and the cause "
+        "is not yet established."
+    ),
+    "validate-apple-foundation-models-handoff": (
+        "Validate an Apple Foundation Models handoff artifact when the user requests "
+        "reproducible proof, a complete pass/fail/blocked/not_applicable matrix, "
+        "cross-host comparison, or release implication rather than design, edits, "
+        "findings-only review, or diagnosis."
+    ),
+}
 ROOT_AGENTS_TEMP_PREFIX = ".AGENTS.md."
 ROOT_AGENTS_TEMP_SUFFIX = ".tmp"
 ROOT_AGENTS_TEMP_TOKEN_LENGTH = 32
@@ -373,6 +403,8 @@ def _validate_skill_frontmatter(skill_text: str, capability: str) -> None:
         raise ValueError("frontmatter fields")
     if fields[0][1] != capability:
         raise ValueError("skill identity")
+    if fields[1][1] != EXPECTED_SKILL_DESCRIPTIONS[capability]:
+        raise ValueError("skill description")
 
 
 def _validate_skill_component(
