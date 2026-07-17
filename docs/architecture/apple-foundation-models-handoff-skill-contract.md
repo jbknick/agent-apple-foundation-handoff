@@ -4,7 +4,7 @@
 
 This is a compact, non-authoritative downstream index. The
 [canonical DEV-134 design](../superpowers/specs/2026-07-17-dev-134-agent-skill-catalog-design.md)
-at accepted head `de4f882840239141c08c30dc1657519cacbbc087` controls detailed
+at accepted head `72f883f04c45d2d0430988e86fb9bd2c4d40ad79` controls detailed
 semantics and rationale. The durable Linear decision is DEV-134 comment
 `e90f2a39-d887-48b6-a8ce-17a2fa56e0a3`. A conflict must be resolved in those
 authorities and propagated before this index changes.
