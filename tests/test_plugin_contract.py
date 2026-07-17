@@ -18,10 +18,21 @@ VERSION = "0.1.0"
 SOURCE = "./plugins/apple-foundation-models-handoff"
 MARKETPLACE = "agent-apple-foundation-handoff"
 REPOSITORY = "https://github.com/jbknick/agent-apple-foundation-handoff"
+REFERENCE_FILES = {
+    f"references/{name}"
+    for name in (
+        "architecture-and-state.md",
+        "orchestration-patterns.md",
+        "apple-api-availability.md",
+        "security-context-and-recovery.md",
+        "evaluation-and-observability.md",
+    )
+}
 ALLOWED_PACKAGE_FILES = {
     ".claude-plugin/plugin.json",
     ".codex-plugin/plugin.json",
     "metadata/codex-interface.json",
+    *REFERENCE_FILES,
 }
 ALLOWED_PACKAGE_ENTRIES = {
     ".claude-plugin": "directory",
@@ -30,10 +41,11 @@ ALLOWED_PACKAGE_ENTRIES = {
     ".codex-plugin/plugin.json": "file",
     "metadata": "directory",
     "metadata/codex-interface.json": "file",
+    "references": "directory",
+    **{name: "file" for name in REFERENCE_FILES},
 }
 FORBIDDEN_SURFACES = (
     "skills",
-    "references",
     "agents",
     "hooks",
     "mcp",
@@ -397,7 +409,7 @@ class PluginContractTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     sync._validate_codex_marketplace(mutated, shared_manifest)
 
-    def test_plugin_package_contains_only_metadata_contract_files(self):
+    def test_plugin_package_contains_only_approved_contract_files(self):
         plugin_root = ROOT / "plugins" / PLUGIN_ID
         assert_plugin_package_contract(self, plugin_root)
 
