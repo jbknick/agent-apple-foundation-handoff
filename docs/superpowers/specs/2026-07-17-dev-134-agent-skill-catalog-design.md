@@ -237,10 +237,24 @@ Every positive workflow preserves all of the following:
 - field-level C0, C1, C2, or C3 classification plus source, subject, purpose,
   destination, retention, and redaction provenance; unknown or disallowed data
   rejects the whole envelope rather than being silently dropped;
-- destination/purpose/field/tool/retention/expiry/`stateVersion`/
-  `policyVersion`-bound grants, with separate immediate effect confirmation and
-  current authentication, permission, arguments, recipient, and resource
-  revalidation;
+- a provider grant scoped to a person/session that binds the person/session,
+  source profile/provider, destination profile/provider, purpose, exact classes,
+  exact fields, tools, retention, expiry, `stateVersion`, and `policyVersion`;
+  any bound-field change invalidates the grant, which is not effect confirmation
+  and cannot override C3 or unknown-data fail-closed behavior;
+- immediate high-impact effect confirmation that binds the semantic action,
+  normalized arguments, recipient/resource identity and version,
+  provider/profile, `stateVersion`, `policyVersion`, authority, effect budget,
+  and idempotency key;
+- after confirmation and before execution, application revalidation of
+  authentication/unlock state, permissions and tool allowlist, input schema,
+  semantic argument constraints, recipient/resource identity and version,
+  provider/profile, `stateVersion`, `policyVersion`, authority, effect budget,
+  active state, and the grant; any mismatch rejects execution and requires
+  fresh authority or confirmation as applicable;
+- prompt, model, repository, summary, retrieved, and tool text remain untrusted
+  and cannot create or broaden a grant, confirmation, authority, or typed
+  reducer event;
 - provenance-valid tool results bound to outstanding call ID, tool/version/
   provider, state, and result type;
 - one stable identity and ledger entry for each logical effect,
@@ -647,6 +661,7 @@ their non-positive shape.
 
 ### DEV134-POS-001: new baton-pass design
 
+- Representative synthetic request: “Design a new Apple Foundation Models baton-pass architecture where a research profile transfers control and final-answer ownership to a review profile.”
 - Input class: new architecture request.
 - Router: `design`, `absent`, `missing`.
 - Expected activation: `design-apple-foundation-models-handoff`.
@@ -657,6 +672,7 @@ their non-positive shape.
 
 ### DEV134-POS-002: flawed reducer review
 
+- Representative synthetic request: “Review this existing Foundation Models handoff reducer for ambiguous ownership, unlimited transitions, and full-transcript transfer, and return findings without editing it.”
 - Input class: existing implementation findings request.
 - Router: `review`, `implementation`, `failing`.
 - Expected activation: `review-apple-foundation-models-handoff`.
@@ -667,6 +683,7 @@ their non-positive shape.
 
 ### DEV134-POS-003: approved contract implementation
 
+- Representative synthetic request: “Implement only the transition-budget check defined by approved synthetic architecture decision ARCH-SYN-001 in the reducer and its tests.”
 - Input class: bounded application change tied to an approved decision.
 - Router: `implement`, `approved_contract`, `available`.
 - Expected activation: `implement-apple-foundation-models-handoff`.
@@ -677,6 +694,7 @@ their non-positive shape.
 
 ### DEV134-POS-004: observed uncertain-effect failure
 
+- Representative synthetic request: “Debug why a dispatched synthetic handoff effect timed out and the reducer attempted to replay the same effect before reconciliation.”
 - Input class: dispatched effect timed out and replay was proposed.
 - Router: `debug`, `implementation`, `failing`.
 - Expected activation: `debug-apple-foundation-models-handoff`.
@@ -687,6 +705,7 @@ their non-positive shape.
 
 ### DEV134-POS-005: proof-only evidence matrix
 
+- Representative synthetic request: “Validate the handoff's deterministic, SDK compile, evidence-safety, and Claude/Codex host matrix, report blockers, and do not edit anything to obtain a pass.”
 - Input class: deterministic/compile/evidence/cross-host validation request.
 - Router: `validate`, `evidence_bundle`, `available`.
 - Expected activation: `validate-apple-foundation-models-handoff`.
@@ -696,6 +715,7 @@ their non-positive shape.
 
 ### DEV134-POS-006: isolated-consultation selection
 
+- Representative synthetic request: “Design an Apple Foundation Models consultation where the parent session asks a narrow specialist question, keeps control, and writes the final answer.”
 - Input class: parent asks a specialist a narrow question but retains control.
 - Router: `design`, `absent`, `missing`.
 - Expected activation: `design-apple-foundation-models-handoff`.
@@ -705,42 +725,49 @@ their non-positive shape.
 
 ### DEV134-NEG-001: App Intents
 
+- Representative synthetic request: “Show me how to expose an App Intent for a Shortcuts action.”
 - Router domain: `out_of_domain`.
 - Expected activation: `no_activation`.
 - Resolution: `reject_out_of_domain`; no references or positive sections.
 
 ### DEV134-NEG-002: Apple Handoff
 
+- Representative synthetic request: “Explain how to continue activity between my iPhone and Mac with Apple Handoff and NSUserActivity.”
 - Router domain: `out_of_domain`.
 - Expected activation: `no_activation`.
 - Resolution: `reject_out_of_domain`; no references or positive sections.
 
 ### DEV134-NEG-003: generic Swift
 
+- Representative synthetic request: “How do Swift actors isolate mutable state?”
 - Router domain: `out_of_domain`.
 - Expected activation: `no_activation`.
 - Resolution: `reject_out_of_domain`; no references or positive sections.
 
 ### DEV134-NEG-004: generic Core ML or Foundation Models education
 
+- Representative synthetic request: “Give me a beginner overview of Core ML model deployment.”
 - Router domain: `out_of_domain`.
 - Expected activation: `no_activation`.
 - Resolution: `reject_out_of_domain`; no references or positive sections.
 
 ### DEV134-NEG-005: coding-session handoff
 
+- Representative synthetic request: “How should I hand a coding session from Claude Code to Codex?”
 - Router domain: `out_of_domain`.
 - Expected activation: `no_activation`.
 - Resolution: `reject_out_of_domain`; no references or positive sections.
 
 ### DEV134-NEG-006: Foundation Models runtime Skills alone
 
+- Representative synthetic request: “Explain how Foundation Models runtime Skills activate tool calling inside one model session.”
 - Router domain: `out_of_domain`.
 - Expected activation: `no_activation`.
 - Resolution: `reject_out_of_domain`; no references or positive sections.
 
 ### DEV134-AMB-001: ambiguous “Apple handoff”
 
+- Representative synthetic request: “Help me design an Apple handoff.”
 - Router: `ambiguous`, `unspecified`, `unknown`, `unknown`.
 - Expected activation: `clarification_required`.
 - Resolution: `bounded_domain_clarification` asking whether the request concerns
@@ -749,6 +776,7 @@ their non-positive shape.
 
 ### DEV134-AMB-002: implementation without an approved contract
 
+- Representative synthetic request: “Implement the Apple Foundation Models handoff for my app.”
 - Router: handoff, `implement`, `unknown`, `missing`.
 - Expected activation: `clarification_required`.
 - Resolution: `bounded_contract_clarification` asking for the approved
@@ -757,6 +785,7 @@ their non-positive shape.
 
 ### DEV134-AMB-003: compound review and fix
 
+- Representative synthetic request: “Review and fix this Apple Foundation Models handoff implementation.”
 - Router: handoff, `compound_review_fix`, `implementation`, `failing`.
 - Expected activation: `review-apple-foundation-models-handoff`.
 - Resolution: `documented_default_review_first`; return findings and a bounded
