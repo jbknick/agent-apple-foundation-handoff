@@ -576,6 +576,34 @@ def direct_search_reference_read(
     return name
 
 
+def validate_rg_files_discovery(
+    arguments: list[str],
+    base: Path,
+    task_id: str,
+) -> None:
+    if any(
+        token.partition("=")[0] in DIRECT_SEARCH_REJECTED_OPTIONS
+        for token in arguments
+    ):
+        raise ProbeFailure("bulk_reference_content_read", task_id)
+    if len(arguments) != 2 or arguments[0] != "--files":
+        raise ProbeFailure("ambiguous_reference_read", task_id)
+    candidate = Path(arguments[1])
+    unresolved = candidate if candidate.is_absolute() else base / candidate
+    try:
+        metadata = unresolved.lstat()
+        resolved = unresolved.resolve(strict=True)
+        canonical_root = REFERENCE_ROOT.resolve(strict=True)
+    except (OSError, RuntimeError, ValueError):
+        raise ProbeFailure("ambiguous_reference_read", task_id) from None
+    if (
+        resolved != canonical_root
+        or not stat.S_ISDIR(metadata.st_mode)
+        or stat.S_ISLNK(metadata.st_mode)
+    ):
+        raise ProbeFailure("ambiguous_reference_read", task_id)
+
+
 def command_reference_reads(
     command: str,
     task_id: str,
@@ -606,6 +634,13 @@ def command_reference_reads(
     arguments = tokens[1:]
     path_tokens = [token for token in arguments if is_reference_path_token(token)]
     is_rg_discovery = executable == "rg" and "--files" in arguments
+    if is_rg_discovery:
+        validate_rg_files_discovery(
+            arguments,
+            base.resolve(strict=False),
+            task_id,
+        )
+        return observed, 0
     if (
         executable in DIRECT_SEARCH_COMMANDS
         and not is_rg_discovery
