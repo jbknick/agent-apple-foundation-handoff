@@ -64,6 +64,26 @@ EVIDENCE_PATH_CLASSIFICATIONS = {
 }
 EVIDENCE_ALLOWLIST = set(EVIDENCE_PATH_CLASSIFICATIONS)
 
+EXPECTED_REJECTIONS = {
+    "transition-loop": ["D-TRANSITION-001"],
+    "transition-budget-exhausted": ["D-TRANSITION-001"],
+    "wrong-final-owner": ["D-OWNER-001"],
+    "missing-context-policy": ["D-CONTEXT-001"],
+    "unauthorized-tool": ["D-TOOL-001"],
+    "stale-grant": ["D-GRANT-001"],
+    "invalid-phase": ["D-PHASE-001"],
+    "retry-before-reconciliation": ["D-EFFECT-002"],
+    "unsafe-evidence-manifest": ["D-EVIDENCE-001"],
+}
+
+EXPECTED_HOST_LAYERS = {
+    "offline-contract": "pass",
+    "claude-code-activation": "blocked",
+    "codex-activation": "blocked",
+    "apple-evaluations": "blocked",
+    "apple-instruments": "blocked",
+}
+
 PROHIBITED_STRUCTURED_KEYS = {
     "api_key",
     "access_token",
@@ -466,13 +486,27 @@ def evaluate_case(case: dict) -> dict:
 
     evidence = result.get("evidence", {})
     included_paths = evidence.get("includedPaths", [])
-    safe_paths = all(
-        isinstance(path, str)
-        and not path.startswith(("/", "../"))
-        and "raw-response" not in path.lower()
-        and not path.lower().endswith(".trace")
-        for path in included_paths
+    prohibited_path_label = re.compile(
+        r"(?:^|[/\s_.-])raw[/\s_.-]?(?:prompt|response|reasoning|tool|trace|result)"
+        r"(?:[/\s_.-]|$)",
+        re.IGNORECASE,
     )
+    safe_paths = bool(included_paths) and len(included_paths) == len(
+        set(included_paths)
+    )
+    for declared_path in included_paths:
+        pure = PurePosixPath(declared_path)
+        normalized = pure.as_posix()
+        if (
+            pure.is_absolute()
+            or ".." in pure.parts
+            or "\\" in declared_path
+            or normalized in {"", "."}
+            or normalized != declared_path
+            or prohibited_path_label.search(normalized) is not None
+            or normalized.lower().endswith((".trace", ".xcresult"))
+        ):
+            safe_paths = False
     evidence_ok = (
         safe_paths
         and evidence.get("redacted") is True
@@ -484,54 +518,88 @@ def evaluate_case(case: dict) -> dict:
     return _case_result(case, checks)
 
 
+def _rubric_assessment_shape_is_valid(assessment: object) -> bool:
+    if not isinstance(assessment, dict) or set(assessment) != {
+        "schemaVersion",
+        "reviewerType",
+        "stimulusSha256",
+        "dimensions",
+        "meanScore",
+        "thresholds",
+        "verdict",
+    }:
+        return False
+    dimensions = assessment.get("dimensions")
+    thresholds = assessment.get("thresholds")
+    return bool(
+        assessment.get("schemaVersion") == "1.0"
+        and assessment.get("reviewerType") == "human"
+        and isinstance(assessment.get("stimulusSha256"), str)
+        and re.fullmatch(r"[0-9a-f]{64}", assessment["stimulusSha256"])
+        and isinstance(dimensions, list)
+        and len(dimensions) == 7
+        and all(
+            isinstance(item, dict)
+            and set(item) == {"id", "score", "rationale", "anchor"}
+            and _non_empty_string(item["id"])
+            and _integer(item["score"])
+            and 1 <= item["score"] <= 4
+            and _non_empty_string(item["rationale"])
+            and _non_empty_string(item["anchor"])
+            for item in dimensions
+        )
+        and isinstance(assessment.get("meanScore"), (int, float))
+        and not isinstance(assessment["meanScore"], bool)
+        and isinstance(thresholds, dict)
+        and set(thresholds)
+        == {"meanMinimum", "criticalMinimum", "criticalDimensions"}
+        and thresholds.get("meanMinimum") == 3.0
+        and thresholds.get("criticalMinimum") == 3
+        and _string_list(thresholds.get("criticalDimensions"))
+        and assessment.get("verdict") in {"pass", "fail"}
+    )
+
+
 def validate_rubric(response_path: Path, assessment: dict) -> dict:
     """Validate rubric integrity, not the reviewer's semantic judgment."""
 
     response_path = Path(response_path)
-    response = response_path.read_text(encoding="utf-8") if response_path.is_file() else ""
-    dimensions = assessment.get("dimensions", [])
-    scores = {
-        item.get("id"): item.get("score")
-        for item in dimensions
-        if isinstance(item, dict) and isinstance(item.get("id"), str)
-    }
-    ids_ok = set(scores) == RUBRIC_DIMENSIONS and len(dimensions) == 7
-    entries_ok = ids_ok and all(
-        isinstance(item.get("score"), int)
-        and 1 <= item["score"] <= 4
-        and isinstance(item.get("rationale"), str)
-        and bool(item["rationale"].strip())
-        and isinstance(item.get("anchor"), str)
-        and bool(item["anchor"].strip())
-        and item["anchor"] in response
-        for item in dimensions
-    )
+    try:
+        response = response_path.read_text(encoding="utf-8")
+        response_hash = _sha256(response_path)
+    except (OSError, UnicodeDecodeError):
+        response = ""
+        response_hash = None
+
+    shape_ok = _rubric_assessment_shape_is_valid(assessment)
+    dimensions = assessment["dimensions"] if shape_ok else []
+    scores = {item["id"]: item["score"] for item in dimensions}
+    ids_ok = shape_ok and set(scores) == RUBRIC_DIMENSIONS
+    entries_ok = ids_ok and all(item["anchor"] in response for item in dimensions)
     calculated_mean = sum(scores.values()) / 7 if ids_ok else 0.0
-    thresholds = assessment.get("thresholds", {})
-    declared_critical = set(thresholds.get("criticalDimensions", []))
-    thresholds_ok = (
-        thresholds.get("meanMinimum") == 3.0
-        and thresholds.get("criticalMinimum") == 3
-        and declared_critical == CRITICAL_DIMENSIONS
+    thresholds = assessment["thresholds"] if shape_ok else {}
+    thresholds_ok = shape_ok and (
+        set(thresholds["criticalDimensions"]) == CRITICAL_DIMENSIONS
     )
-    mean_ok = (
-        isinstance(assessment.get("meanScore"), (int, float))
-        and math.isclose(assessment["meanScore"], calculated_mean, abs_tol=0.005)
+    mean_ok = shape_ok and math.isclose(
+        assessment["meanScore"], calculated_mean, abs_tol=0.005
     )
-    critical_ok = ids_ok and all(scores[dimension] >= 3 for dimension in CRITICAL_DIMENSIONS)
+    critical_ok = ids_ok and all(
+        scores[dimension] >= 3 for dimension in CRITICAL_DIMENSIONS
+    )
     computed_verdict = (
         "pass"
         if entries_ok and calculated_mean >= 3.0 and critical_ok
         else "fail"
     )
-    integrity_ok = (
-        assessment.get("schemaVersion") == "1.0"
-        and assessment.get("reviewerType") == "human"
-        and assessment.get("stimulusSha256") == _sha256(response_path)
+    integrity_ok = bool(
+        shape_ok
+        and response
+        and assessment["stimulusSha256"] == response_hash
         and thresholds_ok
         and entries_ok
         and mean_ok
-        and assessment.get("verdict") == computed_verdict
+        and assessment["verdict"] == computed_verdict
         and computed_verdict == "pass"
     )
     violations = [] if integrity_ok else ["D-RUBRIC-001"]
@@ -541,7 +609,9 @@ def validate_rubric(response_path: Path, assessment: dict) -> dict:
         "check": _check("D-RUBRIC-001", integrity_ok),
         "scores": scores,
         "meanScore": round(calculated_mean, 2) if ids_ok else None,
-        "semanticReviewer": assessment.get("reviewerType"),
+        "semanticReviewer": (
+            assessment.get("reviewerType") if isinstance(assessment, dict) else None
+        ),
     }
 
 
@@ -568,6 +638,119 @@ def _structured_content_is_safe(value: object) -> bool:
     return value is None or isinstance(value, (bool, int, float))
 
 
+def _checks_schema_is_valid(value: object) -> bool:
+    if not isinstance(value, dict) or set(value) != {
+        "schemaVersion",
+        "status",
+        "acceptedWorkflows",
+        "exactRejections",
+        "optionalAppleEvaluationPassRate",
+    }:
+        return False
+    rejections = value.get("exactRejections")
+    metric = value.get("optionalAppleEvaluationPassRate")
+    return bool(
+        value.get("schemaVersion") == "1.0"
+        and value.get("status") == "pass"
+        and value.get("acceptedWorkflows")
+        == ["minimal-route-owner", "recovery-aware-effect"]
+        and isinstance(rejections, dict)
+        and rejections == EXPECTED_REJECTIONS
+        and isinstance(metric, dict)
+        and set(metric) == {"numerator", "denominator", "status", "value"}
+        and metric
+        == {
+            "numerator": 0,
+            "denominator": 0,
+            "status": "not_applicable",
+            "value": None,
+        }
+    )
+
+
+def _environment_schema_is_valid(value: object) -> bool:
+    if not isinstance(value, dict) or set(value) != {
+        "schemaVersion",
+        "fixtureClass",
+        "pythonRequirement",
+        "networkRequired",
+        "credentialsRequired",
+        "modelRequired",
+        "paidServiceRequired",
+        "appleRuntimeRequired",
+    }:
+        return False
+    return bool(
+        value.get("schemaVersion") == "1.0"
+        and value.get("fixtureClass") == "synthetic"
+        and _non_empty_string(value.get("pythonRequirement"))
+        and all(
+            value[field] is False
+            for field in {
+                "networkRequired",
+                "credentialsRequired",
+                "modelRequired",
+                "paidServiceRequired",
+                "appleRuntimeRequired",
+            }
+        )
+    )
+
+
+def _host_matrix_schema_is_valid(value: object) -> bool:
+    if (
+        not isinstance(value, dict)
+        or set(value) != {"schemaVersion", "rows"}
+        or value.get("schemaVersion") != "1.0"
+        or not isinstance(value.get("rows"), list)
+        or len(value["rows"]) != len(EXPECTED_HOST_LAYERS)
+    ):
+        return False
+    observed: dict[str, str] = {}
+    for row in value["rows"]:
+        if not isinstance(row, dict) or not _non_empty_string(row.get("layer")):
+            return False
+        expected_status = EXPECTED_HOST_LAYERS.get(row["layer"])
+        if expected_status == "pass":
+            row_ok = (
+                set(row) == {"layer", "status", "evidence"}
+                and row.get("status") == "pass"
+                and _non_empty_string(row.get("evidence"))
+            )
+        else:
+            row_ok = (
+                expected_status == "blocked"
+                and set(row) == {"layer", "status", "reason"}
+                and row.get("status") == "blocked"
+                and _non_empty_string(row.get("reason"))
+            )
+        if not row_ok or row["layer"] in observed:
+            return False
+        observed[row["layer"]] = row["status"]
+    return observed == EXPECTED_HOST_LAYERS
+
+
+def _markdown_schema_is_valid(relative: str, text: str) -> bool:
+    headings = re.findall(r"^## (.+)$", text, re.MULTILINE)
+    if relative == "summary.md":
+        return text.startswith("# Synthetic DEV-131 proof summary\n") and not headings
+    if relative == "rubric/architecture-response.synthetic.md":
+        return (
+            text.startswith("# Synthetic handoff architecture response\n")
+            and headings
+            == [
+                "pattern selection",
+                "Apple API grounding and version labeling",
+                "security-policy completeness",
+                "context minimization",
+                "failure and recovery behavior",
+                "testability and observability",
+                "limitation honesty",
+            ]
+        )
+    return False
+
+
 def _evidence_content_is_safe(path: Path, relative: str) -> bool:
     try:
         text = path.read_text(encoding="utf-8")
@@ -577,16 +760,25 @@ def _evidence_content_is_safe(path: Path, relative: str) -> bool:
         return False
 
     if relative.endswith(".md"):
-        return relative in {
-            "summary.md",
-            "rubric/architecture-response.synthetic.md",
-        }
+        return _markdown_schema_is_valid(relative, text)
     if relative.endswith(".json"):
         try:
             value = json.loads(text)
         except json.JSONDecodeError:
             return False
-        return isinstance(value, dict) and _structured_content_is_safe(value)
+        schema_validators = {
+            "checks.json": _checks_schema_is_valid,
+            "environment.json": _environment_schema_is_valid,
+            "host-matrix.json": _host_matrix_schema_is_valid,
+            "rubric/assessment.json": _rubric_assessment_shape_is_valid,
+            "rubric/assessment.invalid.json": _rubric_assessment_shape_is_valid,
+        }
+        validator = schema_validators.get(relative)
+        return bool(
+            validator is not None
+            and validator(value)
+            and _structured_content_is_safe(value)
+        )
     if relative == "commands.jsonl":
         records = []
         try:
@@ -627,8 +819,11 @@ def validate_evidence_bundle(bundle_root: Path) -> dict:
         if path.is_file() and path != manifest_path
     }
     valid = (
-        manifest.get("schemaVersion") == "1.0"
+        set(manifest) == {"schemaVersion", "issue", "runId", "commit", "files"}
+        and manifest.get("schemaVersion") == "1.0"
         and manifest.get("issue") == "DEV-131"
+        and _non_empty_string(manifest.get("runId"))
+        and _non_empty_string(manifest.get("commit"))
         and _structured_content_is_safe(manifest)
         and isinstance(declared_files, list)
         and len(files) == len(EVIDENCE_ALLOWLIST)
@@ -658,8 +853,11 @@ def validate_evidence_bundle(bundle_root: Path) -> dict:
         hash_matches = content_is_safe and item.get("sha256") == _sha256(path)
         if (
             not path_is_safe
+            or set(item) != {"path", "sha256", "classification"}
             or item.get("classification")
             != EVIDENCE_PATH_CLASSIFICATIONS.get(relative)
+            or not isinstance(item.get("sha256"), str)
+            or re.fullmatch(r"[0-9a-f]{64}", item["sha256"]) is None
             or not path.is_file()
             or path.is_symlink()
             or not content_is_safe

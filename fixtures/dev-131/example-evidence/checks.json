@@ -4,6 +4,7 @@
   "acceptedWorkflows": ["minimal-route-owner", "recovery-aware-effect"],
   "exactRejections": {
     "transition-loop": ["D-TRANSITION-001"],
+    "transition-budget-exhausted": ["D-TRANSITION-001"],
     "wrong-final-owner": ["D-OWNER-001"],
     "missing-context-policy": ["D-CONTEXT-001"],
     "unauthorized-tool": ["D-TOOL-001"],

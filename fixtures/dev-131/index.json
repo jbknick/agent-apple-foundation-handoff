@@ -4,6 +4,7 @@
     {"id": "happy-path", "path": "cases/valid/happy-path.json", "expectedStatus": "pass", "expectedViolations": []},
     {"id": "replayed-effect", "path": "cases/valid/replayed-effect.json", "expectedStatus": "pass", "expectedViolations": []},
     {"id": "transition-loop", "path": "cases/invalid/transition-loop.json", "expectedStatus": "fail", "expectedViolations": ["D-TRANSITION-001"]},
+    {"id": "transition-budget-exhausted", "path": "cases/invalid/transition-budget-exhausted.json", "expectedStatus": "fail", "expectedViolations": ["D-TRANSITION-001"]},
     {"id": "wrong-final-owner", "path": "cases/invalid/wrong-final-owner.json", "expectedStatus": "fail", "expectedViolations": ["D-OWNER-001"]},
     {"id": "missing-context-policy", "path": "cases/invalid/missing-context-policy.json", "expectedStatus": "fail", "expectedViolations": ["D-CONTEXT-001"]},
     {"id": "unauthorized-tool", "path": "cases/invalid/unauthorized-tool.json", "expectedStatus": "fail", "expectedViolations": ["D-TOOL-001"]},

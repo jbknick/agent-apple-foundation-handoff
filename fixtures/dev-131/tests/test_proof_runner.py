@@ -89,6 +89,32 @@ class OfflineEvaluationProofTests(unittest.TestCase):
                     sorted(entry["expectedViolations"]), result["violations"]
                 )
 
+    def test_transition_budget_exhaustion_is_distinct_from_a_loop(self) -> None:
+        budget_entries = [
+            entry
+            for entry in self.index["cases"]
+            if entry["id"] == "transition-budget-exhausted"
+        ]
+        self.assertEqual(1, len(budget_entries))
+        if not budget_entries:
+            return
+        entry = budget_entries[0]
+        self.assertNotEqual("cases/invalid/transition-loop.json", entry["path"])
+        case = self.load_case(entry["path"])
+        self.assertEqual(
+            len(case["result"]["transitions"]) - 1,
+            case["policy"]["transitionBudget"],
+        )
+        self.assertEqual(
+            ["D-TRANSITION-001"],
+            self.runner.evaluate_case(case)["violations"],
+        )
+        checks = load_json(FIXTURES_ROOT / "example-evidence/checks.json")
+        self.assertEqual(
+            ["D-TRANSITION-001"],
+            checks["exactRejections"]["transition-budget-exhausted"],
+        )
+
     def test_evaluate_case_accepts_only_the_case_input(self) -> None:
         signature = inspect.signature(self.runner.evaluate_case)
         self.assertEqual(["case"], list(signature.parameters))
@@ -273,6 +299,22 @@ class OfflineEvaluationProofTests(unittest.TestCase):
                     result["checks"],
                 )
 
+    def test_case_evidence_paths_are_non_empty_normalized_and_safe(self) -> None:
+        happy_path = self.load_case("cases/valid/happy-path.json")
+        mutations = {
+            "empty": [],
+            "traversal": ["safe/../../secret.txt"],
+            "raw-prompt": ["raw-prompt.txt"],
+        }
+        for name, included_paths in mutations.items():
+            with self.subTest(mutation=name):
+                case = copy.deepcopy(happy_path)
+                case["result"]["evidence"]["includedPaths"] = included_paths
+                self.assertEqual(
+                    ["D-EVIDENCE-001"],
+                    self.runner.evaluate_case(case)["violations"],
+                )
+
     def test_semantic_quality_is_gated_only_by_the_seven_dimension_rubric(self) -> None:
         response_path = (
             FIXTURES_ROOT
@@ -297,6 +339,49 @@ class OfflineEvaluationProofTests(unittest.TestCase):
         )
         self.assertNotIn("semanticScore", deterministic)
         self.assertNotIn("D-RUBRIC-001", [c["id"] for c in deterministic["checks"]])
+
+    def test_boolean_rubric_score_is_rejected(self) -> None:
+        response_path = (
+            FIXTURES_ROOT
+            / "example-evidence/rubric/architecture-response.synthetic.md"
+        )
+        valid = load_json(FIXTURES_ROOT / "example-evidence/rubric/assessment.json")
+
+        boolean_score = copy.deepcopy(valid)
+        boolean_score["dimensions"][0]["score"] = True
+        boolean_score["meanScore"] = 3.29
+        self.assertEqual(
+            ["D-RUBRIC-001"],
+            self.runner.validate_rubric(response_path, boolean_score)["violations"],
+        )
+
+    def test_malformed_rubric_thresholds_return_stable_failure(self) -> None:
+        response_path = (
+            FIXTURES_ROOT
+            / "example-evidence/rubric/architecture-response.synthetic.md"
+        )
+        valid = load_json(FIXTURES_ROOT / "example-evidence/rubric/assessment.json")
+        malformed_thresholds = copy.deepcopy(valid)
+        malformed_thresholds["thresholds"] = "not-an-object"
+        self.assertEqual(
+            ["D-RUBRIC-001"],
+            self.runner.validate_rubric(response_path, malformed_thresholds)[
+                "violations"
+            ],
+        )
+
+    def test_missing_rubric_stimulus_returns_stable_failure(self) -> None:
+        response_path = (
+            FIXTURES_ROOT
+            / "example-evidence/rubric/architecture-response.synthetic.md"
+        )
+        valid = load_json(FIXTURES_ROOT / "example-evidence/rubric/assessment.json")
+        missing_response = response_path.with_name("missing-stimulus.md")
+        self.assertFalse(missing_response.exists())
+        self.assertEqual(
+            ["D-RUBRIC-001"],
+            self.runner.validate_rubric(missing_response, valid)["violations"],
+        )
 
     def test_valid_evidence_bundle_passes_allowlist_and_hash_checks(self) -> None:
         result = self.runner.validate_evidence_bundle(
@@ -374,6 +459,47 @@ class OfflineEvaluationProofTests(unittest.TestCase):
                 result = self.runner.validate_evidence_bundle(bundle)
                 self.assertEqual("fail", result["status"])
                 self.assertEqual(["D-EVIDENCE-001"], result["violations"])
+
+    def test_manifest_run_and_commit_metadata_are_required(self) -> None:
+        source = FIXTURES_ROOT / "example-evidence"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            bundle = Path(temp_dir) / "bundle"
+            shutil.copytree(source, bundle)
+            manifest_path = bundle / "manifest.json"
+            manifest = load_json(manifest_path)
+            del manifest["runId"]
+            del manifest["commit"]
+            manifest_path.write_text(
+                json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+            )
+            result = self.runner.validate_evidence_bundle(bundle)
+            self.assertEqual(["D-EVIDENCE-001"], result["violations"])
+
+    def test_rehashed_undeclared_environment_field_is_rejected(self) -> None:
+        source = FIXTURES_ROOT / "example-evidence"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            bundle = Path(temp_dir) / "bundle"
+            shutil.copytree(source, bundle)
+            environment_path = bundle / "environment.json"
+            environment = load_json(environment_path)
+            environment["fullName"] = "Synthetic Person"
+            environment_path.write_text(
+                json.dumps(environment, indent=2) + "\n", encoding="utf-8"
+            )
+            manifest_path = bundle / "manifest.json"
+            manifest = load_json(manifest_path)
+            for item in manifest["files"]:
+                if item["path"] == "environment.json":
+                    item["sha256"] = hashlib.sha256(
+                        environment_path.read_bytes()
+                    ).hexdigest()
+            manifest_path.write_text(
+                json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+            )
+            result = self.runner.validate_evidence_bundle(bundle)
+            self.assertEqual(["D-EVIDENCE-001"], result["violations"])
 
     def test_zero_denominator_metrics_are_not_applicable(self) -> None:
         result = self.runner.run(FIXTURES_ROOT)

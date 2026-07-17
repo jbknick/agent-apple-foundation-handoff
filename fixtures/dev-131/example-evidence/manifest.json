@@ -5,7 +5,7 @@
   "commit": "recorded-by-linear-handoff",
   "files": [
     {"path":"summary.md","sha256":"b03c900e5c74af4c66828b191241f47032d3225c7cdb032df708d280d83c124c","classification":"redacted-summary"},
-    {"path":"checks.json","sha256":"7f49c5b64560240409188a813cc4d77df84db860700de9c6936473cc12bb7c2e","classification":"derived-check"},
+    {"path":"checks.json","sha256":"694ca03f94bd142bf3b973ce86b070eb96861c02dcd07b7c7552c48a7e32ee00","classification":"derived-check"},
     {"path":"commands.jsonl","sha256":"29cff498fd8afc04f5aff86696b3fb4c75ad9c56777016753953415985af402d","classification":"normalized"},
     {"path":"environment.json","sha256":"e7e661436aaab742d3353cff014e8981b2fe9f699145e0d361372b94082e8538","classification":"capability-fact"},
     {"path":"host-matrix.json","sha256":"ffc5fdfaa465b7880d0ee2b376c18675d6aaab4611d9970f7970cf54477ae8ec","classification":"capability-fact"},
