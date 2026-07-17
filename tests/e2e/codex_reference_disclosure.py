@@ -50,6 +50,7 @@ TOOL_INPUT_KEYS = {
     "workdir",
 }
 DISCOVERY_COMMANDS = {"fd", "find", "ls"}
+SHELL_WRAPPERS = {"bash", "sh", "zsh"}
 SHELL_CONTROL_CHARACTERS = frozenset("();<>|&")
 CONTENT_COMMANDS = {
     "awk",
@@ -241,10 +242,15 @@ def build_prompt(task_id: str, case: dict[str, Any]) -> str:
     return (
         "This is an explicitly directed reference-selection prerequisite, not "
         "workflow activation. Inspect the five-file reference library at "
-        f"{REFERENCE_ROOT_RELATIVE}/. You may list that directory, then read "
-        "exactly the single canonical owner file needed for the question. Do not "
-        "grep or search across the directory, and do not read unrelated reference "
-        "content. Base the classification only on that owner. "
+        f"{REFERENCE_ROOT_RELATIVE}/. You may use one direct directory-listing "
+        "command solely to independently select the canonical owner for the "
+        "question; do not feed that listing to another command. After you "
+        "independently select it, use exactly one direct content-read command "
+        "that names only that selected file. Do not use a shell wrapper, pipes, "
+        "redirection, command chaining, command substitution, xargs, find -exec, "
+        "globs, or bulk reads. Do not grep or search across the directory, and do "
+        "not read unrelated reference content. Base the classification only on "
+        "the independently selected owner. "
         f"Task {task_id}: {case['question']} Return exactly one JSON object with "
         f"one key named result and one of these values: {allowed}. Return no prose."
     )
@@ -332,11 +338,6 @@ def parsed_shell_command(command: str, task_id: str) -> tuple[str, list[str]]:
         raise ProbeFailure("unparseable_reference_command", task_id) from None
     if not tokens:
         return command, []
-    executable = Path(tokens[0]).name
-    if executable in {"bash", "sh", "zsh"}:
-        command_options = tokens[1:-1]
-        if any(option.startswith("-") and "c" in option for option in command_options):
-            return parsed_shell_command(tokens[-1], task_id)
     return command, tokens
 
 
@@ -452,6 +453,14 @@ def declared_working_directory(
     return declared[0]
 
 
+def is_reference_context(path: Path) -> bool:
+    try:
+        path.resolve(strict=False).relative_to(REFERENCE_ROOT.resolve(strict=True))
+    except (OSError, RuntimeError, ValueError):
+        return False
+    return True
+
+
 def command_reference_reads(
     command: str,
     task_id: str,
@@ -461,9 +470,14 @@ def command_reference_reads(
     effective_command, tokens = parsed_shell_command(command, task_id)
     if not tokens:
         return observed
+    executable = Path(tokens[0]).name
     reference_relevant = any(is_reference_path_token(token) for token in tokens)
+    if executable in SHELL_WRAPPERS:
+        if reference_relevant or is_reference_context(base):
+            raise ProbeFailure("bulk_reference_content_read", task_id)
+        return observed
     has_control, has_command_substitution = shell_syntax_flags(effective_command)
-    has_xargs = Path(tokens[0]).name == "xargs"
+    has_xargs = executable == "xargs"
     if has_xargs:
         raise ProbeFailure("ambiguous_reference_read", task_id)
     if reference_relevant and (has_control or has_command_substitution):
@@ -471,7 +485,6 @@ def command_reference_reads(
     if has_control or has_command_substitution:
         return observed
 
-    executable = Path(tokens[0]).name
     arguments = tokens[1:]
     path_tokens = [token for token in arguments if is_reference_path_token(token)]
     if not path_tokens:
@@ -881,6 +894,26 @@ class DirectedReferenceProbeTests(unittest.TestCase):
             observed_reference_reads(events, "synthetic-case")
         self.assertIn(raised.exception.reason, expected_reasons)
 
+    def test_prompt_requires_one_direct_read_without_owner_hint(self):
+        required_phrases = (
+            "independently select",
+            "exactly one direct content-read command",
+            "shell wrapper",
+            "pipes",
+            "redirection",
+            "command chaining",
+            "command substitution",
+            "xargs",
+            "find -exec",
+        )
+        for task_id, case in CASES.items():
+            prompt = build_prompt(task_id, case)
+            with self.subTest(task_id=task_id):
+                for phrase in required_phrases:
+                    self.assertIn(phrase, prompt)
+                for reference_name in REFERENCE_NAMES:
+                    self.assertNotIn(reference_name, prompt)
+
     def test_successful_paired_relative_owner_read_is_accepted(self):
         owner = f"{REFERENCE_ROOT_RELATIVE}/apple-api-availability.md"
         events = self.command_events(f"sed -n '1,40p' {owner}")
@@ -953,6 +986,122 @@ class DirectedReferenceProbeTests(unittest.TestCase):
                 self.assert_probe_failure_in(
                     self.command_events(command),
                     {"ambiguous_reference_read", "bulk_reference_content_read"},
+                )
+
+    def test_shell_wrappers_with_post_script_operands_fail_closed(self):
+        owner = f"{REFERENCE_ROOT_RELATIVE}/apple-api-availability.md"
+        commands = {
+            "bash_find_xargs": (
+                "bash -c "
+                + shlex.quote(
+                    f"find {REFERENCE_ROOT_RELATIVE} -type f -print0 | "
+                    "xargs -0 cat"
+                )
+                + " placeholder"
+            ),
+            "sh_glob": (
+                "sh -c "
+                + shlex.quote(f"cat {REFERENCE_ROOT_RELATIVE}/*.md")
+                + " placeholder"
+            ),
+            "zsh_owner": (
+                "zsh -lc "
+                + shlex.quote(f"cat {owner}")
+                + " placeholder"
+            ),
+        }
+        for name, command in commands.items():
+            with self.subTest(name=name):
+                self.assert_probe_failure_in(
+                    self.command_events(command),
+                    {"ambiguous_reference_read", "bulk_reference_content_read"},
+                )
+
+    def test_absolute_shell_wrappers_reject_reference_operands_in_any_layout(self):
+        owner = f"{REFERENCE_ROOT_RELATIVE}/apple-api-availability.md"
+        commands = {
+            "bash_split_options": (
+                "/bin/bash -l -c "
+                + shlex.quote(f"cat {owner}")
+                + " placeholder extra"
+            ),
+            "sh_c": (
+                "/bin/sh -c "
+                + shlex.quote(f"sed -n '1,40p' {owner}")
+                + " placeholder extra"
+            ),
+            "zsh_lc": (
+                "/bin/zsh -lc "
+                + shlex.quote(f"cat {REFERENCE_ROOT_RELATIVE}/*.md")
+                + " placeholder extra"
+            ),
+        }
+        for name, command in commands.items():
+            with self.subTest(name=name):
+                self.assert_probe_failure_in(
+                    self.command_events(command),
+                    {"ambiguous_reference_read", "bulk_reference_content_read"},
+                )
+
+    def test_shell_wrapper_reference_reads_fail_in_nested_tool_payloads(self):
+        commands = (
+            "bash -c "
+            + shlex.quote(
+                f"find {REFERENCE_ROOT_RELATIVE} -type f -print0 | "
+                "xargs -0 cat"
+            )
+            + " placeholder",
+            "sh -c "
+            + shlex.quote(f"cat {REFERENCE_ROOT_RELATIVE}/*.md")
+            + " placeholder",
+            "zsh -lc "
+            + shlex.quote(
+                f"cat {REFERENCE_ROOT_RELATIVE}/apple-api-availability.md"
+            )
+            + " placeholder",
+        )
+        for index, command in enumerate(commands):
+            nested = {"payload": {"cwd": str(ROOT), "command": command}}
+            arguments: object = nested if index % 2 == 0 else json.dumps(nested)
+            with self.subTest(command=command):
+                self.assert_probe_failure_in(
+                    self.tool_events("mcp_tool_call", {"arguments": arguments}),
+                    {"ambiguous_reference_read", "bulk_reference_content_read"},
+                )
+
+    def test_shell_wrapper_cannot_hide_reference_in_cwd_or_positional_argument(self):
+        positional_owner = str(REFERENCE_ROOT / "apple-api-availability.md")
+        commands = (
+            (
+                "bash -c 'cat apple-api-availability.md' placeholder",
+                str(REFERENCE_ROOT),
+            ),
+            (
+                "sh -c 'cat \"$1\"' placeholder "
+                + shlex.quote(positional_owner),
+                str(ROOT),
+            ),
+        )
+        for command, cwd in commands:
+            with self.subTest(command=command):
+                self.assert_probe_failure_in(
+                    self.command_events(command, cwd=cwd),
+                    {"ambiguous_reference_read", "bulk_reference_content_read"},
+                )
+
+    def test_non_reference_shell_wrapper_activity_creates_no_reference_read(self):
+        commands = (
+            "bash -c 'printf okay' placeholder",
+            "/bin/sh -lc 'pwd >/tmp/probe-pwd' placeholder",
+            "zsh -c 'printf %s \"$1\"' placeholder unrelated",
+        )
+        for command in commands:
+            with self.subTest(command=command):
+                self.assertEqual(
+                    set(),
+                    observed_reference_reads(
+                        self.command_events(command), "synthetic-case"
+                    ),
                 )
 
     def test_quoted_regex_punctuation_is_not_shell_dataflow(self):

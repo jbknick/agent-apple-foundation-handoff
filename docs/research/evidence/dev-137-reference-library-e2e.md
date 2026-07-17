@@ -52,7 +52,7 @@ Additional pinned identities:
 | Approved official sources | pass, 30 unique links; live audit 1/1 |
 | Swift labels | pass, 4 blocks with exactly one allowed visible label each |
 | `compiled_sdk_26_5` | pass, 1/1 block type-checked against SDK 26.5 |
-| Directed-reference adversarial suite | pass, 38/38 |
+| Directed-reference adversarial suite | pass, 44/44 |
 | Focused reference/package suite | pass, 20/20 |
 | Repository unit suite | pass, 59; the opt-in network row skipped here and passed separately |
 | Generated synchronization | pass |
@@ -72,15 +72,16 @@ capability list. The result retains
 
 ## Optional directed-reference result
 
-The newest final-code `DEV137-CODEX-REF-001` run failed closed at task
-`pattern-final-owner` with normalized reason
+The newest shell-wrapper-hardened final-code `DEV137-CODEX-REF-001` run failed
+closed at task `pattern-final-owner` with normalized reason
 `bulk_reference_content_read` on exact model `gpt-5.6-sol`. The runner exited
 `1`; its normalized JSON SHA-256 is
 `db9cc39117f47abcea7c2010e13c5ebbfd31064c484b644b1624c5fa5a44f146`.
 That newest result is authoritative and is not converted to a prerequisite
 blocker or pass.
 
-The immediately preceding final-code run failed closed at
+The immediately preceding pre-wrapper final-code run produced the same task,
+reason, exit, and normalized hash. The run before it failed closed at
 `fictional-transfer-baton-api` with the same normalized reason, exit `1`, and
 normalized JSON SHA-256
 `4ddd8f7dae9d2815187fd2c35f31a27606cc949c9d7f49d719ce34e707fa4637`.
@@ -107,13 +108,15 @@ SHA-256
 `915d49e418c020aec1fa8d7b1fae72b4f588d430a6b50d7e315624bb98bc0b99`.
 No alternate model or fallback was attempted.
 
-The runner's 38-case synthetic adversarial suite verifies successful event
+The runner's 44-case synthetic adversarial suite verifies successful event
 pairing, exact canonical root containment, rejection of failed commands,
 directories, globs, bulk or unrelated reads, whole-command rejection of shell
 dataflow and indirect file-list consumers, signed command and nested-mapping
-cwd resolution, closed blocker classification, finally-style executable drift
-overrides, and fictional-signature rejection across every agent message before
-accepting the final bounded result.
+cwd resolution, fail-closed `bash`/`sh`/`zsh` wrapper handling across positional
+and nested payload layouts, an owner-neutral direct-read prompt contract,
+closed blocker classification, finally-style executable drift overrides, and
+fictional-signature rejection across every agent message before accepting the
+final bounded result.
 
 Raw prompts, responses, JSONL, reasoning, tool arguments/results, credentials,
 private configuration, literal host paths, and host diagnostics were neither
