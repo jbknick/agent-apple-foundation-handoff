@@ -40,6 +40,20 @@ TOOL_ITEM_TYPES = {
     "mcp_tool_call",
     "tool_call",
 }
+CODEX_TOOL_ITEM_TYPES = TOOL_ITEM_TYPES | {
+    "collab_tool_call",
+    "file_change",
+    "web_search",
+}
+COMMAND_EVENT_KEYS = {"item", "type"}
+COMMAND_ITEM_KEYS = {
+    "aggregated_output",
+    "command",
+    "exit_code",
+    "id",
+    "status",
+    "type",
+}
 TOOL_INPUT_KEYS = {
     "arguments",
     "command",
@@ -210,6 +224,10 @@ def pairs_without_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
+def reject_json_constant(value: str) -> None:
+    raise ValueError(f"non-standard JSON constant: {value}")
+
+
 def emit_result(payload: dict[str, Any]) -> None:
     print(json.dumps(payload, ensure_ascii=True, separators=(",", ":"), sort_keys=True))
 
@@ -277,22 +295,20 @@ def build_prompt(task_id: str, case: dict[str, Any]) -> str:
     allowed = ", ".join(case["allowedResults"])
     return (
         "This is an explicitly directed reference-selection prerequisite, not "
-        "workflow activation. Inspect the five-file reference library at "
-        f"{REFERENCE_ROOT_RELATIVE}/. Use exactly two separate tool invocations "
-        "for reference access. In the first tool invocation, run one standalone "
-        "direct directory listing of that exact root, with no content read and no "
-        "second command. After that first invocation, from the task semantics and "
-        "the listed basenames, "
-        "independently select the needed canonical owner. In the second tool "
-        "invocation, run one standalone direct existing read command (for "
-        "example, sed -n on only the selected path), with no directory listing or "
-        "second command. Do not combine the directory listing and content read in "
-        "one shell string or tool call. Do not use a shell wrapper, pipes, "
-        "redirection, command chaining, command substitution, xargs, find -exec, "
-        "globs, bulk reads, or any additional reference-access invocation. Do not "
-        "grep or search across the directory, and do not read unrelated reference "
-        "content. Base the classification only on the independently selected "
-        "owner. "
+        "workflow activation. Use exactly two separate tool invocations for "
+        "reference access. In the first tool invocation, run exactly `rg --files "
+        f"{REFERENCE_ROOT_RELATIVE}` with no content read and no second command. "
+        "After that first invocation, from the task semantics and the listed "
+        "basenames, independently select the needed canonical owner. In the "
+        "second tool invocation, run exactly `cat <one-approved-owner-path>` with "
+        "the selected canonical path substituted for the placeholder, with no "
+        "directory listing or second command. Do not combine the directory "
+        "listing and content read in one shell string or tool call. Do not use "
+        "pipes, redirection, command chaining, command substitution, xargs, "
+        "find -exec, globs, bulk reads, alternate commands, additional operands, "
+        "or any additional reference-access invocation. Do not grep or search "
+        "across the directory, and do not read unrelated reference content. Base "
+        "the classification only on the independently selected owner. "
         f"Task {task_id}: {case['question']} Return exactly one JSON object with "
         f"one key named result and one of these values: {allowed}. Return no prose."
     )
@@ -308,7 +324,11 @@ def decode_json_lines(payload: bytes, task_id: str) -> list[dict[str, Any]]:
         if not line:
             continue
         try:
-            event = json.loads(line, object_pairs_hook=pairs_without_duplicates)
+            event = json.loads(
+                line,
+                object_pairs_hook=pairs_without_duplicates,
+                parse_constant=reject_json_constant,
+            )
         except (json.JSONDecodeError, ValueError):
             raise ProbeFailure("invalid_jsonl", task_id) from None
         if not isinstance(event, dict):
@@ -719,6 +739,7 @@ def mapping_reference_reads(
                 decoded = json.loads(
                     value,
                     object_pairs_hook=pairs_without_duplicates,
+                    parse_constant=reject_json_constant,
                 )
             except (json.JSONDecodeError, ValueError):
                 raise ProbeFailure("invalid_tool_event", task_id) from None
@@ -805,12 +826,158 @@ def mapping_reference_reads(
     return observed, read_count
 
 
+def exact_command_items(
+    events: list[dict[str, Any]], task_id: str
+) -> list[dict[str, Any]]:
+    lifecycle: list[tuple[str, dict[str, Any]]] = []
+    for event in events:
+        item = event.get("item")
+        if not isinstance(item, dict):
+            continue
+        item_type = item.get("type")
+        if item_type not in CODEX_TOOL_ITEM_TYPES:
+            continue
+        if item_type != "command_execution":
+            raise ProbeFailure("ambiguous_reference_read", task_id)
+        if set(event) != COMMAND_EVENT_KEYS or set(item) != COMMAND_ITEM_KEYS:
+            raise ProbeFailure("ambiguous_reference_read", task_id)
+        lifecycle.append((str(event.get("type")), item))
+
+    if len(lifecycle) != 4:
+        reason = (
+            "bulk_reference_content_read"
+            if len(lifecycle) > 4
+            else "ambiguous_reference_read"
+        )
+        raise ProbeFailure(reason, task_id)
+
+    completed: list[dict[str, Any]] = []
+    used_identifiers: set[str] = set()
+    for index in range(0, len(lifecycle), 2):
+        started_event_type, started = lifecycle[index]
+        completed_event_type, finished = lifecycle[index + 1]
+        if (
+            started_event_type != "item.started"
+            or completed_event_type != "item.completed"
+        ):
+            raise ProbeFailure("ambiguous_reference_read", task_id)
+
+        identifier = started.get("id")
+        command = started.get("command")
+        if (
+            not isinstance(identifier, str)
+            or not identifier
+            or identifier in used_identifiers
+            or not isinstance(command, str)
+            or not command
+            or started.get("type") != "command_execution"
+            or started.get("status") != "in_progress"
+            or started.get("exit_code") is not None
+            or started.get("aggregated_output") != ""
+        ):
+            raise ProbeFailure("ambiguous_reference_read", task_id)
+        used_identifiers.add(identifier)
+
+        if (
+            finished.get("id") != identifier
+            or finished.get("type") != "command_execution"
+            or finished.get("command") != command
+            or finished.get("status") != "completed"
+            or type(finished.get("exit_code")) is not int
+            or finished.get("exit_code") != 0
+            or not isinstance(finished.get("aggregated_output"), str)
+        ):
+            if (
+                finished.get("status") != "completed"
+                or finished.get("exit_code") != 0
+            ):
+                raise ProbeFailure("command_execution_failed", task_id)
+            raise ProbeFailure("ambiguous_reference_read", task_id)
+        completed.append(finished)
+    return completed
+
+
+def exact_command_script(command: str, task_id: str) -> tuple[str, bool]:
+    discovery = f"rg --files {REFERENCE_ROOT_RELATIVE}"
+    if command == discovery:
+        return command, True
+
+    direct = True
+    script = command
+    try:
+        outer_tokens = shlex.split(command, posix=True)
+    except ValueError:
+        raise ProbeFailure("ambiguous_reference_read", task_id) from None
+    if (
+        len(outer_tokens) == 3
+        and Path(outer_tokens[0]).name in SHELL_WRAPPERS
+        and outer_tokens[1] == "-lc"
+    ):
+        direct = False
+        script = outer_tokens[2]
+
+    try:
+        tokens = shlex.split(script, posix=True)
+    except ValueError:
+        raise ProbeFailure("ambiguous_reference_read", task_id) from None
+    if not direct and tokens == ["rg", "--files", REFERENCE_ROOT_RELATIVE]:
+        return discovery, True
+    if tokens[:1] != ["cat"]:
+        raise ProbeFailure("ambiguous_reference_read", task_id)
+    if len(tokens) != 2:
+        owners = [
+            validate_reference_candidate(
+                token,
+                ROOT,
+                task_id,
+                directory_discovery=False,
+            )
+            for token in tokens[1:]
+        ]
+        if len({owner for owner in owners if owner is not None}) > 1:
+            raise ProbeFailure("reference_selection_mismatch", task_id)
+        raise ProbeFailure("bulk_reference_content_read", task_id)
+
+    owner = validate_reference_candidate(
+        tokens[1],
+        ROOT,
+        task_id,
+        directory_discovery=False,
+    )
+    if owner is None:
+        raise ProbeFailure("ambiguous_reference_read", task_id)
+    exact_read = f"cat {REFERENCE_ROOT_RELATIVE}/{owner}"
+    if (direct and command != exact_read) or (not direct and tokens != exact_read.split()):
+        raise ProbeFailure("ambiguous_reference_read", task_id)
+    return owner, False
+
+
+def exact_reference_reads(
+    events: list[dict[str, Any]], task_id: str
+) -> set[str]:
+    commands = exact_command_items(events, task_id)
+    first_value, first_is_discovery = exact_command_script(
+        str(commands[0]["command"]), task_id
+    )
+    owner, second_is_discovery = exact_command_script(
+        str(commands[1]["command"]), task_id
+    )
+    if not first_is_discovery or second_is_discovery:
+        raise ProbeFailure("ambiguous_reference_read", task_id)
+    if first_value != f"rg --files {REFERENCE_ROOT_RELATIVE}":
+        raise ProbeFailure("ambiguous_reference_read", task_id)
+    return {owner}
+
+
 def observed_reference_reads(
     events: list[dict[str, Any]],
     task_id: str,
     *,
     require_exact_sequence: bool = False,
 ) -> set[str]:
+    if require_exact_sequence:
+        return exact_reference_reads(events, task_id)
+
     observed: set[str] = set()
     read_count = 0
     access_sequence: list[str] = []
@@ -836,16 +1003,6 @@ def observed_reference_reads(
         read_count += item_count
         if read_count > 1:
             raise ProbeFailure("bulk_reference_content_read", task_id)
-    if (
-        require_exact_sequence
-        and tuple(access_sequence) != EXACT_REFERENCE_ACCESS_SEQUENCE
-    ):
-        reason = (
-            "ambiguous_reference_read"
-            if len(access_sequence) < len(EXACT_REFERENCE_ACCESS_SEQUENCE)
-            else "bulk_reference_content_read"
-        )
-        raise ProbeFailure(reason, task_id)
     return observed
 
 
@@ -881,7 +1038,11 @@ def parse_bounded_result(events: list[dict[str, Any]], task_id: str) -> tuple[st
     if response.startswith("```json\n") and response.endswith("\n```"):
         response = response[8:-4].strip()
     try:
-        parsed = json.loads(response, object_pairs_hook=pairs_without_duplicates)
+        parsed = json.loads(
+            response,
+            object_pairs_hook=pairs_without_duplicates,
+            parse_constant=reject_json_constant,
+        )
     except (json.JSONDecodeError, ValueError):
         raise ProbeFailure("malformed_bounded_result", task_id) from None
     if not isinstance(parsed, dict) or set(parsed) != {"result"}:
@@ -912,7 +1073,11 @@ def execution_is_unavailable(stdout: bytes, stderr: bytes) -> bool:
     codes: set[str] = set()
     for line in diagnostic.splitlines():
         try:
-            parsed = json.loads(line, object_pairs_hook=pairs_without_duplicates)
+            parsed = json.loads(
+                line,
+                object_pairs_hook=pairs_without_duplicates,
+                parse_constant=reject_json_constant,
+            )
         except (json.JSONDecodeError, ValueError):
             continue
         codes.update(diagnostic_codes(parsed))
