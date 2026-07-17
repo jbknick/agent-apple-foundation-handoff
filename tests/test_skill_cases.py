@@ -3989,6 +3989,160 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.runner._codex_jsonl_events(stream(events))
 
+    def test_paired_noncommand_items_preserve_immutable_identity_fields(self) -> None:
+        def item_event(event_type: str, item: dict) -> dict:
+            return {"type": event_type, "item": copy.deepcopy(item)}
+
+        def stream(events: list[dict]) -> str:
+            records = [
+                {"type": "thread.started", "thread_id": "thread_synthetic"},
+                {"type": "turn.started"},
+                *events,
+                {"type": "turn.completed", "usage": _codex_usage()},
+            ]
+            return "\n".join(
+                json.dumps(record, sort_keys=True) for record in records
+            )
+
+        items = {
+            "mcp_tool_call": {
+                "id": "mcp_0",
+                "type": "mcp_tool_call",
+                "server": "synthetic",
+                "tool": "lookup",
+                "arguments": {},
+                "result": None,
+                "error": None,
+                "status": "in_progress",
+            },
+            "collab_tool_call": {
+                "id": "collab_0",
+                "type": "collab_tool_call",
+                "tool": "wait",
+                "sender_thread_id": "thread_synthetic",
+                "receiver_thread_ids": [],
+                "prompt": None,
+                "agents_states": {},
+                "status": "in_progress",
+            },
+            "web_search": {
+                "id": "web_0",
+                "type": "web_search",
+                "query": "synthetic",
+                "action": {"type": "other"},
+            },
+            "todo_list": {
+                "id": "todo_0",
+                "type": "todo_list",
+                "items": [{"text": "synthetic", "completed": False}],
+            },
+        }
+
+        mcp_completed = copy.deepcopy(items["mcp_tool_call"])
+        mcp_completed.update(
+            {
+                "result": {
+                    "content": [
+                        {"type": "text", "text": "synthetic result"}
+                    ],
+                    "structured_content": None,
+                },
+                "status": "completed",
+            }
+        )
+        mcp_failed = copy.deepcopy(items["mcp_tool_call"])
+        mcp_failed.update(
+            {
+                "error": {"message": "synthetic failure"},
+                "status": "failed",
+            }
+        )
+        collab_completed = copy.deepcopy(items["collab_tool_call"])
+        collab_completed.update(
+            {
+                "agents_states": {
+                    "thread_worker": {
+                        "status": "completed",
+                        "message": "synthetic completion",
+                    }
+                },
+                "status": "completed",
+            }
+        )
+        todo_updated = copy.deepcopy(items["todo_list"])
+        todo_updated["items"][0]["completed"] = True
+        todo_completed = copy.deepcopy(todo_updated)
+        todo_completed["items"].append(
+            {"text": "synthetic follow-on", "completed": True}
+        )
+
+        valid_controls = {
+            "mcp_status_and_result_change": [
+                item_event("item.started", items["mcp_tool_call"]),
+                item_event("item.completed", mcp_completed),
+            ],
+            "mcp_status_and_error_change": [
+                item_event("item.started", items["mcp_tool_call"]),
+                item_event("item.completed", mcp_failed),
+            ],
+            "collab_status_and_agents_states_change": [
+                item_event("item.started", items["collab_tool_call"]),
+                item_event("item.completed", collab_completed),
+            ],
+            "todo_items_change_through_lifecycle": [
+                item_event("item.started", items["todo_list"]),
+                item_event("item.updated", todo_updated),
+                item_event("item.completed", todo_completed),
+            ],
+        }
+        for name, events in valid_controls.items():
+            with self.subTest(mutable_control=name):
+                parsed = self.runner._codex_jsonl_events(stream(events))
+                self.assertEqual("turn.completed", parsed[-1]["type"])
+
+        immutable_mutations = {
+            "mcp_server": ("mcp_tool_call", {"server": "mutated"}),
+            "mcp_tool": ("mcp_tool_call", {"tool": "fetch"}),
+            "mcp_arguments": (
+                "mcp_tool_call",
+                {"arguments": {"mutated": True}},
+            ),
+            "collab_tool": ("collab_tool_call", {"tool": "send_input"}),
+            "collab_sender_thread_id": (
+                "collab_tool_call",
+                {"sender_thread_id": "thread_mutated"},
+            ),
+            "collab_receiver_thread_ids": (
+                "collab_tool_call",
+                {"receiver_thread_ids": ["thread_mutated"]},
+            ),
+            "collab_prompt": (
+                "collab_tool_call",
+                {"prompt": "mutated prompt"},
+            ),
+            "web_search_query": ("web_search", {"query": "mutated"}),
+            "web_search_action": (
+                "web_search",
+                {"action": {"type": "search", "query": "mutated"}},
+            ),
+        }
+        for name, (item_type, mutation) in immutable_mutations.items():
+            started = items[item_type]
+            completed = copy.deepcopy(started)
+            completed.update(mutation)
+            if item_type in {"mcp_tool_call", "collab_tool_call"}:
+                completed["status"] = "completed"
+            with self.subTest(immutable_identity=name):
+                with self.assertRaises(ValueError):
+                    self.runner._codex_jsonl_events(
+                        stream(
+                            [
+                                item_event("item.started", started),
+                                item_event("item.completed", completed),
+                            ]
+                        )
+                    )
+
     def test_nonstandard_json_constants_fail_closed_in_jsonl_and_parser_inputs(self) -> None:
         constants = {
             "NaN": float("nan"),
@@ -4220,6 +4374,130 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                     "fail",
                     observation["assertions"]["review_first_ordering"],
                 )
+
+    def test_live_score_rejects_generic_straight_and_curly_contracted_negations(self) -> None:
+        case = _forward_fixture("DEV136-FWD-REVIEW-001")["cases"][0]
+        with self.subTest(control="authorized_follow_on"):
+            observation = self.runner.live_score(
+                case,
+                _canonical_live_response(case),
+                [],
+            )
+            self.assertEqual(
+                "pass",
+                observation["assertions"]["review_first_ordering"],
+            )
+
+        negated_boundaries = {
+            "straight_shouldnt": (
+                "A separate authorized follow-on boundary shouldn't exist."
+            ),
+            "straight_hasnt": (
+                "A separate authorized follow-on boundary hasn't been established."
+            ),
+            "straight_wont": (
+                "A separate authorized follow-on boundary won't be required."
+            ),
+            "straight_wouldnt": (
+                "A separate authorized follow-on boundary wouldn't be required."
+            ),
+            "straight_neednt": (
+                "A separate authorized follow-on boundary needn't be repeated."
+            ),
+            "curly_shouldnt": (
+                "A separate authorized follow-on boundary shouldn’t exist."
+            ),
+            "curly_hasnt": (
+                "A separate authorized follow-on boundary hasn’t been established."
+            ),
+            "curly_wont": (
+                "A separate authorized follow-on boundary won’t be required."
+            ),
+            "curly_wouldnt": (
+                "A separate authorized follow-on boundary wouldn’t be required."
+            ),
+            "curly_neednt": (
+                "A separate authorized follow-on boundary needn’t be repeated."
+            ),
+        }
+        for contraction, review_boundary in negated_boundaries.items():
+            with self.subTest(contracted_negation=contraction):
+                observation = self.runner.live_score(
+                    case,
+                    _canonical_live_response(
+                        case, review_boundary=review_boundary
+                    ),
+                    [],
+                )
+                self.assertEqual(
+                    "fail",
+                    observation["assertions"]["review_first_ordering"],
+                )
+
+    def test_live_score_rejects_quoted_padded_version_placeholders(self) -> None:
+        case = _forward_fixture("DEV136-FWD-REVIEW-001")["cases"][0]
+
+        def response_with_versions(
+            state_version: str,
+            policy_version: str,
+        ) -> bytes:
+            response = _canonical_live_response(case).decode("utf-8")
+            response = response.replace(
+                'stateVersion: "state-v1"',
+                f"stateVersion: {state_version}",
+            )
+            response = response.replace(
+                'policyVersion: "policy-v1"',
+                f"policyVersion: {policy_version}",
+            )
+            return response.encode("utf-8")
+
+        quote_pairs = {
+            "ascii_single": ("'", "'"),
+            "ascii_double": ('"', '"'),
+            "typographic_single": ("‘", "’"),
+            "typographic_double": ("“", "”"),
+        }
+        for quote_name, (opening, closing) in quote_pairs.items():
+            with self.subTest(quoted_version_control=quote_name):
+                observation = self.runner.live_score(
+                    case,
+                    response_with_versions(
+                        f"{opening}state-v2{closing}",
+                        f"{opening}policy-v3{closing}",
+                    ),
+                    [],
+                )
+                self.assertEqual(
+                    "pass",
+                    observation["assertions"]["independent_version_labels"],
+                )
+
+            for placeholder in (
+                "not specified",
+                "unchanged existing version",
+            ):
+                quoted_placeholder = (
+                    f"{opening} {placeholder} {closing}"
+                )
+                with self.subTest(
+                    quote=quote_name,
+                    version_placeholder=placeholder,
+                ):
+                    observation = self.runner.live_score(
+                        case,
+                        response_with_versions(
+                            quoted_placeholder,
+                            quoted_placeholder,
+                        ),
+                        [],
+                    )
+                    self.assertEqual(
+                        "fail",
+                        observation["assertions"][
+                            "independent_version_labels"
+                        ],
+                    )
 
     def test_model_unavailable_is_bound_to_exact_model_and_diagnostic_grammar(self) -> None:
         def completed(*, stderr: str = "", stdout: str = ""):
