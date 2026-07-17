@@ -2,7 +2,7 @@
 
 Issue: [DEV-135](https://linear.app/devprentice/issue/DEV-135)
 
-Status: approved in brainstorming on 2026-07-17; written-spec review pending
+Status: approved in brainstorming and written-spec review on 2026-07-17
 
 ## Objective
 
