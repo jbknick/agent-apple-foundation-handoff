@@ -50,6 +50,7 @@ TOOL_INPUT_KEYS = {
     "workdir",
 }
 DISCOVERY_COMMANDS = {"fd", "find", "ls"}
+SHELL_CONTROL_CHARACTERS = frozenset("();<>|&")
 CONTENT_COMMANDS = {
     "awk",
     "cat",
@@ -317,37 +318,60 @@ def paired_successful_tool_items(
     return completed
 
 
-def shell_tokens(command: str, task_id: str) -> list[str]:
+def parsed_shell_command(command: str, task_id: str) -> tuple[str, list[str]]:
     try:
-        lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|")
+        lexer = shlex.shlex(
+            command,
+            posix=True,
+            punctuation_chars="".join(sorted(SHELL_CONTROL_CHARACTERS)),
+        )
         lexer.whitespace_split = True
         lexer.commenters = ""
         tokens = list(lexer)
     except ValueError:
         raise ProbeFailure("unparseable_reference_command", task_id) from None
     if not tokens:
-        return []
+        return command, []
     executable = Path(tokens[0]).name
     if executable in {"bash", "sh", "zsh"}:
         command_options = tokens[1:-1]
         if any(option.startswith("-") and "c" in option for option in command_options):
-            return shell_tokens(tokens[-1], task_id)
-    return tokens
+            return parsed_shell_command(tokens[-1], task_id)
+    return command, tokens
 
 
-def shell_segments(tokens: list[str]) -> list[list[str]]:
-    segments: list[list[str]] = []
-    current: list[str] = []
-    for token in tokens:
-        if token in {"&&", "||", ";", "|"}:
-            if current:
-                segments.append(current)
-                current = []
+def shell_tokens(command: str, task_id: str) -> list[str]:
+    return parsed_shell_command(command, task_id)[1]
+
+
+def shell_syntax_flags(command: str) -> tuple[bool, bool]:
+    single_quoted = False
+    double_quoted = False
+    escaped = False
+    has_control = False
+    has_command_substitution = False
+    for index, character in enumerate(command):
+        if escaped:
+            escaped = False
             continue
-        current.append(token)
-    if current:
-        segments.append(current)
-    return segments
+        if character == "\\" and not single_quoted:
+            escaped = True
+            continue
+        if character == "'" and not double_quoted:
+            single_quoted = not single_quoted
+            continue
+        if character == '"' and not single_quoted:
+            double_quoted = not double_quoted
+            continue
+        if single_quoted:
+            continue
+        if character == "`" or (
+            character == "$" and command[index : index + 2] == "$("
+        ):
+            has_command_substitution = True
+        if not double_quoted and character in SHELL_CONTROL_CHARACTERS:
+            has_control = True
+    return has_control, has_command_substitution
 
 
 def is_reference_path_token(token: str) -> bool:
@@ -408,44 +432,70 @@ def validate_reference_candidate(
     return relative.name if not directory_discovery else None
 
 
-def command_reference_reads(command: str, task_id: str) -> set[str]:
+def declared_working_directory(
+    value: dict[str, Any],
+    base: Path,
+    task_id: str,
+) -> Path:
+    declared: list[Path] = []
+    for key in ("cwd", "workdir"):
+        if key not in value:
+            continue
+        candidate = value[key]
+        if not isinstance(candidate, str):
+            raise ProbeFailure("invalid_tool_event", task_id)
+        declared.append(resolve_candidate_path(candidate, base, task_id))
+    if not declared:
+        return base.resolve(strict=False)
+    if any(candidate != declared[0] for candidate in declared[1:]):
+        raise ProbeFailure("invalid_tool_event", task_id)
+    return declared[0]
+
+
+def command_reference_reads(
+    command: str,
+    task_id: str,
+    base: Path = ROOT,
+) -> set[str]:
     observed: set[str] = set()
-    current_directory = ROOT.resolve(strict=True)
-    for segment in shell_segments(shell_tokens(command, task_id)):
-        if not segment:
-            continue
-        executable = Path(segment[0]).name
-        arguments = segment[1:]
-        if executable == "cd":
-            if len(arguments) != 1:
-                raise ProbeFailure("unparseable_reference_command", task_id)
-            current_directory = resolve_candidate_path(
-                arguments[0], current_directory, task_id
-            )
-            continue
-        path_tokens = [token for token in arguments if is_reference_path_token(token)]
-        if not path_tokens:
-            continue
-        is_rg_discovery = executable == "rg" and "--files" in arguments
-        directory_discovery = executable in DISCOVERY_COMMANDS or is_rg_discovery
-        if directory_discovery:
-            if any(
-                marker in arguments
-                for marker in ("-exec", "-execdir", "-delete")
-            ):
-                raise ProbeFailure("bulk_reference_content_read", task_id)
-        elif executable not in CONTENT_COMMANDS:
-            raise ProbeFailure("ambiguous_reference_read", task_id)
-        for token in path_tokens:
-            name = validate_reference_candidate(
-                token,
-                current_directory,
-                task_id,
-                directory_discovery=directory_discovery,
-                bulk_directory_read=executable in {"grep", "rg"},
-            )
-            if name is not None:
-                observed.add(name)
+    effective_command, tokens = parsed_shell_command(command, task_id)
+    if not tokens:
+        return observed
+    reference_relevant = any(is_reference_path_token(token) for token in tokens)
+    has_control, has_command_substitution = shell_syntax_flags(effective_command)
+    has_xargs = Path(tokens[0]).name == "xargs"
+    if has_xargs:
+        raise ProbeFailure("ambiguous_reference_read", task_id)
+    if reference_relevant and (has_control or has_command_substitution):
+        raise ProbeFailure("bulk_reference_content_read", task_id)
+    if has_control or has_command_substitution:
+        return observed
+
+    executable = Path(tokens[0]).name
+    arguments = tokens[1:]
+    path_tokens = [token for token in arguments if is_reference_path_token(token)]
+    if not path_tokens:
+        return observed
+    is_rg_discovery = executable == "rg" and "--files" in arguments
+    directory_discovery = executable in DISCOVERY_COMMANDS or is_rg_discovery
+    if directory_discovery:
+        if any(
+            marker in arguments for marker in ("-exec", "-execdir", "-delete")
+        ):
+            raise ProbeFailure("bulk_reference_content_read", task_id)
+    elif executable not in CONTENT_COMMANDS:
+        raise ProbeFailure("ambiguous_reference_read", task_id)
+    current_directory = base.resolve(strict=False)
+    for token in path_tokens:
+        name = validate_reference_candidate(
+            token,
+            current_directory,
+            task_id,
+            directory_discovery=directory_discovery,
+            bulk_directory_read=executable in {"grep", "rg"},
+        )
+        if name is not None:
+            observed.add(name)
     return observed
 
 
@@ -491,11 +541,7 @@ def mapping_reference_reads(
         return observed
     if not isinstance(value, dict):
         return observed
-    local_base = base
-    for key in ("cwd", "workdir"):
-        candidate = value.get(key)
-        if isinstance(candidate, str):
-            local_base = resolve_candidate_path(candidate, base, task_id)
+    local_base = declared_working_directory(value, base, task_id)
     for key, nested in value.items():
         if key in {"cwd", "workdir"}:
             continue
@@ -509,7 +555,7 @@ def mapping_reference_reads(
             if name is not None:
                 observed.add(name)
         elif key == "command" and isinstance(nested, str):
-            observed.update(command_reference_reads(nested, task_id))
+            observed.update(command_reference_reads(nested, task_id, local_base))
         else:
             observed.update(mapping_reference_reads(nested, local_base, task_id))
     return observed
@@ -524,7 +570,8 @@ def observed_reference_reads(
             command = item.get("command")
             if not isinstance(command, str):
                 raise ProbeFailure("invalid_tool_event", task_id)
-            observed.update(command_reference_reads(command, task_id))
+            base = declared_working_directory(item, ROOT, task_id)
+            observed.update(command_reference_reads(command, task_id, base))
         else:
             inputs = {key: item[key] for key in TOOL_INPUT_KEYS if key in item}
             observed.update(mapping_reference_reads(inputs, ROOT, task_id))
@@ -769,12 +816,16 @@ class DirectedReferenceProbeTests(unittest.TestCase):
         identifier: str = "command-1",
         completion_status: str = "completed",
         exit_code: int = 0,
+        cwd: str | None = None,
     ) -> list[dict[str, Any]]:
+        inputs = {"command": command}
+        if cwd is not None:
+            inputs["cwd"] = cwd
         return [
             {
                 "type": "item.started",
                 "item": {
-                    "command": command,
+                    **inputs,
                     "id": identifier,
                     "status": "in_progress",
                     "type": "command_execution",
@@ -783,7 +834,7 @@ class DirectedReferenceProbeTests(unittest.TestCase):
             {
                 "type": "item.completed",
                 "item": {
-                    "command": command,
+                    **inputs,
                     "exit_code": exit_code,
                     "id": identifier,
                     "status": completion_status,
@@ -821,6 +872,15 @@ class DirectedReferenceProbeTests(unittest.TestCase):
             observed_reference_reads(events, "synthetic-case")
         self.assertEqual(expected_reason, raised.exception.reason)
 
+    def assert_probe_failure_in(
+        self,
+        events: list[dict[str, Any]],
+        expected_reasons: set[str],
+    ) -> None:
+        with self.assertRaises(ProbeFailure) as raised:
+            observed_reference_reads(events, "synthetic-case")
+        self.assertIn(raised.exception.reason, expected_reasons)
+
     def test_successful_paired_relative_owner_read_is_accepted(self):
         owner = f"{REFERENCE_ROOT_RELATIVE}/apple-api-availability.md"
         events = self.command_events(f"sed -n '1,40p' {owner}")
@@ -828,6 +888,132 @@ class DirectedReferenceProbeTests(unittest.TestCase):
             {"apple-api-availability.md"},
             observed_reference_reads(events, "synthetic-case"),
         )
+
+    def test_find_xargs_bulk_read_cannot_be_hidden_by_later_owner_read(self):
+        owner = f"{REFERENCE_ROOT_RELATIVE}/apple-api-availability.md"
+        command = (
+            f"find {REFERENCE_ROOT_RELATIVE} -type f -print0 | "
+            f"xargs -0 cat ; sed -n '1,40p' {owner}"
+        )
+        self.assert_probe_failure_in(
+            self.command_events(command),
+            {"ambiguous_reference_read", "bulk_reference_content_read"},
+        )
+
+    def test_redirected_file_list_read_cannot_be_hidden_by_owner_read(self):
+        owner = f"{REFERENCE_ROOT_RELATIVE}/apple-api-availability.md"
+        command = (
+            f"ls {REFERENCE_ROOT_RELATIVE} > /tmp/refs ; "
+            f"xargs cat < /tmp/refs ; sed -n '1,40p' {owner}"
+        )
+        self.assert_probe_failure_in(
+            self.command_events(command),
+            {"ambiguous_reference_read", "bulk_reference_content_read"},
+        )
+
+    def test_nested_mapping_rejects_indirect_reference_dataflow(self):
+        owner = f"{REFERENCE_ROOT_RELATIVE}/apple-api-availability.md"
+        commands = (
+            (
+                f"find {REFERENCE_ROOT_RELATIVE} -type f -print0 | "
+                f"xargs -0 cat ; sed -n '1,40p' {owner}"
+            ),
+            (
+                f"ls {REFERENCE_ROOT_RELATIVE} > /tmp/refs ; "
+                f"xargs cat < /tmp/refs ; sed -n '1,40p' {owner}"
+            ),
+        )
+        for index, command in enumerate(commands):
+            nested = {"payload": {"cwd": str(ROOT), "command": command}}
+            arguments: object = nested if index == 0 else json.dumps(nested)
+            with self.subTest(command=command):
+                self.assert_probe_failure_in(
+                    self.tool_events("mcp_tool_call", {"arguments": arguments}),
+                    {"ambiguous_reference_read", "bulk_reference_content_read"},
+                )
+
+    def test_shell_dataflow_operators_and_indirect_readers_fail_closed(self):
+        owner = f"{REFERENCE_ROOT_RELATIVE}/apple-api-availability.md"
+        commands = {
+            "pipe": f"cat {owner} | wc -l",
+            "output_redirection": f"cat {owner} > /tmp/reference-copy",
+            "input_redirection": f"cat < {owner}",
+            "semicolon": f"cat {owner} ; true",
+            "and_if": f"cat {owner} && true",
+            "or_if": f"cat {owner} || true",
+            "subshell": f"cat $(find {REFERENCE_ROOT_RELATIVE} -type f)",
+            "backtick": f"cat `find {REFERENCE_ROOT_RELATIVE} -type f`",
+            "xargs": f"xargs cat {owner}",
+            "find_exec": (
+                f"find {REFERENCE_ROOT_RELATIVE} -type f -exec cat {{}} +"
+            ),
+        }
+        for name, command in commands.items():
+            with self.subTest(name=name):
+                self.assert_probe_failure_in(
+                    self.command_events(command),
+                    {"ambiguous_reference_read", "bulk_reference_content_read"},
+                )
+
+    def test_quoted_regex_punctuation_is_not_shell_dataflow(self):
+        owner = f"{REFERENCE_ROOT_RELATIVE}/apple-api-availability.md"
+        for pattern in ("[;|&<>]", "|", "&&", ">", "<", ";"):
+            command = f"rg -n {shlex.quote(pattern)} {owner}"
+            with self.subTest(pattern=pattern):
+                self.assertEqual(
+                    {"apple-api-availability.md"},
+                    observed_reference_reads(
+                        self.command_events(command), "synthetic-case"
+                    ),
+                )
+
+    def test_command_event_cwd_resolves_direct_relative_owner(self):
+        events = self.command_events(
+            "sed -n '1,40p' apple-api-availability.md",
+            cwd=str(REFERENCE_ROOT),
+        )
+        self.assertEqual(
+            {"apple-api-availability.md"},
+            observed_reference_reads(events, "synthetic-case"),
+        )
+
+    def test_command_event_outside_cwd_rejects_relative_owner(self):
+        events = self.command_events(
+            "sed -n '1,40p' apple-api-availability.md",
+            cwd="/tmp",
+        )
+        self.assert_probe_failure(events, "reference_path_outside_package")
+
+    def test_command_event_cwd_is_part_of_the_signed_pair(self):
+        events = self.command_events(
+            "sed -n '1,40p' apple-api-availability.md",
+            cwd=str(REFERENCE_ROOT),
+        )
+        events[1]["item"]["cwd"] = "/tmp"
+        self.assert_probe_failure(events, "unpaired_command_event")
+
+    def test_nested_mapping_cwd_resolves_direct_relative_owner(self):
+        arguments = {
+            "payload": {
+                "cwd": str(REFERENCE_ROOT),
+                "command": "sed -n '1,40p' apple-api-availability.md",
+            }
+        }
+        events = self.tool_events("mcp_tool_call", {"arguments": arguments})
+        self.assertEqual(
+            {"apple-api-availability.md"},
+            observed_reference_reads(events, "synthetic-case"),
+        )
+
+    def test_nested_mapping_outside_cwd_rejects_relative_owner(self):
+        arguments = {
+            "payload": {
+                "cwd": "/tmp",
+                "command": "sed -n '1,40p' apple-api-availability.md",
+            }
+        }
+        events = self.tool_events("mcp_tool_call", {"arguments": arguments})
+        self.assert_probe_failure(events, "reference_path_outside_package")
 
     def test_json_string_tool_arguments_resolve_one_exact_owner(self):
         arguments = json.dumps(
@@ -878,9 +1064,9 @@ class DirectedReferenceProbeTests(unittest.TestCase):
             f"cd {REFERENCE_ROOT_RELATIVE} && "
             "cat /tmp/apple-api-availability.md"
         )
-        self.assert_probe_failure(
+        self.assert_probe_failure_in(
             self.command_events(command),
-            "reference_path_outside_package",
+            {"ambiguous_reference_read", "bulk_reference_content_read"},
         )
 
     def test_parent_escape_is_rejected_after_path_resolution(self):
