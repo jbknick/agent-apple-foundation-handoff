@@ -64,18 +64,25 @@
         "Proposed Components",
         "Implementation and Test Plan"
       ],
-      "expectedGuardrails": [
-        "D-ROUTE-001",
-        "D-OWNER-001",
-        "D-TRANSITION-001",
-        "D-CONTEXT-001",
-        "D-CONTEXT-002",
-        "D-GRANT-001",
-        "D-PHASE-001",
-        "D-FALLBACK-001",
-        "D-EVIDENCE-001",
-        "D-RUBRIC-001"
-      ],
+      "expectedGuardrails": {
+        "applicable": [
+          "D-ROUTE-001",
+          "D-OWNER-001",
+          "D-TRANSITION-001",
+          "D-CONTEXT-001",
+          "D-CONTEXT-002",
+          "D-GRANT-001",
+          "D-PHASE-001",
+          "D-FALLBACK-001",
+          "D-EVIDENCE-001",
+          "D-RUBRIC-001"
+        ],
+        "not_applicable": [
+          "D-TOOL-001",
+          "D-EFFECT-001",
+          "D-EFFECT-002"
+        ]
+      },
       "fullWalkthrough": true,
       "resolution": "baton_pass_destination_owner_selected"
     },
@@ -111,20 +118,23 @@
         "Limitations",
         "Findings"
       ],
-      "expectedGuardrails": [
-        "D-OWNER-001",
-        "D-TRANSITION-001",
-        "D-TOOL-001",
-        "D-CONTEXT-001",
-        "D-CONTEXT-002",
-        "D-GRANT-001",
-        "D-PHASE-001",
-        "D-EFFECT-001",
-        "D-EFFECT-002",
-        "D-FALLBACK-001",
-        "D-EVIDENCE-001",
-        "D-RUBRIC-001"
-      ],
+      "expectedGuardrails": {
+        "applicable": [
+          "D-OWNER-001",
+          "D-TRANSITION-001",
+          "D-TOOL-001",
+          "D-CONTEXT-001",
+          "D-CONTEXT-002",
+          "D-GRANT-001",
+          "D-PHASE-001",
+          "D-EFFECT-001",
+          "D-EFFECT-002",
+          "D-FALLBACK-001",
+          "D-EVIDENCE-001",
+          "D-RUBRIC-001"
+        ],
+        "not_applicable": []
+      },
       "fullWalkthrough": true,
       "resolution": "reject_flawed_reducer_with_findings"
     },
@@ -163,19 +173,22 @@
         "Changed Paths",
         "Compilation and Regression Results"
       ],
-      "expectedGuardrails": [
-        "D-SCHEMA-001",
-        "D-ROUTE-001",
-        "D-OWNER-001",
-        "D-TRANSITION-001",
-        "D-CONTEXT-001",
-        "D-CONTEXT-002",
-        "D-GRANT-001",
-        "D-PHASE-001",
-        "D-FALLBACK-001",
-        "D-EVIDENCE-001",
-        "D-RUBRIC-001"
-      ],
+      "expectedGuardrails": {
+        "applicable": [
+          "D-SCHEMA-001",
+          "D-ROUTE-001",
+          "D-OWNER-001",
+          "D-TRANSITION-001",
+          "D-CONTEXT-001",
+          "D-CONTEXT-002",
+          "D-GRANT-001",
+          "D-PHASE-001",
+          "D-FALLBACK-001",
+          "D-EVIDENCE-001",
+          "D-RUBRIC-001"
+        ],
+        "not_applicable": []
+      },
       "fullWalkthrough": false,
       "resolution": "bounded_approved_contract_change"
     },
@@ -213,22 +226,25 @@
         "Correction",
         "Regression Proof"
       ],
-      "expectedGuardrails": [
-        "D-SCHEMA-001",
-        "D-ROUTE-001",
-        "D-OWNER-001",
-        "D-TRANSITION-001",
-        "D-TOOL-001",
-        "D-CONTEXT-001",
-        "D-CONTEXT-002",
-        "D-GRANT-001",
-        "D-PHASE-001",
-        "D-EFFECT-001",
-        "D-EFFECT-002",
-        "D-FALLBACK-001",
-        "D-EVIDENCE-001",
-        "D-RUBRIC-001"
-      ],
+      "expectedGuardrails": {
+        "applicable": [
+          "D-SCHEMA-001",
+          "D-ROUTE-001",
+          "D-OWNER-001",
+          "D-TRANSITION-001",
+          "D-TOOL-001",
+          "D-CONTEXT-001",
+          "D-CONTEXT-002",
+          "D-GRANT-001",
+          "D-PHASE-001",
+          "D-EFFECT-001",
+          "D-EFFECT-002",
+          "D-FALLBACK-001",
+          "D-EVIDENCE-001",
+          "D-RUBRIC-001"
+        ],
+        "not_applicable": []
+      },
       "fullWalkthrough": false,
       "resolution": "recovery_required_reconciliation_without_replay"
     },
@@ -268,22 +284,25 @@
         "Blockers and Skips",
         "Release Implication"
       ],
-      "expectedGuardrails": [
-        "D-SCHEMA-001",
-        "D-ROUTE-001",
-        "D-OWNER-001",
-        "D-TRANSITION-001",
-        "D-TOOL-001",
-        "D-CONTEXT-001",
-        "D-CONTEXT-002",
-        "D-GRANT-001",
-        "D-PHASE-001",
-        "D-EFFECT-001",
-        "D-EFFECT-002",
-        "D-FALLBACK-001",
-        "D-EVIDENCE-001",
-        "D-RUBRIC-001"
-      ],
+      "expectedGuardrails": {
+        "applicable": [
+          "D-SCHEMA-001",
+          "D-ROUTE-001",
+          "D-OWNER-001",
+          "D-TRANSITION-001",
+          "D-TOOL-001",
+          "D-CONTEXT-001",
+          "D-CONTEXT-002",
+          "D-GRANT-001",
+          "D-PHASE-001",
+          "D-EFFECT-001",
+          "D-EFFECT-002",
+          "D-FALLBACK-001",
+          "D-EVIDENCE-001",
+          "D-RUBRIC-001"
+        ],
+        "not_applicable": []
+      },
       "fullWalkthrough": false,
       "resolution": "proof_matrix_without_edits"
     },
@@ -322,18 +341,21 @@
         "Proposed Components",
         "Implementation and Test Plan"
       ],
-      "expectedGuardrails": [
-        "D-ROUTE-001",
-        "D-OWNER-001",
-        "D-TRANSITION-001",
-        "D-CONTEXT-001",
-        "D-CONTEXT-002",
-        "D-GRANT-001",
-        "D-PHASE-001",
-        "D-FALLBACK-001",
-        "D-EVIDENCE-001",
-        "D-RUBRIC-001"
-      ],
+      "expectedGuardrails": {
+        "applicable": [
+          "D-ROUTE-001",
+          "D-OWNER-001",
+          "D-TRANSITION-001",
+          "D-CONTEXT-001",
+          "D-CONTEXT-002",
+          "D-GRANT-001",
+          "D-PHASE-001",
+          "D-FALLBACK-001",
+          "D-EVIDENCE-001",
+          "D-RUBRIC-001"
+        ],
+        "not_applicable": []
+      },
       "fullWalkthrough": false,
       "resolution": "isolated_consultation_parent_owner_selected"
     },
@@ -351,9 +373,12 @@
       },
       "expectedReferences": [],
       "expectedOutputSections": [],
-      "expectedGuardrails": [
-        "D-ROUTE-001"
-      ],
+      "expectedGuardrails": {
+        "applicable": [
+          "D-ROUTE-001"
+        ],
+        "not_applicable": []
+      },
       "fullWalkthrough": false,
       "resolution": "reject_out_of_domain"
     },
@@ -371,9 +396,12 @@
       },
       "expectedReferences": [],
       "expectedOutputSections": [],
-      "expectedGuardrails": [
-        "D-ROUTE-001"
-      ],
+      "expectedGuardrails": {
+        "applicable": [
+          "D-ROUTE-001"
+        ],
+        "not_applicable": []
+      },
       "fullWalkthrough": false,
       "resolution": "reject_out_of_domain"
     },
@@ -391,9 +419,12 @@
       },
       "expectedReferences": [],
       "expectedOutputSections": [],
-      "expectedGuardrails": [
-        "D-ROUTE-001"
-      ],
+      "expectedGuardrails": {
+        "applicable": [
+          "D-ROUTE-001"
+        ],
+        "not_applicable": []
+      },
       "fullWalkthrough": false,
       "resolution": "reject_out_of_domain"
     },
@@ -411,9 +442,12 @@
       },
       "expectedReferences": [],
       "expectedOutputSections": [],
-      "expectedGuardrails": [
-        "D-ROUTE-001"
-      ],
+      "expectedGuardrails": {
+        "applicable": [
+          "D-ROUTE-001"
+        ],
+        "not_applicable": []
+      },
       "fullWalkthrough": false,
       "resolution": "reject_out_of_domain"
     },
@@ -431,9 +465,12 @@
       },
       "expectedReferences": [],
       "expectedOutputSections": [],
-      "expectedGuardrails": [
-        "D-ROUTE-001"
-      ],
+      "expectedGuardrails": {
+        "applicable": [
+          "D-ROUTE-001"
+        ],
+        "not_applicable": []
+      },
       "fullWalkthrough": false,
       "resolution": "reject_out_of_domain"
     },
@@ -451,9 +488,12 @@
       },
       "expectedReferences": [],
       "expectedOutputSections": [],
-      "expectedGuardrails": [
-        "D-ROUTE-001"
-      ],
+      "expectedGuardrails": {
+        "applicable": [
+          "D-ROUTE-001"
+        ],
+        "not_applicable": []
+      },
       "fullWalkthrough": false,
       "resolution": "reject_out_of_domain"
     },
@@ -471,9 +511,12 @@
       },
       "expectedReferences": [],
       "expectedOutputSections": [],
-      "expectedGuardrails": [
-        "D-ROUTE-001"
-      ],
+      "expectedGuardrails": {
+        "applicable": [
+          "D-ROUTE-001"
+        ],
+        "not_applicable": []
+      },
       "fullWalkthrough": false,
       "resolution": "bounded_domain_clarification"
     },
@@ -491,9 +534,12 @@
       },
       "expectedReferences": [],
       "expectedOutputSections": [],
-      "expectedGuardrails": [
-        "D-ROUTE-001"
-      ],
+      "expectedGuardrails": {
+        "applicable": [
+          "D-ROUTE-001"
+        ],
+        "not_applicable": []
+      },
       "fullWalkthrough": false,
       "resolution": "bounded_contract_clarification"
     },
@@ -529,21 +575,24 @@
         "Limitations",
         "Findings"
       ],
-      "expectedGuardrails": [
-        "D-ROUTE-001",
-        "D-OWNER-001",
-        "D-TRANSITION-001",
-        "D-TOOL-001",
-        "D-CONTEXT-001",
-        "D-CONTEXT-002",
-        "D-GRANT-001",
-        "D-PHASE-001",
-        "D-EFFECT-001",
-        "D-EFFECT-002",
-        "D-FALLBACK-001",
-        "D-EVIDENCE-001",
-        "D-RUBRIC-001"
-      ],
+      "expectedGuardrails": {
+        "applicable": [
+          "D-ROUTE-001",
+          "D-OWNER-001",
+          "D-TRANSITION-001",
+          "D-TOOL-001",
+          "D-CONTEXT-001",
+          "D-CONTEXT-002",
+          "D-GRANT-001",
+          "D-PHASE-001",
+          "D-EFFECT-001",
+          "D-EFFECT-002",
+          "D-FALLBACK-001",
+          "D-EVIDENCE-001",
+          "D-RUBRIC-001"
+        ],
+        "not_applicable": []
+      },
       "fullWalkthrough": false,
       "resolution": "documented_default_review_first"
     }
