@@ -34,6 +34,10 @@ CODEX_MARKETPLACE = Path(".agents/plugins/marketplace.json")
 GENERATED_PATHS = (Path("AGENTS.md"), CODEX_MARKETPLACE, CODEX_MANIFEST)
 EXPECTED_SOURCE = "./plugins/apple-foundation-models-handoff"
 EXPECTED_VERSION = "0.1.0"
+ROOT_AGENTS_TEMP_PREFIX = ".AGENTS.md."
+ROOT_AGENTS_TEMP_SUFFIX = ".tmp"
+ROOT_AGENTS_TEMP_TOKEN_LENGTH = 32
+LOWERCASE_HEX = frozenset("0123456789abcdef")
 
 
 @dataclass(frozen=True)
@@ -745,6 +749,39 @@ def _scan_directory(
 
 
 def _scan_generated_namespaces(root: Path) -> None:
+    root_descriptor: int | None = None
+    try:
+        root_descriptor = _open_directory_chain(root, Path(), create=False)
+        if root_descriptor is None:
+            raise GeneratedOutputError(Path("AGENTS.md"))
+        with os.scandir(root_descriptor) as entries:
+            for entry in entries:
+                name = entry.name
+                if not name.startswith(ROOT_AGENTS_TEMP_PREFIX):
+                    continue
+                if not name.endswith(ROOT_AGENTS_TEMP_SUFFIX):
+                    continue
+                token = name[
+                    len(ROOT_AGENTS_TEMP_PREFIX) : -len(ROOT_AGENTS_TEMP_SUFFIX)
+                ]
+                if (
+                    len(token) == ROOT_AGENTS_TEMP_TOKEN_LENGTH
+                    and all(character in LOWERCASE_HEX for character in token)
+                ):
+                    raise UnexpectedGeneratedPath
+    except UnexpectedGeneratedPath:
+        raise
+    except GeneratedOutputError:
+        raise
+    except OSError as error:
+        raise GeneratedOutputError(Path("AGENTS.md")) from error
+    finally:
+        if root_descriptor is not None:
+            try:
+                os.close(root_descriptor)
+            except OSError as error:
+                raise GeneratedOutputError(Path("AGENTS.md")) from error
+
     allowed = set(GENERATED_PATHS)
     for namespace, generated_path in (
         (CODEX_MARKETPLACE.parent, CODEX_MARKETPLACE),

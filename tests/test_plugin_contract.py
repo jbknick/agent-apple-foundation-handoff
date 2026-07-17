@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 from pathlib import Path
 import shutil
 import stat
+import sys
 import tempfile
 import unittest
 
@@ -38,6 +40,17 @@ FORBIDDEN_SURFACES = (
     "scripts",
     "assets",
 )
+SYNC_SCRIPT = ROOT / "scripts" / "sync_generated_artifacts.py"
+
+
+sync_spec = importlib.util.spec_from_file_location(
+    "sync_generated_artifacts_contract_tests", SYNC_SCRIPT
+)
+if sync_spec is None or sync_spec.loader is None:
+    raise RuntimeError("unable to load generated-artifact synchronization module")
+sync = importlib.util.module_from_spec(sync_spec)
+sys.modules[sync_spec.name] = sync
+sync_spec.loader.exec_module(sync)
 
 
 def load_json(relative_path: str) -> dict[str, object]:
@@ -175,16 +188,157 @@ class PluginContractTests(unittest.TestCase):
         for field in ("hooks", "mcpServers", "apps", "commands", "agents"):
             self.assertNotIn(field, generated)
 
-    def test_input_schemas_are_closed_and_bounded(self):
+    def test_input_schemas_match_closed_custom_validator_contracts(self):
         interface = load_json("schemas/codex-interface-input.schema.json")
         marketplace = load_json("schemas/codex-marketplace-input.schema.json")
+        canonical_interface = load_json(
+            "plugins/apple-foundation-models-handoff/metadata/codex-interface.json"
+        )
+        canonical_marketplace = load_json("metadata/codex-marketplace.json")
+        shared_manifest = load_json(
+            "plugins/apple-foundation-models-handoff/.claude-plugin/plugin.json"
+        )
+        schema_version = "https://json-schema.org/draft/2020-12/schema"
+        self.assertEqual(schema_version, interface["$schema"])
+        self.assertEqual(schema_version, marketplace["$schema"])
 
-        self.assertFalse(interface["additionalProperties"])
-        self.assertEqual(3, interface["properties"]["defaultPrompt"]["maxItems"])
-        self.assertEqual(0, interface["properties"]["capabilities"]["minItems"])
-        self.assertFalse(marketplace["additionalProperties"])
-        self.assertEqual(1, marketplace["properties"]["plugins"]["minItems"])
-        self.assertEqual(1, marketplace["properties"]["plugins"]["maxItems"])
+        def assert_closed_object(
+            schema: dict[str, object], expected_properties: set[str]
+        ) -> None:
+            self.assertEqual("object", schema["type"])
+            self.assertFalse(schema["additionalProperties"])
+            self.assertEqual(expected_properties, set(schema["properties"]))
+            self.assertEqual(expected_properties, set(schema["required"]))
+
+        interface_fields = {
+            "displayName",
+            "shortDescription",
+            "longDescription",
+            "developerName",
+            "category",
+            "capabilities",
+            "websiteURL",
+            "defaultPrompt",
+        }
+        assert_closed_object(interface, interface_fields)
+        interface_properties = interface["properties"]
+        for field in (
+            "displayName",
+            "shortDescription",
+            "longDescription",
+            "developerName",
+        ):
+            with self.subTest(interface_string=field):
+                self.assertEqual(
+                    {"type": "string", "minLength": 1},
+                    interface_properties[field],
+                )
+        self.assertEqual(
+            {"const": "Developer Tools"}, interface_properties["category"]
+        )
+        self.assertEqual({"const": []}, interface_properties["capabilities"])
+        self.assertEqual(
+            {"type": "string", "pattern": "^https://"},
+            interface_properties["websiteURL"],
+        )
+        self.assertEqual(
+            {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 3,
+                "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                },
+            },
+            interface_properties["defaultPrompt"],
+        )
+
+        marketplace_fields = {"name", "interface", "plugins"}
+        assert_closed_object(marketplace, marketplace_fields)
+        marketplace_properties = marketplace["properties"]
+        self.assertEqual(
+            {"const": MARKETPLACE}, marketplace_properties["name"]
+        )
+        marketplace_interface = marketplace_properties["interface"]
+        assert_closed_object(marketplace_interface, {"displayName"})
+        self.assertEqual(
+            {"const": "Agent Apple Foundation Handoff"},
+            marketplace_interface["properties"]["displayName"],
+        )
+        plugins = marketplace_properties["plugins"]
+        self.assertEqual("array", plugins["type"])
+        self.assertEqual(1, plugins["minItems"])
+        self.assertEqual(1, plugins["maxItems"])
+        plugin = plugins["items"]
+        assert_closed_object(plugin, {"name", "source", "policy", "category"})
+        plugin_properties = plugin["properties"]
+        self.assertEqual({"const": PLUGIN_ID}, plugin_properties["name"])
+        source = plugin_properties["source"]
+        assert_closed_object(source, {"source", "path"})
+        self.assertEqual({"const": "local"}, source["properties"]["source"])
+        self.assertEqual({"const": SOURCE}, source["properties"]["path"])
+        policy = plugin_properties["policy"]
+        assert_closed_object(policy, {"installation", "authentication"})
+        self.assertEqual(
+            {"const": "AVAILABLE"}, policy["properties"]["installation"]
+        )
+        self.assertEqual(
+            {"const": "ON_INSTALL"}, policy["properties"]["authentication"]
+        )
+        self.assertEqual(
+            {"const": "Developer Tools"}, plugin_properties["category"]
+        )
+
+        self.assertEqual(
+            interface_properties["category"]["const"],
+            canonical_interface["category"],
+        )
+        self.assertEqual(
+            interface_properties["capabilities"]["const"],
+            canonical_interface["capabilities"],
+        )
+        self.assertEqual(
+            marketplace_properties["name"]["const"],
+            canonical_marketplace["name"],
+        )
+        self.assertEqual(
+            plugin_properties["source"]["properties"]["path"]["const"],
+            canonical_marketplace["plugins"][0]["source"]["path"],
+        )
+        sync._validate_codex_interface(canonical_interface)
+        sync._validate_codex_marketplace(canonical_marketplace, shared_manifest)
+
+        interface_boundary_mutations = (
+            ("non-empty capabilities", ("capabilities",), ["unimplemented"]),
+            ("empty presentation string", ("displayName",), ""),
+            ("missing prompt", ("defaultPrompt",), []),
+            ("too many prompts", ("defaultPrompt",), ["prompt"] * 4),
+            ("empty prompt", ("defaultPrompt",), [""]),
+            ("overlong prompt", ("defaultPrompt",), ["x" * 129]),
+            ("non-HTTPS website", ("websiteURL",), "http://example.com"),
+        )
+        for name, path, replacement in interface_boundary_mutations:
+            with self.subTest(runtime_interface_boundary=name):
+                mutated = json.loads(json.dumps(canonical_interface))
+                mutated[path[0]] = replacement
+                with self.assertRaises(ValueError):
+                    sync._validate_codex_interface(mutated)
+
+        for name, plugins in (
+            ("missing plugin", []),
+            (
+                "too many plugins",
+                canonical_marketplace["plugins"]
+                + canonical_marketplace["plugins"],
+            ),
+        ):
+            with self.subTest(runtime_marketplace_boundary=name):
+                mutated = json.loads(json.dumps(canonical_marketplace))
+                mutated["plugins"] = plugins
+                with self.assertRaises(ValueError):
+                    sync._validate_codex_marketplace(mutated, shared_manifest)
 
     def test_plugin_package_contains_only_metadata_contract_files(self):
         plugin_root = ROOT / "plugins" / PLUGIN_ID

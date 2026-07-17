@@ -455,6 +455,53 @@ class GeneratedArtifactTests(unittest.TestCase):
                     "generated artifacts: unexpected generated path\n", result.stderr
                 )
 
+    def test_root_agents_staging_name_is_rejected_in_check_and_write_modes(self):
+        unrelated_names = (
+            ".AGENTS.md.not-a-generator-token.tmp",
+            ".AGENTS.md.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA.tmp",
+            "unrelated-root-file.txt",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            isolated_root = Path(directory)
+            self._copy_canonical_inputs(isolated_root)
+            self.assertTrue(sync.synchronize(isolated_root, write=True))
+            for name in unrelated_names:
+                (isolated_root / name).write_text(
+                    "unrelated\n", encoding="utf-8", newline="\n"
+                )
+
+            accepted = self._run_isolated_cli(isolated_root, "--check")
+
+            self.assertEqual(0, accepted.returncode, accepted.stderr)
+            self.assertEqual(
+                "generated artifacts are synchronized\n", accepted.stdout
+            )
+
+        for mode in ("--check", "--write"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
+                isolated_root = Path(directory)
+                self._copy_canonical_inputs(isolated_root)
+                self.assertTrue(sync.synchronize(isolated_root, write=True))
+                staging = isolated_root / (
+                    ".AGENTS.md.0123456789abcdef0123456789abcdef.tmp"
+                )
+                staging.write_text("stale\n", encoding="utf-8", newline="\n")
+                agents = isolated_root / "AGENTS.md"
+                if mode == "--write":
+                    agents.write_bytes(b"stale generated output\n")
+                snapshot = agents.read_bytes()
+
+                result = self._run_isolated_cli(isolated_root, mode)
+
+                self.assertEqual(1, result.returncode)
+                self.assertEqual("", result.stdout)
+                self.assertEqual(
+                    "generated artifacts: unexpected generated path\n",
+                    result.stderr,
+                )
+                self.assertEqual(snapshot, agents.read_bytes())
+                self.assertTrue(staging.is_file())
+
     def test_missing_nested_parents_are_drift_then_created_safely(self):
         with tempfile.TemporaryDirectory() as directory:
             isolated_root = Path(directory)

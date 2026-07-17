@@ -164,11 +164,18 @@ support:
 ├── scripts/
 │   └── sync_generated_artifacts.py                # extended single entry point
 ├── tests/
+│   ├── e2e/
+│   │   └── codex_plugin_load.py                   # isolated Codex structural probe
+│   ├── plugin_skeleton.bats                       # shell-level generator contract
 │   ├── test_generated_artifacts.py                # generation and mutation tests
-│   └── test_plugin_contract.py                    # package and metadata tests
-└── docs/superpowers/
-    ├── specs/2026-07-17-dev-135-minimal-plugin-skeleton-design.md
-    └── plans/2026-07-17-dev-135-minimal-plugin-skeleton.md
+│   ├── test_plugin_contract.py                    # package and metadata tests
+│   └── test_repository_guidance.py                # inherited guidance regressions
+└── docs/
+    ├── research/evidence/
+    │   └── dev-135-plugin-skeleton-e2e.md         # normalized structural evidence
+    └── superpowers/
+        ├── specs/2026-07-17-dev-135-minimal-plugin-skeleton-design.md
+        └── plans/2026-07-17-dev-135-minimal-plugin-skeleton.md
 ```
 
 DEV-135 does not create `skills/`, `references/`, `agents/`, `hooks/`, `mcp/`,
@@ -233,7 +240,7 @@ Validation enforces at least:
 - HTTPS repository/author/website URLs;
 - the exact conventional source path;
 - non-empty required presentation strings;
-- an array of non-empty capability strings, with an empty array allowed;
+- the exact empty capabilities array; non-empty capability claims are rejected;
 - one to three non-empty starter prompts of at most 128 characters;
 - allowed policy enums and omitted product gating;
 - no path traversal, absolute paths, symlinks, or external package links;

@@ -17,7 +17,7 @@ reported `generated artifacts are synchronized`. The bytes of all three
 generated outputs were identical before the first write, after the first
 write, and after the second write.
 
-The repository suite passed 45 of 45 tests. It included 19 generated-artifact
+The repository suite passed 46 of 46 tests. It included 20 generated-artifact
 test methods and 38 isolated canonical-mutation cases. The current Codex plugin
 validator also passed the metadata-only package.
 
