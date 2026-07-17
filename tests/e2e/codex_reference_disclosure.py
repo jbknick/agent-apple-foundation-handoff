@@ -1090,8 +1090,9 @@ class DirectedReferenceProbeTests(unittest.TestCase):
         completion_status: str = "completed",
         exit_code: int = 0,
         cwd: str | None = None,
+        aggregated_output: str = "synthetic command output",
     ) -> list[dict[str, Any]]:
-        inputs = {"command": command}
+        inputs: dict[str, Any] = {"command": command}
         if cwd is not None:
             inputs["cwd"] = cwd
         return [
@@ -1099,6 +1100,8 @@ class DirectedReferenceProbeTests(unittest.TestCase):
                 "type": "item.started",
                 "item": {
                     **inputs,
+                    "aggregated_output": "",
+                    "exit_code": None,
                     "id": identifier,
                     "status": "in_progress",
                     "type": "command_execution",
@@ -1108,6 +1111,7 @@ class DirectedReferenceProbeTests(unittest.TestCase):
                 "type": "item.completed",
                 "item": {
                     **inputs,
+                    "aggregated_output": aggregated_output,
                     "exit_code": exit_code,
                     "id": identifier,
                     "status": completion_status,
@@ -1115,6 +1119,42 @@ class DirectedReferenceProbeTests(unittest.TestCase):
                 },
             },
         ]
+
+    def exact_reference_access_events(
+        self,
+        owner: str = "apple-api-availability.md",
+        *,
+        shell: str | None = None,
+    ) -> list[dict[str, Any]]:
+        discovery = f"rg --files {REFERENCE_ROOT_RELATIVE}"
+        read = f"cat {REFERENCE_ROOT_RELATIVE}/{owner}"
+        if shell is not None:
+            discovery = f"{shell} -lc {shlex.quote(discovery)}"
+            read = f"{shell} -lc {shlex.quote(read)}"
+        return self.command_events(
+            discovery,
+            identifier="discovery-1",
+        ) + self.command_events(
+            read,
+            identifier="reader-1",
+        )
+
+    def strict_observed(
+        self,
+        events: list[dict[str, Any]],
+    ) -> set[str]:
+        return observed_reference_reads(
+            events,
+            "synthetic-case",
+            require_exact_sequence=True,
+        )
+
+    def assert_strict_probe_failure(
+        self,
+        events: list[dict[str, Any]],
+    ) -> None:
+        with self.assertRaises(ProbeFailure):
+            self.strict_observed(events)
 
     def tool_events(
         self,
@@ -1178,7 +1218,293 @@ class DirectedReferenceProbeTests(unittest.TestCase):
             identifier=identifier,
         )
 
-    def test_direct_rg_grep_accept_one_regular_owner_and_safe_search_operands(self):
+    def test_exact_direct_or_host_shell_lifecycle_selects_one_semantic_owner(self):
+        for shell in (
+            None,
+            "sh",
+            "bash",
+            "zsh",
+            "/bin/sh",
+            "/bin/bash",
+            "/bin/zsh",
+            "/opt/homebrew/bin/zsh",
+            "/configured/toolchain/bash",
+        ):
+            with self.subTest(shell=shell or "direct"):
+                try:
+                    observed = self.strict_observed(
+                        self.exact_reference_access_events(shell=shell)
+                    )
+                except ProbeFailure as failure:
+                    self.fail(
+                        "approved direct or shell-enveloped lifecycle was "
+                        f"rejected: {failure.reason}"
+                    )
+                self.assertEqual(
+                    {"apple-api-availability.md"},
+                    observed,
+                )
+
+    def test_command_items_require_the_exact_pinned_schema(self):
+        expected_item_keys = {
+            "aggregated_output",
+            "command",
+            "exit_code",
+            "id",
+            "status",
+            "type",
+        }
+        canonical = self.exact_reference_access_events()
+        for event in canonical:
+            self.assertEqual(expected_item_keys, set(event["item"]))
+
+        malformed: dict[str, list[dict[str, Any]]] = {}
+        for event_index, phase in ((0, "started"), (1, "completed")):
+            for key in sorted(expected_item_keys):
+                events = json.loads(json.dumps(canonical))
+                events[event_index]["item"].pop(key)
+                malformed[f"{phase}_missing_{key}"] = events
+
+        wrong_started_exit = json.loads(json.dumps(canonical))
+        wrong_started_exit[0]["item"]["exit_code"] = 0
+        malformed["started_exit_code_not_null"] = wrong_started_exit
+        wrong_started_status = json.loads(json.dumps(canonical))
+        wrong_started_status[0]["item"]["status"] = "completed"
+        malformed["started_status_not_in_progress"] = wrong_started_status
+        wrong_completed_output = json.loads(json.dumps(canonical))
+        wrong_completed_output[1]["item"]["aggregated_output"] = ["not", "text"]
+        malformed["completed_output_not_string"] = wrong_completed_output
+        extra_item_key = json.loads(json.dumps(canonical))
+        extra_item_key[0]["item"]["cwd"] = str(ROOT)
+        extra_item_key[1]["item"]["cwd"] = str(ROOT)
+        malformed["extra_item_key"] = extra_item_key
+        extra_event_key = json.loads(json.dumps(canonical))
+        extra_event_key[0]["unexpected"] = True
+        malformed["extra_event_key"] = extra_event_key
+
+        for name, events in malformed.items():
+            with self.subTest(schema=name):
+                self.assert_strict_probe_failure(events)
+
+    def test_command_lifecycles_are_sequential_paired_and_globally_unique(self):
+        canonical = self.exact_reference_access_events()
+
+        interleaved = [canonical[0], canonical[2], canonical[1], canonical[3]]
+        reversed_completions = [
+            canonical[0],
+            canonical[2],
+            canonical[3],
+            canonical[1],
+        ]
+        completion_before_start = [
+            canonical[1],
+            canonical[0],
+            canonical[2],
+            canonical[3],
+        ]
+        reused_identifier = json.loads(json.dumps(canonical))
+        reused_identifier[2]["item"]["id"] = "discovery-1"
+        reused_identifier[3]["item"]["id"] = "discovery-1"
+        with_update = json.loads(json.dumps(canonical))
+        update = json.loads(json.dumps(with_update[0]))
+        update["type"] = "item.updated"
+        with_update.insert(1, update)
+        with_extra_command = canonical + self.command_events(
+            "pwd",
+            identifier="extra-1",
+        )
+
+        invalid = {
+            "interleaved": interleaved,
+            "reversed_completions": reversed_completions,
+            "completion_before_start": completion_before_start,
+            "sequential_id_reuse": reused_identifier,
+            "command_update": with_update,
+            "missing_discovery_completion": canonical[:1] + canonical[2:],
+            "missing_read_start": canonical[:2] + canonical[3:],
+            "extra_command": with_extra_command,
+        }
+        for name, events in invalid.items():
+            with self.subTest(lifecycle=name):
+                self.assert_strict_probe_failure(events)
+
+    def test_every_non_command_tool_item_invalidates_exact_evidence(self):
+        canonical = self.exact_reference_access_events()
+        non_command_tool_types = (
+            "file_read",
+            "function_call",
+            "mcp_tool_call",
+            "tool_call",
+            "file_change",
+            "collab_tool_call",
+            "web_search",
+        )
+        for item_type in non_command_tool_types:
+            events = (
+                canonical[:2]
+                + self.tool_events(
+                    item_type,
+                    {},
+                    identifier=f"extra-{item_type}",
+                )
+                + canonical[2:]
+            )
+            with self.subTest(item_type=item_type):
+                self.assert_strict_probe_failure(events)
+
+    def test_only_exact_discovery_and_cat_owner_tokens_are_accepted(self):
+        owner = f"{REFERENCE_ROOT_RELATIVE}/apple-api-availability.md"
+        discovery_alternatives = (
+            f"ls {REFERENCE_ROOT_RELATIVE}",
+            f"find {REFERENCE_ROOT_RELATIVE}",
+            f"/usr/bin/rg --files {REFERENCE_ROOT_RELATIVE}",
+            f"rg --files -- {REFERENCE_ROOT_RELATIVE}",
+            f"rg --files {REFERENCE_ROOT_RELATIVE} {REFERENCE_ROOT_RELATIVE}",
+            f"rg --files {REFERENCE_ROOT_RELATIVE}/*.md",
+        )
+        for command in discovery_alternatives:
+            events = self.command_events(
+                command,
+                identifier="discovery-1",
+            ) + self.command_events(
+                f"cat {owner}",
+                identifier="reader-1",
+            )
+            with self.subTest(stage="discovery", command=command):
+                self.assert_strict_probe_failure(events)
+
+        read_alternatives = (
+            f"sed -n '1,40p' {owner}",
+            f"head {owner}",
+            f"rg -n needle {owner}",
+            f"grep -n needle {owner}",
+            f"/bin/cat {owner}",
+            f"cat -- {owner}",
+            f"cat {owner} {owner}",
+            f"cat {owner} /tmp/unrelated",
+            f"cat {REFERENCE_ROOT_RELATIVE}/*.md",
+            f"cat {REFERENCE_ROOT_RELATIVE}",
+            "bash -c " + shlex.quote(f"cat {owner}"),
+            f"python3 -c 'print(1)' {owner}",
+            f"printf %s {owner}",
+        )
+        for command in read_alternatives:
+            events = self.command_events(
+                f"rg --files {REFERENCE_ROOT_RELATIVE}",
+                identifier="discovery-1",
+            ) + self.command_events(command, identifier="reader-1")
+            with self.subTest(stage="read", command=command):
+                self.assert_strict_probe_failure(events)
+
+    def test_host_shell_envelope_rejects_other_flags_and_modified_inner_scripts(self):
+        owner = f"{REFERENCE_ROOT_RELATIVE}/apple-api-availability.md"
+        exact_discovery = f"rg --files {REFERENCE_ROOT_RELATIVE}"
+        exact_read = f"cat {owner}"
+        malformed_discovery = (
+            "/bin/fish -lc " + shlex.quote(exact_discovery),
+            "/configured/toolchain/bash.exe -lc " + shlex.quote(exact_discovery),
+            "/bin/bash -c " + shlex.quote(exact_discovery),
+            "/bin/bash -l -c " + shlex.quote(exact_discovery),
+            "/bin/bash -lc " + shlex.quote(exact_discovery) + " placeholder",
+            "/bin/bash -lc " + shlex.quote(exact_discovery + " && true"),
+            "/bin/zsh -lc " + shlex.quote(exact_discovery + "; pwd"),
+            "/bin/zsh -lc " + shlex.quote(exact_discovery + " " + REFERENCE_ROOT_RELATIVE),
+        )
+        malformed_read = (
+            "fish -lc " + shlex.quote(exact_read),
+            "/configured/toolchain/zsh.exe -lc " + shlex.quote(exact_read),
+            "/bin/zsh -c " + shlex.quote(exact_read),
+            "/bin/zsh -lc " + shlex.quote(exact_read) + " placeholder",
+            "/bin/zsh -lc " + shlex.quote(exact_read + " && true"),
+            "/bin/bash -lc " + shlex.quote(exact_read + " | wc -l"),
+            "/bin/bash -lc " + shlex.quote(f"cat -- {owner}"),
+            "/bin/bash -lc " + shlex.quote(f"cat {owner} {owner}"),
+            "/bin/bash -lc "
+            + shlex.quote("/bin/bash -lc " + shlex.quote(exact_read)),
+        )
+        exact_read_event = self.command_events(
+            "/bin/zsh -lc " + shlex.quote(exact_read),
+            identifier="reader-1",
+        )
+        exact_discovery_event = self.command_events(
+            "/bin/bash -lc " + shlex.quote(exact_discovery),
+            identifier="discovery-1",
+        )
+        for command in malformed_discovery:
+            with self.subTest(stage="discovery", command=command):
+                self.assert_strict_probe_failure(
+                    self.command_events(command, identifier="discovery-1")
+                    + exact_read_event
+                )
+        for command in malformed_read:
+            with self.subTest(stage="read", command=command):
+                self.assert_strict_probe_failure(
+                    exact_discovery_event
+                    + self.command_events(command, identifier="reader-1")
+                )
+
+    def test_nested_mappings_argv_and_sibling_inputs_are_never_command_evidence(self):
+        owner = f"{REFERENCE_ROOT_RELATIVE}/apple-api-availability.md"
+        discovery = self.command_events(
+            f"rg --files {REFERENCE_ROOT_RELATIVE}",
+            identifier="discovery-1",
+        )
+        indirect_items = {
+            "nested_mapping": self.tool_events(
+                "mcp_tool_call",
+                {"arguments": {"payload": {"command": f"cat {owner}"}}},
+                identifier="reader-1",
+            ),
+            "stringified_mapping": self.tool_events(
+                "mcp_tool_call",
+                {"arguments": json.dumps({"command": f"cat {owner}"})},
+                identifier="reader-1",
+            ),
+            "structured_argv": self.tool_events(
+                "mcp_tool_call",
+                {"arguments": {"argv": ["cat", owner]}},
+                identifier="reader-1",
+            ),
+            "sibling_inputs": self.tool_events(
+                "mcp_tool_call",
+                {
+                    "arguments": {
+                        "command": f"cat {owner}",
+                        "path": owner,
+                    }
+                },
+                identifier="reader-1",
+            ),
+        }
+        direct_with_sibling = self.command_events(
+            f"cat {owner}",
+            identifier="reader-1",
+        )
+        for event in direct_with_sibling:
+            event["item"]["argv"] = ["cat", owner]
+        indirect_items["command_item_sibling_argv"] = direct_with_sibling
+
+        for name, read_events in indirect_items.items():
+            with self.subTest(surface=name):
+                self.assert_strict_probe_failure(discovery + read_events)
+
+    def test_jsonl_rejects_duplicate_keys_and_non_standard_constants(self):
+        rejected = {
+            "duplicate_event_key": b'{"type":"turn.started","type":"turn.completed"}\n',
+            "duplicate_item_key": (
+                b'{"type":"item.started","item":{"id":"one","id":"two"}}\n'
+            ),
+            "nan": b'{"type":"turn.completed","value":NaN}\n',
+            "positive_infinity": b'{"type":"turn.completed","value":Infinity}\n',
+            "negative_infinity": b'{"type":"turn.completed","value":-Infinity}\n',
+        }
+        for name, payload in rejected.items():
+            with self.subTest(jsonl=name):
+                with self.assertRaises(ProbeFailure) as raised:
+                    decode_json_lines(payload, "synthetic-case")
+                self.assertEqual("invalid_jsonl", raised.exception.reason)
+
+    def test_direct_rg_grep_are_rejected_as_alternative_read_commands(self):
         relative_owner = (
             f"{REFERENCE_ROOT_RELATIVE}/apple-api-availability.md"
         )
@@ -1216,16 +1542,17 @@ class DirectedReferenceProbeTests(unittest.TestCase):
         ):
             for name, (command, cwd) in commands.items():
                 with self.subTest(surface=surface, form=name):
-                    self.assertEqual(
-                        {"apple-api-availability.md"},
-                        observed_reference_reads(
-                            self.direct_reader_events(
-                                command,
-                                surface=surface,
-                                cwd=cwd,
-                            ),
-                            "synthetic-case",
-                        ),
+                    self.assert_strict_probe_failure(
+                        self.command_events(
+                            f"rg --files {REFERENCE_ROOT_RELATIVE}",
+                            identifier="discovery-1",
+                        )
+                        + self.direct_reader_events(
+                            command,
+                            surface=surface,
+                            cwd=cwd,
+                            identifier="reader-1",
+                        )
                     )
 
     def test_direct_rg_grep_reject_ambiguous_operands_options_and_dataflow(self):
@@ -1344,36 +1671,27 @@ class DirectedReferenceProbeTests(unittest.TestCase):
                 f"rg --files --file /tmp/patterns {reference_root}"
             ),
         }
-        expected_reasons = {
-            "ambiguous_reference_read",
-            "bulk_reference_content_read",
-        }
         for surface in (
             "command_event",
             "nested_mapping",
             "json_string_arguments",
         ):
             with self.subTest(surface=surface, form="exact_discovery"):
-                self.assertEqual(
-                    set(),
-                    observed_reference_reads(
-                        self.direct_reader_events(
-                            f"rg --files {reference_root}",
-                            surface=surface,
-                            cwd=ROOT,
-                        ),
-                        "synthetic-case",
-                    ),
+                self.assert_strict_probe_failure(
+                    self.direct_reader_events(
+                        f"rg --files {reference_root}",
+                        surface=surface,
+                        cwd=ROOT,
+                    )
                 )
             for name, command in rejected.items():
                 with self.subTest(surface=surface, form=name):
-                    self.assert_probe_failure_in(
+                    self.assert_strict_probe_failure(
                         self.direct_reader_events(
                             command,
                             surface=surface,
                             cwd=ROOT,
                         ),
-                        expected_reasons,
                     )
 
     def test_direct_searches_cannot_hide_implicit_reference_scope(self):
@@ -1435,25 +1753,13 @@ class DirectedReferenceProbeTests(unittest.TestCase):
             identifier="discovery-2",
         )
         read = self.command_events(
-            f"rg -n needle {owner}",
+            f"cat {owner}",
             identifier="reader-1",
         )
 
-        def strict_observed(events: list[dict[str, Any]]) -> set[str]:
-            try:
-                return observed_reference_reads(
-                    events,
-                    "synthetic-case",
-                    require_exact_sequence=True,
-                )
-            except TypeError:
-                self.fail(
-                    "observed_reference_reads has no strict sequence contract"
-                )
-
         self.assertEqual(
             {"apple-api-availability.md"},
-            strict_observed(discovery + read),
+            self.strict_observed(discovery + read),
         )
         invalid_sequences = {
             "read_without_discovery": read,
@@ -1465,7 +1771,7 @@ class DirectedReferenceProbeTests(unittest.TestCase):
         for name, events in invalid_sequences.items():
             with self.subTest(sequence=name):
                 with self.assertRaises(ProbeFailure) as raised:
-                    strict_observed(events)
+                    self.strict_observed(events)
                 self.assertIn(
                     raised.exception.reason,
                     {"ambiguous_reference_read", "bulk_reference_content_read"},
@@ -1480,7 +1786,7 @@ class DirectedReferenceProbeTests(unittest.TestCase):
             identifier="discovery-1",
         )
         targeted_read = self.command_events(
-            f"sed -n '1,40p' {owner}",
+            f"cat {owner}",
             identifier="reader-1",
         )
         rejected = {
@@ -1551,20 +1857,31 @@ class DirectedReferenceProbeTests(unittest.TestCase):
             "duplicate_key": (
                 f'{{"path":"{owner}","path":"{owner}"}}'
             ),
+            "nan": f'{{"command":"cat {owner}","value":NaN}}',
+            "positive_infinity": (
+                f'{{"command":"cat {owner}","value":Infinity}}'
+            ),
+            "negative_infinity": (
+                f'{{"command":"cat {owner}","value":-Infinity}}'
+            ),
         }
+        discovery = self.command_events(
+            f"rg --files {REFERENCE_ROOT_RELATIVE}",
+            identifier="discovery-1",
+        )
         for name, arguments in rejected.items():
             with self.subTest(arguments=name):
                 try:
-                    observed_reference_reads(
-                        self.tool_events(
+                    self.strict_observed(
+                        discovery
+                        + self.tool_events(
                             "mcp_tool_call",
                             {"arguments": arguments},
+                            identifier="reader-1",
                         ),
-                        "synthetic-case",
                     )
                 except Exception as failure:
                     self.assertIsInstance(failure, ProbeFailure)
-                    self.assertEqual("invalid_tool_event", failure.reason)
                 else:
                     self.fail("invalid JSON tool arguments were accepted")
 
@@ -1603,9 +1920,13 @@ class DirectedReferenceProbeTests(unittest.TestCase):
         self.assertEqual("sequence_checked", raised.exception.reason)
         self.assertEqual([True], strict_arguments)
 
-    def test_nested_input_commands_preserve_declared_reference_cwd(self):
+    def test_nested_input_commands_are_not_exact_command_evidence(self):
         valid = "rg -n needle apple-api-availability.md"
         implicit_bulk = "rg Apple ."
+        discovery = self.command_events(
+            f"rg --files {REFERENCE_ROOT_RELATIVE}",
+            identifier="discovery-1",
+        )
         for as_json in (False, True):
             arguments: object = {
                 "input": valid,
@@ -1614,15 +1935,13 @@ class DirectedReferenceProbeTests(unittest.TestCase):
             if as_json:
                 arguments = json.dumps(arguments)
             with self.subTest(json_string=as_json, form="valid_owner"):
-                self.assertEqual(
-                    {"apple-api-availability.md"},
-                    observed_reference_reads(
-                        self.tool_events(
+                self.assert_strict_probe_failure(
+                    discovery
+                    + self.tool_events(
                             "mcp_tool_call",
                             {"arguments": arguments},
+                            identifier="reader-1",
                         ),
-                        "synthetic-case",
-                    ),
                 )
 
             bulk_arguments: object = {
@@ -1632,16 +1951,13 @@ class DirectedReferenceProbeTests(unittest.TestCase):
             if as_json:
                 bulk_arguments = json.dumps(bulk_arguments)
             with self.subTest(json_string=as_json, form="implicit_bulk"):
-                self.assert_probe_failure_in(
-                    self.tool_events(
+                self.assert_strict_probe_failure(
+                    discovery
+                    + self.tool_events(
                         "mcp_tool_call",
                         {"arguments": bulk_arguments},
+                        identifier="reader-1",
                     ),
-                    {
-                        "ambiguous_reference_read",
-                        "bulk_reference_content_read",
-                        "reference_directory_read",
-                    },
                 )
 
     def test_duplicate_direct_reader_invocations_fail_instead_of_set_deduplication(self):
@@ -1673,13 +1989,15 @@ class DirectedReferenceProbeTests(unittest.TestCase):
         wrong_owner = (
             f"{REFERENCE_ROOT_RELATIVE}/architecture-and-state.md"
         )
-        events = self.direct_reader_events(
-            f"grep -n needle {wrong_owner}",
-            surface="command_event",
-            cwd=ROOT,
+        events = self.command_events(
+            f"rg --files {REFERENCE_ROOT_RELATIVE}",
+            identifier="discovery-1",
+        ) + self.command_events(
+            f"cat {wrong_owner}",
+            identifier="reader-1",
         )
         with self.assertRaises(ProbeFailure) as raised:
-            observed = observed_reference_reads(events, "synthetic-case")
+            observed = self.strict_observed(events)
             if observed != {"apple-api-availability.md"}:
                 raise ProbeFailure(
                     "reference_selection_mismatch",
@@ -1708,19 +2026,19 @@ class DirectedReferenceProbeTests(unittest.TestCase):
             r"`bulk_reference_content_read` at `pattern-final-owner`;",
         )
 
-    def test_prompt_requires_two_separate_calls_without_owner_hint(self):
+    def test_prompt_requires_exact_command_forms_without_owner_hint(self):
+        exact_discovery = f"rg --files {REFERENCE_ROOT_RELATIVE}"
+        exact_read_template = "cat <one-approved-owner-path>"
         required_phrases = (
             "exactly two separate tool invocations",
             "first tool invocation",
-            "one standalone direct directory listing",
+            exact_discovery,
             "with no content read",
             "from the task semantics",
             "second tool invocation",
-            "one standalone direct existing read command",
-            "for example, sed -n",
+            exact_read_template,
             "Do not combine the directory listing and content read in one shell "
             "string or tool call",
-            "shell wrapper",
             "pipes",
             "redirection",
             "command chaining",
@@ -1733,20 +2051,21 @@ class DirectedReferenceProbeTests(unittest.TestCase):
             with self.subTest(task_id=task_id):
                 for phrase in required_phrases:
                     self.assertIn(phrase, prompt)
-                self.assertEqual(1, prompt.count(f"{REFERENCE_ROOT_RELATIVE}/"))
+                self.assertEqual(1, prompt.count(exact_discovery))
+                self.assertEqual(1, prompt.count(exact_read_template))
                 self.assertLess(
                     prompt.index("first tool invocation"),
                     prompt.index("second tool invocation"),
                 )
+                self.assertNotIn("for example", prompt)
                 for reference_name in REFERENCE_NAMES:
                     self.assertNotIn(reference_name, prompt)
 
-    def test_successful_paired_relative_owner_read_is_accepted(self):
-        owner = f"{REFERENCE_ROOT_RELATIVE}/apple-api-availability.md"
-        events = self.command_events(f"sed -n '1,40p' {owner}")
+    def test_semantic_owner_result_is_preserved_for_exact_access(self):
+        events = self.exact_reference_access_events()
         self.assertEqual(
             {"apple-api-availability.md"},
-            observed_reference_reads(events, "synthetic-case"),
+            self.strict_observed(events),
         )
 
     def test_find_xargs_bulk_read_cannot_be_hidden_by_later_owner_read(self):
@@ -1916,7 +2235,7 @@ class DirectedReferenceProbeTests(unittest.TestCase):
                     {"ambiguous_reference_read", "bulk_reference_content_read"},
                 )
 
-    def test_non_reference_shell_wrapper_activity_creates_no_reference_read(self):
+    def test_unrelated_shell_activity_invalidates_the_exact_sequence(self):
         commands = (
             "bash -c 'printf okay' placeholder",
             "/bin/sh -lc 'pwd >/tmp/probe-pwd' placeholder",
@@ -1924,51 +2243,55 @@ class DirectedReferenceProbeTests(unittest.TestCase):
         )
         for command in commands:
             with self.subTest(command=command):
-                self.assertEqual(
-                    set(),
-                    observed_reference_reads(
-                        self.command_events(command), "synthetic-case"
-                    ),
+                self.assert_strict_probe_failure(
+                    self.exact_reference_access_events()
+                    + self.command_events(command, identifier="extra-1")
                 )
 
-    def test_quoted_regex_punctuation_is_not_shell_dataflow(self):
+    def test_quoted_direct_search_is_still_an_alternative_reader(self):
         owner = f"{REFERENCE_ROOT_RELATIVE}/apple-api-availability.md"
+        discovery = self.command_events(
+            f"rg --files {REFERENCE_ROOT_RELATIVE}",
+            identifier="discovery-1",
+        )
         for pattern in ("[;|&<>]", "|", "&&", ">", "<", ";"):
             command = f"rg -n {shlex.quote(pattern)} {owner}"
             with self.subTest(pattern=pattern):
-                self.assertEqual(
-                    {"apple-api-availability.md"},
-                    observed_reference_reads(
-                        self.command_events(command), "synthetic-case"
-                    ),
+                self.assert_strict_probe_failure(
+                    discovery
+                    + self.command_events(command, identifier="reader-1")
                 )
 
-    def test_command_event_cwd_resolves_direct_relative_owner(self):
+    def test_command_item_cwd_is_rejected_as_an_extra_schema_key(self):
         events = self.command_events(
-            "sed -n '1,40p' apple-api-availability.md",
+            f"rg --files {REFERENCE_ROOT_RELATIVE}",
+            identifier="discovery-1",
+        ) + self.command_events(
+            "cat apple-api-availability.md",
             cwd=str(REFERENCE_ROOT),
+            identifier="reader-1",
         )
-        self.assertEqual(
-            {"apple-api-availability.md"},
-            observed_reference_reads(events, "synthetic-case"),
-        )
+        self.assert_strict_probe_failure(events)
 
-    def test_command_event_outside_cwd_rejects_relative_owner(self):
+    def test_exact_cat_owner_outside_root_preserves_path_rejection(self):
         events = self.command_events(
-            "sed -n '1,40p' apple-api-availability.md",
-            cwd="/tmp",
+            f"rg --files {REFERENCE_ROOT_RELATIVE}",
+            identifier="discovery-1",
+        ) + self.command_events(
+            "cat /tmp/apple-api-availability.md",
+            identifier="reader-1",
         )
-        self.assert_probe_failure(events, "reference_path_outside_package")
+        with self.assertRaises(ProbeFailure) as raised:
+            self.strict_observed(events)
+        self.assertEqual("reference_path_outside_package", raised.exception.reason)
 
-    def test_command_event_cwd_is_part_of_the_signed_pair(self):
-        events = self.command_events(
-            "sed -n '1,40p' apple-api-availability.md",
-            cwd=str(REFERENCE_ROOT),
-        )
-        events[1]["item"]["cwd"] = "/tmp"
-        self.assert_probe_failure(events, "unpaired_command_event")
+    def test_command_item_sibling_context_cannot_differ_between_pair(self):
+        events = self.exact_reference_access_events()
+        events[2]["item"]["cwd"] = str(REFERENCE_ROOT)
+        events[3]["item"]["cwd"] = "/tmp"
+        self.assert_strict_probe_failure(events)
 
-    def test_nested_mapping_cwd_resolves_direct_relative_owner(self):
+    def test_nested_mapping_cwd_is_not_command_evidence(self):
         arguments = {
             "payload": {
                 "cwd": str(REFERENCE_ROOT),
@@ -1976,9 +2299,12 @@ class DirectedReferenceProbeTests(unittest.TestCase):
             }
         }
         events = self.tool_events("mcp_tool_call", {"arguments": arguments})
-        self.assertEqual(
-            {"apple-api-availability.md"},
-            observed_reference_reads(events, "synthetic-case"),
+        self.assert_strict_probe_failure(
+            self.command_events(
+                f"rg --files {REFERENCE_ROOT_RELATIVE}",
+                identifier="discovery-1",
+            )
+            + events
         )
 
     def test_nested_mapping_outside_cwd_rejects_relative_owner(self):
@@ -1989,51 +2315,73 @@ class DirectedReferenceProbeTests(unittest.TestCase):
             }
         }
         events = self.tool_events("mcp_tool_call", {"arguments": arguments})
-        self.assert_probe_failure(events, "reference_path_outside_package")
+        self.assert_strict_probe_failure(
+            self.command_events(
+                f"rg --files {REFERENCE_ROOT_RELATIVE}",
+                identifier="discovery-1",
+            )
+            + events
+        )
 
-    def test_json_string_tool_arguments_resolve_one_exact_owner(self):
+    def test_json_string_tool_arguments_are_not_command_evidence(self):
         arguments = json.dumps(
             {"path": f"{REFERENCE_ROOT_RELATIVE}/apple-api-availability.md"}
         )
         events = self.tool_events("mcp_tool_call", {"arguments": arguments})
-        self.assertEqual(
-            {"apple-api-availability.md"},
-            observed_reference_reads(events, "synthetic-case"),
+        self.assert_strict_probe_failure(
+            self.command_events(
+                f"rg --files {REFERENCE_ROOT_RELATIVE}",
+                identifier="discovery-1",
+            )
+            + events
         )
 
     def test_failed_file_event_is_rejected(self):
-        events = self.tool_events(
-            "file_read",
-            {"path": f"{REFERENCE_ROOT_RELATIVE}/apple-api-availability.md"},
-            completion_status="failed",
+        events = (
+            self.command_events(
+                f"rg --files {REFERENCE_ROOT_RELATIVE}",
+                identifier="discovery-1",
+            )
+            + self.tool_events(
+                "file_read",
+                {"path": f"{REFERENCE_ROOT_RELATIVE}/apple-api-availability.md"},
+                identifier="reader-1",
+                completion_status="failed",
+            )
         )
-        self.assert_probe_failure(events, "tool_execution_failed")
+        self.assert_strict_probe_failure(events)
 
     def test_started_without_completion_is_rejected(self):
-        owner = f"{REFERENCE_ROOT_RELATIVE}/apple-api-availability.md"
-        events = self.command_events(f"sed -n '1,40p' {owner}")[:1]
-        self.assert_probe_failure(events, "unpaired_command_event")
+        events = self.exact_reference_access_events()[:-1]
+        self.assert_strict_probe_failure(events)
 
     def test_completion_without_started_pair_is_rejected(self):
-        owner = f"{REFERENCE_ROOT_RELATIVE}/apple-api-availability.md"
-        events = self.command_events(f"sed -n '1,40p' {owner}")[1:]
-        self.assert_probe_failure(events, "unpaired_command_event")
+        events = self.exact_reference_access_events()
+        events.pop(2)
+        self.assert_strict_probe_failure(events)
 
     def test_failed_command_cannot_be_counted_as_a_read(self):
         owner = f"{REFERENCE_ROOT_RELATIVE}/apple-api-availability.md"
         events = self.command_events(
-            f"sed -n '1,40p' {owner}",
+            f"rg --files {REFERENCE_ROOT_RELATIVE}",
+            identifier="discovery-1",
+        ) + self.command_events(
+            f"cat {owner}",
+            identifier="reader-1",
             completion_status="failed",
             exit_code=1,
         )
-        self.assert_probe_failure(events, "command_execution_failed")
+        self.assert_strict_probe_failure(events)
 
     def test_sibling_prefix_path_is_rejected(self):
         outside = f"{REFERENCE_ROOT_RELATIVE}-evil/apple-api-availability.md"
-        self.assert_probe_failure(
-            self.command_events(f"cat {outside}"),
-            "reference_path_outside_package",
-        )
+        events = self.command_events(
+            f"rg --files {REFERENCE_ROOT_RELATIVE}",
+            identifier="discovery-1",
+        ) + self.command_events(f"cat {outside}", identifier="reader-1")
+        with self.assertRaises(ProbeFailure) as raised:
+            self.strict_observed(events)
+        self.assertEqual("reference_path_outside_package", raised.exception.reason)
 
     def test_same_basename_outside_root_is_not_paired_with_root_substring(self):
         command = (
@@ -2050,22 +2398,37 @@ class DirectedReferenceProbeTests(unittest.TestCase):
             f"{REFERENCE_ROOT_RELATIVE}/../references-evil/"
             "apple-api-availability.md"
         )
-        self.assert_probe_failure(
-            self.command_events(f"cat {escaped}"),
-            "reference_path_outside_package",
-        )
+        events = self.command_events(
+            f"rg --files {REFERENCE_ROOT_RELATIVE}",
+            identifier="discovery-1",
+        ) + self.command_events(f"cat {escaped}", identifier="reader-1")
+        with self.assertRaises(ProbeFailure) as raised:
+            self.strict_observed(events)
+        self.assertEqual("reference_path_outside_package", raised.exception.reason)
 
     def test_reference_directory_content_read_is_rejected(self):
-        self.assert_probe_failure(
-            self.command_events(f"cat {REFERENCE_ROOT_RELATIVE}"),
-            "reference_directory_read",
+        events = self.command_events(
+            f"rg --files {REFERENCE_ROOT_RELATIVE}",
+            identifier="discovery-1",
+        ) + self.command_events(
+            f"cat {REFERENCE_ROOT_RELATIVE}",
+            identifier="reader-1",
         )
+        with self.assertRaises(ProbeFailure) as raised:
+            self.strict_observed(events)
+        self.assertEqual("reference_directory_read", raised.exception.reason)
 
     def test_reference_glob_is_rejected_as_bulk_read(self):
-        self.assert_probe_failure(
-            self.command_events(f"cat {REFERENCE_ROOT_RELATIVE}/*.md"),
-            "bulk_reference_content_read",
+        events = self.command_events(
+            f"rg --files {REFERENCE_ROOT_RELATIVE}",
+            identifier="discovery-1",
+        ) + self.command_events(
+            f"cat {REFERENCE_ROOT_RELATIVE}/*.md",
+            identifier="reader-1",
         )
+        with self.assertRaises(ProbeFailure) as raised:
+            self.strict_observed(events)
+        self.assertEqual("bulk_reference_content_read", raised.exception.reason)
 
     def test_unrelated_reference_read_is_rejected(self):
         command = (
@@ -2073,16 +2436,24 @@ class DirectedReferenceProbeTests(unittest.TestCase):
             f"{REFERENCE_ROOT_RELATIVE}/architecture-and-state.md"
         )
         with self.assertRaises(ProbeFailure) as raised:
-            observed = observed_reference_reads(
-                self.command_events(command), "synthetic-case"
+            observed = self.strict_observed(
+                self.command_events(
+                    f"rg --files {REFERENCE_ROOT_RELATIVE}",
+                    identifier="discovery-1",
+                )
+                + self.command_events(command, identifier="reader-1")
             )
             if observed != {"apple-api-availability.md"}:
                 raise ProbeFailure("reference_selection_mismatch", "synthetic-case")
         self.assertEqual("reference_selection_mismatch", raised.exception.reason)
 
-    def test_successful_directory_listing_is_discovery_not_content_read(self):
-        events = self.command_events(f"ls {REFERENCE_ROOT_RELATIVE}")
-        self.assertEqual(set(), observed_reference_reads(events, "synthetic-case"))
+    def test_ls_directory_listing_is_not_exact_discovery_evidence(self):
+        owner = f"{REFERENCE_ROOT_RELATIVE}/apple-api-availability.md"
+        events = self.command_events(
+            f"ls {REFERENCE_ROOT_RELATIVE}",
+            identifier="discovery-1",
+        ) + self.command_events(f"cat {owner}", identifier="reader-1")
+        self.assert_strict_probe_failure(events)
 
     def test_generic_model_word_does_not_create_a_blocker(self):
         self.assertFalse(
