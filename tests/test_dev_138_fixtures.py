@@ -17,6 +17,72 @@ SOURCES = (
 ORACLE = FIXTURE_ROOT / "expected-results.jsonl"
 README = FIXTURE_ROOT / "README.md"
 DEV128_ROOT = ROOT / "fixtures" / "dev-128"
+DEV134_PROTOTYPE = (
+    ROOT / "docs" / "research" / "evidence" / "dev-134-activation-prototype.json"
+)
+DEV134_FINDING_CASE_IDS = (
+    "DEV138-SCHEMA-MISSING",
+    "DEV138-ROUTE-DISALLOWED",
+    "DEV138-OWNER-BATON-SOURCE",
+    "DEV138-BUDGET-EXCEEDED",
+    "DEV138-LOOP",
+    "DEV138-TOOL-UNAUTHORIZED",
+    "DEV138-CONTEXT-REQUIRED-MISSING",
+    "DEV138-C3-LEAK",
+    "DEV138-GRANT-DESTINATION-MISMATCH",
+    "DEV138-RECOVERY-TERMINATED",
+    "DEV138-EFFECT-DUPLICATE-LEDGER",
+    "DEV138-EFFECT-RETRY-BEFORE-RECONCILE",
+    "DEV138-FALLBACK-EXPANDS-TRUST",
+    "DEV138-EVIDENCE-LEAKAGE",
+)
+DEV134_RUNTIME_MAPPINGS = {
+    "DEV134-POS-001": {
+        "runtimeIdentity": "baton",
+        "evidenceLabel": "deterministic_runtime_invariants_only",
+        "caseIds": (
+            "DEV138-BATON-VALID",
+            "DEV138-OWNER-BATON-SOURCE",
+        ),
+    },
+    "DEV134-POS-002": {
+        "runtimeIdentity": "flawed_reducer",
+        "evidenceLabel": "runtime_findings_only",
+        "caseIds": DEV134_FINDING_CASE_IDS,
+    },
+    "DEV134-POS-004": {
+        "runtimeIdentity": "recovery",
+        "evidenceLabel": "deterministic_runtime_invariants_only",
+        "caseIds": (
+            "DEV138-UNCERTAIN-RECOVERY",
+            "DEV138-RECONCILIATION-UNAVAILABLE",
+            "DEV138-REPLAY-SUPPRESSED",
+            "DEV138-RECONCILED-RETRY",
+            "DEV138-EFFECT-RETRY-BEFORE-RECONCILE",
+        ),
+    },
+    "DEV134-POS-006": {
+        "runtimeIdentity": "consultation",
+        "evidenceLabel": "deterministic_runtime_invariants_only",
+        "caseIds": (
+            "DEV138-CONSULTATION-VALID",
+            "DEV138-OWNER-CONSULT-CHILD",
+        ),
+    },
+    "DEV134-AMB-003": {
+        "runtimeIdentity": "review_first",
+        "evidenceLabel": "runtime_findings_only",
+        "caseIds": DEV134_FINDING_CASE_IDS,
+    },
+}
+DEV134_RUNTIME_MAPPING_NONCLAIMS = (
+    "deterministic_runtime_invariant_evidence_only",
+    "does_not_prove_router_activation",
+    "does_not_prove_review_first_or_no_edit",
+    "does_not_prove_host_capability",
+    "does_not_prove_apple_runtime_behavior",
+    "rubric_owned_by_dev_131",
+)
 SDK_VERSION = "26.5"
 SWIFT_VERSION = "6.3.2"
 TARGET = "arm64-apple-macos26.0"
@@ -1395,6 +1461,166 @@ class Dev138SDKTests(unittest.TestCase):
             ".xcresult",
         ):
             self.assertNotIn(prohibited, readme)
+
+
+class Dev138ContractTests(unittest.TestCase):
+    @staticmethod
+    def _prototype():
+        return json.loads(DEV134_PROTOTYPE.read_text())
+
+    def test_activation_prototype_counts_guardrails_and_truth_boundary_are_stable(self):
+        prototype = self._prototype()
+        cases = prototype["cases"]
+
+        self.assertEqual(prototype["schemaVersion"], "1.0")
+        self.assertEqual(prototype["evidenceKind"], "design_contract_prototype")
+        self.assertEqual(prototype["executionLayer"], "design_contract_prototype")
+        self.assertEqual(prototype["status"], "pass")
+        self.assertEqual(
+            {
+                category: sum(case["category"] == category for case in cases)
+                for category in ("positive", "negative", "ambiguous")
+            },
+            {"positive": 6, "negative": 6, "ambiguous": 3},
+        )
+
+        identities = [case["id"] for case in cases]
+        self.assertEqual(len(identities), 15)
+        self.assertEqual(len(identities), len(set(identities)))
+        for case in cases:
+            applicable = case["expectedGuardrails"]["applicable"]
+            not_applicable = case["expectedGuardrails"]["not_applicable"]
+            self.assertEqual(applicable, list(dict.fromkeys(applicable)), case["id"])
+            self.assertEqual(
+                not_applicable,
+                list(dict.fromkeys(not_applicable)),
+                case["id"],
+            )
+            self.assertTrue(set(applicable).isdisjoint(not_applicable), case["id"])
+            self.assertLessEqual(
+                set(applicable) | set(not_applicable),
+                CHECK_IDS,
+                case["id"],
+            )
+
+        self.assertEqual(
+            {host: row["status"] for host, row in prototype["realHostRows"].items()},
+            {"claude": "blocked", "codex": "blocked"},
+        )
+        self.assertIn(
+            "No Apple runtime enforcement, host capability, or release-readiness claim is made.",
+            prototype["limitations"],
+        )
+
+    def test_named_runtime_invariant_mappings_are_exact(self):
+        mappings = globals().get("DEV134_RUNTIME_MAPPINGS")
+        nonclaims = globals().get("DEV134_RUNTIME_MAPPING_NONCLAIMS")
+        self.assertIsNotNone(
+            mappings,
+            "missing DEV134_RUNTIME_MAPPINGS",
+        )
+        expected_findings = (
+            "DEV138-SCHEMA-MISSING",
+            "DEV138-ROUTE-DISALLOWED",
+            "DEV138-OWNER-BATON-SOURCE",
+            "DEV138-BUDGET-EXCEEDED",
+            "DEV138-LOOP",
+            "DEV138-TOOL-UNAUTHORIZED",
+            "DEV138-CONTEXT-REQUIRED-MISSING",
+            "DEV138-C3-LEAK",
+            "DEV138-GRANT-DESTINATION-MISMATCH",
+            "DEV138-RECOVERY-TERMINATED",
+            "DEV138-EFFECT-DUPLICATE-LEDGER",
+            "DEV138-EFFECT-RETRY-BEFORE-RECONCILE",
+            "DEV138-FALLBACK-EXPANDS-TRUST",
+            "DEV138-EVIDENCE-LEAKAGE",
+        )
+        self.assertEqual(
+            mappings,
+            {
+                "DEV134-POS-001": {
+                    "runtimeIdentity": "baton",
+                    "evidenceLabel": "deterministic_runtime_invariants_only",
+                    "caseIds": (
+                        "DEV138-BATON-VALID",
+                        "DEV138-OWNER-BATON-SOURCE",
+                    ),
+                },
+                "DEV134-POS-002": {
+                    "runtimeIdentity": "flawed_reducer",
+                    "evidenceLabel": "runtime_findings_only",
+                    "caseIds": expected_findings,
+                },
+                "DEV134-POS-004": {
+                    "runtimeIdentity": "recovery",
+                    "evidenceLabel": "deterministic_runtime_invariants_only",
+                    "caseIds": (
+                        "DEV138-UNCERTAIN-RECOVERY",
+                        "DEV138-RECONCILIATION-UNAVAILABLE",
+                        "DEV138-REPLAY-SUPPRESSED",
+                        "DEV138-RECONCILED-RETRY",
+                        "DEV138-EFFECT-RETRY-BEFORE-RECONCILE",
+                    ),
+                },
+                "DEV134-POS-006": {
+                    "runtimeIdentity": "consultation",
+                    "evidenceLabel": "deterministic_runtime_invariants_only",
+                    "caseIds": (
+                        "DEV138-CONSULTATION-VALID",
+                        "DEV138-OWNER-CONSULT-CHILD",
+                    ),
+                },
+                "DEV134-AMB-003": {
+                    "runtimeIdentity": "review_first",
+                    "evidenceLabel": "runtime_findings_only",
+                    "caseIds": expected_findings,
+                },
+            },
+        )
+        self.assertEqual(
+            nonclaims,
+            (
+                "deterministic_runtime_invariant_evidence_only",
+                "does_not_prove_router_activation",
+                "does_not_prove_review_first_or_no_edit",
+                "does_not_prove_host_capability",
+                "does_not_prove_apple_runtime_behavior",
+                "rubric_owned_by_dev_131",
+            ),
+        )
+
+        prototype_cases = {
+            case["id"]: case for case in self._prototype()["cases"]
+        }
+        oracle_cases = {row["caseId"]: row for row in self._oracle_rows()}
+        self.assertEqual(set(mappings), set(prototype_cases) & set(mappings))
+        self.assertEqual(
+            set(mappings),
+            {
+                "DEV134-POS-001",
+                "DEV134-POS-002",
+                "DEV134-POS-004",
+                "DEV134-POS-006",
+                "DEV134-AMB-003",
+            },
+        )
+        for activation_id, mapping in mappings.items():
+            self.assertEqual(
+                prototype_cases[activation_id]["hostExpectations"],
+                {
+                    "claude": prototype_cases[activation_id]["expectedActivation"],
+                    "codex": prototype_cases[activation_id]["expectedActivation"],
+                },
+            )
+            self.assertTrue(mapping["caseIds"])
+            self.assertEqual(len(mapping["caseIds"]), len(set(mapping["caseIds"])))
+            self.assertLessEqual(set(mapping["caseIds"]), set(oracle_cases))
+            for case_id in mapping["caseIds"]:
+                self.assertNotIn("D-RUBRIC-001", oracle_cases[case_id]["violations"])
+
+    @staticmethod
+    def _oracle_rows():
+        return [json.loads(line) for line in ORACLE.read_text().splitlines()]
 
 
 if __name__ == "__main__":

@@ -129,6 +129,53 @@ def assert_plugin_package_contract(
     )
 
 
+def assert_dev_138_repository_only_package(test_case: unittest.TestCase) -> None:
+    repository_fixture = ROOT / "fixtures" / "dev-138"
+    source_plugin_root = ROOT / "plugins" / PLUGIN_ID
+    test_case.assertTrue(repository_fixture.is_dir())
+    test_case.assertFalse(os.path.lexists(source_plugin_root / "fixtures"))
+
+    with tempfile.TemporaryDirectory(prefix="dev-138-package-") as directory:
+        copied_plugin_root = Path(directory) / PLUGIN_ID
+        shutil.copytree(source_plugin_root, copied_plugin_root)
+
+        test_case.assertFalse((copied_plugin_root / "fixtures").exists())
+        assert_plugin_package_contract(test_case, copied_plugin_root)
+
+        copied_entries = sorted(
+            path.relative_to(copied_plugin_root)
+            for path in copied_plugin_root.rglob("*")
+        )
+        forbidden_parts = {"fixtures", "dev-138", "tests", "docs", "research"}
+        for relative_path in copied_entries:
+            lowered_parts = {part.lower() for part in relative_path.parts}
+            test_case.assertTrue(
+                lowered_parts.isdisjoint(forbidden_parts),
+                relative_path.as_posix(),
+            )
+            test_case.assertNotIn(
+                relative_path.suffix.lower(),
+                {".trace", ".xcresult"},
+                relative_path.as_posix(),
+            )
+
+        payload = b"".join(
+            path.read_bytes()
+            for path in copied_plugin_root.rglob("*")
+            if path.is_file()
+        )
+        for prohibited in (
+            b"synthetic-" + b"credential-sentinel",
+            b"DEV138_" + b"SECRET_SENTINEL",
+            b"/" + b"Users/",
+            b"/" + b"home/",
+            b"BEGIN RSA " + b"PRIVATE KEY",
+            b"BEGIN OPENSSH " + b"PRIVATE KEY",
+            b"BEGIN EC " + b"PRIVATE KEY",
+        ):
+            test_case.assertNotIn(prohibited, payload)
+
+
 class PluginContractTests(unittest.TestCase):
     def test_canonical_identity_is_exact_and_honest(self):
         manifest = load_json(
@@ -353,6 +400,14 @@ class PluginContractTests(unittest.TestCase):
     def test_plugin_package_contains_only_metadata_contract_files(self):
         plugin_root = ROOT / "plugins" / PLUGIN_ID
         assert_plugin_package_contract(self, plugin_root)
+
+    def test_dev_138_fixtures_are_repository_only(self):
+        assertion = globals().get("assert_dev_138_repository_only_package")
+        self.assertIsNotNone(
+            assertion,
+            "missing assert_dev_138_repository_only_package",
+        )
+        assertion(self)
 
     def test_package_oracle_rejects_broken_skills_symlink(self):
         with tempfile.TemporaryDirectory() as directory:
