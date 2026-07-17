@@ -70,6 +70,12 @@ CONTENT_COMMANDS = {
     "wc",
 }
 DIRECT_SEARCH_COMMANDS = {"grep", "rg"}
+REFERENCE_DISCOVERY_ACCESS = "discovery"
+REFERENCE_CONTENT_ACCESS = "content_read"
+EXACT_REFERENCE_ACCESS_SEQUENCE = (
+    REFERENCE_DISCOVERY_ACCESS,
+    REFERENCE_CONTENT_ACCESS,
+)
 DIRECT_SEARCH_FLAG_OPTIONS = {
     "grep": {
         "--fixed-strings",
@@ -608,6 +614,7 @@ def command_reference_reads(
     command: str,
     task_id: str,
     base: Path = ROOT,
+    access_sequence: list[str] | None = None,
 ) -> tuple[set[str], int]:
     observed: set[str] = set()
     effective_command, tokens = parsed_shell_command(command, task_id)
@@ -624,9 +631,11 @@ def command_reference_reads(
     has_xargs = executable == "xargs"
     if has_xargs:
         raise ProbeFailure("ambiguous_reference_read", task_id)
-    if (reference_relevant or reference_context) and (
-        has_control or has_command_substitution
-    ):
+    if (
+        executable in DIRECT_SEARCH_COMMANDS
+        or reference_relevant
+        or reference_context
+    ) and (has_control or has_command_substitution):
         raise ProbeFailure("bulk_reference_content_read", task_id)
     if has_control or has_command_substitution:
         return observed, 0
@@ -640,12 +649,10 @@ def command_reference_reads(
             base.resolve(strict=False),
             task_id,
         )
+        if access_sequence is not None:
+            access_sequence.append(REFERENCE_DISCOVERY_ACCESS)
         return observed, 0
-    if (
-        executable in DIRECT_SEARCH_COMMANDS
-        and not is_rg_discovery
-        and (reference_relevant or reference_context)
-    ):
+    if executable in DIRECT_SEARCH_COMMANDS and not is_rg_discovery:
         observed.add(
             direct_search_reference_read(
                 executable,
@@ -654,6 +661,8 @@ def command_reference_reads(
                 task_id,
             )
         )
+        if access_sequence is not None:
+            access_sequence.append(REFERENCE_CONTENT_ACCESS)
         return observed, 1
     if not path_tokens:
         return observed, 0
@@ -676,6 +685,11 @@ def command_reference_reads(
         )
         if name is not None:
             observed.add(name)
+    if access_sequence is not None:
+        if directory_discovery and not observed:
+            access_sequence.append(REFERENCE_DISCOVERY_ACCESS)
+        elif observed:
+            access_sequence.append(REFERENCE_CONTENT_ACCESS)
     return observed, int(bool(observed))
 
 
@@ -683,6 +697,7 @@ def mapping_reference_reads(
     value: object,
     base: Path,
     task_id: str,
+    access_sequence: list[str] | None = None,
 ) -> tuple[set[str], int]:
     observed: set[str] = set()
     read_count = 0
@@ -700,7 +715,7 @@ def mapping_reference_reads(
                 return observed, read_count
             if isinstance(decoded, (dict, list)):
                 nested_observed, nested_count = mapping_reference_reads(
-                    decoded, base, task_id
+                    decoded, base, task_id, access_sequence
                 )
                 observed.update(nested_observed)
                 read_count += nested_count
@@ -718,9 +733,11 @@ def mapping_reference_reads(
                 if name is not None:
                     observed.add(name)
                     read_count += 1
+                    if access_sequence is not None:
+                        access_sequence.append(REFERENCE_CONTENT_ACCESS)
             else:
                 nested_observed, nested_count = command_reference_reads(
-                    value, task_id
+                    value, task_id, base, access_sequence
                 )
                 observed.update(nested_observed)
                 read_count += nested_count
@@ -728,7 +745,7 @@ def mapping_reference_reads(
     if isinstance(value, list):
         for nested in value:
             nested_observed, nested_count = mapping_reference_reads(
-                nested, base, task_id
+                nested, base, task_id, access_sequence
             )
             observed.update(nested_observed)
             read_count += nested_count
@@ -749,15 +766,28 @@ def mapping_reference_reads(
             if name is not None:
                 observed.add(name)
                 read_count += 1
+                if access_sequence is not None:
+                    access_sequence.append(REFERENCE_CONTENT_ACCESS)
         elif key == "command" and isinstance(nested, str):
             nested_observed, nested_count = command_reference_reads(
-                nested, task_id, local_base
+                nested, task_id, local_base, access_sequence
             )
+            observed.update(nested_observed)
+            read_count += nested_count
+        elif key == "input" and isinstance(nested, str):
+            if any(character.isspace() for character in nested):
+                nested_observed, nested_count = command_reference_reads(
+                    nested, task_id, local_base, access_sequence
+                )
+            else:
+                nested_observed, nested_count = mapping_reference_reads(
+                    nested, local_base, task_id, access_sequence
+                )
             observed.update(nested_observed)
             read_count += nested_count
         else:
             nested_observed, nested_count = mapping_reference_reads(
-                nested, local_base, task_id
+                nested, local_base, task_id, access_sequence
             )
             observed.update(nested_observed)
             read_count += nested_count
@@ -765,10 +795,14 @@ def mapping_reference_reads(
 
 
 def observed_reference_reads(
-    events: list[dict[str, Any]], task_id: str
+    events: list[dict[str, Any]],
+    task_id: str,
+    *,
+    require_exact_sequence: bool = False,
 ) -> set[str]:
     observed: set[str] = set()
     read_count = 0
+    access_sequence: list[str] = []
     for item in paired_successful_tool_items(events, task_id):
         if item.get("type") == "command_execution":
             command = item.get("command")
@@ -776,17 +810,27 @@ def observed_reference_reads(
                 raise ProbeFailure("invalid_tool_event", task_id)
             base = declared_working_directory(item, ROOT, task_id)
             item_observed, item_count = command_reference_reads(
-                command, task_id, base
+                command, task_id, base, access_sequence
             )
         else:
             inputs = {key: item[key] for key in TOOL_INPUT_KEYS if key in item}
             item_observed, item_count = mapping_reference_reads(
-                inputs, ROOT, task_id
+                inputs, ROOT, task_id, access_sequence
             )
         observed.update(item_observed)
         read_count += item_count
         if read_count > 1:
             raise ProbeFailure("bulk_reference_content_read", task_id)
+    if (
+        require_exact_sequence
+        and tuple(access_sequence) != EXACT_REFERENCE_ACCESS_SEQUENCE
+    ):
+        reason = (
+            "ambiguous_reference_read"
+            if len(access_sequence) < len(EXACT_REFERENCE_ACCESS_SEQUENCE)
+            else "bulk_reference_content_read"
+        )
+        raise ProbeFailure(reason, task_id)
     return observed
 
 
@@ -900,7 +944,9 @@ def run_case(
         raise ProbeFailure("task_execution_failed", task_id)
 
     events = decode_json_lines(completed.stdout, task_id)
-    observed = observed_reference_reads(events, task_id)
+    observed = observed_reference_reads(
+        events, task_id, require_exact_sequence=True
+    )
     expected = set(case["expectedReferences"])
     if observed != expected:
         raise ProbeFailure("reference_selection_mismatch", task_id)
