@@ -333,7 +333,12 @@ it. It is not workflow-triggered progressive disclosure, cannot satisfy
 ### Mandatory combined-stack workflow-triggered proof
 
 After DEV-136 rebases above DEV-137, a host runner launches fresh Codex 0.144.5
-`sol` sessions that naturally activate each of the five production workflows.
+`gpt-5.6-sol` sessions that naturally activate each of the five production
+workflows. The runner must pass the exact configured model ID with
+`-m gpt-5.6-sol`; no fallback model is permitted. A pre-response rejection of
+the shorthand `-m sol` may be recorded only as the normalized blocker
+observation `model_alias_rejected`, with zero workflow/reference claims. It is
+not an acceptance path.
 The task prompts describe the work only: they do not mention the reference
 library, reference filenames, file inspection, or which workflow/skill to
 activate. Observed file-read events must prove the exact DEV-134 route contract
@@ -413,7 +418,7 @@ DEV-137 implementation is complete only when the five files are source-grounded,
 sole-owned, non-orphaned, correctly linked, code-labelled, compile/audit
 checked, and present byte-identically in the Codex cache; the full repository
 and inherited regression suites pass; and the combined tip with DEV-136 passes
-`DEV137-CODEX-PROGRESSIVE-001` in fresh Codex 0.144.5 `sol` sessions for every
+`DEV137-CODEX-PROGRESSIVE-001` in fresh Codex 0.144.5 `gpt-5.6-sol` sessions for every
 workflow route, every minimal conditional-load case, and fictional-API
 noninvention. Structural install evidence or the optional explicitly directed
 reference probe cannot substitute for that gate. Until it passes, the issue

@@ -4,7 +4,7 @@
 
 **Goal:** Author the exact five source-grounded Apple Foundation Models handoff references and prove their ownership, links, citations, Swift labels, package integrity, and workflow-triggered Codex progressive disclosure on the combined DEV-136/DEV-137 tip without adding production skills or executable orchestration fixtures to DEV-137.
 
-**Architecture:** One provider-neutral `references/` directory lives inside the conventional plugin package. Each concern has one canonical owner; Apple declarations and versioned errors are isolated in the Apple API owner, while framework-neutral state/security/evaluation policy is labelled separately. Python standard-library tests enforce topology, links, source authority, label/compile contracts, and package/cache contents. An explicitly directed Codex 0.144.5 reference-selection probe is only an optional prerequisite. DEV-137 cannot complete until DEV-136 rebases above it and fresh `sol` sessions naturally activate all five workflows while observed file-read events prove every exact/minimal route and fictional-API noninvention.
+**Architecture:** One provider-neutral `references/` directory lives inside the conventional plugin package. Each concern has one canonical owner; Apple declarations and versioned errors are isolated in the Apple API owner, while framework-neutral state/security/evaluation policy is labelled separately. Python standard-library tests enforce topology, links, source authority, label/compile contracts, and package/cache contents. An explicitly directed Codex 0.144.5 reference-selection probe is only an optional prerequisite. DEV-137 cannot complete until DEV-136 rebases above it and fresh `gpt-5.6-sol` sessions naturally activate all five workflows while observed file-read events prove every exact/minimal route and fictional-API noninvention.
 
 **Tech Stack:** Markdown, Python 3 standard library, `unittest`, Swift 6.3.2, macOS SDK 26.5, Bats 1.13.0, Codex CLI 0.144.5, official Apple documentation/WWDC/PCC material, the installed SDK interface, and the pinned Apple-owned utilities repository.
 
@@ -21,7 +21,7 @@
 - Do not commit a literal home/worktree/SDK path. Use `<repo>`, `<host-path>`, and `<sdk>` in durable text and evidence.
 - Default tests require no model, network, PCC, custom provider, credentials, entitlement, paid service, Apple Intelligence availability, device, simulator, or full Xcode. Network/source and live Codex rows are separate and honestly blocked when a prerequisite is absent.
 - The explicitly directed Codex reference-selection probe is optional prerequisite evidence only. It cannot prove workflow-triggered progressive disclosure or complete DEV-137.
-- After DEV-136 rebases above DEV-137, `DEV137-CODEX-PROGRESSIVE-001` is a mandatory completion gate in fresh Codex 0.144.5 `sol` sessions. Until it passes, DEV-137 stays In Progress with exact blocker `production_skills_not_integrated`.
+- After DEV-136 rebases above DEV-137, `DEV137-CODEX-PROGRESSIVE-001` is a mandatory completion gate in fresh Codex 0.144.5 `gpt-5.6-sol` sessions. The host runner must pass the exact configured model ID with `-m gpt-5.6-sol`; no fallback model is permitted. A pre-response rejection of the shorthand `-m sol` is only the normalized blocker observation `model_alias_rejected`, with zero workflow/reference claims, and is not acceptance evidence. Until the mandatory gate passes, DEV-137 stays In Progress with exact blocker `production_skills_not_integrated`.
 - Claude Code remains `blocked/deferred_by_owner` and is not invoked. `pre-commit` and `markdownlint` remain `blocked/deferred_by_owner`, never pass.
 - Use `apply_patch` for tracked edits. Do not push, merge, tag, publish, or release.
 
@@ -38,7 +38,7 @@
 | `tests/test_plugin_contract.py` | Modify | Expand exact package regular-file allowlist from metadata-only to metadata plus five references |
 | `tests/e2e/codex_plugin_load.py` | Modify | Expand source/cache payload oracle and hashes to the five references |
 | `tests/e2e/codex_reference_disclosure.py` | Create | Optional explicitly directed Codex reference-selection prerequisite; never a completion gate |
-| `tests/e2e/codex_workflow_progressive_disclosure.py` | Create | Mandatory combined-tip fresh-`sol` workflow activation, exact/minimal file-read, and fictional-API noninvention gate |
+| `tests/e2e/codex_workflow_progressive_disclosure.py` | Create | Mandatory combined-tip fresh-`gpt-5.6-sol` workflow activation, exact/minimal file-read, and fictional-API noninvention gate |
 | `docs/research/evidence/dev-137-reference-library-e2e.md` | Create | Normalized exact-head results, source/compile counts, prompt/result hashes, Codex rows, and deferred/blocker ledger; no raw live-host artifacts |
 
 ---
@@ -768,7 +768,7 @@ git commit -m "DEV-137 prove reference packaging and Codex prerequisites"
 **Interfaces:**
 - Consumes: the five complete references, DEV-136's installed production
   skills rebased above DEV-137, the exact DEV-134 routes, and Codex CLI 0.144.5
-  fresh `sol` sessions.
+  fresh `gpt-5.6-sol` sessions.
 - Produces: `DEV137-CODEX-PROGRESSIVE-001`, the mandatory observed-file-read
   and fictional-API noninvention completion gate.
 
@@ -782,8 +782,11 @@ library only. It must:
 2. require all five installed production skill entrypoints from DEV-136 and,
    before they exist, return `blocked/production_skills_not_integrated` without
    attempting a model session;
-3. launch every case in a fresh ephemeral Codex 0.144.5 `sol` session through
-   the approved host-runner path, with no resume or cross-case context;
+3. launch every case in a fresh ephemeral Codex 0.144.5 `gpt-5.6-sol` session
+   through the approved host-runner path using the exact model argument
+   `-m gpt-5.6-sol`, with no fallback, resume, or cross-case context; a
+   pre-response rejection of shorthand `-m sol` is only normalized blocker
+   observation `model_alias_rejected`, with zero workflow/reference claims;
 4. prompt only for a concrete domain operation: never tell Codex to inspect,
    read, or use the reference library; never name a reference file, skill,
    workflow, expected route, or expected answer in the prompt;
@@ -873,7 +876,7 @@ PYTHONDONTWRITEBYTECODE=1 \
 python3 -m json.tool /tmp/dev-137-codex-progressive.json > /dev/null
 ```
 
-Expected: one fresh Codex 0.144.5 `sol` session per case; all five production
+Expected: one fresh Codex 0.144.5 `gpt-5.6-sol` session per case; all five production
 workflows activate without explicit skill/reference prompting; every observed
 reference-content read matches the exact set above; all cases pass; and the
 fictional API is rejected without an invented declaration. Any skipped case,
