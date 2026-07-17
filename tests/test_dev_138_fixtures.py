@@ -1,5 +1,8 @@
+import hashlib
 import json
 from pathlib import Path
+import re
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -12,6 +15,108 @@ SOURCES = (
     FIXTURE_ROOT / "DeterministicScenarios.swift",
 )
 ORACLE = FIXTURE_ROOT / "expected-results.jsonl"
+README = FIXTURE_ROOT / "README.md"
+DEV128_ROOT = ROOT / "fixtures" / "dev-128"
+SDK_VERSION = "26.5"
+SWIFT_VERSION = "6.3.2"
+TARGET = "arm64-apple-macos26.0"
+DEFAULT_SWIFT_TARGET = "arm64-apple-macosx26.0"
+INTERFACE_SHA256 = "ff2285670b0966addb9827dc895a3ee3c9db6e186baae62c034fed012632aacc"
+
+FOUNDATION_COMMANDS = r'''set -e
+TMPDIR="$(mktemp -d)"
+trap 'rm -rf "$TMPDIR"' EXIT
+swiftc -warnings-as-errors -parse-as-library \
+  fixtures/dev-138/HandoffReducer.swift \
+  fixtures/dev-138/DeterministicScenarios.swift \
+  -o "$TMPDIR/dev-138-fixtures"
+"$TMPDIR/dev-138-fixtures" >"$TMPDIR/first.jsonl"
+"$TMPDIR/dev-138-fixtures" >"$TMPDIR/second.jsonl"
+cmp "$TMPDIR/first.jsonl" "$TMPDIR/second.jsonl"
+diff -u fixtures/dev-138/expected-results.jsonl "$TMPDIR/first.jsonl"'''
+
+SDK_COMMANDS = r'''set -e
+TMPDIR="$(mktemp -d)"
+trap 'rm -rf "$TMPDIR"' EXIT
+SWIFT_VERSION="$(swiftc --version)"
+SDK="$(xcrun --sdk macosx --show-sdk-path)"
+SDK_VERSION="$(xcrun --sdk macosx --show-sdk-version)"
+TARGET=arm64-apple-macos26.0
+test "$SDK_VERSION" = 26.5
+
+swiftc -typecheck -target "$TARGET" -sdk "$SDK" \
+  fixtures/dev-128/compiled/stable-surface.swift
+swiftc -parse-as-library -target "$TARGET" -sdk "$SDK" \
+  fixtures/dev-128/compiled/availability-probe.swift \
+  -o "$TMPDIR/availability"
+"$TMPDIR/availability" >"$TMPDIR/availability.out"
+rg -q '^availability=' "$TMPDIR/availability.out"
+rg -q '^isAvailable=' "$TMPDIR/availability.out"
+rg -q '^contextSize=[0-9]+$' "$TMPDIR/availability.out"
+rg -q '^supportsCurrentLocale=' "$TMPDIR/availability.out"
+
+swiftc -parse-as-library -target "$TARGET" -sdk "$SDK" \
+  fixtures/dev-128/compiled/transcript-roundtrip.swift \
+  -o "$TMPDIR/transcript"
+test "$("$TMPDIR/transcript")" = \
+  'entries=3 codableRoundTrip=true rehydrated=true'
+
+swiftc -parse-as-library -target "$TARGET" -sdk "$SDK" \
+  fixtures/dev-128/compiled/session-isolation.swift \
+  -o "$TMPDIR/isolation"
+test "$("$TMPDIR/isolation")" = \
+  'parentEntries=1 childEntries=1 isolated=true'
+
+swiftc -parse-as-library -target "$TARGET" -sdk "$SDK" \
+  fixtures/dev-128/compiled/baton-pass-state.swift \
+  -o "$TMPDIR/baton"
+test "$("$TMPDIR/baton")" = \
+  'source=research destination=review active=review finalOwner=review transferred=true'
+
+INTERFACE="$(find \
+  "$SDK/System/Library/Frameworks/FoundationModels.framework/Modules/FoundationModels.swiftmodule" \
+  -name 'arm64e-apple-macos.swiftinterface' -print -quit)"
+test -n "$INTERFACE"
+test "$(shasum -a 256 "$INTERFACE" | awk '{print $1}')" = \
+  ff2285670b0966addb9827dc895a3ee3c9db6e186baae62c034fed012632aacc'''
+
+BLOCKER_COMMANDS = r'''set -e
+TMPDIR="$(mktemp -d)"
+trap 'rm -rf "$TMPDIR"' EXIT
+SDK="$(xcrun --sdk macosx --show-sdk-path)"
+
+set +e
+swiftc -typecheck -target arm64-apple-macos26.0 -sdk "$SDK" \
+  fixtures/dev-128/blocked/generable-macro.swift \
+  >"$TMPDIR/generable.out" 2>&1
+macro_rc=$?
+set -e
+test "$macro_rc" -ne 0
+rg -q 'FoundationModelsMacros|macro implementation.*could not be found' \
+  "$TMPDIR/generable.out"
+
+set +e
+swiftc -typecheck -target arm64-apple-macos27.0 -sdk "$SDK" \
+  fixtures/dev-128/blocked/os-27-beta-surface.swift \
+  >"$TMPDIR/beta.out" 2>&1
+beta_rc=$?
+set -e
+test "$beta_rc" -ne 0
+rg -q "DynamicProfile.*not a member type|has no member 'Profile'" \
+  "$TMPDIR/beta.out"
+rg -q "extra arguments at positions #1, #2 in call" \
+  "$TMPDIR/beta.out"
+rg -q "extra argument 'toolCallingMode' in call" \
+  "$TMPDIR/beta.out"
+
+set +e
+swiftc -typecheck -target arm64-apple-macos27.0 -sdk "$SDK" \
+  fixtures/dev-128/blocked/evaluations-import.swift \
+  >"$TMPDIR/evaluations.out" 2>&1
+evaluations_rc=$?
+set -e
+test "$evaluations_rc" -ne 0
+rg -q "no such module 'Evaluations'" "$TMPDIR/evaluations.out"'''
 
 CHECK_IDS = {
     "D-SCHEMA-001",
@@ -880,6 +985,416 @@ struct Probe {
             if line.startswith("import ")
         }
         self.assertEqual(imports, {"import Foundation"})
+
+
+class Dev138SDKTests(unittest.TestCase):
+    _temporary_directory = None
+
+    @classmethod
+    def setUpClass(cls):
+        swiftc = shutil.which("swiftc")
+        if swiftc is None:
+            raise unittest.SkipTest(
+                "blocked/missing_swiftc release_blocker=true"
+            )
+        xcrun = shutil.which("xcrun")
+        if xcrun is None:
+            raise unittest.SkipTest(
+                "blocked/missing_xcrun release_blocker=true"
+            )
+
+        cls.swiftc = Path(swiftc).resolve()
+        cls.xcrun = Path(xcrun).resolve()
+
+        swift_version = cls._capture([str(cls.swiftc), "--version"])
+        if swift_version.returncode != 0:
+            raise unittest.SkipTest(
+                "blocked/swift_version_unavailable release_blocker=true"
+            )
+        if not swift_version.stdout.endswith("\n"):
+            raise unittest.SkipTest(
+                "blocked/swift_version_malformed release_blocker=true"
+            )
+        combined_swift_version = swift_version.stderr + swift_version.stdout
+        version_match = re.fullmatch(
+            r"swift-driver version: [0-9]+(?:\.[0-9]+)+ "
+            r"Apple Swift version ([0-9]+\.[0-9]+\.[0-9]+) "
+            r"\(swiftlang-[0-9.]+ clang-[0-9.]+\)\n"
+            r"Target: ([A-Za-z0-9_.-]+)\n",
+            combined_swift_version,
+        )
+        if version_match is None:
+            raise unittest.SkipTest(
+                "blocked/swift_version_malformed release_blocker=true"
+            )
+        if version_match.group(1) != SWIFT_VERSION:
+            raise unittest.SkipTest(
+                "blocked/swift_version_mismatch release_blocker=true"
+            )
+        if version_match.group(2) != DEFAULT_SWIFT_TARGET:
+            raise unittest.SkipTest(
+                "blocked/swift_target_mismatch release_blocker=true"
+            )
+        cls.swift_version_stdout = swift_version.stdout
+        cls.swift_version_stderr = swift_version.stderr
+        cls.swift_identity = "swift_" + SWIFT_VERSION.replace(".", "_")
+        cls.default_swift_target = version_match.group(2)
+
+        sdk_version = cls._capture(
+            [str(cls.xcrun), "--sdk", "macosx", "--show-sdk-version"]
+        )
+        if (
+            sdk_version.returncode != 0
+            or sdk_version.stderr
+            or re.fullmatch(r"[0-9]+\.[0-9]+\n", sdk_version.stdout) is None
+        ):
+            raise unittest.SkipTest(
+                "blocked/sdk_version_malformed release_blocker=true"
+            )
+        cls.sdk_version = sdk_version.stdout.removesuffix("\n")
+        if cls.sdk_version != SDK_VERSION:
+            raise unittest.SkipTest(
+                "blocked/sdk_version_mismatch release_blocker=true"
+            )
+
+        sdk_path = cls._capture(
+            [str(cls.xcrun), "--sdk", "macosx", "--show-sdk-path"]
+        )
+        sdk_lines = sdk_path.stdout.splitlines()
+        if (
+            sdk_path.returncode != 0
+            or sdk_path.stderr
+            or len(sdk_lines) != 1
+            or not Path(sdk_lines[0]).is_absolute()
+            or not Path(sdk_lines[0]).is_dir()
+        ):
+            raise unittest.SkipTest(
+                "blocked/sdk_path_malformed release_blocker=true"
+            )
+        cls.sdk_path = Path(sdk_lines[0])
+        cls._temporary_directory = tempfile.TemporaryDirectory(prefix="dev-138-sdk-")
+        cls.temporary_root = Path(cls._temporary_directory.name)
+        cls.environment_matrix = (
+            {
+                "identity": cls.swift_identity,
+                "target": cls.default_swift_target,
+                "status": "pass",
+            },
+            {
+                "identity": "macos_sdk_26_5",
+                "target": TARGET,
+                "status": "pass",
+            },
+        )
+
+    @classmethod
+    def tearDownClass(cls):
+        if cls._temporary_directory is not None:
+            cls._temporary_directory.cleanup()
+
+    @staticmethod
+    def _capture(arguments):
+        return subprocess.run(
+            arguments,
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def setUp(self):
+        self._assert_environment_stable()
+
+    def tearDown(self):
+        self._assert_environment_stable()
+
+    def _assert_environment_stable(self):
+        current_swiftc = shutil.which("swiftc")
+        current_xcrun = shutil.which("xcrun")
+        self.assertIsNotNone(current_swiftc, "fail/swiftc_resolution_drift")
+        self.assertIsNotNone(current_xcrun, "fail/xcrun_resolution_drift")
+        self.assertEqual(
+            Path(current_swiftc).resolve(),
+            self.swiftc,
+            "fail/swiftc_resolution_drift",
+        )
+        self.assertEqual(
+            Path(current_xcrun).resolve(),
+            self.xcrun,
+            "fail/xcrun_resolution_drift",
+        )
+
+        swift_version = self._capture([str(self.swiftc), "--version"])
+        self.assertEqual(swift_version.returncode, 0, "fail/swift_version_drift")
+        self.assertEqual(
+            swift_version.stdout,
+            self.swift_version_stdout,
+            "fail/swift_version_drift",
+        )
+        self.assertEqual(
+            swift_version.stderr,
+            self.swift_version_stderr,
+            "fail/swift_version_drift",
+        )
+
+        sdk_version = self._capture(
+            [str(self.xcrun), "--sdk", "macosx", "--show-sdk-version"]
+        )
+        self.assertEqual(sdk_version.returncode, 0, "fail/sdk_version_drift")
+        self.assertEqual(
+            sdk_version.stdout,
+            SDK_VERSION + "\n",
+            "fail/sdk_version_drift",
+        )
+        self.assertEqual(sdk_version.stderr, "", "fail/sdk_version_drift")
+
+    def _swift(self, *arguments):
+        return self._capture([str(self.swiftc), *map(str, arguments)])
+
+    def _assert_compiles(self, source, *, output=None, target=TARGET):
+        arguments = ["-target", target, "-sdk", self.sdk_path]
+        if output is None:
+            arguments.insert(0, "-typecheck")
+        else:
+            arguments.insert(0, "-parse-as-library")
+            arguments.extend(["-o", output])
+        arguments.append(source.relative_to(ROOT))
+        completed = self._swift(*arguments)
+        self.assertEqual(
+            completed.returncode,
+            0,
+            "fail/positive_probe_compile",
+        )
+        return completed
+
+    def _assert_expected_blocker(self, source, target, diagnostics):
+        completed = self._swift(
+            "-typecheck",
+            "-target",
+            target,
+            "-sdk",
+            self.sdk_path,
+            source.relative_to(ROOT),
+        )
+        self.assertNotEqual(
+            completed.returncode,
+            0,
+            "fail/expected_blocker_now_supported_reclassification_required",
+        )
+        output = completed.stdout + completed.stderr
+        for diagnostic in diagnostics:
+            self.assertTrue(
+                re.search(diagnostic, output) is not None,
+                "fail/expected_blocker_diagnostic_mismatch",
+            )
+
+    def test_environment_matrix_is_exact_and_normalized(self):
+        self.assertEqual(self.swift_identity, "swift_6_3_2")
+        self.assertEqual(self.default_swift_target, DEFAULT_SWIFT_TARGET)
+        self.assertEqual(self.sdk_version, SDK_VERSION)
+        self.assertEqual(TARGET, "arm64-apple-macos26.0")
+        self.assertEqual(
+            self.environment_matrix,
+            (
+                {
+                    "identity": "swift_6_3_2",
+                    "target": "arm64-apple-macosx26.0",
+                    "status": "pass",
+                },
+                {
+                    "identity": "macos_sdk_26_5",
+                    "target": "arm64-apple-macos26.0",
+                    "status": "pass",
+                },
+            ),
+        )
+
+    def test_expected_blockers_require_all_specific_diagnostics(self):
+        self._assert_expected_blocker(
+            DEV128_ROOT / "blocked" / "generable-macro.swift",
+            TARGET,
+            [r"FoundationModelsMacros|macro implementation.*could not be found"],
+        )
+        self._assert_expected_blocker(
+            DEV128_ROOT / "blocked" / "os-27-beta-surface.swift",
+            "arm64-apple-macos27.0",
+            [
+                r"DynamicProfile.*not a member type|has no member 'Profile'",
+                r"extra arguments at positions #1, #2 in call",
+                r"extra argument 'toolCallingMode' in call",
+            ],
+        )
+        self._assert_expected_blocker(
+            DEV128_ROOT / "blocked" / "evaluations-import.swift",
+            "arm64-apple-macos27.0",
+            [r"no such module 'Evaluations'"],
+        )
+
+    def test_interface_identity_is_exact_sdk_26_5(self):
+        interface = (
+            self.sdk_path
+            / "System"
+            / "Library"
+            / "Frameworks"
+            / "FoundationModels.framework"
+            / "Modules"
+            / "FoundationModels.swiftmodule"
+            / "arm64e-apple-macos.swiftinterface"
+        )
+        self.assertTrue(
+            interface.is_file(),
+            "blocked/interface_missing release_blocker=true",
+        )
+        digest = hashlib.sha256(interface.read_bytes()).hexdigest()
+        self.assertEqual(digest, INTERFACE_SHA256, "fail/interface_sha256_mismatch")
+        self.assertEqual(
+            {
+                "identity": "foundation_models_arm64e_interface",
+                "sdk": self.sdk_version,
+                "sha256": digest,
+                "evidence": "interface_verified_sdk_26_5",
+            },
+            {
+                "identity": "foundation_models_arm64e_interface",
+                "sdk": "26.5",
+                "sha256": INTERFACE_SHA256,
+                "evidence": "interface_verified_sdk_26_5",
+            },
+        )
+
+    def test_positive_dev_128_matrix_uses_exact_labels(self):
+        compiled = DEV128_ROOT / "compiled"
+        evidence_rows = {}
+        stable = self._assert_compiles(compiled / "stable-surface.swift")
+        self.assertEqual(stable.stdout, "", "fail/stable_surface_output")
+        evidence_rows["stable"] = "compiled_sdk_26_5"
+
+        availability = self.temporary_root / "availability"
+        self._assert_compiles(
+            compiled / "availability-probe.swift",
+            output=availability,
+        )
+        availability_run = self._capture([str(availability)])
+        self.assertEqual(
+            availability_run.returncode,
+            0,
+            "fail/availability_probe_runtime",
+        )
+        availability_lines = availability_run.stdout.splitlines()
+        self.assertEqual(len(availability_lines), 4, "fail/availability_shape")
+        self.assertTrue(
+            re.fullmatch(r"availability=.+", availability_lines[0]) is not None,
+            "fail/availability_shape",
+        )
+        self.assertTrue(
+            re.fullmatch(r"isAvailable=(true|false)", availability_lines[1])
+            is not None,
+            "fail/availability_shape",
+        )
+        self.assertTrue(
+            re.fullmatch(r"contextSize=[0-9]+", availability_lines[2]) is not None,
+            "fail/availability_shape",
+        )
+        self.assertTrue(
+            re.fullmatch(
+                r"supportsCurrentLocale=(true|false)",
+                availability_lines[3],
+            )
+            is not None,
+            "fail/availability_shape",
+        )
+        evidence_rows["availability"] = "compiled_sdk_26_5"
+
+        transcript = self.temporary_root / "transcript"
+        self._assert_compiles(
+            compiled / "transcript-roundtrip.swift",
+            output=transcript,
+        )
+        transcript_run = self._capture([str(transcript)])
+        self.assertEqual(transcript_run.returncode, 0, "fail/transcript_runtime")
+        self.assertEqual(
+            transcript_run.stdout,
+            "entries=3 codableRoundTrip=true rehydrated=true\n",
+        )
+        evidence_rows["transcript"] = "compiled_sdk_26_5"
+
+        isolation = self.temporary_root / "isolation"
+        self._assert_compiles(
+            compiled / "session-isolation.swift",
+            output=isolation,
+        )
+        isolation_run = self._capture([str(isolation)])
+        self.assertEqual(isolation_run.returncode, 0, "fail/isolation_runtime")
+        self.assertEqual(
+            isolation_run.stdout,
+            "parentEntries=1 childEntries=1 isolated=true\n",
+        )
+        evidence_rows["session"] = "compiled_sdk_26_5"
+
+        baton = self.temporary_root / "baton"
+        self._assert_compiles(
+            compiled / "baton-pass-state.swift",
+            output=baton,
+        )
+        baton_run = self._capture([str(baton)])
+        self.assertEqual(baton_run.returncode, 0, "fail/baton_runtime")
+        self.assertEqual(
+            baton_run.stdout,
+            "source=research destination=review active=review "
+            "finalOwner=review transferred=true\n",
+        )
+        evidence_rows["baton"] = "pseudocode_deterministic_mock"
+
+        self.assertEqual(
+            evidence_rows,
+            {
+                "stable": "compiled_sdk_26_5",
+                "availability": "compiled_sdk_26_5",
+                "transcript": "compiled_sdk_26_5",
+                "session": "compiled_sdk_26_5",
+                "baton": "pseudocode_deterministic_mock",
+            },
+        )
+
+    def test_readme_has_exact_commands_boundaries_and_no_private_paths(self):
+        self.assertTrue(README.is_file(), "missing fixtures/dev-138/README.md")
+        readme = README.read_text()
+        for heading in (
+            "## Case map",
+            "## Truth boundary",
+            "## Foundation-only deterministic commands",
+            "## SDK 26.5 commands",
+            "## Expected-blocker commands",
+            "## Release blockers",
+        ):
+            self.assertIn(heading, readme)
+        self.assertLessEqual(
+            EXPECTED_CASE_IDS,
+            set(re.findall(r"`(DEV138-[A-Z0-9-]+)`", readme)),
+        )
+        for label in (
+            "compiled_sdk_26_5",
+            "interface_verified_sdk_26_5",
+            "pseudocode_deterministic_mock",
+        ):
+            self.assertIn(f"`{label}`", readme)
+        for commands in (FOUNDATION_COMMANDS, SDK_COMMANDS, BLOCKER_COMMANDS):
+            self.assertIn(f"```bash\n{commands}\n```", readme)
+        for blocker in (
+            "blocked/missing_swiftc",
+            "blocked/missing_xcrun",
+            "blocked/sdk_version_mismatch",
+        ):
+            self.assertIn(f"`{blocker}`", readme)
+        self.assertIn("Generic nonzero compilation is `fail`", readme)
+        for prohibited in (
+            "/" + "Users/",
+            "/" + "home/",
+            "CommandLine" + "Tools/SDKs",
+            ".trace",
+            ".xcresult",
+        ):
+            self.assertNotIn(prohibited, readme)
 
 
 if __name__ == "__main__":
