@@ -69,10 +69,14 @@ the exact normalized blocked result at exit `2`.
 | `E-CODEX-LOAD-001` | pass | isolated structural discovery, installation, enabled state, and cache integrity verified |
 | `E-CODEX-ACTIVATE-001` | blocked | `production_skill_not_implemented` |
 | `E-CLAUDE-LOAD-001` | blocked | `deferred_by_owner`; Claude was not invoked |
-| `BATS` | blocked | `missing_binary`; exit `2` |
+| `BATS` | pass | Bats `1.13.0`; `tests/plugin_skeleton.bats` passed 3 of 3 |
 | `pre-commit` | blocked | `deferred_by_owner` |
 | `markdownlint` | blocked | `deferred_by_owner` |
 
 This is structural discovery and installation evidence only. It is not
 capability proof: no design, implementation, review, debug, or validation
 workflow exists in DEV-135, and no capability activation is claimed.
+
+The BATS row was rerun after the approved `bats-core` installation. The exact
+tracked suite passed all three tests: synchronized artifacts, idempotent
+multi-output write mode, and generated Codex manifest drift rejection.
