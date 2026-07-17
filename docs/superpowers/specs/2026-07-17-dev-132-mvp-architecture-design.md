@@ -474,9 +474,11 @@ and hash scanners before commit.
 
 Raw/live prompts, responses, reasoning, tool arguments/results, credentials,
 private configuration, real user or third-party data, raw host/machine identity,
-literal executable paths, raw `PATH`, `.trace`, and `.xcresult` remain excluded.
-Normalized `<host-path>` executable identity plus exact version is the only
-committed path-identity exception. Raw Instruments traces and any other
+literal executable paths, raw `PATH`, raw blocker diagnostics, `.trace`, and
+`.xcresult` remain excluded.
+Normalized `<host-path>` executable identity plus a strict exact version or
+`null` is the only committed path-identity exception. Raw Instruments traces
+and any other
 authorized live-host artifact remain outside the repository under separately
 approved access, retention, redaction, and deletion policy.
 
@@ -580,6 +582,11 @@ After a successful capture, resolution or version drift is `fail`, invalidates
 the evidence, and requires a fresh run. Committed evidence identifies the
 captured executable as normalized `<host-path>` plus its exact observed version
 or `null`. Literal local executable paths and the raw `PATH` are never committed.
+Only strict single-line Claude/Codex version formats may enter evidence;
+malformed, multiline, or path-bearing output normalizes to `null` with a stable
+reason and is never echoed. Raw blocker diagnostics stay transient. Committed
+blocker evidence contains only probe identity, exit code, normalized status,
+and a stable `diagnosticClass` after the expected error class is verified.
 
 The primary controlled-shell baseline remains Claude Code `2.1.91` and Codex
 `0.144.5`. Claude Code `2.1.91` supports structural validation and session-only

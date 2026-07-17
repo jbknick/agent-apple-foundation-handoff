@@ -623,6 +623,20 @@ the literal resolution or raw `PATH`:
 ```bash
 set -e
 
+normalize_host_version() {
+  python3 -c '
+import re
+import sys
+
+patterns = {
+    "claude": r"[0-9]+\.[0-9]+\.[0-9]+ \(Claude Code\)",
+    "codex": r"codex-cli [0-9]+\.[0-9]+\.[0-9]+",
+}
+value = sys.stdin.read()
+print(value if re.fullmatch(patterns[sys.argv[1]], value) else "null")
+' "$1"
+}
+
 set +e
 claude_bin="$(command -v claude 2>/dev/null)"
 claude_lookup_rc=$?
@@ -639,12 +653,16 @@ if test "$claude_lookup_rc" -eq 0 && test -n "$claude_bin"; then
     claude_row_reason=executable_not_runnable
   else
     set +e
-    claude_version_output="$("$claude_bin" --version 2>/dev/null)"
+    claude_version_raw="$("$claude_bin" --version 2>/dev/null)"
     claude_version_rc=$?
     set -e
-    if test "$claude_version_rc" -ne 0 || test -z "$claude_version_output"; then
+    claude_version_output="$(printf '%s' "$claude_version_raw" | \
+      normalize_host_version claude)"
+    if test "$claude_version_rc" -ne 0 || test -z "$claude_version_raw"; then
       claude_version_output=null
       claude_row_reason=version_unavailable
+    elif test "$claude_version_output" = null; then
+      claude_row_reason=version_output_invalid
     elif test "$claude_version_output" = '2.1.91 (Claude Code)'; then
       claude_row_state=pass
       claude_row_reason=approved_baseline
@@ -663,12 +681,16 @@ if test "$codex_lookup_rc" -eq 0 && test -n "$codex_bin"; then
     codex_row_reason=executable_not_runnable
   else
     set +e
-    codex_version_output="$("$codex_bin" --version 2>/dev/null)"
+    codex_version_raw="$("$codex_bin" --version 2>/dev/null)"
     codex_version_rc=$?
     set -e
-    if test "$codex_version_rc" -ne 0 || test -z "$codex_version_output"; then
+    codex_version_output="$(printf '%s' "$codex_version_raw" | \
+      normalize_host_version codex)"
+    if test "$codex_version_rc" -ne 0 || test -z "$codex_version_raw"; then
       codex_version_output=null
       codex_row_reason=version_unavailable
+    elif test "$codex_version_output" = null; then
+      codex_row_reason=version_output_invalid
     elif test "$codex_version_output" = 'codex-cli 0.144.5'; then
       codex_row_state=pass
       codex_row_reason=approved_baseline
@@ -704,46 +726,80 @@ printf 'import Evaluations\n' > "$evaluations_source"
 evaluations_output="$(xcrun swiftc -typecheck "$evaluations_source" 2>&1)"
 evaluations_rc=$?
 set -e
-test "$xcodebuild_rc" -ne 0
-test "$instruments_rc" -ne 0
-test "$xctrace_rc" -ne 0
-test "$iphoneos_rc" -ne 0
-test "$simctl_rc" -ne 0
-test "$evaluations_rc" -ne 0
+test -n "$developer_dir"
 printf 'developerDirectory=<developer-dir>\n'
-print_probe() {
-  printf 'probe=%s rc=%s diagnostic=\n' "$1" "$2"
-  printf '%s\n' "$3" | sed \
-    -e "s|$developer_dir|<developer-dir>|g" \
-    -e "s|$evaluations_source|<temp-path>|g"
+classify_blocker_probe() {
+  probe_name="$1"
+  probe_rc="$2"
+  probe_raw_output="$3"
+  probe_state=fail
+  probe_diagnostic_class=unexpected_diagnostic
+  case "$probe_name" in
+    xcodebuild)
+      expected_fragment='requires Xcode'
+      expected_class=full_xcode_unavailable
+      ;;
+    instruments|xctrace|simctl)
+      expected_fragment='unable to find utility'
+      expected_class=utility_not_found
+      ;;
+    iphoneos)
+      expected_fragment='SDK "iphoneos" cannot be located'
+      expected_class=sdk_not_found
+      ;;
+    evaluations)
+      expected_fragment="no such module 'Evaluations'"
+      expected_class=module_not_found
+      ;;
+    *)
+      expected_fragment=''
+      expected_class=unknown_probe
+      ;;
+  esac
+  if test "$probe_rc" -ne 0 && \
+     test -n "$expected_fragment" && \
+     [[ "$probe_raw_output" == *"$expected_fragment"* ]]; then
+    probe_state=blocked
+    probe_diagnostic_class="$expected_class"
+  fi
+  printf 'probe=%s rc=%s status=%s diagnosticClass=%s\n' \
+    "$probe_name" "$probe_rc" "$probe_state" "$probe_diagnostic_class"
+  test "$probe_state" = blocked
 }
-print_probe xcodebuild "$xcodebuild_rc" "$xcodebuild_output"
-print_probe instruments "$instruments_rc" "$instruments_output"
-print_probe xctrace "$xctrace_rc" "$xctrace_output"
-print_probe iphoneos "$iphoneos_rc" "$iphoneos_output"
-print_probe simctl "$simctl_rc" "$simctl_output"
-print_probe evaluations "$evaluations_rc" "$evaluations_output"
+classify_blocker_probe xcodebuild "$xcodebuild_rc" "$xcodebuild_output"
+classify_blocker_probe instruments "$instruments_rc" "$instruments_output"
+classify_blocker_probe xctrace "$xctrace_rc" "$xctrace_output"
+classify_blocker_probe iphoneos "$iphoneos_rc" "$iphoneos_output"
+classify_blocker_probe simctl "$simctl_rc" "$simctl_output"
+classify_blocker_probe evaluations "$evaluations_rc" "$evaluations_output"
 
 set +e
 claude_bin_after="$(command -v claude 2>/dev/null)"
 claude_lookup_after_rc=$?
 codex_bin_after="$(command -v codex 2>/dev/null)"
 codex_lookup_after_rc=$?
-claude_version_after="$("$claude_bin" --version 2>/dev/null)"
+claude_version_after_raw="$("$claude_bin" --version 2>/dev/null)"
 claude_version_after_rc=$?
-codex_version_after="$("$codex_bin" --version 2>/dev/null)"
+codex_version_after_raw="$("$codex_bin" --version 2>/dev/null)"
 codex_version_after_rc=$?
 set -e
+claude_version_after="$(printf '%s' "$claude_version_after_raw" | \
+  normalize_host_version claude)"
+codex_version_after="$(printf '%s' "$codex_version_after_raw" | \
+  normalize_host_version codex)"
 
 claude_integrity_state=pass
 claude_integrity_reason=stable_resolution_and_version
 if test "$claude_lookup_after_rc" -ne 0 || \
    test "$claude_bin_after" != "$claude_bin" || \
    test "$claude_version_after_rc" -ne 0 || \
+   test "$claude_version_after" = null || \
    test "$claude_version_after" != "$claude_version_output"; then
   claude_integrity_state=fail
   claude_integrity_reason=resolution_or_version_drift
-  if test "$claude_version_after_rc" -ne 0 || test -z "$claude_version_after"; then
+  if test "$claude_version_after_rc" -ne 0 || \
+     test -z "$claude_version_after_raw" || \
+     test "$claude_version_after" = null; then
     claude_version_after=null
   fi
 fi
@@ -753,10 +809,13 @@ codex_integrity_reason=stable_resolution_and_version
 if test "$codex_lookup_after_rc" -ne 0 || \
    test "$codex_bin_after" != "$codex_bin" || \
    test "$codex_version_after_rc" -ne 0 || \
+   test "$codex_version_after" = null || \
    test "$codex_version_after" != "$codex_version_output"; then
   codex_integrity_state=fail
   codex_integrity_reason=resolution_or_version_drift
-  if test "$codex_version_after_rc" -ne 0 || test -z "$codex_version_after"; then
+  if test "$codex_version_after_rc" -ne 0 || \
+     test -z "$codex_version_after_raw" || \
+     test "$codex_version_after" = null; then
     codex_version_after=null
   fi
 fi
@@ -783,7 +842,11 @@ capture, resolution or version drift emits normalized `fail`, invalidates the
 row, and then exits. Alternate-PATH Claude Code 2.1.140 is neither a substitute
 nor an extra acceptance row. DEV-132 does not claim plugin discovery,
 activation, reference loading, model execution, device execution, or Xcode 27
-evidence.
+evidence. Only strict single-line Claude/Codex version formats may enter the
+row; malformed, multiline, or path-bearing output becomes `null` and is never
+echoed. Raw blocker diagnostics stay transient. Committed blocker evidence is
+limited to the probe name, exit code, normalized status, and stable
+`diagnosticClass` after the expected error class is verified.
 
 ### Step 7: Verify downstream Linear propagation
 

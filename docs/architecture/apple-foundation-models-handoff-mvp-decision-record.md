@@ -190,6 +190,11 @@ the alternate installed version cannot substitute. After a successful capture,
 resolution or version drift is `fail` and invalid evidence. Committed evidence
 records normalized executable identity `<host-path>` plus exact observed
 version or `null`. It never records a literal executable path or raw `PATH`.
+Only strict single-line Claude/Codex version formats may enter committed
+evidence; malformed, multiline, or path-bearing output normalizes to `null`
+with a stable reason and is never echoed. Raw blocker diagnostics stay
+transient. A committed blocker row contains only probe identity, exit code,
+normalized status, and verified stable `diagnosticClass`.
 
 The primary acceptance baseline remains Claude Code `2.1.91` and Codex
 `0.144.5` from the controlled shell. Alternate-PATH Claude Code `2.1.140` is a
@@ -349,10 +354,11 @@ bounded rationales required for review, and a redacted summary after all path,
 content, structured-key, classification, and hash scanners pass. Raw/live
 prompts, responses, reasoning, tool arguments/results, credentials, private
 configuration, real user/third-party data, raw host/machine identity, literal
-executable paths, raw `PATH`, `.trace`, and `.xcresult` are excluded. Normalized
-`<host-path>` executable identity plus exact version is the only committed path
-identity exception. Authorized raw host artifacts remain outside the repository
-under separate access, retention, redaction, and deletion policy.
+executable paths, raw `PATH`, raw blocker diagnostics, `.trace`, and `.xcresult`
+are excluded. Normalized `<host-path>` executable identity plus a strict exact
+version or `null` is the only committed path-identity exception. Authorized raw
+host artifacts remain outside the repository under separate access, retention,
+redaction, and deletion policy.
 
 ## Deferred work
 
@@ -370,15 +376,15 @@ optional and separately gated. No deferred item is a present capability.
 
 | Issue | Source | Rationale | Inherited decision | Impact |
 | --- | --- | --- | --- | --- |
-| DEV-133 | DEV-127/129/132 | One guide avoids drift and normalized host identity avoids local-path leakage. | Canonical `CLAUDE.md`; generated bounded `AGENTS.md`; this record is non-authoritative; host evidence uses `<host-path>` plus exact observed version or `null`, prerequisite `blocked`, and post-capture drift `fail`. | Define guidance generation and fresh repository probes for selected/fallback placement without literal executable paths or raw `PATH`. |
+| DEV-133 | DEV-127/129/132 | One guide avoids drift and normalized host identity avoids local-path leakage. | Canonical `CLAUDE.md`; generated bounded `AGENTS.md`; this record is non-authoritative; host evidence uses `<host-path>` plus a strict single-line version or `null`, prerequisite `blocked`, post-capture drift `fail`, and stable diagnostic classes. | Define guidance generation and fresh repository probes for selected/fallback placement without literal paths, raw `PATH`, malformed versions, or raw diagnostics. |
 | DEV-134 | DEV-129/130/131/132 | Narrow activation and one concern owner keep behavior reviewable. | Exactly five skills; one corpus; no worker; common output/security/evidence contracts. | May refine reference filenames only with sole concern ownership and deterministic direct links. |
-| DEV-135 | DEV-127/129/132 | Deterministic ownership, payload isolation, and executable pinning prevent drift/leakage. | Generated adapters/Codex metadata; root gate requires repository-only content absent from effective payload; each structural row emits normalized prerequisite blockers, captures one approved executable, and fails post-capture resolution/version drift; exact fallback triggers. | Implement schemas, sync/check, validators, isolated host structure, payload and executable-identity inspection, and fallback. |
+| DEV-135 | DEV-127/129/132 | Deterministic ownership, payload isolation, and executable pinning prevent drift/leakage. | Generated adapters/Codex metadata; root gate requires repository-only content absent from effective payload; each structural row accepts only strict single-line versions, emits `null` for invalid output and stable blocker classes/exit codes, captures one approved executable, and fails post-capture resolution/version drift; exact fallback triggers. | Implement schemas, sync/check, validators, isolated host structure, safe payload/executable-evidence inspection, and fallback without raw diagnostics. |
 | DEV-136 | DEV-128/130/132 | Guidance must not claim runtime enforcement. | Two handoff patterns; SDK 26.5 labels; reducer/grant/effect/fallback contract; stable-only ordinary termination; persistent recovery. | Author workflows that leave authority, reconciliation, and limitations with the application. |
 | DEV-137 | DEV-128/130/131/132 | Complex facts need one source-grounded owner. | Five concern owners, exact labels, state/recovery rules, D/E/rubric contracts, metadata-only live telemetry, and safe synthetic allowance. | Write direct references without copying fixture code or weakening scanners/raw exclusions. |
 | DEV-138 | DEV-128/130/131/132 | Offline semantics must not depend on model luck. | Stable D IDs/oracle separation; independent versions; recovery persists through no safe reconciliation; synthetic evidence passes every DEV-131 scanner. | Expand deterministic Swift/adversarial proof with exact/repeated output and honest blockers. |
-| DEV-139 | DEV-129/130/131/132 | Loading is not capability, cached content is a security boundary, and executable drift invalidates comparison. | Exact E rows emit normalized `blocked` for missing/non-runnable/wrong-version prerequisites; fresh tasks then use one approved captured executable; resolution/version drift is `fail`; payload isolation, metadata-only live telemetry, and fallback remain. | Prove activation/reference/output/rejection on selected 2.1.91/0.144.5 or record blockers/use fallback; 2.1.140 is diagnostic only. |
-| DEV-140 | DEV-132 | Documentation must not advertise conditional, path-local, or blocked behavior as shipped. | Exact identity/workflows, proven placement, pattern/API distinctions, prerequisite `blocked` versus drift `fail`, recovery persistence, normalized host identity, and exclusions. | Document installation, development, usage, normalized host outcomes, selected executable/version contract, actual fallback, and limitations without local paths/raw `PATH`. |
-| DEV-141 | DEV-127 through DEV-132 | Acceptance must integrate all proof layers without collapsing them or accepting host-resolution drift. | Ownership/path, five skills, state/security/recovery, exact D/E/rubric gates, payload isolation, safe evidence exception, normalized `<host-path>` plus exact version/null, prerequisite blockers, drift failures, and blocker truth. | Reject unsafe evidence, unresolved recovery, literal paths/raw `PATH`, alternate substitution, misclassified prerequisite/drift outcomes, false execution/pass claims, or unproven placement. |
+| DEV-139 | DEV-129/130/131/132 | Loading is not capability, cached content is a security boundary, and executable drift invalidates comparison. | Exact E rows accept only strict single-line versions, emit normalized `blocked` for missing/non-runnable/wrong-version prerequisites, never echo invalid version/raw diagnostics, then use one approved captured executable; resolution/version drift is `fail`; payload isolation and fallback remain. | Prove activation/reference/output/rejection on selected 2.1.91/0.144.5 or record stable diagnostic classes/exit codes and use fallback; 2.1.140 is diagnostic only. |
+| DEV-140 | DEV-132 | Documentation must not advertise conditional, path-local, or blocked behavior as shipped. | Exact identity/workflows, proven placement, pattern/API distinctions, prerequisite `blocked` versus drift `fail`, recovery persistence, normalized host identity, strict version/null, stable diagnostic classes, and raw-evidence exclusions. | Document installation, development, usage, normalized host outcomes, selected executable/version contract, actual fallback, and limitations without local paths/raw `PATH`/raw diagnostics. |
+| DEV-141 | DEV-127 through DEV-132 | Acceptance must integrate all proof layers without collapsing them or accepting host-resolution drift. | Ownership/path, five skills, state/security/recovery, exact D/E/rubric gates, payload isolation, safe evidence exception, normalized `<host-path>` plus strict version/null, stable diagnostic classes, prerequisite blockers, drift failures, and blocker truth. | Reject unsafe evidence, unresolved recovery, literal paths/raw `PATH`, malformed or echoed versions, raw blocker diagnostics, alternate substitution, misclassified outcomes, false pass claims, or unproven placement. |
 
 The host-identity correction is already durable downstream in DEV-133 comment
 `2efe4e95-30f7-453d-be6f-06cd87c93a2b`, DEV-135 comment
