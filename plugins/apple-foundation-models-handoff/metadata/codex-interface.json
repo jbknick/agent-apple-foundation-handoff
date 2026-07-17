@@ -13,6 +13,6 @@
   ],
   "websiteURL": "https://github.com/jbknick/agent-apple-foundation-handoff",
   "defaultPrompt": [
-    "Select the appropriate workflow to design, implement, review, debug, or validate an Apple Foundation Models handoff."
+    "Design an Apple Foundation Models baton pass from a research profile to a review profile that owns the final answer."
   ]
 }
