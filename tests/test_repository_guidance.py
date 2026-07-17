@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -178,6 +179,108 @@ class RepositoryGuidanceTests(unittest.TestCase):
                 result.stderr,
             )
 
+    def test_canonical_input_rejects_symlink_without_reading_target(self):
+        for mode in ("--write", "--check"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
+                temporary_root = Path(directory)
+                isolated_root = temporary_root / "repository"
+                isolated_root.mkdir()
+                sentinel = temporary_root / "canonical-sentinel"
+                original = CANONICAL.read_bytes()
+                sentinel.write_bytes(original)
+                (isolated_root / "CLAUDE.md").symlink_to(sentinel)
+
+                result = run_isolated_cli(isolated_root, mode)
+
+                self.assertEqual(original, sentinel.read_bytes())
+                self.assertFalse(os.path.lexists(isolated_root / "AGENTS.md"))
+                self.assertEqual(1, result.returncode)
+                self.assertEqual("", result.stdout)
+                self.assertEqual(
+                    "CLAUDE.md: invalid canonical adapter input\n",
+                    result.stderr,
+                )
+                self.assertNotIn(str(temporary_root), result.stdout + result.stderr)
+
+    def test_canonical_input_rejects_nonregular_obstruction(self):
+        for mode in ("--write", "--check"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
+                isolated_root = Path(directory)
+                (isolated_root / "CLAUDE.md").mkdir()
+
+                result = run_isolated_cli(isolated_root, mode)
+
+                self.assertEqual(1, result.returncode)
+                self.assertEqual("", result.stdout)
+                self.assertEqual(
+                    "CLAUDE.md: invalid canonical adapter input\n",
+                    result.stderr,
+                )
+                self.assertFalse(os.path.lexists(isolated_root / "AGENTS.md"))
+
+    def test_temporary_path_swap_is_rejected_and_cleaned(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temporary_root = Path(directory)
+            isolated_root = temporary_root / "repository"
+            isolated_root.mkdir()
+            shutil.copyfile(CANONICAL, isolated_root / "CLAUDE.md")
+            generated = isolated_root / "AGENTS.md"
+            generated.write_bytes(b"stale generated output\n")
+            sentinel = temporary_root / "external-sentinel"
+            original = b"external sentinel must remain unchanged\n"
+            sentinel.write_bytes(original)
+            real_replace = sync_generated_artifacts.os.replace
+
+            def swap_temporary_path(source, destination):
+                temporary = Path(source)
+                temporary.unlink()
+                temporary.symlink_to(sentinel)
+                return real_replace(source, destination)
+
+            diagnostic = io.StringIO()
+            with mock.patch.object(
+                sync_generated_artifacts.os, "replace", swap_temporary_path
+            ):
+                with contextlib.redirect_stderr(diagnostic):
+                    synchronized = sync_generated_artifacts.synchronize(
+                        isolated_root, write=True
+                    )
+
+            self.assertFalse(synchronized)
+            self.assertEqual(
+                "AGENTS.md: unsafe or unwritable generated output\n",
+                diagnostic.getvalue(),
+            )
+            self.assertEqual(original, sentinel.read_bytes())
+            self.assertFalse(os.path.lexists(generated))
+            self.assertEqual([], list(isolated_root.glob(".AGENTS.md.*.tmp")))
+
+    def test_atomic_replace_failure_is_normalized_and_cleans_temporary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            isolated_root = Path(directory)
+            shutil.copyfile(CANONICAL, isolated_root / "CLAUDE.md")
+            generated = isolated_root / "AGENTS.md"
+            original = b"stale generated output\n"
+            generated.write_bytes(original)
+            diagnostic = io.StringIO()
+
+            with mock.patch.object(
+                sync_generated_artifacts.os, "replace", side_effect=OSError
+            ):
+                with contextlib.redirect_stderr(diagnostic):
+                    synchronized = sync_generated_artifacts.synchronize(
+                        isolated_root, write=True
+                    )
+
+            self.assertFalse(synchronized)
+            self.assertEqual(
+                "AGENTS.md: unsafe or unwritable generated output\n",
+                diagnostic.getvalue(),
+            )
+            self.assertEqual(original, generated.read_bytes())
+            self.assertFalse(generated.is_symlink())
+            self.assertEqual([], list(isolated_root.glob(".AGENTS.md.*.tmp")))
+
     def test_adapter_is_bounded_and_smaller_than_canonical(self):
         canonical_bytes = CANONICAL.read_bytes()
         generated_bytes = GENERATED.read_bytes()
@@ -296,17 +399,25 @@ class RepositoryGuidanceTests(unittest.TestCase):
         combined = CANONICAL.read_text(encoding="utf-8") + GENERATED.read_text(
             encoding="utf-8"
         )
-        private_patterns = (
-            r"/(?:Us" + r"ers|ho" + r"me)/",
-            r"/pri" + r"vate/var/fol" + r"ders/",
-            r"/t" + r"mp/",
-            r"[A-Za-z]:[\\/]+Us" + r"ers[\\/]+",
-            r"(?:\\\\|//)[^\\/]+[\\/]+(?:Us" + r"ers|ho" + r"me)[\\/]+",
-            r"/(?:usr/loc"
-            + r"al|opt/home"
-            + r"brew)/bin/(?:cla"
+        host_executable = (
+            r"(?:cla"
             + r"ude|cod"
-            + r"ex)\b",
+            + r"ex)(?:[-_.][A-Za-z0-9][A-Za-z0-9._-]*)?"
+            + r"(?=$|[\s`'\"\]\[(){}.,;:])"
+        )
+        private_patterns = (
+            r"(?<![A-Za-z0-9._-])/(?:Us" + r"ers|ho" + r"me)/",
+            r"(?<![A-Za-z0-9._-])/(?:pri" + r"vate/)?var/fol" + r"ders/",
+            r"(?<![A-Za-z0-9._-])/t" + r"mp/",
+            r"(?<![A-Za-z0-9])[A-Za-z]:[\\/]+Us" + r"ers[\\/]+",
+            r"(?<![\\/])(?:\\\\|//)[^\\/]+[\\/]+(?:Us"
+            + r"ers|ho"
+            + r"me)[\\/]+",
+            r"(?<![A-Za-z0-9._-])/(?:[^/\\\s]+/)*" + host_executable,
+            r"(?<![A-Za-z0-9])[A-Za-z]:[\\/]+(?:[^\\/\s]+[\\/]+)*"
+            + host_executable,
+            r"(?<![\\/])(?:\\\\|//)[^\\/]+[\\/]+(?:[^\\/\s]+[\\/]+)*"
+            + host_executable,
         )
         private_path = re.compile("|".join(private_patterns), re.IGNORECASE)
         unfinished = re.compile(
@@ -321,18 +432,34 @@ class RepositoryGuidanceTests(unittest.TestCase):
 
         unsafe_samples = (
             "/pri" + "vate/var/fol" + "ders/ab/cd/private-item",
+            "/var/fol" + "ders/ab/cd/private-item",
             "/t" + "mp/private-item",
             "C:" + "\\" + "Us" + "ers" + "\\" + "person\\private-item",
             "\\\\server\\" + "Us" + "ers" + "\\person\\private-item",
             "/usr/loc" + "al/bin/cla" + "ude",
             "/opt/home" + "brew/bin/cod" + "ex",
+            "/custom/toolchain/cla" + "ude-2.1.91",
+            "/srv/tools/cod" + "ex.exe",
+            "D:\\Portable\\cla" + "ude.exe",
+            "\\\\build-host\\tools\\cod" + "ex-0.144.5.exe",
+        )
+        safe_samples = (
+            "docs/t" + "mp/example.md",
+            "fixtures/var/fol" + "ders/example",
+            "docs/tools/cla" + "ude.md",
+            "<repo>",
+            "<host-path>",
+            "cla" + "ude",
+            "cod" + "ex",
         )
 
         self.assertIsNone(private_path.search(combined))
-        self.assertIsNone(private_path.search("`<repo>` and `<host-path>`"))
         for unsafe in unsafe_samples:
             with self.subTest(unsafe=unsafe):
                 self.assertIsNotNone(private_path.search(unsafe))
+        for safe in safe_samples:
+            with self.subTest(safe=safe):
+                self.assertIsNone(private_path.search(safe))
         self.assertIsNone(unfinished.search(combined))
 
 

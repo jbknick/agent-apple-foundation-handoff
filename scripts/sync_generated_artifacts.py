@@ -54,10 +54,43 @@ def render_agents(canonical_text: str) -> str:
     return GENERATED_HEADER + _adapter_body(canonical_text) + "\n"
 
 
+def _same_file(left: os.stat_result, right: os.stat_result) -> bool:
+    return (left.st_dev, left.st_ino) == (right.st_dev, right.st_ino)
+
+
+def _read_canonical(canonical: Path) -> bytes:
+    descriptor: int | None = None
+    try:
+        metadata = canonical.lstat()
+        if not stat.S_ISREG(metadata.st_mode):
+            raise CanonicalInputError
+        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(canonical, flags)
+        opened = os.fstat(descriptor)
+        if not stat.S_ISREG(opened.st_mode) or not _same_file(metadata, opened):
+            raise CanonicalInputError
+        with os.fdopen(descriptor, "rb") as stream:
+            descriptor = None
+            return stream.read()
+    except CanonicalInputError:
+        raise
+    except OSError as error:
+        raise CanonicalInputError from error
+    finally:
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError as error:
+                raise CanonicalInputError from error
+
+
 def _expected_bytes(root: Path) -> bytes:
     try:
-        canonical_text = (root / "CLAUDE.md").read_bytes().decode("utf-8")
+        canonical_text = _read_canonical(root / "CLAUDE.md").decode("utf-8")
         return render_agents(canonical_text).encode("utf-8")
+    except CanonicalInputError:
+        raise
     except (OSError, UnicodeError, ValueError) as error:
         raise CanonicalInputError from error
 
@@ -85,10 +118,7 @@ def _read_generated(generated: Path) -> bytes | None:
     try:
         descriptor = os.open(generated, flags)
         opened = os.fstat(descriptor)
-        if not stat.S_ISREG(opened.st_mode) or (
-            opened.st_dev,
-            opened.st_ino,
-        ) != (metadata.st_dev, metadata.st_ino):
+        if not stat.S_ISREG(opened.st_mode) or not _same_file(metadata, opened):
             raise GeneratedOutputError
         with os.fdopen(descriptor, "rb") as stream:
             descriptor = None
@@ -97,7 +127,27 @@ def _read_generated(generated: Path) -> bytes | None:
         raise GeneratedOutputError from error
     finally:
         if descriptor is not None:
-            os.close(descriptor)
+            try:
+                os.close(descriptor)
+            except OSError as error:
+                raise GeneratedOutputError from error
+
+
+def _remove_unsafe_output(generated: Path) -> None:
+    try:
+        metadata = generated.lstat()
+    except FileNotFoundError:
+        return
+    except OSError as error:
+        raise GeneratedOutputError from error
+    if stat.S_ISDIR(metadata.st_mode):
+        raise GeneratedOutputError
+    try:
+        generated.unlink()
+    except FileNotFoundError:
+        return
+    except OSError as error:
+        raise GeneratedOutputError from error
 
 
 def _write_generated(root: Path, generated: Path, expected: bytes) -> None:
@@ -111,32 +161,50 @@ def _write_generated(root: Path, generated: Path, expected: bytes) -> None:
         temporary = Path(temporary_name)
         if hasattr(os, "fchmod"):
             os.fchmod(descriptor, 0o644)
-        with os.fdopen(descriptor, "wb") as stream:
-            descriptor = None
+        with os.fdopen(os.dup(descriptor), "wb") as stream:
             stream.write(expected)
             stream.flush()
             os.fsync(stream.fileno())
 
+        intended_metadata = os.fstat(descriptor)
         temporary_metadata = temporary.lstat()
-        if not stat.S_ISREG(temporary_metadata.st_mode):
+        if not stat.S_ISREG(temporary_metadata.st_mode) or not _same_file(
+            intended_metadata, temporary_metadata
+        ):
             raise GeneratedOutputError
         _regular_output_metadata(generated)
         os.replace(temporary, generated)
+        try:
+            generated_metadata = generated.lstat()
+        except OSError as error:
+            _remove_unsafe_output(generated)
+            raise GeneratedOutputError from error
+        if not stat.S_ISREG(generated_metadata.st_mode) or not _same_file(
+            intended_metadata, generated_metadata
+        ):
+            _remove_unsafe_output(generated)
+            raise GeneratedOutputError
         temporary = None
     except GeneratedOutputError:
         raise
     except OSError as error:
         raise GeneratedOutputError from error
     finally:
+        cleanup_error: OSError | None = None
         if descriptor is not None:
-            os.close(descriptor)
+            try:
+                os.close(descriptor)
+            except OSError as error:
+                cleanup_error = error
         if temporary is not None:
             try:
                 temporary.unlink()
             except FileNotFoundError:
                 pass
-            except OSError:
-                pass
+            except OSError as error:
+                cleanup_error = cleanup_error or error
+        if cleanup_error is not None:
+            raise GeneratedOutputError from cleanup_error
 
 
 def _synchronize(root: Path, write: bool) -> tuple[bool, bool]:
