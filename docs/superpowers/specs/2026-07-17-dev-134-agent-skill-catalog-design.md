@@ -239,7 +239,9 @@ Every positive workflow preserves all of the following:
   rejects the whole envelope rather than being silently dropped;
 - a provider grant scoped to a person/session that binds the person/session,
   source profile/provider, destination profile/provider, purpose, exact classes,
-  exact fields, tools, retention, expiry, `stateVersion`, and `policyVersion`;
+  exact fields, tools, retention, expiry, applicable provider disclosure,
+  whether an exceptional C2 transfer is permitted, `stateVersion`, and
+  `policyVersion`;
   any bound-field change invalidates the grant, which is not effect confirmation
   and cannot override C3 or unknown-data fail-closed behavior;
 - immediate high-impact effect confirmation that binds the semantic action,
