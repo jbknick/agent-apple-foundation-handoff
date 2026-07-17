@@ -1,0 +1,240 @@
+{
+  "schemaVersion": "1.0",
+  "sourceIssue": "DEV-136",
+  "evidenceKind": "codex_skill_red_baseline",
+  "status": "complete",
+  "repositoryHeadAtCapture": "fbe50c1852778f72ec30ffe4c60614d2b4a9c206",
+  "caseContract": "tests/fixtures/dev-136-codex-skill-cases.json",
+  "host": {
+    "name": "codex",
+    "version": "0.144.5",
+    "model": "gpt-5.6-sol",
+    "modelSelection": "explicit_cli_argument",
+    "sessionMode": "fresh_ephemeral_ignore_user_config",
+    "productionPluginSkillsAvailable": false,
+    "claudeInvoked": false
+  },
+  "privacy": {
+    "rawPrompts": "transient",
+    "rawResponses": "transient",
+    "rawToolEvents": "transient",
+    "committedHostEvidence": "normalized_metadata_and_sha256_only",
+    "offlineScorerOutputs": "approved_synthetic_or_redacted_only"
+  },
+  "preResponseBlockerObservations": [
+    {
+      "attemptedModelId": "sol",
+      "status": "blocked",
+      "phase": "pre_response",
+      "reasonCode": "unsupported_chatgpt_account_model_alias",
+      "responseProduced": false,
+      "countedAsBaselineSession": false,
+      "capabilityEvidence": false
+    }
+  ],
+  "summary": {
+    "sessionCount": 5,
+    "failedBaselineCount": 5,
+    "passedBaselineCount": 0
+  },
+  "baselines": [
+    {
+      "caseId": "DEV136-BASE-DESIGN-001",
+      "skillUnderTest": "design-apple-foundation-models-handoff",
+      "sessionOrdinal": 1,
+      "codexExitCode": 0,
+      "responseSha256": "b38d47dd9ab015e46de58577c0a98d3cb88f89f358e78404ba46a4112fbbb575",
+      "responseBytes": 6794,
+      "toolEventCount": 5,
+      "rubricOutcome": {
+        "checks": {
+          "result_envelope_complete": false,
+          "selected_skill_named": false,
+          "router_envelope_complete": false,
+          "version_labels_complete": false,
+          "common_sections_complete": false,
+          "workflow_sections_complete": false,
+          "evidence_vocabulary_complete": false
+        },
+        "failedChecks": [
+          "result_envelope_complete",
+          "selected_skill_named",
+          "router_envelope_complete",
+          "version_labels_complete",
+          "common_sections_complete",
+          "workflow_sections_complete",
+          "evidence_vocabulary_complete"
+        ],
+        "verdict": "fail"
+      },
+      "observedFailureClasses": [
+        "missing_result_envelope",
+        "missing_skill_selection",
+        "missing_router_envelope",
+        "missing_version_labels",
+        "missing_common_sections",
+        "missing_workflow_sections",
+        "missing_evidence_status_vocabulary"
+      ]
+    },
+    {
+      "caseId": "DEV136-BASE-IMPLEMENT-001",
+      "skillUnderTest": "implement-apple-foundation-models-handoff",
+      "sessionOrdinal": 2,
+      "codexExitCode": 0,
+      "responseSha256": "91d16ec675d6cd49305d5d8b2e8462b87a49a5c4ddeded67441f5a464aa73ef5",
+      "responseBytes": 233,
+      "toolEventCount": 5,
+      "rubricOutcome": {
+        "checks": {
+          "result_envelope_complete": false,
+          "selected_skill_named": false,
+          "router_envelope_complete": false,
+          "version_labels_complete": false,
+          "common_sections_complete": false,
+          "workflow_sections_complete": false,
+          "evidence_vocabulary_complete": false
+        },
+        "failedChecks": [
+          "result_envelope_complete",
+          "selected_skill_named",
+          "router_envelope_complete",
+          "version_labels_complete",
+          "common_sections_complete",
+          "workflow_sections_complete",
+          "evidence_vocabulary_complete"
+        ],
+        "verdict": "fail"
+      },
+      "observedFailureClasses": [
+        "missing_result_envelope",
+        "missing_skill_selection",
+        "missing_router_envelope",
+        "missing_version_labels",
+        "missing_common_sections",
+        "missing_workflow_sections",
+        "missing_evidence_status_vocabulary"
+      ]
+    },
+    {
+      "caseId": "DEV136-BASE-REVIEW-001",
+      "skillUnderTest": "review-apple-foundation-models-handoff",
+      "sessionOrdinal": 3,
+      "codexExitCode": 0,
+      "responseSha256": "5cb82eab0368d1472a1448e4b6153ffd6e1ca750236b37d59a688793ee54437d",
+      "responseBytes": 2954,
+      "toolEventCount": 6,
+      "rubricOutcome": {
+        "checks": {
+          "result_envelope_complete": false,
+          "selected_skill_named": false,
+          "router_envelope_complete": false,
+          "version_labels_complete": false,
+          "common_sections_complete": false,
+          "workflow_sections_complete": true,
+          "evidence_vocabulary_complete": false
+        },
+        "failedChecks": [
+          "result_envelope_complete",
+          "selected_skill_named",
+          "router_envelope_complete",
+          "version_labels_complete",
+          "common_sections_complete",
+          "evidence_vocabulary_complete"
+        ],
+        "verdict": "fail"
+      },
+      "observedFailureClasses": [
+        "missing_result_envelope",
+        "missing_skill_selection",
+        "missing_router_envelope",
+        "missing_version_labels",
+        "missing_common_sections",
+        "missing_evidence_status_vocabulary"
+      ]
+    },
+    {
+      "caseId": "DEV136-BASE-DEBUG-001",
+      "skillUnderTest": "debug-apple-foundation-models-handoff",
+      "sessionOrdinal": 4,
+      "codexExitCode": 0,
+      "responseSha256": "2f6d96d035ef9628c790cb783bb8d7f3d4d1369aea8b20bd41704f7c5424921d",
+      "responseBytes": 2035,
+      "toolEventCount": 7,
+      "rubricOutcome": {
+        "checks": {
+          "result_envelope_complete": false,
+          "selected_skill_named": false,
+          "router_envelope_complete": false,
+          "version_labels_complete": false,
+          "common_sections_complete": false,
+          "workflow_sections_complete": false,
+          "evidence_vocabulary_complete": false
+        },
+        "failedChecks": [
+          "result_envelope_complete",
+          "selected_skill_named",
+          "router_envelope_complete",
+          "version_labels_complete",
+          "common_sections_complete",
+          "workflow_sections_complete",
+          "evidence_vocabulary_complete"
+        ],
+        "verdict": "fail"
+      },
+      "observedFailureClasses": [
+        "missing_result_envelope",
+        "missing_skill_selection",
+        "missing_router_envelope",
+        "missing_version_labels",
+        "missing_common_sections",
+        "missing_workflow_sections",
+        "missing_evidence_status_vocabulary"
+      ]
+    },
+    {
+      "caseId": "DEV136-BASE-VALIDATE-001",
+      "skillUnderTest": "validate-apple-foundation-models-handoff",
+      "sessionOrdinal": 5,
+      "codexExitCode": 0,
+      "responseSha256": "6118f837069b686b7172e143fbe180f3b3a2c19a8e8cdbc459bbb13fc479a908",
+      "responseBytes": 1634,
+      "toolEventCount": 6,
+      "rubricOutcome": {
+        "checks": {
+          "result_envelope_complete": false,
+          "selected_skill_named": false,
+          "router_envelope_complete": false,
+          "version_labels_complete": false,
+          "common_sections_complete": false,
+          "workflow_sections_complete": false,
+          "evidence_vocabulary_complete": false
+        },
+        "failedChecks": [
+          "result_envelope_complete",
+          "selected_skill_named",
+          "router_envelope_complete",
+          "version_labels_complete",
+          "common_sections_complete",
+          "workflow_sections_complete",
+          "evidence_vocabulary_complete"
+        ],
+        "verdict": "fail"
+      },
+      "observedFailureClasses": [
+        "missing_result_envelope",
+        "missing_skill_selection",
+        "missing_router_envelope",
+        "missing_version_labels",
+        "missing_common_sections",
+        "missing_workflow_sections",
+        "missing_evidence_status_vocabulary"
+      ]
+    }
+  ],
+  "limitations": [
+    "The five responses were scored only as no-skill RED controls and are not capability evidence.",
+    "Raw prompts, responses, and tool events were deleted after normalization.",
+    "Claude was not invoked in this wave."
+  ]
+}

@@ -1,0 +1,613 @@
+{
+  "schemaVersion": "1.0",
+  "sourceIssue": "DEV-136",
+  "evidenceKind": "approved_synthetic_skill_tdd_cases",
+  "model": "gpt-5.6-sol",
+  "caseCount": 25,
+  "privacy": {
+    "prompts": "approved_synthetic",
+    "expectedAnswersIncludedInPrompts": false,
+    "liveHostResponses": "transient_not_committed",
+    "offlineScorerOutputs": "approved_synthetic_or_redacted_only"
+  },
+  "routerEnums": {
+    "domain": [
+      "foundation_models_handoff",
+      "out_of_domain",
+      "ambiguous"
+    ],
+    "requestedOperation": [
+      "design",
+      "implement",
+      "review",
+      "debug",
+      "validate",
+      "compound_review_fix",
+      "unspecified"
+    ],
+    "artifactState": [
+      "absent",
+      "proposal",
+      "approved_contract",
+      "implementation",
+      "evidence_bundle",
+      "unknown"
+    ],
+    "evidenceState": [
+      "not_requested",
+      "missing",
+      "available",
+      "failing",
+      "blocked",
+      "unknown"
+    ]
+  },
+  "commonOutputSections": [
+    "Activation and Scope",
+    "Pattern and Ownership",
+    "Apple API Availability",
+    "State and Lifecycle",
+    "Trust and Model Boundaries",
+    "Context Policy",
+    "Tools Effects and Confirmation",
+    "Failure Recovery and Fallback",
+    "Verification and Evidence",
+    "Limitations"
+  ],
+  "workflowSpecificSections": {
+    "design-apple-foundation-models-handoff": [
+      "Alternatives",
+      "Decision Rationale",
+      "Proposed Components",
+      "Implementation and Test Plan"
+    ],
+    "implement-apple-foundation-models-handoff": [
+      "Approved Decision",
+      "Change Boundary",
+      "Changed Paths",
+      "Compilation and Regression Results"
+    ],
+    "review-apple-foundation-models-handoff": [
+      "Findings"
+    ],
+    "debug-apple-foundation-models-handoff": [
+      "Observed and Expected State",
+      "First Divergence",
+      "Root Cause",
+      "Correction",
+      "Regression Proof"
+    ],
+    "validate-apple-foundation-models-handoff": [
+      "Layer Matrix",
+      "Counts and Hashes",
+      "Rubric Result",
+      "Blockers and Skips",
+      "Release Implication"
+    ]
+  },
+  "rubricContracts": {
+    "positive": [
+      "result_envelope_complete",
+      "selected_skill_named",
+      "router_envelope_complete",
+      "version_labels_complete",
+      "common_sections_complete",
+      "workflow_sections_complete",
+      "evidence_vocabulary_complete"
+    ],
+    "no_activation": [
+      "no_activation_shape_complete",
+      "architecture_result_absent"
+    ],
+    "clarification": [
+      "one_clarification_only",
+      "clarification_shape_complete",
+      "architecture_result_absent"
+    ]
+  },
+  "cases": [
+    {
+      "id": "DEV136-BASE-DESIGN-001",
+      "phase": "baseline",
+      "category": "positive",
+      "skillUnderTest": "design-apple-foundation-models-handoff",
+      "model": "gpt-5.6-sol",
+      "sourcePrototypeIds": ["DEV134-POS-001"],
+      "prompt": "Design a new Apple Foundation Models baton-pass architecture where a research profile transfers control and final-answer ownership to a review profile.",
+      "routerInput": {
+        "domain": "foundation_models_handoff",
+        "requestedOperation": "design",
+        "artifactState": "absent",
+        "evidenceState": "missing"
+      },
+      "expectedActivation": "design-apple-foundation-models-handoff",
+      "expectedClarificationKind": null,
+      "expectedOutputContract": "common_plus_workflow",
+      "adjacentDomains": [],
+      "rubricContract": "positive"
+    },
+    {
+      "id": "DEV136-BASE-IMPLEMENT-001",
+      "phase": "baseline",
+      "category": "positive",
+      "skillUnderTest": "implement-apple-foundation-models-handoff",
+      "model": "gpt-5.6-sol",
+      "sourcePrototypeIds": ["DEV134-POS-003"],
+      "prompt": "Use approved synthetic contract DEV134-SYNTH-CONTRACT-003-v1 and implement only this rule in the two named synthetic paths: when phase is not stable, reject the transition before reading or decrementing the transition budget and emit no executor command. The approved paths are Sources/HandoffReducer.swift and Tests/HandoffReducerTests.swift. Do not infer changes outside that boundary.",
+      "routerInput": {
+        "domain": "foundation_models_handoff",
+        "requestedOperation": "implement",
+        "artifactState": "approved_contract",
+        "evidenceState": "available"
+      },
+      "expectedActivation": "implement-apple-foundation-models-handoff",
+      "expectedClarificationKind": null,
+      "expectedOutputContract": "common_plus_workflow",
+      "adjacentDomains": [],
+      "rubricContract": "positive"
+    },
+    {
+      "id": "DEV136-BASE-REVIEW-001",
+      "phase": "baseline",
+      "category": "positive",
+      "skillUnderTest": "review-apple-foundation-models-handoff",
+      "model": "gpt-5.6-sol",
+      "sourcePrototypeIds": ["DEV134-POS-002"],
+      "prompt": "Review this supplied synthetic Foundation Models handoff reducer against its approved architecture contract, return findings, and make no edits. The pseudocode sets active profiles directly from a proposal, applies every proposed next transition without a budget, copies the full transcript, treats model approval as authorization, executes an effect, and terminates immediately when the effect times out.",
+      "routerInput": {
+        "domain": "foundation_models_handoff",
+        "requestedOperation": "review",
+        "artifactState": "implementation",
+        "evidenceState": "failing"
+      },
+      "expectedActivation": "review-apple-foundation-models-handoff",
+      "expectedClarificationKind": null,
+      "expectedOutputContract": "common_plus_workflow",
+      "adjacentDomains": [],
+      "rubricContract": "positive"
+    },
+    {
+      "id": "DEV136-BASE-DEBUG-001",
+      "phase": "baseline",
+      "category": "positive",
+      "skillUnderTest": "debug-apple-foundation-models-handoff",
+      "model": "gpt-5.6-sol",
+      "sourcePrototypeIds": ["DEV134-POS-004"],
+      "prompt": "Debug why a dispatched synthetic Apple Foundation Models handoff effect timed out and the reducer attempted to replay the same effect before reconciliation.",
+      "routerInput": {
+        "domain": "foundation_models_handoff",
+        "requestedOperation": "debug",
+        "artifactState": "implementation",
+        "evidenceState": "failing"
+      },
+      "expectedActivation": "debug-apple-foundation-models-handoff",
+      "expectedClarificationKind": null,
+      "expectedOutputContract": "common_plus_workflow",
+      "adjacentDomains": [],
+      "rubricContract": "positive"
+    },
+    {
+      "id": "DEV136-BASE-VALIDATE-001",
+      "phase": "baseline",
+      "category": "positive",
+      "skillUnderTest": "validate-apple-foundation-models-handoff",
+      "model": "gpt-5.6-sol",
+      "sourcePrototypeIds": ["DEV134-POS-005"],
+      "prompt": "Validate the synthetic Apple Foundation Models handoff's deterministic, SDK compile, evidence-safety, and Claude/Codex host matrix, report blockers, and do not edit anything to obtain a pass.",
+      "routerInput": {
+        "domain": "foundation_models_handoff",
+        "requestedOperation": "validate",
+        "artifactState": "evidence_bundle",
+        "evidenceState": "available"
+      },
+      "expectedActivation": "validate-apple-foundation-models-handoff",
+      "expectedClarificationKind": null,
+      "expectedOutputContract": "common_plus_workflow",
+      "adjacentDomains": [],
+      "rubricContract": "positive"
+    },
+    {
+      "id": "DEV136-FWD-DESIGN-001",
+      "phase": "forward",
+      "category": "positive",
+      "skillUnderTest": "design-apple-foundation-models-handoff",
+      "model": "gpt-5.6-sol",
+      "sourcePrototypeIds": ["DEV134-POS-006"],
+      "prompt": "Design an Apple Foundation Models consultation where the parent session asks a narrow specialist question, keeps control, and writes the final answer.",
+      "routerInput": {
+        "domain": "foundation_models_handoff",
+        "requestedOperation": "design",
+        "artifactState": "absent",
+        "evidenceState": "missing"
+      },
+      "expectedActivation": "design-apple-foundation-models-handoff",
+      "expectedClarificationKind": null,
+      "expectedOutputContract": "common_plus_workflow",
+      "adjacentDomains": [],
+      "rubricContract": "positive"
+    },
+    {
+      "id": "DEV136-FWD-DESIGN-002",
+      "phase": "forward",
+      "category": "negative",
+      "skillUnderTest": "design-apple-foundation-models-handoff",
+      "model": "gpt-5.6-sol",
+      "sourcePrototypeIds": ["DEV134-NEG-001"],
+      "prompt": "Show me how to expose an App Intent for a Shortcuts action.",
+      "routerInput": {
+        "domain": "out_of_domain",
+        "requestedOperation": "unspecified",
+        "artifactState": "unknown",
+        "evidenceState": "unknown"
+      },
+      "expectedActivation": "no_activation",
+      "expectedClarificationKind": null,
+      "expectedOutputContract": "none",
+      "adjacentDomains": ["app_intents"],
+      "rubricContract": "no_activation"
+    },
+    {
+      "id": "DEV136-FWD-DESIGN-003",
+      "phase": "forward",
+      "category": "ambiguous",
+      "skillUnderTest": "design-apple-foundation-models-handoff",
+      "model": "gpt-5.6-sol",
+      "sourcePrototypeIds": ["DEV134-AMB-001"],
+      "prompt": "Help me design an Apple handoff.",
+      "routerInput": {
+        "domain": "ambiguous",
+        "requestedOperation": "design",
+        "artifactState": "unknown",
+        "evidenceState": "unknown"
+      },
+      "expectedActivation": "clarification_required",
+      "expectedClarificationKind": "domain",
+      "expectedOutputContract": "none",
+      "adjacentDomains": [],
+      "rubricContract": "clarification"
+    },
+    {
+      "id": "DEV136-FWD-DESIGN-004",
+      "phase": "forward",
+      "category": "complete-output",
+      "skillUnderTest": "design-apple-foundation-models-handoff",
+      "model": "gpt-5.6-sol",
+      "sourcePrototypeIds": ["DEV134-POS-001"],
+      "prompt": "Produce a complete decision-ready design for a new Apple Foundation Models baton pass where a research profile transfers control and final-answer ownership to a review profile. Include enough detail for a separate implementation issue and its proof work.",
+      "routerInput": {
+        "domain": "foundation_models_handoff",
+        "requestedOperation": "design",
+        "artifactState": "absent",
+        "evidenceState": "missing"
+      },
+      "expectedActivation": "design-apple-foundation-models-handoff",
+      "expectedClarificationKind": null,
+      "expectedOutputContract": "common_plus_workflow",
+      "adjacentDomains": [],
+      "rubricContract": "positive"
+    },
+    {
+      "id": "DEV136-FWD-IMPLEMENT-001",
+      "phase": "forward",
+      "category": "positive",
+      "skillUnderTest": "implement-apple-foundation-models-handoff",
+      "model": "gpt-5.6-sol",
+      "sourcePrototypeIds": ["DEV134-POS-003"],
+      "prompt": "Apply approved synthetic contract DEV134-SYNTH-CONTRACT-003-v1 only to Sources/HandoffReducer.swift and Tests/HandoffReducerTests.swift: reject a transition while phase is unstable before consuming the transition budget, and emit no executor command.",
+      "routerInput": {
+        "domain": "foundation_models_handoff",
+        "requestedOperation": "implement",
+        "artifactState": "approved_contract",
+        "evidenceState": "available"
+      },
+      "expectedActivation": "implement-apple-foundation-models-handoff",
+      "expectedClarificationKind": null,
+      "expectedOutputContract": "common_plus_workflow",
+      "adjacentDomains": [],
+      "rubricContract": "positive"
+    },
+    {
+      "id": "DEV136-FWD-IMPLEMENT-002",
+      "phase": "forward",
+      "category": "negative",
+      "skillUnderTest": "implement-apple-foundation-models-handoff",
+      "model": "gpt-5.6-sol",
+      "sourcePrototypeIds": ["DEV134-NEG-003"],
+      "prompt": "How do Swift actors isolate mutable state, and can you show a small example?",
+      "routerInput": {
+        "domain": "out_of_domain",
+        "requestedOperation": "unspecified",
+        "artifactState": "unknown",
+        "evidenceState": "unknown"
+      },
+      "expectedActivation": "no_activation",
+      "expectedClarificationKind": null,
+      "expectedOutputContract": "none",
+      "adjacentDomains": ["swift_actors"],
+      "rubricContract": "no_activation"
+    },
+    {
+      "id": "DEV136-FWD-IMPLEMENT-003",
+      "phase": "forward",
+      "category": "ambiguous",
+      "skillUnderTest": "implement-apple-foundation-models-handoff",
+      "model": "gpt-5.6-sol",
+      "sourcePrototypeIds": ["DEV134-AMB-002"],
+      "prompt": "Implement the Apple Foundation Models handoff for my app.",
+      "routerInput": {
+        "domain": "foundation_models_handoff",
+        "requestedOperation": "implement",
+        "artifactState": "unknown",
+        "evidenceState": "missing"
+      },
+      "expectedActivation": "clarification_required",
+      "expectedClarificationKind": "approved_contract",
+      "expectedOutputContract": "none",
+      "adjacentDomains": [],
+      "rubricContract": "clarification"
+    },
+    {
+      "id": "DEV136-FWD-IMPLEMENT-004",
+      "phase": "forward",
+      "category": "complete-output",
+      "skillUnderTest": "implement-apple-foundation-models-handoff",
+      "model": "gpt-5.6-sol",
+      "sourcePrototypeIds": ["DEV134-POS-003"],
+      "prompt": "Produce the complete bounded implementation result for approved synthetic contract DEV134-SYNTH-CONTRACT-003-v1. Only Sources/HandoffReducer.swift and Tests/HandoffReducerTests.swift are authorized. Reject an unstable-phase transition before reading or decrementing its budget and emit no executor command; report any proof that cannot run.",
+      "routerInput": {
+        "domain": "foundation_models_handoff",
+        "requestedOperation": "implement",
+        "artifactState": "approved_contract",
+        "evidenceState": "available"
+      },
+      "expectedActivation": "implement-apple-foundation-models-handoff",
+      "expectedClarificationKind": null,
+      "expectedOutputContract": "common_plus_workflow",
+      "adjacentDomains": [],
+      "rubricContract": "positive"
+    },
+    {
+      "id": "DEV136-FWD-REVIEW-001",
+      "phase": "forward",
+      "category": "positive",
+      "skillUnderTest": "review-apple-foundation-models-handoff",
+      "model": "gpt-5.6-sol",
+      "sourcePrototypeIds": ["DEV134-AMB-003", "DEV134-POS-002"],
+      "prompt": "Review and fix this Apple Foundation Models handoff implementation. The synthetic reducer accepts an unbounded next transition, copies a full transcript, treats model approval as authorization, and replays an effect after timeout.",
+      "routerInput": {
+        "domain": "foundation_models_handoff",
+        "requestedOperation": "compound_review_fix",
+        "artifactState": "implementation",
+        "evidenceState": "failing"
+      },
+      "expectedActivation": "review-apple-foundation-models-handoff",
+      "expectedClarificationKind": null,
+      "expectedOutputContract": "common_plus_workflow",
+      "adjacentDomains": [],
+      "rubricContract": "positive"
+    },
+    {
+      "id": "DEV136-FWD-REVIEW-002",
+      "phase": "forward",
+      "category": "negative",
+      "skillUnderTest": "review-apple-foundation-models-handoff",
+      "model": "gpt-5.6-sol",
+      "sourcePrototypeIds": ["DEV134-NEG-002"],
+      "prompt": "Explain how to continue activity between my iPhone and Mac with Apple Handoff and NSUserActivity.",
+      "routerInput": {
+        "domain": "out_of_domain",
+        "requestedOperation": "unspecified",
+        "artifactState": "unknown",
+        "evidenceState": "unknown"
+      },
+      "expectedActivation": "no_activation",
+      "expectedClarificationKind": null,
+      "expectedOutputContract": "none",
+      "adjacentDomains": ["apple_handoff_nsu_activity"],
+      "rubricContract": "no_activation"
+    },
+    {
+      "id": "DEV136-FWD-REVIEW-003",
+      "phase": "forward",
+      "category": "ambiguous",
+      "skillUnderTest": "review-apple-foundation-models-handoff",
+      "model": "gpt-5.6-sol",
+      "sourcePrototypeIds": ["DEV134-AMB-001"],
+      "prompt": "Review this Apple handoff implementation for correctness.",
+      "routerInput": {
+        "domain": "ambiguous",
+        "requestedOperation": "review",
+        "artifactState": "implementation",
+        "evidenceState": "unknown"
+      },
+      "expectedActivation": "clarification_required",
+      "expectedClarificationKind": "domain",
+      "expectedOutputContract": "none",
+      "adjacentDomains": [],
+      "rubricContract": "clarification"
+    },
+    {
+      "id": "DEV136-FWD-REVIEW-004",
+      "phase": "forward",
+      "category": "complete-output",
+      "skillUnderTest": "review-apple-foundation-models-handoff",
+      "model": "gpt-5.6-sol",
+      "sourcePrototypeIds": ["DEV134-POS-002"],
+      "prompt": "Return a complete findings-only review of this synthetic Apple Foundation Models handoff reducer and make no edits. It installs proposal profiles directly, follows proposed transitions without a budget, transfers a full transcript, treats model approval as authorization, executes an effect, and terminates on timeout.",
+      "routerInput": {
+        "domain": "foundation_models_handoff",
+        "requestedOperation": "review",
+        "artifactState": "implementation",
+        "evidenceState": "failing"
+      },
+      "expectedActivation": "review-apple-foundation-models-handoff",
+      "expectedClarificationKind": null,
+      "expectedOutputContract": "common_plus_workflow",
+      "adjacentDomains": [],
+      "rubricContract": "positive"
+    },
+    {
+      "id": "DEV136-FWD-DEBUG-001",
+      "phase": "forward",
+      "category": "positive",
+      "skillUnderTest": "debug-apple-foundation-models-handoff",
+      "model": "gpt-5.6-sol",
+      "sourcePrototypeIds": ["DEV134-POS-004"],
+      "prompt": "Debug why synthetic handoff effect effect-7 timed out and the reducer scheduled effect-7 again before checking whether the first dispatch completed.",
+      "routerInput": {
+        "domain": "foundation_models_handoff",
+        "requestedOperation": "debug",
+        "artifactState": "implementation",
+        "evidenceState": "failing"
+      },
+      "expectedActivation": "debug-apple-foundation-models-handoff",
+      "expectedClarificationKind": null,
+      "expectedOutputContract": "common_plus_workflow",
+      "adjacentDomains": [],
+      "rubricContract": "positive"
+    },
+    {
+      "id": "DEV136-FWD-DEBUG-002",
+      "phase": "forward",
+      "category": "negative",
+      "skillUnderTest": "debug-apple-foundation-models-handoff",
+      "model": "gpt-5.6-sol",
+      "sourcePrototypeIds": ["DEV134-NEG-005"],
+      "prompt": "How should I hand a coding session from Claude Code to Codex?",
+      "routerInput": {
+        "domain": "out_of_domain",
+        "requestedOperation": "unspecified",
+        "artifactState": "unknown",
+        "evidenceState": "unknown"
+      },
+      "expectedActivation": "no_activation",
+      "expectedClarificationKind": null,
+      "expectedOutputContract": "none",
+      "adjacentDomains": ["coding_session_handoff"],
+      "rubricContract": "no_activation"
+    },
+    {
+      "id": "DEV136-FWD-DEBUG-003",
+      "phase": "forward",
+      "category": "ambiguous",
+      "skillUnderTest": "debug-apple-foundation-models-handoff",
+      "model": "gpt-5.6-sol",
+      "sourcePrototypeIds": ["DEV134-AMB-001"],
+      "prompt": "Debug the Apple handoff that keeps failing after a timeout.",
+      "routerInput": {
+        "domain": "ambiguous",
+        "requestedOperation": "debug",
+        "artifactState": "unknown",
+        "evidenceState": "failing"
+      },
+      "expectedActivation": "clarification_required",
+      "expectedClarificationKind": "domain",
+      "expectedOutputContract": "none",
+      "adjacentDomains": [],
+      "rubricContract": "clarification"
+    },
+    {
+      "id": "DEV136-FWD-DEBUG-004",
+      "phase": "forward",
+      "category": "complete-output",
+      "skillUnderTest": "debug-apple-foundation-models-handoff",
+      "model": "gpt-5.6-sol",
+      "sourcePrototypeIds": ["DEV134-POS-004"],
+      "prompt": "Produce a complete diagnosis for this synthetic Apple Foundation Models handoff failure: command effect-7 was dispatched once, the wait timed out without a confirmed result, state moved directly to retrying, and the reducer emitted effect-7 again before reconciliation. No other transition occurred.",
+      "routerInput": {
+        "domain": "foundation_models_handoff",
+        "requestedOperation": "debug",
+        "artifactState": "implementation",
+        "evidenceState": "failing"
+      },
+      "expectedActivation": "debug-apple-foundation-models-handoff",
+      "expectedClarificationKind": null,
+      "expectedOutputContract": "common_plus_workflow",
+      "adjacentDomains": [],
+      "rubricContract": "positive"
+    },
+    {
+      "id": "DEV136-FWD-VALIDATE-001",
+      "phase": "forward",
+      "category": "positive",
+      "skillUnderTest": "validate-apple-foundation-models-handoff",
+      "model": "gpt-5.6-sol",
+      "sourcePrototypeIds": ["DEV134-POS-005"],
+      "prompt": "Validate a synthetic Apple Foundation Models handoff evidence bundle across deterministic, SDK compile, evidence-safety, and host layers. Preserve every blocker and do not edit the subject.",
+      "routerInput": {
+        "domain": "foundation_models_handoff",
+        "requestedOperation": "validate",
+        "artifactState": "evidence_bundle",
+        "evidenceState": "available"
+      },
+      "expectedActivation": "validate-apple-foundation-models-handoff",
+      "expectedClarificationKind": null,
+      "expectedOutputContract": "common_plus_workflow",
+      "adjacentDomains": [],
+      "rubricContract": "positive"
+    },
+    {
+      "id": "DEV136-FWD-VALIDATE-002",
+      "phase": "forward",
+      "category": "negative",
+      "skillUnderTest": "validate-apple-foundation-models-handoff",
+      "model": "gpt-5.6-sol",
+      "sourcePrototypeIds": ["DEV134-NEG-004", "DEV134-NEG-006"],
+      "prompt": "Give me a beginner comparison of Core ML deployment and Foundation Models runtime Skills for tool calling inside one model session.",
+      "routerInput": {
+        "domain": "out_of_domain",
+        "requestedOperation": "unspecified",
+        "artifactState": "unknown",
+        "evidenceState": "unknown"
+      },
+      "expectedActivation": "no_activation",
+      "expectedClarificationKind": null,
+      "expectedOutputContract": "none",
+      "adjacentDomains": [
+        "generic_core_ml",
+        "foundation_models_runtime_skills"
+      ],
+      "rubricContract": "no_activation"
+    },
+    {
+      "id": "DEV136-FWD-VALIDATE-003",
+      "phase": "forward",
+      "category": "ambiguous",
+      "skillUnderTest": "validate-apple-foundation-models-handoff",
+      "model": "gpt-5.6-sol",
+      "sourcePrototypeIds": ["DEV134-AMB-001"],
+      "prompt": "Validate my Apple handoff evidence and tell me if it can ship.",
+      "routerInput": {
+        "domain": "ambiguous",
+        "requestedOperation": "validate",
+        "artifactState": "evidence_bundle",
+        "evidenceState": "available"
+      },
+      "expectedActivation": "clarification_required",
+      "expectedClarificationKind": "domain",
+      "expectedOutputContract": "none",
+      "adjacentDomains": [],
+      "rubricContract": "clarification"
+    },
+    {
+      "id": "DEV136-FWD-VALIDATE-004",
+      "phase": "forward",
+      "category": "complete-output",
+      "skillUnderTest": "validate-apple-foundation-models-handoff",
+      "model": "gpt-5.6-sol",
+      "sourcePrototypeIds": ["DEV134-POS-005"],
+      "prompt": "Produce a complete release-facing validation of the synthetic Apple Foundation Models handoff's deterministic, SDK compile, evidence-safety, and Claude/Codex host evidence. Keep missing host support blocked, preserve zero-denominator results, include reproducible identities and hashes, and do not edit anything.",
+      "routerInput": {
+        "domain": "foundation_models_handoff",
+        "requestedOperation": "validate",
+        "artifactState": "evidence_bundle",
+        "evidenceState": "available"
+      },
+      "expectedActivation": "validate-apple-foundation-models-handoff",
+      "expectedClarificationKind": null,
+      "expectedOutputContract": "common_plus_workflow",
+      "adjacentDomains": [],
+      "rubricContract": "positive"
+    }
+  ]
+}
