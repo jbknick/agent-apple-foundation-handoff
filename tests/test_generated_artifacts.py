@@ -433,6 +433,63 @@ class GeneratedArtifactTests(unittest.TestCase):
             self.assertFalse(generated.is_symlink())
             self.assertEqual([], list(isolated_root.glob(".AGENTS.md.*.tmp")))
 
+    def test_later_temporary_open_failure_prevents_every_replacement(self):
+        with tempfile.TemporaryDirectory() as directory:
+            isolated_root = Path(directory)
+            self._copy_canonical_inputs(isolated_root)
+            self.assertTrue(sync.synchronize(isolated_root, write=True))
+
+            agents = isolated_root / GENERATED_OUTPUTS[0]
+            marketplace = isolated_root / GENERATED_OUTPUTS[1]
+            agents.write_bytes(b"stale AGENTS output\n")
+            marketplace.write_bytes(b"stale marketplace output\n")
+            before = {
+                path: (isolated_root / path).read_bytes()
+                for path in GENERATED_OUTPUTS
+            }
+            real_open = sync.os.open
+
+            def fail_marketplace_temporary_open(
+                path,
+                flags,
+                mode=0o777,
+                *,
+                dir_fd=None,
+            ):
+                if (
+                    isinstance(path, str)
+                    and path.startswith(".marketplace.json.")
+                    and path.endswith(".tmp")
+                    and flags & os.O_CREAT
+                ):
+                    raise PermissionError
+                return real_open(path, flags, mode, dir_fd=dir_fd)
+
+            diagnostic = io.StringIO()
+            with mock.patch.object(sync.os, "open", fail_marketplace_temporary_open):
+                with contextlib.redirect_stderr(diagnostic):
+                    synchronized = sync.synchronize(isolated_root, write=True)
+
+            self.assertFalse(synchronized)
+            self.assertEqual(
+                ".agents/plugins/marketplace.json: "
+                "unsafe or unwritable generated output\n",
+                diagnostic.getvalue(),
+            )
+            self.assertEqual(
+                before,
+                {
+                    path: (isolated_root / path).read_bytes()
+                    for path in GENERATED_OUTPUTS
+                },
+            )
+            temporary_paths = []
+            for output in GENERATED_OUTPUTS:
+                temporary_paths.extend(
+                    (isolated_root / output.parent).glob(f".{output.name}.*.tmp")
+                )
+            self.assertEqual([], temporary_paths)
+
     def test_coordinated_valid_semver_version_drift_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             isolated_root = Path(directory)

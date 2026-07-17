@@ -61,6 +61,17 @@ class UnexpectedGeneratedPath(Exception):
     """A reserved generated namespace contains an unowned file."""
 
 
+@dataclass
+class _PreparedGeneratedOutput:
+    """A verified temporary output awaiting ordered atomic replacement."""
+
+    parent_fd: int
+    name: str
+    temporary: str
+    descriptor: int | None
+    temporary_exists: bool = True
+
+
 def _adapter_body(canonical_text: str) -> str:
     if canonical_text.count(BEGIN) != 1 or canonical_text.count(END) != 1:
         raise ValueError("canonical guide must contain exactly one adapter section")
@@ -535,13 +546,35 @@ def _remove_unsafe_output_at(parent_fd: int, name: str) -> None:
         raise GeneratedOutputError from error
 
 
-def _write_generated_at(parent_fd: int, name: str, expected: bytes) -> None:
-    """Atomically replace one generated file relative to its held parent."""
+def _cleanup_prepared_output(prepared: _PreparedGeneratedOutput) -> None:
+    cleanup_error: OSError | None = None
+    if prepared.descriptor is not None:
+        try:
+            os.close(prepared.descriptor)
+        except OSError as error:
+            cleanup_error = error
+        prepared.descriptor = None
+    if prepared.temporary_exists:
+        try:
+            os.unlink(prepared.temporary, dir_fd=prepared.parent_fd)
+        except FileNotFoundError:
+            pass
+        except OSError as error:
+            cleanup_error = cleanup_error or error
+        else:
+            prepared.temporary_exists = False
+    if cleanup_error is not None:
+        raise GeneratedOutputError from cleanup_error
+
+
+def _prepare_generated_at(
+    parent_fd: int, name: str, expected: bytes
+) -> _PreparedGeneratedOutput:
+    """Create and inode-verify one staged output without replacing its target."""
 
     _regular_output_at(parent_fd, name)
     temporary = f".{name}.{secrets.token_hex(16)}.tmp"
-    descriptor: int | None = None
-    temporary_exists = False
+    prepared: _PreparedGeneratedOutput | None = None
     flags = (
         os.O_WRONLY
         | os.O_CREAT
@@ -551,7 +584,12 @@ def _write_generated_at(parent_fd: int, name: str, expected: bytes) -> None:
     )
     try:
         descriptor = os.open(temporary, flags, 0o644, dir_fd=parent_fd)
-        temporary_exists = True
+        prepared = _PreparedGeneratedOutput(
+            parent_fd=parent_fd,
+            name=name,
+            temporary=temporary,
+            descriptor=descriptor,
+        )
         if hasattr(os, "fchmod"):
             os.fchmod(descriptor, 0o644)
         with os.fdopen(os.dup(descriptor), "wb") as stream:
@@ -567,46 +605,60 @@ def _write_generated_at(parent_fd: int, name: str, expected: bytes) -> None:
             intended_metadata, temporary_metadata
         ):
             raise GeneratedOutputError
+        return prepared
+    except (GeneratedOutputError, OSError) as error:
+        if prepared is not None:
+            try:
+                _cleanup_prepared_output(prepared)
+            except GeneratedOutputError as cleanup_error:
+                raise cleanup_error from error
+        if isinstance(error, GeneratedOutputError):
+            raise
+        raise GeneratedOutputError from error
 
-        _regular_output_at(parent_fd, name)
-        os.replace(
-            temporary,
-            name,
-            src_dir_fd=parent_fd,
-            dst_dir_fd=parent_fd,
+
+def _commit_prepared_output(prepared: _PreparedGeneratedOutput) -> None:
+    """Atomically replace one target from an already verified staged output."""
+
+    if prepared.descriptor is None or not prepared.temporary_exists:
+        raise GeneratedOutputError
+    try:
+        intended_metadata = os.fstat(prepared.descriptor)
+        temporary_metadata = os.stat(
+            prepared.temporary,
+            dir_fd=prepared.parent_fd,
+            follow_symlinks=False,
         )
-        temporary_exists = False
+        if not stat.S_ISREG(temporary_metadata.st_mode) or not _same_file(
+            intended_metadata, temporary_metadata
+        ):
+            raise GeneratedOutputError
+
+        _regular_output_at(prepared.parent_fd, prepared.name)
+        os.replace(
+            prepared.temporary,
+            prepared.name,
+            src_dir_fd=prepared.parent_fd,
+            dst_dir_fd=prepared.parent_fd,
+        )
+        prepared.temporary_exists = False
         try:
             generated_metadata = os.stat(
-                name, dir_fd=parent_fd, follow_symlinks=False
+                prepared.name,
+                dir_fd=prepared.parent_fd,
+                follow_symlinks=False,
             )
             if not stat.S_ISREG(generated_metadata.st_mode) or not _same_file(
                 intended_metadata, generated_metadata
             ):
                 raise GeneratedOutputError
         except (GeneratedOutputError, OSError) as error:
-            _remove_unsafe_output_at(parent_fd, name)
+            _remove_unsafe_output_at(prepared.parent_fd, prepared.name)
             raise GeneratedOutputError from error
     except GeneratedOutputError:
         raise
     except OSError as error:
         raise GeneratedOutputError from error
-    finally:
-        cleanup_error: OSError | None = None
-        if descriptor is not None:
-            try:
-                os.close(descriptor)
-            except OSError as error:
-                cleanup_error = error
-        if temporary_exists:
-            try:
-                os.unlink(temporary, dir_fd=parent_fd)
-            except FileNotFoundError:
-                pass
-            except OSError as error:
-                cleanup_error = cleanup_error or error
-        if cleanup_error is not None:
-            raise GeneratedOutputError from cleanup_error
 
 
 def _scan_directory(
@@ -671,6 +723,7 @@ def _synchronize(root: Path, write: bool) -> tuple[bool, bool]:
 
     parent_descriptors: dict[Path, int | None] = {}
     observed: dict[Path, bytes | None] = {}
+    prepared_outputs: list[tuple[Path, _PreparedGeneratedOutput]] = []
     try:
         for relative_path in GENERATED_PATHS:
             try:
@@ -708,7 +761,6 @@ def _synchronize(root: Path, write: bool) -> tuple[bool, bool]:
                 except GeneratedOutputError as error:
                     _output_error(relative_path, error)
 
-        changed = False
         for relative_path in GENERATED_PATHS:
             parent_fd = parent_descriptors[relative_path]
             if parent_fd is None:
@@ -716,15 +768,32 @@ def _synchronize(root: Path, write: bool) -> tuple[bool, bool]:
             try:
                 current = _read_generated_at(parent_fd, relative_path.name)
                 if current != expected[relative_path]:
-                    _write_generated_at(
-                        parent_fd, relative_path.name, expected[relative_path]
+                    prepared_outputs.append(
+                        (
+                            relative_path,
+                            _prepare_generated_at(
+                                parent_fd,
+                                relative_path.name,
+                                expected[relative_path],
+                            ),
+                        )
                     )
-                    changed = True
             except GeneratedOutputError as error:
                 _output_error(relative_path, error)
-        return True, changed
+
+        for relative_path, prepared in prepared_outputs:
+            try:
+                _commit_prepared_output(prepared)
+            except GeneratedOutputError as error:
+                _output_error(relative_path, error)
+        return True, bool(prepared_outputs)
     finally:
         close_error: Path | None = None
+        for relative_path, prepared in prepared_outputs:
+            try:
+                _cleanup_prepared_output(prepared)
+            except GeneratedOutputError:
+                close_error = close_error or relative_path
         for relative_path, descriptor in parent_descriptors.items():
             if descriptor is not None:
                 try:
