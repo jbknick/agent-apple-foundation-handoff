@@ -24,6 +24,7 @@ SHARED_MANIFEST = Path(
 CODEX_INTERFACE = Path(
     "plugins/apple-foundation-models-handoff/metadata/codex-interface.json"
 )
+SKILLS_ROOT = Path("plugins/apple-foundation-models-handoff/skills")
 CANONICAL_INPUTS = (
     Path("CLAUDE.md"),
     CLAUDE_MARKETPLACE,
@@ -51,8 +52,8 @@ PLUGIN_DESCRIPTION = (
     "handoff architectures."
 )
 DEFAULT_PROMPT = (
-    "Select the appropriate workflow to design, implement, review, debug, or "
-    "validate an Apple Foundation Models handoff."
+    "Design an Apple Foundation Models baton pass from a research profile to a "
+    "review profile that owns the final answer."
 )
 
 
@@ -80,6 +81,20 @@ def _delete_nested(value: object, keys: tuple[object, ...]) -> None:
     del current[keys[-1]]
 
 
+class _SwapAfterScandir:
+    def __init__(self, iterator, swap) -> None:
+        self.iterator = iterator
+        self.swap = swap
+
+    def __enter__(self):
+        return self.iterator.__enter__()
+
+    def __exit__(self, exception_type, exception, traceback):
+        result = self.iterator.__exit__(exception_type, exception, traceback)
+        self.swap()
+        return result
+
+
 class GeneratedArtifactTests(unittest.TestCase):
     def _copy_canonical_inputs(self, destination: Path) -> None:
         for relative_path in CANONICAL_INPUTS:
@@ -87,9 +102,20 @@ class GeneratedArtifactTests(unittest.TestCase):
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / relative_path, target)
         shutil.copytree(
-            ROOT / "plugins/apple-foundation-models-handoff/skills",
-            destination / "plugins/apple-foundation-models-handoff/skills",
+            ROOT / SKILLS_ROOT,
+            destination / SKILLS_ROOT,
         )
+
+    def _assert_private_safe_skill_error(
+        self,
+        raised: sync.CanonicalInputError,
+        *private_paths: Path,
+    ) -> None:
+        diagnostic = str(raised)
+        self.assertEqual(SKILLS_ROOT.as_posix(), diagnostic)
+        for private_path in private_paths:
+            self.assertNotIn(str(private_path), diagnostic)
+        self.assertFalse(Path(diagnostic).is_absolute())
 
     def _run_isolated_cli(
         self, root: Path, mode: str
@@ -759,13 +785,129 @@ class GeneratedArtifactTests(unittest.TestCase):
 
                 self.assertEqual(CODEX_INTERFACE.as_posix(), str(raised.exception))
 
-    def test_skill_component_mutations_are_rejected(self):
-        def remove_skill(root: Path) -> None:
-            shutil.rmtree(
-                root
-                / "plugins/apple-foundation-models-handoff/skills"
-                / SKILLS[0]
+    def test_skills_root_swap_to_external_exact_tree_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temporary_root = Path(directory)
+            isolated_root = temporary_root / "repository"
+            isolated_root.mkdir()
+            self._copy_canonical_inputs(isolated_root)
+            skills_root = isolated_root / SKILLS_ROOT
+            external = temporary_root / "external-skills"
+            original = temporary_root / "original-skills"
+            shutil.copytree(skills_root, external)
+            real_scandir = sync.os.scandir
+            calls = 0
+            swapped = False
+
+            def swap_root() -> None:
+                nonlocal swapped
+                skills_root.rename(original)
+                skills_root.symlink_to(external, target_is_directory=True)
+                swapped = True
+
+            def attacked_scandir(path):
+                nonlocal calls
+                calls += 1
+                iterator = real_scandir(path)
+                if calls == 1:
+                    return _SwapAfterScandir(iterator, swap_root)
+                return iterator
+
+            with mock.patch.object(sync.os, "scandir", attacked_scandir):
+                with self.assertRaises(sync.CanonicalInputError) as raised:
+                    sync.load_canonical_inputs(isolated_root)
+
+            self.assertTrue(swapped)
+            self._assert_private_safe_skill_error(
+                raised.exception,
+                isolated_root,
+                external,
+                original,
             )
+
+    def test_skill_child_swap_to_external_exact_tree_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temporary_root = Path(directory)
+            isolated_root = temporary_root / "repository"
+            isolated_root.mkdir()
+            self._copy_canonical_inputs(isolated_root)
+            skill_directory = isolated_root / SKILLS_ROOT / SKILLS[0]
+            external = temporary_root / "external-skill"
+            original = temporary_root / "original-skill"
+            shutil.copytree(skill_directory, external)
+            real_scandir = sync.os.scandir
+            calls = 0
+            swapped = False
+
+            def swap_child() -> None:
+                nonlocal swapped
+                skill_directory.rename(original)
+                skill_directory.symlink_to(external, target_is_directory=True)
+                swapped = True
+
+            def attacked_scandir(path):
+                nonlocal calls
+                calls += 1
+                iterator = real_scandir(path)
+                if calls == 2:
+                    return _SwapAfterScandir(iterator, swap_child)
+                return iterator
+
+            with mock.patch.object(sync.os, "scandir", attacked_scandir):
+                with self.assertRaises(sync.CanonicalInputError) as raised:
+                    sync.load_canonical_inputs(isolated_root)
+
+            self.assertTrue(swapped)
+            self._assert_private_safe_skill_error(
+                raised.exception,
+                isolated_root,
+                external,
+                original,
+            )
+
+    def test_skill_file_identity_swap_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temporary_root = Path(directory)
+            isolated_root = temporary_root / "repository"
+            isolated_root.mkdir()
+            self._copy_canonical_inputs(isolated_root)
+            skill_file = isolated_root / SKILLS_ROOT / SKILLS[0] / "SKILL.md"
+            external = temporary_root / "external-SKILL.md"
+            original = temporary_root / "original-SKILL.md"
+            shutil.copyfile(skill_file, external)
+            real_open = sync.os.open
+            attacked = False
+
+            def attacked_open(path, flags, mode=0o777, *, dir_fd=None):
+                nonlocal attacked
+                if not attacked and str(path).endswith("SKILL.md"):
+                    skill_file.rename(original)
+                    skill_file.symlink_to(external)
+                    attacked = True
+                return real_open(path, flags, mode, dir_fd=dir_fd)
+
+            with mock.patch.object(sync.os, "open", attacked_open):
+                with self.assertRaises(sync.CanonicalInputError) as raised:
+                    sync.load_canonical_inputs(isolated_root)
+
+            self.assertTrue(attacked)
+            self._assert_private_safe_skill_error(
+                raised.exception,
+                isolated_root,
+                external,
+                original,
+            )
+
+    def test_skill_component_mutations_are_rejected(self):
+        def mutate_first_skill(root: Path, mutate) -> None:
+            skill = root / SKILLS_ROOT / SKILLS[0] / "SKILL.md"
+            original = skill.read_text(encoding="utf-8")
+            mutated = mutate(original)
+            self.assertNotEqual(original, mutated)
+            skill.write_text(mutated, encoding="utf-8")
+
+        def remove_skill(root: Path) -> None:
+            shutil.rmtree(root / SKILLS_ROOT / SKILLS[0])
 
         def add_sixth_skill(root: Path) -> None:
             extra = (
@@ -779,23 +921,63 @@ class GeneratedArtifactTests(unittest.TestCase):
             )
 
         def mismatch_frontmatter(root: Path) -> None:
-            skill = (
-                root
-                / "plugins/apple-foundation-models-handoff/skills"
-                / SKILLS[0]
-                / "SKILL.md"
-            )
-            skill.write_text(
-                skill.read_text(encoding="utf-8").replace(
+            mutate_first_skill(
+                root,
+                lambda text: text.replace(
                     f"name: {SKILLS[0]}", "name: wrong-skill", 1
                 ),
-                encoding="utf-8",
+            )
+
+        def duplicate_name(root: Path) -> None:
+            mutate_first_skill(
+                root,
+                lambda text: text.replace(
+                    f"name: {SKILLS[0]}\n",
+                    f"name: {SKILLS[0]}\nname: {SKILLS[0]}\n",
+                    1,
+                ),
+            )
+
+        def duplicate_description(root: Path) -> None:
+            def mutate(text: str) -> str:
+                description = next(
+                    line for line in text.splitlines() if line.startswith("description: ")
+                )
+                return text.replace(description, f"{description}\n{description}", 1)
+
+            mutate_first_skill(root, mutate)
+
+        def extra_frontmatter_key(root: Path) -> None:
+            mutate_first_skill(
+                root,
+                lambda text: text.replace(
+                    f"name: {SKILLS[0]}\n",
+                    f"name: {SKILLS[0]}\nunexpected: value\n",
+                    1,
+                ),
+            )
+
+        def missing_closing_delimiter(root: Path) -> None:
+            mutate_first_skill(
+                root,
+                lambda text: text.replace("\n---\n\n#", "\n\n#", 1),
+            )
+
+        def malformed_description(root: Path) -> None:
+            mutate_first_skill(
+                root,
+                lambda text: text.replace("\ndescription: ", "\ndescription ", 1),
             )
 
         for name, mutate in (
             ("missing skill", remove_skill),
             ("sixth skill", add_sixth_skill),
             ("capability name mismatch", mismatch_frontmatter),
+            ("duplicate name", duplicate_name),
+            ("duplicate description", duplicate_description),
+            ("extra frontmatter key", extra_frontmatter_key),
+            ("missing closing delimiter", missing_closing_delimiter),
+            ("malformed description", malformed_description),
         ):
             with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
                 isolated_root = Path(directory)

@@ -40,8 +40,8 @@ LONG_DESCRIPTION = (
     "Apple API availability, state, trust, recovery, and evidence boundaries."
 )
 DEFAULT_PROMPT = (
-    "Select the appropriate workflow to design, implement, review, debug, or "
-    "validate an Apple Foundation Models handoff."
+    "Design an Apple Foundation Models baton pass from a research profile to a "
+    "review profile that owns the final answer."
 )
 SKILLS = (
     "design-apple-foundation-models-handoff",
@@ -275,7 +275,10 @@ class PluginContractTests(unittest.TestCase):
         self.assertEqual("Developer Tools", interface["category"])
         self.assertEqual(list(SKILLS), interface["capabilities"])
         self.assertEqual([DEFAULT_PROMPT], interface["defaultPrompt"])
+        self.assertEqual(116, len(DEFAULT_PROMPT))
         self.assertLessEqual(len(DEFAULT_PROMPT), 128)
+        for meta_instruction in ("select", "appropriate workflow", "which capability"):
+            self.assertNotIn(meta_instruction, DEFAULT_PROMPT.lower())
         for stale_claim in ("metadata-only", "scaffold", "not included"):
             self.assertNotIn(stale_claim, json.dumps(interface).lower())
 
