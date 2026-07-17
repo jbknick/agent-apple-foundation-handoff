@@ -6,7 +6,6 @@ from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
-import re
 import stat
 import sys
 import tempfile
@@ -33,9 +32,7 @@ CODEX_MANIFEST = PLUGIN_ROOT / ".codex-plugin/plugin.json"
 CODEX_MARKETPLACE = Path(".agents/plugins/marketplace.json")
 GENERATED_PATHS = (Path("AGENTS.md"), CODEX_MARKETPLACE, CODEX_MANIFEST)
 EXPECTED_SOURCE = "./plugins/apple-foundation-models-handoff"
-STRICT_SEMVER = re.compile(
-    r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$"
-)
+EXPECTED_VERSION = "0.1.0"
 
 
 @dataclass(frozen=True)
@@ -202,8 +199,8 @@ def _validate_shared_manifest(value: object) -> None:
     value = _closed_object(value, fields, fields)
     if value["name"] != PLUGIN_ID:
         raise ValueError("plugin identity")
-    if STRICT_SEMVER.fullmatch(_string(value["version"])) is None:
-        raise ValueError("strict semver")
+    if value["version"] != EXPECTED_VERSION:
+        raise ValueError("plugin version")
     _string(value["description"])
     author = _closed_object(value["author"], {"name", "url"}, {"name", "url"})
     _string(author["name"])
@@ -242,10 +239,8 @@ def _validate_codex_interface(value: object) -> None:
     if value["category"] != "Developer Tools":
         raise ValueError("interface category")
     capabilities = value["capabilities"]
-    if not isinstance(capabilities, list):
+    if capabilities != []:
         raise ValueError("capabilities")
-    for capability in capabilities:
-        _string(capability)
     prompts = value["defaultPrompt"]
     if not isinstance(prompts, list) or not 1 <= len(prompts) <= 3:
         raise ValueError("prompt count")

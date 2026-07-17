@@ -144,6 +144,51 @@ class GeneratedArtifactTests(unittest.TestCase):
         self.assertEqual(["name", "source", "policy", "category"], list(entry))
         self.assertEqual(content, sync.render_codex_marketplace(inputs))
 
+    def test_coordinated_valid_semver_version_drift_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            isolated_root = Path(directory)
+            self._copy_canonical_inputs(isolated_root)
+            self._mutate_json(
+                isolated_root,
+                SHARED_MANIFEST,
+                lambda value: _set_nested(value, ("version",), "0.1.1"),
+            )
+            self._mutate_json(
+                isolated_root,
+                CLAUDE_MARKETPLACE,
+                lambda value: _set_nested(
+                    value, ("plugins", 0, "version"), "0.1.1"
+                ),
+            )
+
+            with self.assertRaises(sync.CanonicalInputError) as raised:
+                sync.load_canonical_inputs(isolated_root)
+
+            diagnostic = str(raised.exception)
+            self.assertNotIn(str(isolated_root), diagnostic)
+            self.assertNotIn(str(ROOT), diagnostic)
+            self.assertFalse(Path(diagnostic).is_absolute())
+
+    def test_non_empty_capabilities_are_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            isolated_root = Path(directory)
+            self._copy_canonical_inputs(isolated_root)
+            self._mutate_json(
+                isolated_root,
+                CODEX_INTERFACE,
+                lambda value: _set_nested(
+                    value, ("capabilities",), ["foundation-models-handoff"]
+                ),
+            )
+
+            with self.assertRaises(sync.CanonicalInputError) as raised:
+                sync.load_canonical_inputs(isolated_root)
+
+            diagnostic = str(raised.exception)
+            self.assertNotIn(str(isolated_root), diagnostic)
+            self.assertNotIn(str(ROOT), diagnostic)
+            self.assertFalse(Path(diagnostic).is_absolute())
+
     def test_canonical_mutations_are_rejected_without_absolute_paths(self):
         mutations = (
             (
