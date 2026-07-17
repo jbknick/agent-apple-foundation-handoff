@@ -759,6 +759,128 @@ git commit -m "DEV-137 prove reference packaging and Codex prerequisites"
 
 ---
 
+### Task 5A: Repair the direct-reader classifier without adding a tool surface
+
+**Decision source:** DEV-137 Linear comment
+`a4c5d68a-5ff0-49fe-a93e-49ccb7e3a283`, approved after the final
+`6dfdf16ac944fbc90852ec1e44095800e97af259` probe failed. Prior host evidence
+remains failed and must not be reclassified.
+
+**Files:**
+- Modify: `tests/e2e/codex_reference_disclosure.py`
+- Modify only after a fresh reviewed host run:
+  `docs/research/evidence/dev-137-reference-library-e2e.md`
+
+**Interfaces:**
+- Consumes: the existing two-invocation discovery/read contract, exact five-file
+  topology, paired successful Codex `0.144.5` tool events, and the expected owner
+  per Task 5 case.
+- Produces: a command-neutral, fail-closed direct-reader classifier. It adds no
+  plugin command, tool, worker, hook, MCP server, dependency, retry, or fallback.
+
+- [ ] **Step 1: Add tests-only RED cases for operand-role ambiguity**
+
+In `DirectedReferenceProbeTests`, add a table-driven matrix that requires:
+
+1. exact-file `rg` and `grep` reads to pass with absolute and package-relative
+   owner operands;
+2. bounded safe forms for `-n`, `-e`, `--`, fixed strings, and quoted regex
+   punctuation;
+3. owner basenames used only as a pattern or option value to fail;
+4. owner plus `.`, a directory, a second or duplicate file, stdin, a glob, or
+   recursive mode to fail;
+5. `-f`/`--file`, `--ignore-file`, `--pre`, `--pre-glob`, `--search-zip`, and
+   every unknown option whose arity is not proven to fail;
+6. a syntactically valid wrong owner to remain a selection mismatch;
+7. the same adversarial forms inside command events, nested mappings, and
+   JSON-string arguments;
+8. repeated reference-access invocations to fail rather than disappear through
+   set deduplication; and
+9. all existing wrapper, shell-control, dataflow, failed-event, symlink, and
+   nonregular-file cases to remain green.
+
+Run only the new tests first with bytecode disabled:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
+  tests.e2e.codex_reference_disclosure.DirectedReferenceProbeTests -v
+```
+
+Expected: the new adversarial cases fail against `6dfdf16` for the intended
+operand-role reasons, while the existing cases remain green.
+
+Commit only the tests:
+
+```bash
+git add tests/e2e/codex_reference_disclosure.py
+git diff --cached --check
+git commit -m "test(DEV-137): expose direct reader ambiguity"
+```
+
+- [ ] **Step 2: Implement a closed `rg`/`grep` grammar**
+
+Add a small parser dedicated to `rg` and `grep`; do not broaden the generic
+shell-token heuristic. The parser must classify option arity, the pattern source,
+and input-file operands, reject unknown or file-consuming options, and return one
+explicit input path only. Resolve that path through the existing canonical-root,
+regular-file, non-symlink check. Preserve the exact expected-owner comparison and
+the one discovery invocation followed by one content-read invocation.
+
+Do not accept shell wrappers, implicit roots, stdin, recursive search, globs,
+multiple/duplicate files, control operators, redirection, substitution, xargs, or
+indirect file lists. Do not change the three case prompts, expected references, or
+semantic classifications merely to obtain green.
+
+Run:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
+  tests.e2e.codex_reference_disclosure.DirectedReferenceProbeTests -v
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_*.py' -v
+python3 -m py_compile tests/e2e/codex_reference_disclosure.py
+git diff --check
+```
+
+Commit only the implementation:
+
+```bash
+git add tests/e2e/codex_reference_disclosure.py
+git diff --cached --check
+git commit -m "fix(DEV-137): parse direct reader operands"
+```
+
+- [ ] **Step 3: Independent review before any host call**
+
+Request an independent code/spec review against the Linear decision. The reviewer
+must challenge option arity, pattern-versus-file ambiguity, directory/implicit-root
+search, duplicate operands and invocations, nested payloads, and preservation of
+all prior fail-closed cases. Address findings tests-first in separate commits.
+
+- [ ] **Step 4: Run exactly one fresh authoritative Codex probe**
+
+Only after Step 3 approval, run one fresh full probe on the reviewed head:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 tests/e2e/codex_reference_disclosure.py \
+  > /tmp/dev-137-codex-reference-reviewed.json
+python3 -m json.tool /tmp/dev-137-codex-reference-reviewed.json > /dev/null
+```
+
+Use exactly Codex `0.144.5` and `-m gpt-5.6-sol`; do not retry, cherry-pick a
+case, resume, or fall back. Record the observed normalized status, reason, task,
+exit code, and SHA-256 in Linear and the evidence document. A fail or prerequisite
+blocker remains non-pass.
+
+Commit only the truthful normalized evidence update:
+
+```bash
+git add docs/research/evidence/dev-137-reference-library-e2e.md
+git diff --cached --check
+git commit -m "test(DEV-137): record reviewed reference probe"
+```
+
+---
+
 ### Task 6: Add and pass the mandatory combined-stack workflow-triggered Codex gate
 
 **Files:**
