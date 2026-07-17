@@ -26,6 +26,32 @@ EXPECTED_CACHE_FILES = {
 EVIDENCE_ID = "E-CODEX-LOAD-001"
 PLUGIN_VERSION = "0.1.0"
 SELECTOR = f"{PLUGIN_ID}@{MARKETPLACE}"
+MARKETPLACE_ADD_KEYS = {
+    "marketplaceName",
+    "installedRoot",
+    "alreadyAdded",
+}
+LIST_DOCUMENT_KEYS = {"installed", "available"}
+PLUGIN_ENTRY_KEYS = {
+    "pluginId",
+    "name",
+    "marketplaceName",
+    "version",
+    "installed",
+    "enabled",
+    "source",
+    "marketplaceSource",
+    "installPolicy",
+    "authPolicy",
+}
+PLUGIN_ADD_KEYS = {
+    "pluginId",
+    "name",
+    "marketplaceName",
+    "version",
+    "authPolicy",
+    "installedPath",
+}
 
 
 class ProbeFailure(Exception):
@@ -86,6 +112,25 @@ def exact_version(executable: str, environment: dict[str, str]) -> bool:
     return VERSION_RE.fullmatch(output) is not None
 
 
+def pairs_without_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    document: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in document:
+            raise ValueError("duplicate JSON key")
+        document[key] = value
+    return document
+
+
+def parse_json_object(payload: bytes, reason: str) -> dict[str, Any]:
+    try:
+        parsed = json.loads(payload, object_pairs_hook=pairs_without_duplicates)
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+        raise ProbeFailure(reason) from None
+    if not isinstance(parsed, dict):
+        raise ProbeFailure(reason)
+    return parsed
+
+
 def run_json(
     executable: str,
     arguments: list[str],
@@ -106,18 +151,18 @@ def run_json(
 
     if result.returncode != 0 or result.stderr:
         raise ProbeFailure(reason)
-    try:
-        parsed = json.loads(result.stdout)
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        raise ProbeFailure(reason) from None
-    if not isinstance(parsed, dict):
-        raise ProbeFailure(reason)
-    return parsed
+    return parse_json_object(result.stdout, reason)
 
 
 def require(condition: bool, reason: str) -> None:
     if not condition:
         raise ProbeFailure(reason)
+
+
+def require_exact_keys(
+    document: dict[str, Any], expected_keys: set[str], reason: str
+) -> None:
+    require(set(document) == expected_keys, reason)
 
 
 def require_plugin_entry(
@@ -129,6 +174,7 @@ def require_plugin_entry(
 ) -> None:
     require(isinstance(entry, dict), reason)
     assert isinstance(entry, dict)
+    require_exact_keys(entry, PLUGIN_ENTRY_KEYS, reason)
     expected_source = {"source": "local", "path": str(PLUGIN_ROOT)}
     expected_marketplace_source = {
         "sourceType": "local",
@@ -155,6 +201,26 @@ def require_single_entry(
     require(isinstance(entry, dict), reason)
     assert isinstance(entry, dict)
     return entry
+
+
+def validate_installed_path(reported: str, codex_home: Path) -> Path:
+    reported_path = Path(reported)
+    try:
+        reported_metadata = reported_path.lstat()
+    except (OSError, ValueError):
+        raise ProbeFailure("installed_path_invalid") from None
+    require(not stat.S_ISLNK(reported_metadata.st_mode), "installed_path_invalid")
+    require(stat.S_ISDIR(reported_metadata.st_mode), "installed_path_invalid")
+
+    try:
+        resolved = reported_path.resolve(strict=True)
+    except (OSError, RuntimeError, ValueError):
+        raise ProbeFailure("installed_path_invalid") from None
+    require(
+        resolved != codex_home and resolved.is_relative_to(codex_home),
+        "installed_path_outside_isolated_home",
+    )
+    return resolved
 
 
 def read_regular_file(path: Path, reason: str) -> bytes:
@@ -242,6 +308,11 @@ def probe(executable: str, locator: Path, initial_resolution: Path) -> dict[str,
             environment,
             "marketplace_add_failed",
         )
+        require_exact_keys(
+            marketplace_add,
+            MARKETPLACE_ADD_KEYS,
+            "marketplace_contract_mismatch",
+        )
         require(
             marketplace_add.get("marketplaceName") == MARKETPLACE,
             "marketplace_contract_mismatch",
@@ -261,6 +332,11 @@ def probe(executable: str, locator: Path, initial_resolution: Path) -> dict[str,
             environment,
             "available_list_failed",
         )
+        require_exact_keys(
+            available,
+            LIST_DOCUMENT_KEYS,
+            "available_plugin_contract_mismatch",
+        )
         require(available.get("installed") == [], "available_plugin_contract_mismatch")
         available_entry = require_single_entry(
             available, "available", "available_plugin_contract_mismatch"
@@ -277,6 +353,11 @@ def probe(executable: str, locator: Path, initial_resolution: Path) -> dict[str,
             ["plugin", "add", SELECTOR, "--json"],
             environment,
             "plugin_add_failed",
+        )
+        require_exact_keys(
+            installed,
+            PLUGIN_ADD_KEYS,
+            "plugin_add_contract_mismatch",
         )
         require(installed.get("pluginId") == SELECTOR, "plugin_add_contract_mismatch")
         require(installed.get("name") == PLUGIN_ID, "plugin_add_contract_mismatch")
@@ -298,20 +379,18 @@ def probe(executable: str, locator: Path, initial_resolution: Path) -> dict[str,
             "plugin_add_contract_mismatch",
         )
         assert isinstance(installed_path_value, str)
-        try:
-            installed_path = Path(installed_path_value).resolve(strict=True)
-        except OSError:
-            raise ProbeFailure("installed_path_invalid") from None
-        require(
-            installed_path.is_relative_to(codex_home),
-            "installed_path_outside_isolated_home",
-        )
+        installed_path = validate_installed_path(installed_path_value, codex_home)
 
         installed_list = run_json(
             executable,
             ["plugin", "list", "--json"],
             environment,
             "installed_list_failed",
+        )
+        require_exact_keys(
+            installed_list,
+            LIST_DOCUMENT_KEYS,
+            "installed_plugin_contract_mismatch",
         )
         installed_entry = require_single_entry(
             installed_list, "installed", "installed_plugin_contract_mismatch"
