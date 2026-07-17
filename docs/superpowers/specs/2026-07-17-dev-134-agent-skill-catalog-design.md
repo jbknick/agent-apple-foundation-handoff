@@ -848,9 +848,10 @@ research profile gathers evidence and a review profile takes over and answers.
 | Proposed Components | Framework-neutral reducer/state/context/grant/fallback/evidence components and scoped file boundaries, not invented Apple types or an executed effect component. |
 | Implementation and Test Plan | Test-first reducer, context/grant, pre-commit transition recovery, and fallback fixtures; SDK-supported compile checks; safe evidence gates; and separately blocked real-host/Apple rows. |
 
-The expected guardrail set contains `D-ROUTE-001`, `D-OWNER-001`,
-`D-TRANSITION-001`, `D-CONTEXT-001`, `D-CONTEXT-002`, `D-GRANT-001`,
-`D-PHASE-001`, `D-FALLBACK-001`, `D-EVIDENCE-001`, and `D-RUBRIC-001`.
+The expected guardrail set contains `D-SCHEMA-001`, `D-ROUTE-001`,
+`D-OWNER-001`, `D-TRANSITION-001`, `D-CONTEXT-001`, `D-CONTEXT-002`,
+`D-GRANT-001`, `D-PHASE-001`, `D-FALLBACK-001`, `D-EVIDENCE-001`, and
+`D-RUBRIC-001`.
 `D-TOOL-001`, `D-EFFECT-001`, and `D-EFFECT-002` are separately
 `not_applicable` for this no-tool, no-effect scenario. The scenario passes only
 when every common/design section is present, the applicable checks pass, the
@@ -877,12 +878,13 @@ architecture contract, return findings, and make no edits.
 | Limitations | State evidence gaps, beta-host blockers, no edits performed, and residual external uncertainty. |
 | Findings | Severity-ranked finding for every proven violation, each with stable ID, exact synthetic evidence, impact, and smallest bounded correction. |
 
-The expected guardrail set contains `D-OWNER-001`, `D-TRANSITION-001`,
-`D-TOOL-001`, `D-CONTEXT-001`, `D-CONTEXT-002`, `D-GRANT-001`,
-`D-PHASE-001`, `D-EFFECT-001`, `D-EFFECT-002`, `D-FALLBACK-001`,
-`D-EVIDENCE-001`, and `D-RUBRIC-001`. The scenario passes only when the
-deliberately flawed input is rejected with those applicable identities, every
-common/review section is present, and the review performs no edit.
+The expected guardrail set contains `D-SCHEMA-001`, `D-ROUTE-001`,
+`D-OWNER-001`, `D-TRANSITION-001`, `D-TOOL-001`, `D-CONTEXT-001`,
+`D-CONTEXT-002`, `D-GRANT-001`, `D-PHASE-001`, `D-EFFECT-001`,
+`D-EFFECT-002`, `D-FALLBACK-001`, `D-EVIDENCE-001`, and `D-RUBRIC-001`.
+The scenario passes only when the deliberately flawed input is rejected with
+those applicable identities, every common/review section is present, and the
+review performs no edit.
 
 ## Host capability boundary
 

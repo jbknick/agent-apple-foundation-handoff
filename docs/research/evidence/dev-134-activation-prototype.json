@@ -3,7 +3,7 @@
   "evidenceKind": "design_contract_prototype",
   "sourceIssue": "DEV-134",
   "designArtifact": "docs/superpowers/specs/2026-07-17-dev-134-agent-skill-catalog-design.md",
-  "designArtifactSha256": "9c191a3241199796be05cb300f196237e8ec03123f95eaf736b608e05a4ef28f",
+  "designArtifactSha256": "2c1de02302007dc59c4c3d19380e9d7311b72aa28eb0d1ea44edeb7897903aa3",
   "contractArtifact": "docs/architecture/apple-foundation-models-handoff-skill-contract.md",
   "contractArtifactSha256": "007c597c4baeecdc8f95c505fe61b8d40bfcedb5d843cea6a7685600d8b7346a",
   "executionLayer": "design_contract_prototype",
@@ -66,6 +66,7 @@
       ],
       "expectedGuardrails": {
         "applicable": [
+          "D-SCHEMA-001",
           "D-ROUTE-001",
           "D-OWNER-001",
           "D-TRANSITION-001",
@@ -120,6 +121,8 @@
       ],
       "expectedGuardrails": {
         "applicable": [
+          "D-SCHEMA-001",
+          "D-ROUTE-001",
           "D-OWNER-001",
           "D-TRANSITION-001",
           "D-TOOL-001",

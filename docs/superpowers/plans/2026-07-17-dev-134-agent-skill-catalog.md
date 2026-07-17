@@ -547,6 +547,12 @@ separate single-purpose commit.
       'debug': ['state', 'security-recovery', 'evaluation'],
   }
   GUARDRAILS = {
+      'full_design': [
+          'D-SCHEMA-001', 'D-ROUTE-001', 'D-OWNER-001',
+          'D-TRANSITION-001', 'D-CONTEXT-001', 'D-CONTEXT-002',
+          'D-GRANT-001', 'D-PHASE-001', 'D-FALLBACK-001',
+          'D-EVIDENCE-001', 'D-RUBRIC-001',
+      ],
       'design': [
           'D-ROUTE-001', 'D-OWNER-001', 'D-TRANSITION-001',
           'D-CONTEXT-001', 'D-CONTEXT-002', 'D-GRANT-001',
@@ -554,10 +560,11 @@ separate single-purpose commit.
           'D-RUBRIC-001',
       ],
       'review': [
-          'D-OWNER-001', 'D-TRANSITION-001', 'D-TOOL-001',
-          'D-CONTEXT-001', 'D-CONTEXT-002', 'D-GRANT-001',
-          'D-PHASE-001', 'D-EFFECT-001', 'D-EFFECT-002',
-          'D-FALLBACK-001', 'D-EVIDENCE-001', 'D-RUBRIC-001',
+          'D-SCHEMA-001', 'D-ROUTE-001', 'D-OWNER-001',
+          'D-TRANSITION-001', 'D-TOOL-001', 'D-CONTEXT-001',
+          'D-CONTEXT-002', 'D-GRANT-001', 'D-PHASE-001',
+          'D-EFFECT-001', 'D-EFFECT-002', 'D-FALLBACK-001',
+          'D-EVIDENCE-001', 'D-RUBRIC-001',
       ],
       'implement': [
           'D-SCHEMA-001', 'D-ROUTE-001', 'D-OWNER-001',
@@ -594,7 +601,8 @@ separate single-purpose commit.
   SPECS = [
       ('DEV134-POS-001', 'positive', 'new_baton_pass_architecture',
        'design', 'absent', 'missing',
-       'design-apple-foundation-models-handoff', 'all', 'design', 'design',
+       'design-apple-foundation-models-handoff', 'all', 'design',
+       'full_design',
        POS1_NOT_APPLICABLE, True, 'baton_pass_destination_owner_selected'),
       ('DEV134-POS-002', 'positive', 'flawed_reducer_findings_review',
        'review', 'implementation', 'failing',
