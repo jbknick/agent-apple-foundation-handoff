@@ -205,7 +205,9 @@ separate single-purpose commit.
   test "$(rg -c '^### DEV134-NEG-00[1-6]:' "$design")" -eq 6
   test "$(rg -c '^### DEV134-AMB-00[1-3]:' "$design")" -eq 3
   placeholder_re='T(BD)|TO(DO)|FIX(ME)|fill in detai(ls)|implement lat(er)'
-  ! rg -n -e "$placeholder_re" "$design"
+  if rg -n -e "$placeholder_re" "$design"; then
+    exit 1
+  fi
   git diff --check -- "$design"
   ```
 
@@ -351,7 +353,9 @@ separate single-purpose commit.
     test "$(rg -o "DEV134-${prefix}-[0-9]{3}" "$contract" | sort -u | wc -l | tr -d ' ')" -eq "$expected"
   done
   placeholder_re='T(BD)|TO(DO)|FIX(ME)|fill in detai(ls)|implement lat(er)'
-  ! rg -n -e "$placeholder_re" "$contract"
+  if rg -n -e "$placeholder_re" "$contract"; then
+    exit 1
+  fi
   git diff --check -- "$contract"
   ```
 
@@ -936,9 +940,21 @@ separate single-purpose commit.
     test -s "$artifact"
   done
   placeholder_re='T(BD)|TO(DO)|FIX(ME)|fill in detai(ls)|implement lat(er)'
-  ! rg -n -e "$placeholder_re" "$design" "$plan" "$contract" "$evidence"
-  ! rg -n -e '/Users/' -e '/home/' -e '/tmp/' -e 'josephknickerbocker' \
-    "$design" "$plan" "$contract" "$evidence"
+  if rg -n -e "$placeholder_re" "$design" "$plan" "$contract" "$evidence"; then
+    exit 1
+  fi
+  mac_user_root='/'"Users/"
+  linux_home_root='/'"home/"
+  temp_root='/'"tmp/"
+  private_user='joseph''knickerbocker'
+  if rg -n -F \
+    -e "$mac_user_root" \
+    -e "$linux_home_root" \
+    -e "$temp_root" \
+    -e "$private_user" \
+    "$design" "$plan" "$contract" "$evidence"; then
+    exit 1
+  fi
   git diff --check ca767a0c50e1b527fed5c87e0922bf51cf655295..HEAD
   ```
 
