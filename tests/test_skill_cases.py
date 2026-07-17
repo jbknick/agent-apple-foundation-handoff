@@ -343,18 +343,41 @@ def internal_field_context_is_present(text: str, field: str) -> bool:
 
 def output_heading_is_present(text: str, heading: str) -> bool:
     escaped = re.escape(heading)
+    article = r"(?:(?:an?|the)\s+)?"
+    meta_noun = r"(?:result|output|response|answer)"
+    modal = r"(?:(?:must|should|shall|will|can|may)\s+)?"
+    request_verb = (
+        r"(?:includ(?:e|es|ed|ing)|contain(?:s|ed|ing)?|"
+        r"list(?:s|ed|ing)?|show(?:s|ed|ing)?|request(?:s|ed|ing)?)"
+    )
+    structural_verb = (
+        rf"(?:{request_verb}|add(?:s|ed|ing)?|provid(?:e|es|ed|ing)|"
+        r"return(?:s|ed|ing)?|emit(?:s|ted|ting)?|use(?:s|d|ing)?)"
+    )
+    bare_imperative = r"(?:return|emit|provide|include|contain|list|show|request)"
+    heading_terminal = rf"{escaped}(?=\s*(?:[,.;:!?)]+|$))"
+    meta_location = rf"(?:in|within|on|under|to)\s+{article}{meta_noun}\b"
+    appear_verb = r"appear(?:s|ed|ing)?"
+    passive_auxiliary = (
+        r"(?:(?:is|are|was|were)|(?:has|have|had)\s+been|"
+        r"(?:must|should|shall|will|can|may)\s+be)"
+    )
+    output_participle = (
+        r"(?:included|contained|listed|shown|requested|provided|returned|emitted)"
+    )
     patterns = (
         rf"(?im)^[ \t]*(?:#{{1,6}}[ \t]+)?{escaped}[ \t]*:?[ \t]*$",
-        rf"(?i)\b(?:include|add|provide|return|emit|use)\s+"
-        rf"(?:(?:an?|the)\s+)?{escaped}\s+(?:section|heading)\b",
-        rf"(?i)\b(?:include|add|provide|return|emit|put)\s+"
-        rf"(?:(?:an?|the)\s+)?{escaped}\s+(?:in|within|to)\s+"
-        rf"(?:(?:an?|the)\s+)?(?:result|output|response)\b",
+        rf"(?i)\b{structural_verb}\s+{article}{escaped}\s+"
+        rf"(?:section|heading)\b",
         rf"(?i)[\"'`]{escaped}[\"'`]\s*[:=]",
         rf"(?i)\b(?:key|field)\s+(?:named|called)\s+{escaped}\b",
-        rf"(?i)\b(?:result|output|response)\s+"
-        rf"(?:(?:must|should|will)\s+)?(?:include|contain|use)\s+"
-        rf"(?:(?:an?|the)\s+)?{escaped}\b",
+        rf"(?i)\b{article}{meta_noun}\s+{modal}{request_verb}\s+"
+        rf"{article}{heading_terminal}",
+        rf"(?i)\b{bare_imperative}\s+{article}{heading_terminal}",
+        rf"(?i)\b{bare_imperative}\s+{article}{escaped}\s+{meta_location}",
+        rf"(?i)\b{escaped}\s+{modal}{appear_verb}\s+{meta_location}",
+        rf"(?i)\b{escaped}\s+{passive_auxiliary}\s+{output_participle}\s+"
+        rf"{meta_location}",
     )
     return any(re.search(pattern, text) is not None for pattern in patterns)
 
@@ -529,6 +552,12 @@ class SkillCaseFixtureTests(unittest.TestCase):
             "architecture concepts.",
             "The result can describe why activation and scope matter without "
             "prescribing output sections.",
+            "The findings from an audit explain the first divergence.",
+            "Describe the activation and scope behavior of the coordinator.",
+            "Discuss the limitations of an API before implementation.",
+            "Use normal workflow prose to explain sequencing.",
+            "The result contains findings from an audit, not prescribed output fields.",
+            "The answer explains findings from an audit.",
         )
         for prompt in accepted_prompts:
             with self.subTest(prompt=prompt):
@@ -1023,6 +1052,19 @@ class ContractMutationReproductionTests(unittest.TestCase):
             "workflow_section": " Include a FINDINGS section.",
             "common_result": " Include ACTIVATION AND SCOPE in the result.",
             "common_key": ' Add "ACTIVATION AND SCOPE": as an output key.',
+            "review_output_includes": " The output includes Findings.",
+            "review_result_contains": " The result contains Findings.",
+            "review_return": " Return Findings.",
+            "review_heading_appears": " Findings should appear in the output.",
+            "case_variant": " tHE aNSWER sHOWS fINDINGS.",
+            "emit_imperative": " Emit Findings.",
+            "provide_imperative": " Provide Findings.",
+            "include_imperative": " Include Findings.",
+            "list_inflection": " The response lists Findings.",
+            "show_inflection": " The output showed Findings.",
+            "request_inflection": " The answer requests Findings.",
+            "heading_requested": " Findings are requested in the answer.",
+            "heading_appear_inflection": " Findings appear in the response.",
         }
         for name, suffix in prompt_suffixes.items():
             with self.subTest(mutation=name):
