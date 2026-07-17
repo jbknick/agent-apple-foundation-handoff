@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "sync_generated_artifacts.py"
 CANONICAL = ROOT / "CLAUDE.md"
 GENERATED = ROOT / "AGENTS.md"
+SKILLS_ROOT = Path("plugins/apple-foundation-models-handoff/skills")
 CANONICAL_INPUTS = (
     Path("CLAUDE.md"),
     Path(".claude-plugin/marketplace.json"),
@@ -164,6 +165,7 @@ class RepositoryGuidanceTests(unittest.TestCase):
             target = destination / relative_path
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / relative_path, target)
+        shutil.copytree(ROOT / SKILLS_ROOT, destination / SKILLS_ROOT)
 
     def test_generated_agents_matches_canonical_adapter_exactly(self):
         canonical_text = CANONICAL.read_text(encoding="utf-8")
