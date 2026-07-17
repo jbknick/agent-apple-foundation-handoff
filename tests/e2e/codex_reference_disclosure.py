@@ -40,10 +40,22 @@ TOOL_ITEM_TYPES = {
     "mcp_tool_call",
     "tool_call",
 }
-CODEX_TOOL_ITEM_TYPES = TOOL_ITEM_TYPES | {
+PINNED_PASSIVE_ITEM_KEYS = {
+    "agent_message": {"id", "text", "type"},
+    "reasoning": {"id", "text", "type"},
+    "error": {"id", "message", "type"},
+}
+PINNED_ACTION_ITEM_TYPES = {
     "collab_tool_call",
     "file_change",
+    "mcp_tool_call",
+    "todo_list",
     "web_search",
+}
+PINNED_ITEM_TYPES = {
+    "command_execution",
+    *PINNED_PASSIVE_ITEM_KEYS,
+    *PINNED_ACTION_ITEM_TYPES,
 }
 COMMAND_EVENT_KEYS = {"item", "type"}
 COMMAND_ITEM_KEYS = {
@@ -826,16 +838,42 @@ def mapping_reference_reads(
     return observed, read_count
 
 
+def validate_pinned_passive_item(
+    event: dict[str, Any], item: dict[str, Any], task_id: str
+) -> None:
+    item_type = item.get("type")
+    expected_keys = PINNED_PASSIVE_ITEM_KEYS.get(str(item_type))
+    payload_key = "message" if item_type == "error" else "text"
+    if (
+        expected_keys is None
+        or set(event) != COMMAND_EVENT_KEYS
+        or event.get("type") != "item.completed"
+        or set(item) != expected_keys
+        or not isinstance(item.get("id"), str)
+        or not item.get("id")
+        or not isinstance(item.get(payload_key), str)
+    ):
+        raise ProbeFailure("ambiguous_reference_read", task_id)
+
+
 def exact_command_items(
     events: list[dict[str, Any]], task_id: str
 ) -> list[dict[str, Any]]:
     lifecycle: list[tuple[str, dict[str, Any]]] = []
     for event in events:
+        event_type = event.get("type")
+        if "item" not in event:
+            if event_type in {"item.started", "item.updated", "item.completed"}:
+                raise ProbeFailure("ambiguous_reference_read", task_id)
+            continue
         item = event.get("item")
         if not isinstance(item, dict):
-            continue
+            raise ProbeFailure("ambiguous_reference_read", task_id)
         item_type = item.get("type")
-        if item_type not in CODEX_TOOL_ITEM_TYPES:
+        if item_type not in PINNED_ITEM_TYPES:
+            raise ProbeFailure("ambiguous_reference_read", task_id)
+        if item_type in PINNED_PASSIVE_ITEM_KEYS:
+            validate_pinned_passive_item(event, item, task_id)
             continue
         if item_type != "command_execution":
             raise ProbeFailure("ambiguous_reference_read", task_id)
@@ -908,9 +946,17 @@ def exact_command_script(command: str, task_id: str) -> tuple[str, bool]:
         outer_tokens = shlex.split(command, posix=True)
     except ValueError:
         raise ProbeFailure("ambiguous_reference_read", task_id) from None
+    shell_token = Path(outer_tokens[0]) if outer_tokens else None
     if (
         len(outer_tokens) == 3
-        and Path(outer_tokens[0]).name in SHELL_WRAPPERS
+        and shell_token is not None
+        and (
+            outer_tokens[0] in SHELL_WRAPPERS
+            or (
+                shell_token.is_absolute()
+                and shell_token.name in SHELL_WRAPPERS
+            )
+        )
         and outer_tokens[1] == "-lc"
     ):
         direct = False
@@ -920,7 +966,7 @@ def exact_command_script(command: str, task_id: str) -> tuple[str, bool]:
         tokens = shlex.split(script, posix=True)
     except ValueError:
         raise ProbeFailure("ambiguous_reference_read", task_id) from None
-    if not direct and tokens == ["rg", "--files", REFERENCE_ROOT_RELATIVE]:
+    if not direct and script == discovery:
         return discovery, True
     if tokens[:1] != ["cat"]:
         raise ProbeFailure("ambiguous_reference_read", task_id)
@@ -947,7 +993,7 @@ def exact_command_script(command: str, task_id: str) -> tuple[str, bool]:
     if owner is None:
         raise ProbeFailure("ambiguous_reference_read", task_id)
     exact_read = f"cat {REFERENCE_ROOT_RELATIVE}/{owner}"
-    if (direct and command != exact_read) or (not direct and tokens != exact_read.split()):
+    if (direct and command != exact_read) or (not direct and script != exact_read):
         raise ProbeFailure("ambiguous_reference_read", task_id)
     return owner, False
 
