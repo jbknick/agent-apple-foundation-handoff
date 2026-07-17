@@ -20,9 +20,8 @@ macOS SDK 26.5, Git, Linear, Claude Code 2.1.91, and Codex CLI 0.144.5.
 
 ## Global constraints
 
-- Work only in
-  `/Users/josephknickerbocker/.codex/worktrees/agent-apple-foundation-handoff/dev-132`
-  on `codex/dev-132-mvp-architecture`.
+- Work from the repository root, recorded as `<repo>`, on
+  `codex/dev-132-mvp-architecture`.
 - The reviewed stack base is
   `3792e8c98a387b7f9c48bd210d25938b40cdd5fe` (DEV-131). Before opening the
   stacked PR, rebase onto the final reviewed DEV-131 head if that head changed.
@@ -42,6 +41,15 @@ macOS SDK 26.5, Git, Linear, Claude Code 2.1.91, and Codex CLI 0.144.5.
   reference repositories never establish Apple API behavior.
 - Never turn missing Xcode, SDK, device, simulator, Instruments, Evaluations,
   host automation, authentication, or model access into a pass.
+- For every Claude/Codex host row, select an explicit executable or capture the
+  first executable from the controlled `PATH` before any operation. Invoke only
+  that captured executable, recheck resolution before completion, and invalidate
+  the row on drift. Commit only normalized `<host-path>` identity and exact
+  version; never commit a literal executable path or raw `PATH`.
+- The primary controlled-shell baseline is Claude Code `2.1.91` and Codex
+  `0.144.5`. Alternate-PATH Claude Code `2.1.140` is diagnostic only, not
+  substitute evidence and not another acceptance row. Version output proves a
+  binary prerequisite only.
 - Default validation remains offline and requires no live model generation,
   PCC, custom provider, credential, network service, entitlement, or hardware.
 - Apply changes with `apply_patch`. Keep each commit single-purpose.
@@ -175,7 +183,8 @@ Use `apply_patch` to create the file. It must:
    tree, the precise fallback triggers, marketplace source for each, and the
    exclusion of repository-only material from capabilities and effective cached
    payload content;
-6. state that root placement is conditional evidence, not a present success;
+6. state that root placement is conditional evidence, not a present success,
+   and require captured, normalized, versioned, resolution-stable host identity;
 7. define baton-pass and isolated consultation ownership/context differences
    and name the concepts that remain separate;
 8. separate compiled SDK 26.5, interface-only SDK 26.5, beta, pseudocode, and
@@ -215,6 +224,7 @@ for token in \
   'plugins/apple-foundation-models-handoff' \
   'stateVersion' 'policyVersion' 'recoveryRequired' \
   'no safe reconciliation' 'metadata-only' 'rubric stimulus' \
+  '<host-path>' '2.1.91' '0.144.5' \
   'D-OWNER-001' 'not_applicable' 'DEV-141'; do
   rg -q -F "$token" "$record"
 done
@@ -603,25 +613,65 @@ cleanup commands are not permitted in this execution environment.
 
 ### Step 6: Reconfirm narrow blockers without false passes
 
-Run and record exit status plus exact diagnostics:
+Run in the same controlled shell used for the selected baseline row. Capture
+the first executable resolution once before any host operation, invoke only the
+captured variables, and recheck resolution afterward. Do not print or commit
+the literal resolution or raw `PATH`:
 
 ```bash
+set -e
+claude_bin="$(command -v claude)"
+codex_bin="$(command -v codex)"
+test -n "$claude_bin"
+test -n "$codex_bin"
+test -x "$claude_bin"
+test -x "$codex_bin"
+claude_version_output="$("$claude_bin" --version)"
+codex_version_output="$("$codex_bin" --version)"
+test "$claude_version_output" = '2.1.91 (Claude Code)'
+test "$codex_version_output" = 'codex-cli 0.144.5'
+printf 'claudeExecutable=<host-path>\nclaudeVersion=%s\n' \
+  "$claude_version_output"
+printf 'codexExecutable=<host-path>\ncodexVersion=%s\n' \
+  "$codex_version_output"
+
 xcode-select -p
+set +e
 xcodebuild -version
+xcodebuild_rc=$?
 xcrun --find instruments
+instruments_rc=$?
 xcrun --find xctrace
+xctrace_rc=$?
 xcrun --sdk iphoneos --show-sdk-path
+iphoneos_rc=$?
 xcrun --find simctl
+simctl_rc=$?
 printf 'import Evaluations\n' > /tmp/dev132-evaluations.swift
 xcrun swiftc -typecheck /tmp/dev132-evaluations.swift
-claude --version
-codex --version
+evaluations_rc=$?
+set -e
+test "$xcodebuild_rc" -ne 0
+test "$instruments_rc" -ne 0
+test "$xctrace_rc" -ne 0
+test "$iphoneos_rc" -ne 0
+test "$simctl_rc" -ne 0
+test "$evaluations_rc" -ne 0
+test "$(command -v claude)" = "$claude_bin"
+test "$(command -v codex)" = "$codex_bin"
+test "$("$claude_bin" --version)" = "$claude_version_output"
+test "$("$codex_bin" --version)" = "$codex_version_output"
 ```
 
 Expected on the planning host: Command Line Tools path is available;
 `xcodebuild`, Instruments/xctrace, iPhone SDK, simctl, and Evaluations remain
 blocked; Claude reports 2.1.91 and Codex reports 0.144.5. Version commands prove
-binary prerequisites only. DEV-132 does not claim plugin discovery, activation,
+binary prerequisites only. The committed row contains normalized `<host-path>`
+identities plus exact versions; a changed resolution fails and invalidates the
+row. All later
+Claude/Codex operations must use `"$claude_bin"` and `"$codex_bin"`. The
+Alternate-PATH Claude Code 2.1.140 observation is neither a substitute nor an
+extra acceptance row. DEV-132 does not claim plugin discovery, activation,
 reference loading, model execution, device execution, or Xcode 27 evidence.
 
 ### Step 7: Verify downstream Linear propagation
@@ -665,7 +715,8 @@ Post one DEV-132 evidence comment containing:
 - independent consistency, risk, and whole-issue review verdicts;
 - DEV-128/130/131 command results and counts;
 - current blocker commands and diagnostics;
-- host binary versions, explicitly labelled prerequisite-only;
+- normalized `<host-path>` executable identities, exact host versions,
+  resolution-stability results, and explicit prerequisite-only labels;
 - the exact allowed-path diff result and clean worktree result;
 - downstream propagation issue/comment references; and
 - every non-claim and deferred capability.
@@ -689,6 +740,8 @@ it requires. Then confirm:
 - DEV-132 issue evidence and downstream propagation are current;
 - the stacked PR diff contains only the four allowed paths;
 - all required deterministic and compile gates pass;
+- each host row used one captured executable, records normalized `<host-path>`
+  plus exact version, and rejects resolution drift;
 - all unsupported capabilities are blocked or not run, never false passes;
 - all focused and final reviews are resolved; and
 - the worktree is clean.

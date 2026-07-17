@@ -47,9 +47,11 @@ shape for a repository devoted to one plugin.
 
 Root placement is conditional rather than assumed. DEV-135 and DEV-139 must
 prove cached-install integrity and fresh real invocation/reference loading on
-the installed Claude Code `2.1.91` and Codex `0.144.5` hosts. The effective
-cached payload must exclude repository-only fixtures, tests, research, and
-private repository state; none may be exposed as plugin capabilities.
+the primary controlled-shell baseline: Claude Code `2.1.91` and Codex
+`0.144.5`. Each row pins its executable before any operation and invalidates
+the result if resolution changes mid-run. The effective cached payload must
+exclude repository-only fixtures, tests, research, and private repository
+state; none may be exposed as plugin capabilities.
 
 ### Approved fallback: conventional plugin subdirectory
 
@@ -471,10 +473,12 @@ artifacts must pass the DEV-131 path, content, structured-key, classification,
 and hash scanners before commit.
 
 Raw/live prompts, responses, reasoning, tool arguments/results, credentials,
-private configuration, real user or third-party data, host identity, `.trace`,
-and `.xcresult` remain excluded. Raw Instruments traces and any other authorized
-live-host artifact remain outside the repository under separately approved
-access, retention, redaction, and deletion policy.
+private configuration, real user or third-party data, raw host/machine identity,
+literal executable paths, raw `PATH`, `.trace`, and `.xcresult` remain excluded.
+Normalized `<host-path>` executable identity plus exact version is the only
+committed path-identity exception. Raw Instruments traces and any other
+authorized live-host artifact remain outside the repository under separately
+approved access, retention, redaction, and deletion policy.
 
 ## Design-level E2E scenario suite
 
@@ -566,12 +570,24 @@ unresolved alternative in the expected flow.
 
 ## Local development and host acceptance
 
-Claude Code `2.1.91` supports structural validation and session-only
+A host row selects one explicit executable or records the first executable
+resolved from its controlled `PATH` before validation starts. Every operation
+in that row invokes the captured executable. Resolution is checked again before
+the row finishes; any change invalidates the row and requires a fresh run.
+Committed evidence identifies the captured executable as normalized
+`<host-path>` plus its exact version. Literal local executable paths and the raw
+`PATH` are never committed.
+
+The primary controlled-shell baseline remains Claude Code `2.1.91` and Codex
+`0.144.5`. Claude Code `2.1.91` supports structural validation and session-only
 `--plugin-dir`; packaging/cache tests use an isolated `CLAUDE_CONFIG_DIR`, local
 marketplace registration, install, and enabled-state inspection. Codex
 `0.144.5` rejects `codex --plugin-dir`; it uses an isolated `CODEX_HOME`, local
 marketplace registration, plugin add/install, enabled-state inspection, and a
-fresh task.
+fresh task. An Alternate-PATH Claude Code `2.1.140` observation is diagnostic
+only: it is neither substitute evidence for the selected Claude row nor an
+additional acceptance row. Version output establishes an executable
+prerequisite only, never plugin loading, activation, or capability.
 
 DEV-135 owns structural generation/schema/install proof. DEV-139 owns fresh
 real task activation/reference/output proof. Neither issue may report discovery
@@ -602,5 +618,7 @@ DEV-132 is complete only when:
 - all four scenario walkthroughs pass independent consistency review;
 - DEV-133 through DEV-141 contain the decisions they inherit;
 - existing DEV-128/130/131 regression gates still pass;
+- each host row records normalized `<host-path>` identity and exact version,
+  uses one captured executable throughout, and rejects resolution drift;
 - unsupported host/toolchain capabilities remain explicit blockers; and
 - the issue-scoped branch/PR contains no production implementation.

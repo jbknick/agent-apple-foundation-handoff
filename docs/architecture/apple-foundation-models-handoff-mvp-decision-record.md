@@ -16,6 +16,11 @@ the
 A decision change updates DEV-132, its canonical design, this index, and
 affected downstream Linear issues before implementation.
 
+The durable host-verification correction source is DEV-132 comment
+`98e25ecf-0c4c-4fa6-b877-d255fb24107b`. It narrows executable identity and
+evidence handling without changing the plugin, skill, package, state, or
+evaluation decisions below.
+
 | Source | Reviewed head | Decision and rationale | Impact |
 | --- | --- | --- | --- |
 | [DEV-127](../research/dev-127-repository-architecture.md) | `191e2da63b863b367341a614c1ea1d9b4a032cd7` | The authoritative fork began with three documents and no inherited plugin/generation model; upstream is reference only. | Choose every ownership, path, runtime, and proof boundary explicitly. |
@@ -100,9 +105,11 @@ validators and the pinned stricter OpenAI validator remain separate gates.
 
 The selected candidate uses marketplace source `./` only after DEV-135 and
 DEV-139 prove cached-install integrity and fresh activation/reference loading
-on Claude Code `2.1.91` and Codex `0.144.5`. Repository-only fixtures, tests,
-research, and private repository state must be absent from effective cached
-payload content and must not appear as plugin capabilities.
+on the primary controlled-shell Claude Code `2.1.91` and Codex `0.144.5`
+baseline. Each row pins one executable before operations and invalidates on
+resolution drift. Repository-only fixtures, tests, research, and private
+repository state must be absent from effective cached payload content and must
+not appear as plugin capabilities.
 
 Complete root candidate:
 
@@ -171,6 +178,22 @@ Complete conventional fallback:
 ├── fixtures/                                      # outside plugin package
 └── docs/
 ```
+
+### Host executable identity
+
+Each Claude/Codex host row selects an explicit executable or records the first
+executable resolved from its controlled `PATH` before any operation. The row
+invokes only that captured executable and rechecks resolution before it
+finishes; a mid-run change invalidates the row. Committed evidence records the
+normalized executable identity `<host-path>` plus exact version. It never
+records a literal executable path or raw `PATH`.
+
+The primary acceptance baseline remains Claude Code `2.1.91` and Codex
+`0.144.5` from the controlled shell. Alternate-PATH Claude Code `2.1.140` is a
+diagnostic observation only, not substitute evidence for the selected Claude
+row and not an additional acceptance row. Version output proves only that the
+captured executable prerequisite is present; it does not prove loading,
+activation, reference use, or capability.
 
 ## Handoff patterns and Apple API boundary
 
@@ -283,9 +306,11 @@ Expected outcomes exist only in the corpus index.
 
 Stable E ownership and boundaries:
 
-- `E-CLAUDE-LOAD-001` / `E-CODEX-LOAD-001` — host structure passes only for
-  isolated exact-candidate loading/cache integrity; missing binary, candidate,
-  prerequisite, or isolation blocks.
+- `E-CLAUDE-LOAD-001` / `E-CODEX-LOAD-001` — host structure passes only for a
+  captured, resolution-stable executable with normalized `<host-path>` identity
+  and exact version plus isolated exact-candidate loading/cache integrity;
+  missing binary, candidate, prerequisite, or isolation blocks, while changed
+  executable resolution fails and invalidates the row.
 - `E-CLAUDE-ACTIVATE-001` / `E-CODEX-ACTIVATE-001` — DEV-139 capability passes
   only for fresh activation, routed references, versioned output, and invalid
   rejection; blocked loading/model/session/auth/automation blocks.
@@ -319,9 +344,11 @@ synthetic or approved-redacted rubric stimulus, assessments containing only the
 bounded rationales required for review, and a redacted summary after all path,
 content, structured-key, classification, and hash scanners pass. Raw/live
 prompts, responses, reasoning, tool arguments/results, credentials, private
-configuration, real user/third-party data, host identity, `.trace`, and
-`.xcresult` are excluded. Authorized raw host artifacts remain outside the
-repository under separate access, retention, redaction, and deletion policy.
+configuration, real user/third-party data, raw host/machine identity, literal
+executable paths, raw `PATH`, `.trace`, and `.xcresult` are excluded. Normalized
+`<host-path>` executable identity plus exact version is the only committed path
+identity exception. Authorized raw host artifacts remain outside the repository
+under separate access, retention, redaction, and deletion policy.
 
 ## Deferred work
 
@@ -339,12 +366,19 @@ optional and separately gated. No deferred item is a present capability.
 
 | Issue | Source | Rationale | Inherited decision | Impact |
 | --- | --- | --- | --- | --- |
-| DEV-133 | DEV-127/129/132 | One guide avoids drift. | Canonical `CLAUDE.md`; generated bounded `AGENTS.md`; this record is non-authoritative. | Define guidance generation and fresh repository probes for the selected/fallback placement. |
+| DEV-133 | DEV-127/129/132 | One guide avoids drift and normalized host identity avoids local-path leakage. | Canonical `CLAUDE.md`; generated bounded `AGENTS.md`; this record is non-authoritative; host evidence uses `<host-path>` plus exact version. | Define guidance generation and fresh repository probes for selected/fallback placement without literal executable paths or raw `PATH`. |
 | DEV-134 | DEV-129/130/131/132 | Narrow activation and one concern owner keep behavior reviewable. | Exactly five skills; one corpus; no worker; common output/security/evidence contracts. | May refine reference filenames only with sole concern ownership and deterministic direct links. |
-| DEV-135 | DEV-127/129/132 | Deterministic ownership and payload isolation prevent drift/leakage. | Generated adapters/Codex metadata; root gate requires repository-only content absent from effective payload; exact fallback triggers. | Implement schemas, sync/check, validators, isolated host structure, payload inspection, and fallback. |
+| DEV-135 | DEV-127/129/132 | Deterministic ownership, payload isolation, and executable pinning prevent drift/leakage. | Generated adapters/Codex metadata; root gate requires repository-only content absent from effective payload; each structural host row captures one executable, normalizes it to `<host-path>`, records exact version, and invalidates resolution drift; exact fallback triggers. | Implement schemas, sync/check, validators, isolated host structure, payload and executable-identity inspection, and fallback. |
 | DEV-136 | DEV-128/130/132 | Guidance must not claim runtime enforcement. | Two handoff patterns; SDK 26.5 labels; reducer/grant/effect/fallback contract; stable-only ordinary termination; persistent recovery. | Author workflows that leave authority, reconciliation, and limitations with the application. |
 | DEV-137 | DEV-128/130/131/132 | Complex facts need one source-grounded owner. | Five concern owners, exact labels, state/recovery rules, D/E/rubric contracts, metadata-only live telemetry, and safe synthetic allowance. | Write direct references without copying fixture code or weakening scanners/raw exclusions. |
 | DEV-138 | DEV-128/130/131/132 | Offline semantics must not depend on model luck. | Stable D IDs/oracle separation; independent versions; recovery persists through no safe reconciliation; synthetic evidence passes every DEV-131 scanner. | Expand deterministic Swift/adversarial proof with exact/repeated output and honest blockers. |
-| DEV-139 | DEV-129/130/131/132 | Loading is not capability and cached content is a security boundary. | Exact E rows; per-host fresh tasks; repository-only content absent from effective payload; metadata-only live telemetry; deterministic fallback. | Prove activation/reference/output/rejection on both hosts or record exact blockers/use fallback. |
-| DEV-140 | DEV-132 | Documentation must not advertise conditional or blocked behavior as shipped. | Exact identity/workflows, proven placement, pattern/API distinctions, evidence meanings, recovery persistence, and exclusions. | Document installation, development, usage, blockers, fallback actually selected, and limitations. |
-| DEV-141 | DEV-127 through DEV-132 | Acceptance must integrate all proof layers without collapsing them. | Ownership/path, five skills, state/security/recovery, exact D/E/rubric gates, payload isolation, safe evidence exception, and blocker truth. | Reject drift, unsafe evidence, unresolved recovery, false execution/pass claims, or unproven placement. |
+| DEV-139 | DEV-129/130/131/132 | Loading is not capability, cached content is a security boundary, and executable drift invalidates comparison. | Exact E rows; per-host fresh tasks use one captured executable; committed identity is `<host-path>` plus exact version; resolution drift fails and invalidates the row; repository-only content is absent from effective payload; live telemetry is metadata-only; deterministic fallback remains. | Prove activation/reference/output/rejection on the selected 2.1.91/0.144.5 baseline or record exact blockers/use fallback; 2.1.140 is diagnostic only. |
+| DEV-140 | DEV-132 | Documentation must not advertise conditional, path-local, or blocked behavior as shipped. | Exact identity/workflows, proven placement, pattern/API distinctions, evidence meanings, recovery persistence, normalized host identity, and exclusions. | Document installation, development, usage, blockers, selected executable/version contract, fallback actually selected, and limitations without local paths or raw `PATH`. |
+| DEV-141 | DEV-127 through DEV-132 | Acceptance must integrate all proof layers without collapsing them or accepting host-resolution drift. | Ownership/path, five skills, state/security/recovery, exact D/E/rubric gates, payload isolation, safe evidence exception, normalized `<host-path>` plus exact version, and blocker truth. | Reject drift, unsafe evidence, unresolved recovery, literal local paths, raw `PATH`, changed executable resolution, false execution/pass claims, alternate-version substitution, or unproven placement. |
+
+The host-identity correction is already durable downstream in DEV-133 comment
+`2efe4e95-30f7-453d-be6f-06cd87c93a2b`, DEV-135 comment
+`e2932c4f-93b5-4432-b0f8-77acf14ecfc8`, DEV-139 comment
+`051492e4-bec7-47e4-9e4b-9b8830d81710`, DEV-140 comment
+`7041ac79-801b-43d6-854b-9a2e9411b07c`, and DEV-141 comment
+`e061d603-13c0-4259-8e34-a238de29d7e1`.
