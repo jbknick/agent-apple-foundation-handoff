@@ -69,7 +69,7 @@ update `CLAUDE.md`, then use `scripts/sync_generated_artifacts.py`.
 - Before host operations, a missing or non-runnable executable, unavailable or malformed version, or approved-baseline
   mismatch emits a normalized `blocked` row with stable reason/version metadata before exit.
 - After successful capture, resolution or version drift emits normalized `fail` before exit, invalidates the row,
-  and requires a fresh run. Post-capture resolution or version drift is `fail` and invalidates the row.
+  and requires a fresh run.
 - Accept only a strict single-line version. Normalize malformed, multiline, or path-bearing output to `null`; committed
   evidence uses normalized `<host-path>`, exact version or `null`, stable diagnostic class, exit code, and status.
 - Raw/live prompts, responses, reasoning, tool arguments/results, credentials, private configuration, real

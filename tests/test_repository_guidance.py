@@ -33,6 +33,22 @@ sync_generated_artifacts = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sync_generated_artifacts)
 
 
+def run_isolated_cli(root: Path, mode: str) -> subprocess.CompletedProcess[str]:
+    scripts = root / "scripts"
+    scripts.mkdir()
+    shutil.copyfile(SCRIPT, scripts / "sync_generated_artifacts.py")
+    environment = os.environ.copy()
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    return subprocess.run(
+        [sys.executable, str(scripts / "sync_generated_artifacts.py"), mode],
+        cwd=root,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
 class RepositoryGuidanceTests(unittest.TestCase):
     def test_generated_agents_matches_canonical_adapter_exactly(self):
         canonical_text = CANONICAL.read_text(encoding="utf-8")
@@ -107,6 +123,61 @@ class RepositoryGuidanceTests(unittest.TestCase):
             )
             self.assertNotIn(str(isolated_root), diagnostic.getvalue())
 
+    def test_generated_output_rejects_symlink_without_mutating_target(self):
+        for mode in ("--write", "--check"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
+                temporary_root = Path(directory)
+                isolated_root = temporary_root / "repository"
+                isolated_root.mkdir()
+                shutil.copyfile(CANONICAL, isolated_root / "CLAUDE.md")
+                sentinel = temporary_root / "external-sentinel"
+                original = b"external sentinel must remain unchanged\n"
+                sentinel.write_bytes(original)
+                (isolated_root / "AGENTS.md").symlink_to(sentinel)
+
+                result = run_isolated_cli(isolated_root, mode)
+
+                self.assertEqual(original, sentinel.read_bytes())
+                self.assertTrue((isolated_root / "AGENTS.md").is_symlink())
+                self.assertEqual(1, result.returncode)
+                self.assertEqual("", result.stdout)
+                self.assertEqual(
+                    "AGENTS.md: unsafe or unwritable generated output\n",
+                    result.stderr,
+                )
+
+    def test_cli_distinguishes_generated_obstruction_from_canonical_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            isolated_root = Path(directory)
+            shutil.copyfile(CANONICAL, isolated_root / "CLAUDE.md")
+            (isolated_root / "AGENTS.md").mkdir()
+
+            result = run_isolated_cli(isolated_root, "--write")
+
+            self.assertEqual(1, result.returncode)
+            self.assertEqual("", result.stdout)
+            self.assertEqual(
+                "AGENTS.md: unsafe or unwritable generated output\n",
+                result.stderr,
+            )
+            self.assertNotIn("CLAUDE.md: invalid canonical adapter input", result.stderr)
+            self.assertTrue((isolated_root / "AGENTS.md").is_dir())
+
+        with tempfile.TemporaryDirectory() as directory:
+            isolated_root = Path(directory)
+            (isolated_root / "CLAUDE.md").write_text(
+                "invalid canonical guide\n", encoding="utf-8", newline="\n"
+            )
+
+            result = run_isolated_cli(isolated_root, "--write")
+
+            self.assertEqual(1, result.returncode)
+            self.assertEqual("", result.stdout)
+            self.assertEqual(
+                "CLAUDE.md: invalid canonical adapter input\n",
+                result.stderr,
+            )
+
     def test_adapter_is_bounded_and_smaller_than_canonical(self):
         canonical_bytes = CANONICAL.read_bytes()
         generated_bytes = GENERATED.read_bytes()
@@ -159,7 +230,8 @@ class RepositoryGuidanceTests(unittest.TestCase):
             "Claude Code `2.1.91`",
             "Codex CLI `0.144.5`",
             "Initial absence, non-executability, or version mismatch is `blocked`",
-            "Post-capture resolution or version drift is `fail`",
+            "After successful capture, resolution or version drift emits normalized "
+            "`fail` before exit",
             "strict single-line version",
             "raw `PATH`",
             "`compiled_sdk_26_5`",
@@ -194,6 +266,7 @@ class RepositoryGuidanceTests(unittest.TestCase):
 
         for text in (canonical_text, generated_text):
             normalized_text = re.sub(r"\s+", " ", text)
+            self.assertEqual(1, normalized_text.count("resolution or version drift"))
             for contract in required_contracts:
                 with self.subTest(contract=contract, guide=text[:12]):
                     self.assertIn(contract, normalized_text)
@@ -223,7 +296,19 @@ class RepositoryGuidanceTests(unittest.TestCase):
         combined = CANONICAL.read_text(encoding="utf-8") + GENERATED.read_text(
             encoding="utf-8"
         )
-        private_path = re.compile(r"/(?:Us" + r"ers|ho" + r"me)/")
+        private_patterns = (
+            r"/(?:Us" + r"ers|ho" + r"me)/",
+            r"/pri" + r"vate/var/fol" + r"ders/",
+            r"/t" + r"mp/",
+            r"[A-Za-z]:[\\/]+Us" + r"ers[\\/]+",
+            r"(?:\\\\|//)[^\\/]+[\\/]+(?:Us" + r"ers|ho" + r"me)[\\/]+",
+            r"/(?:usr/loc"
+            + r"al|opt/home"
+            + r"brew)/bin/(?:cla"
+            + r"ude|cod"
+            + r"ex)\b",
+        )
+        private_path = re.compile("|".join(private_patterns), re.IGNORECASE)
         unfinished = re.compile(
             r"\b(?:T"
             + r"ODO|T"
@@ -234,7 +319,20 @@ class RepositoryGuidanceTests(unittest.TestCase):
             re.IGNORECASE,
         )
 
+        unsafe_samples = (
+            "/pri" + "vate/var/fol" + "ders/ab/cd/private-item",
+            "/t" + "mp/private-item",
+            "C:" + "\\" + "Us" + "ers" + "\\" + "person\\private-item",
+            "\\\\server\\" + "Us" + "ers" + "\\person\\private-item",
+            "/usr/loc" + "al/bin/cla" + "ude",
+            "/opt/home" + "brew/bin/cod" + "ex",
+        )
+
         self.assertIsNone(private_path.search(combined))
+        self.assertIsNone(private_path.search("`<repo>` and `<host-path>`"))
+        for unsafe in unsafe_samples:
+            with self.subTest(unsafe=unsafe):
+                self.assertIsNotNone(private_path.search(unsafe))
         self.assertIsNone(unfinished.search(combined))
 
 
