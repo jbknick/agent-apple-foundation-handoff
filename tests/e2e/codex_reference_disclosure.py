@@ -242,15 +242,21 @@ def build_prompt(task_id: str, case: dict[str, Any]) -> str:
     return (
         "This is an explicitly directed reference-selection prerequisite, not "
         "workflow activation. Inspect the five-file reference library at "
-        f"{REFERENCE_ROOT_RELATIVE}/. You may use one direct directory-listing "
-        "command solely to independently select the canonical owner for the "
-        "question; do not feed that listing to another command. After you "
-        "independently select it, use exactly one direct content-read command "
-        "that names only that selected file. Do not use a shell wrapper, pipes, "
+        f"{REFERENCE_ROOT_RELATIVE}/. Use exactly two separate tool invocations "
+        "for reference access. In the first tool invocation, run one standalone "
+        "direct directory listing of that exact root, with no content read and no "
+        "second command. After that first invocation, from the task semantics and "
+        "the listed basenames, "
+        "independently select the needed canonical owner. In the second tool "
+        "invocation, run one standalone direct existing read command (for "
+        "example, sed -n on only the selected path), with no directory listing or "
+        "second command. Do not combine the directory listing and content read in "
+        "one shell string or tool call. Do not use a shell wrapper, pipes, "
         "redirection, command chaining, command substitution, xargs, find -exec, "
-        "globs, or bulk reads. Do not grep or search across the directory, and do "
-        "not read unrelated reference content. Base the classification only on "
-        "the independently selected owner. "
+        "globs, bulk reads, or any additional reference-access invocation. Do not "
+        "grep or search across the directory, and do not read unrelated reference "
+        "content. Base the classification only on the independently selected "
+        "owner. "
         f"Task {task_id}: {case['question']} Return exactly one JSON object with "
         f"one key named result and one of these values: {allowed}. Return no prose."
     )
@@ -894,10 +900,18 @@ class DirectedReferenceProbeTests(unittest.TestCase):
             observed_reference_reads(events, "synthetic-case")
         self.assertIn(raised.exception.reason, expected_reasons)
 
-    def test_prompt_requires_one_direct_read_without_owner_hint(self):
+    def test_prompt_requires_two_separate_calls_without_owner_hint(self):
         required_phrases = (
-            "independently select",
-            "exactly one direct content-read command",
+            "exactly two separate tool invocations",
+            "first tool invocation",
+            "one standalone direct directory listing",
+            "with no content read",
+            "from the task semantics",
+            "second tool invocation",
+            "one standalone direct existing read command",
+            "for example, sed -n",
+            "Do not combine the directory listing and content read in one shell "
+            "string or tool call",
             "shell wrapper",
             "pipes",
             "redirection",
@@ -911,6 +925,11 @@ class DirectedReferenceProbeTests(unittest.TestCase):
             with self.subTest(task_id=task_id):
                 for phrase in required_phrases:
                     self.assertIn(phrase, prompt)
+                self.assertEqual(1, prompt.count(f"{REFERENCE_ROOT_RELATIVE}/"))
+                self.assertLess(
+                    prompt.index("first tool invocation"),
+                    prompt.index("second tool invocation"),
+                )
                 for reference_name in REFERENCE_NAMES:
                     self.assertNotIn(reference_name, prompt)
 

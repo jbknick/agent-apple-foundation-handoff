@@ -72,16 +72,18 @@ capability list. The result retains
 
 ## Optional directed-reference result
 
-The newest shell-wrapper-hardened final-code `DEV137-CODEX-REF-001` run failed
-closed at task `pattern-final-owner` with normalized reason
+The newest two-call-prompt final-code `DEV137-CODEX-REF-001` run failed closed
+at task `pattern-final-owner` with normalized reason
 `bulk_reference_content_read` on exact model `gpt-5.6-sol`. The runner exited
 `1`; its normalized JSON SHA-256 is
 `db9cc39117f47abcea7c2010e13c5ebbfd31064c484b644b1624c5fa5a44f146`.
 That newest result is authoritative and is not converted to a prerequisite
-blocker or pass.
+blocker or pass. Exactly one fresh full run was made from the final code; it was
+not retried. Task 5 is therefore failed/blocking at this head.
 
-The immediately preceding pre-wrapper final-code run produced the same task,
-reason, exit, and normalized hash. The run before it failed closed at
+The immediately preceding shell-wrapper-hardened run and the pre-wrapper
+final-code run before it produced the same task, reason, exit, and normalized
+hash. The run before those failed closed at
 `fictional-transfer-baton-api` with the same normalized reason, exit `1`, and
 normalized JSON SHA-256
 `4ddd8f7dae9d2815187fd2c35f31a27606cc949c9d7f49d719ce34e707fa4637`.
@@ -128,7 +130,7 @@ discarded them before emitting normalized status.
 | Row | Status | Boundary |
 | --- | --- | --- |
 | `E-CODEX-LOAD-001` | pass | Structural install/cache only |
-| `DEV137-CODEX-REF-001` | fail / `bulk_reference_content_read` at `pattern-final-owner` | Optional explicitly directed reference selection only; never completion evidence |
+| `DEV137-CODEX-REF-001` | fail / `bulk_reference_content_read` at `pattern-final-owner`; Task 5 failed/blocking | Optional explicitly directed reference selection only; never completion evidence |
 | `E-CODEX-ACTIVATE-001` / `DEV137-CODEX-PROGRESSIVE-001` | blocked / `production_skills_not_integrated` | Mandatory combined-tip gate after DEV-136 rebases above DEV-137 |
 | DEV-137 issue state | In Progress | Remains blocked until the combined-tip gate passes |
 | `E-CLAUDE-LOAD-001` / activation | blocked/deferred_by_owner | Claude not invoked |
