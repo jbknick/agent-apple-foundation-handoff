@@ -12,6 +12,7 @@ import re
 import secrets
 import stat
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Callable
@@ -47,6 +48,7 @@ EARLY_STOP_REASONS = {
 PRE_RESPONSE_REASONS = {
     "missing_binary",
     "nonregular_binary",
+    "nonexecutable_binary",
     "version_mismatch",
     "authentication_unavailable",
     "model_unavailable",
@@ -132,6 +134,53 @@ WORKFLOW_SECTIONS = {
         "Blockers and Skips", "Release Implication",
     ),
 }
+PLUGIN_ID = "apple-foundation-models-handoff"
+MARKETPLACE_NAME = "agent-apple-foundation-handoff"
+PLUGIN_SELECTOR = f"{PLUGIN_ID}@{MARKETPLACE_NAME}"
+PLUGIN_ENTRY_KEYS = {
+    "pluginId", "name", "marketplaceName", "version", "installed",
+    "enabled", "source", "marketplaceSource", "installPolicy", "authPolicy",
+}
+SKILL_PAYLOAD_SHA256 = {
+    "design-apple-foundation-models-handoff": (
+        "b1e6ae3ee784906d5c7fcc2571f34027a20fbe986a108038e71fe6cef966bcf3"
+    ),
+    "implement-apple-foundation-models-handoff": (
+        "0abde138dd2e2d9b2ae4d88007c49043b497717391155e0e100d6b405a91136a"
+    ),
+    "review-apple-foundation-models-handoff": (
+        "3d9a0b913772936d710b0b21f75dc9d0e7d3757d624cb468cb8f273f9c121cd0"
+    ),
+    "debug-apple-foundation-models-handoff": (
+        "ff840a64b20e5843aa395c2ed58ac3958c348acc0a5d4ca0ad7c02fc82afecc3"
+    ),
+    "validate-apple-foundation-models-handoff": (
+        "89f62142c18a6f1f8f925bb544d6db885c376541dca662a5a449c323126dae4e"
+    ),
+}
+CODEX_JSONL_EVENT_TYPES = {
+    "thread.started", "turn.started", "turn.completed", "turn.failed",
+    "item.started", "item.updated", "item.completed",
+}
+CODEX_JSONL_ITEM_TYPES = {
+    "agent_message", "reasoning", "command_execution", "file_change",
+    "mcp_tool_call", "collab_tool_call", "web_search", "todo_list", "error",
+}
+CODEX_JSONL_TOOL_ITEM_TYPES = {
+    "command_execution", "file_change", "mcp_tool_call", "collab_tool_call",
+    "web_search",
+}
+
+TRUSTED_SYSTEM_PATH_ALIASES = {
+    Path("/var"): Path("/private/var"),
+    Path("/tmp"): Path("/private/tmp"),
+}
+
+
+class ExecutableCaptureError(ValueError):
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
 
 
 def _sha256(data: bytes) -> str:
@@ -237,7 +286,12 @@ def _rubric_hash(fixture: dict[str, Any], case: dict[str, Any]) -> str:
     return _compact_sha256({"name": name, "checks": fixture["rubricContracts"][name]})
 
 
-def _prerequisite_statuses(snapshot: dict[str, Any] | None, blocker: str | None) -> dict[str, str]:
+def _prerequisite_statuses(
+    snapshot: dict[str, Any] | None,
+    blocker: str | None,
+    *,
+    activation_proven: bool = False,
+) -> dict[str, str]:
     if snapshot is None:
         values = {key: "not_applicable" for key in PREREQUISITE_KEYS}
         if blocker == "model_mismatch":
@@ -254,11 +308,15 @@ def _prerequisite_statuses(snapshot: dict[str, Any] | None, blocker: str | None)
             else "blocked" if snapshot.get("modelAvailable") is False
             else "not_applicable"
         ),
-        "pluginActivation": "pass" if snapshot.get("pluginAvailable") is True else "blocked",
+        "pluginActivation": (
+            "pass" if snapshot.get("pluginAvailable") is True and activation_proven
+            else "not_applicable" if snapshot.get("pluginAvailable") is True
+            else "blocked"
+        ),
         "discovery": snapshot.get("discovery", "blocked"),
         "installation": snapshot.get("installation", "blocked"),
     }
-    if blocker == "nonregular_binary":
+    if blocker in {"nonregular_binary", "nonexecutable_binary"}:
         values["binary"] = "blocked"
     if blocker == "model_unavailable":
         values["model"] = "blocked"
@@ -269,6 +327,8 @@ def _host_metadata(
     mode: str,
     snapshot: dict[str, Any] | None = None,
     blocker: str | None = None,
+    *,
+    activation_proven: bool = False,
 ) -> dict[str, Any]:
     return {
         "name": "codex",
@@ -277,7 +337,9 @@ def _host_metadata(
         "modelSelection": "explicit_cli_argument",
         "sessionMode": "fresh_ephemeral" if mode == "host" else "not_applicable",
         "resolvedExecutableSha256": None if snapshot is None else snapshot.get("executableSha256"),
-        "prerequisites": _prerequisite_statuses(snapshot, blocker),
+        "prerequisites": _prerequisite_statuses(
+            snapshot, blocker, activation_proven=activation_proven
+        ),
         "blockerReason": blocker,
         "claudeInvoked": False,
     }
@@ -306,6 +368,13 @@ def _evidence(
     forced_status: str | None = None,
 ) -> dict[str, Any]:
     status = forced_status or _derived_status([row["verdict"] for row in rows])
+    activation_proven = (
+        mode == "host"
+        and blocker is None
+        and bool(rows)
+        and len(rows) == len(fixture["cases"])
+        and all(row["assertions"]["activation"] == "pass" for row in rows)
+    )
     return {
         "schemaVersion": "1.0",
         "sourceIssue": "DEV-136",
@@ -315,7 +384,9 @@ def _evidence(
         "model": EXPECTED_MODEL,
         "codexVersion": EXPECTED_CODEX_VERSION,
         "fixtureSha256": _sha256(fixture_bytes),
-        "host": _host_metadata(mode, snapshot, blocker),
+        "host": _host_metadata(
+            mode, snapshot, blocker, activation_proven=activation_proven
+        ),
         "privacy": copy.deepcopy(PRIVACY),
         "summary": _summary(fixture, rows),
         "cases": rows,
@@ -360,10 +431,7 @@ def run_offline(
         _validate_fixture(fixture, fixture_bytes)
     except ValueError:
         return FAIL, {"status": "fail", "reason": "fixture_contract_invalid"}
-    if type(scorer_outputs) is not dict or set(scorer_outputs) != {
-        case["id"] for case in fixture["cases"]
-    }:
-        raise ValueError("offline scorer output identities do not match fixture")
+    _validate_scorer_outputs(fixture, scorer_outputs)
     rows = []
     for ordinal, case in enumerate(fixture["cases"], 1):
         observation = scorer_outputs[case["id"]]
@@ -373,32 +441,130 @@ def run_offline(
     return _exit_for(evidence), evidence
 
 
-def _assert_no_symlink_components(path: Path) -> None:
-    absolute = path.absolute()
-    current = Path(absolute.anchor)
-    for part in absolute.parts[1:]:
-        current = current / part
-        if current.is_symlink():
-            raise ValueError("path indirection is not allowed")
+def _validate_scorer_outputs(
+    fixture: dict[str, Any], scorer_outputs: dict[str, dict[str, Any]]
+) -> None:
+    if type(scorer_outputs) is not dict or set(scorer_outputs) != {
+        case["id"] for case in fixture["cases"]
+    }:
+        raise ValueError("offline scorer output identities do not match fixture")
+    for case in fixture["cases"]:
+        _validate_observation(scorer_outputs[case["id"]])
 
 
-def capture_executable(executable: str) -> dict[str, str]:
-    path = Path(executable)
-    if path.is_symlink():
-        raise ValueError("path indirection is not allowed")
-    before = path.lstat()
-    if not stat.S_ISREG(before.st_mode):
-        raise ValueError("executable must be a regular file")
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-    descriptor = os.open(path, flags)
+def _absolute_lexical_path(path: Path | str) -> Path:
+    return Path(os.path.abspath(os.fspath(path)))
+
+
+def _component_walk_path(path: Path | str) -> Path:
+    absolute = _absolute_lexical_path(path)
+    for alias, expected_target in TRUSTED_SYSTEM_PATH_ALIASES.items():
+        if absolute != alias and alias not in absolute.parents:
+            continue
+        try:
+            target = _absolute_lexical_path(alias.parent / os.readlink(alias))
+            target_metadata = target.lstat()
+        except OSError:
+            continue
+        if (
+            alias.is_symlink()
+            and target == expected_target
+            and stat.S_ISDIR(target_metadata.st_mode)
+            and not stat.S_ISLNK(target_metadata.st_mode)
+        ):
+            return target / absolute.relative_to(alias)
+    return absolute
+
+
+def _open_directory_no_symlinks(path: Path | str) -> int:
+    absolute = _component_walk_path(path)
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+    descriptor = os.open(absolute.anchor, flags)
     try:
+        for part in absolute.parts[1:]:
+            next_descriptor = os.open(part, flags, dir_fd=descriptor)
+            try:
+                if not stat.S_ISDIR(os.fstat(next_descriptor).st_mode):
+                    raise ValueError("path component must be a directory")
+            except Exception:
+                os.close(next_descriptor)
+                raise
+            os.close(descriptor)
+            descriptor = next_descriptor
+        return descriptor
+    except Exception:
+        os.close(descriptor)
+        raise
+
+
+def _read_regular_file_no_symlinks(path: Path | str) -> bytes:
+    absolute = _absolute_lexical_path(path)
+    parent_descriptor = _open_directory_no_symlinks(absolute.parent)
+    descriptor = -1
+    try:
+        before = os.stat(
+            absolute.name, dir_fd=parent_descriptor, follow_symlinks=False
+        )
+        if not stat.S_ISREG(before.st_mode):
+            raise ValueError("payload must be a regular file")
+        flags = (
+            os.O_RDONLY
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+        )
+        descriptor = os.open(absolute.name, flags, dir_fd=parent_descriptor)
         opened = os.fstat(descriptor)
         if (
             not stat.S_ISREG(opened.st_mode)
-            or opened.st_mode & 0o111 == 0
             or (before.st_dev, before.st_ino) != (opened.st_dev, opened.st_ino)
         ):
-            raise ValueError("executable changed during capture")
+            raise ValueError("payload changed during binding")
+        chunks: list[bytes] = []
+        while True:
+            chunk = os.read(descriptor, 1024 * 1024)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        after = os.fstat(descriptor)
+        if (opened.st_dev, opened.st_ino, opened.st_size, opened.st_mtime_ns) != (
+            after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns
+        ):
+            raise ValueError("payload changed during binding")
+        return b"".join(chunks)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        os.close(parent_descriptor)
+
+
+def _open_verified_executable(executable: str) -> tuple[Path, int, str]:
+    path = _absolute_lexical_path(executable)
+    parent_descriptor = _open_directory_no_symlinks(path.parent)
+    descriptor = -1
+    try:
+        before = os.stat(path.name, dir_fd=parent_descriptor, follow_symlinks=False)
+        if not stat.S_ISREG(before.st_mode):
+            raise ExecutableCaptureError("nonregular_binary")
+        if before.st_mode & 0o111 == 0:
+            raise ExecutableCaptureError("nonexecutable_binary")
+        flags = (
+            os.O_RDONLY
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+        )
+        descriptor = os.open(path.name, flags, dir_fd=parent_descriptor)
+        opened = os.fstat(descriptor)
+        if not stat.S_ISREG(opened.st_mode):
+            raise ExecutableCaptureError("nonregular_binary")
+        if opened.st_mode & 0o111 == 0:
+            raise ExecutableCaptureError("nonexecutable_binary")
+        if (before.st_dev, before.st_ino) != (opened.st_dev, opened.st_ino):
+            raise ExecutableCaptureError("nonregular_binary")
         digest = hashlib.sha256()
         while True:
             chunk = os.read(descriptor, 1024 * 1024)
@@ -409,18 +575,31 @@ def capture_executable(executable: str) -> dict[str, str]:
         if (opened.st_dev, opened.st_ino, opened.st_size, opened.st_mtime_ns) != (
             after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns
         ):
-            raise ValueError("executable changed during capture")
+            raise ExecutableCaptureError("nonregular_binary")
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        return path, descriptor, digest.hexdigest()
+    except Exception:
+        if descriptor >= 0:
+            os.close(descriptor)
+        raise
     finally:
-        os.close(descriptor)
+        os.close(parent_descriptor)
+
+
+def capture_executable(executable: str) -> dict[str, str]:
+    path, descriptor, digest = _open_verified_executable(executable)
+    os.close(descriptor)
     return {
-        "resolvedExecutable": str(path.resolve()),
-        "executableSha256": digest.hexdigest(),
+        "resolvedExecutable": str(path),
+        "executableSha256": digest,
     }
 
 
 def _precondition_blocker(snapshot: dict[str, Any]) -> str | None:
-    if snapshot.get("captureError") == "nonregular_binary":
-        return "nonregular_binary"
+    if snapshot.get("captureError") in {
+        "nonregular_binary", "nonexecutable_binary",
+    }:
+        return snapshot["captureError"]
     if not snapshot.get("resolvedExecutable") or not snapshot.get("executableSha256"):
         return "missing_binary"
     if snapshot.get("version") != EXPECTED_CODEX_VERSION:
@@ -444,31 +623,178 @@ def _snapshot_identity(snapshot: dict[str, Any]) -> tuple[Any, ...]:
     )
 
 
-def _tool_events(stdout: str) -> list[dict[str, Any]]:
-    events: list[dict[str, Any]] = []
-    for line in stdout.splitlines():
+def _snapshot_executable_identity(snapshot: dict[str, Any]) -> tuple[str, str]:
+    expected_path = snapshot.get("resolvedExecutable")
+    expected_digest = snapshot.get("executableSha256")
+    if type(expected_path) is not str or type(expected_digest) is not str:
+        raise ValueError("captured executable identity is incomplete")
+    return expected_path, expected_digest
+
+
+def _capture_matches_snapshot(snapshot: dict[str, Any]) -> bool:
+    expected_path, expected_digest = _snapshot_executable_identity(snapshot)
+    captured = capture_executable(expected_path)
+    return (
+        captured["resolvedExecutable"] == expected_path
+        and captured["executableSha256"] == expected_digest
+    )
+
+
+def _bound_executable_copy(snapshot: dict[str, Any]) -> tuple[str, Path, Path]:
+    expected_path, expected_digest = _snapshot_executable_identity(snapshot)
+    source_path, source_descriptor, source_digest = _open_verified_executable(
+        expected_path
+    )
+    bound_root: Path | None = None
+    bound_path: Path | None = None
+    bound_descriptor = -1
+    root_descriptor = -1
+    try:
+        if str(source_path) != expected_path or source_digest != expected_digest:
+            raise ValueError("captured executable identity drifted")
+        bound_root = Path(tempfile.mkdtemp(prefix="dev136-codex-bound-"))
+        bound_path = bound_root / "codex"
+        root_descriptor = _open_directory_no_symlinks(bound_root)
+        bound_descriptor = os.open(
+            bound_path.name,
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_CLOEXEC", 0),
+            0o700,
+            dir_fd=root_descriptor,
+        )
+        while True:
+            chunk = os.read(source_descriptor, 1024 * 1024)
+            if not chunk:
+                break
+            remaining = memoryview(chunk)
+            while remaining:
+                written = os.write(bound_descriptor, remaining)
+                if written <= 0:
+                    raise OSError("bound executable copy did not make progress")
+                remaining = remaining[written:]
+        os.fsync(bound_descriptor)
+        os.close(bound_descriptor)
+        bound_descriptor = -1
+        captured_copy = capture_executable(str(bound_path))
+        if captured_copy["executableSha256"] != expected_digest:
+            raise ValueError("bound executable copy digest mismatch")
+        return expected_path, bound_path, bound_root
+    except Exception:
+        if bound_path is not None:
+            try:
+                bound_path.unlink()
+            except FileNotFoundError:
+                pass
+        if bound_root is not None:
+            try:
+                bound_root.rmdir()
+            except OSError:
+                pass
+        raise
+    finally:
+        if bound_descriptor >= 0:
+            os.close(bound_descriptor)
+        if root_descriptor >= 0:
+            os.close(root_descriptor)
+        os.close(source_descriptor)
+
+
+def _json_object_without_duplicates(
+    pairs: list[tuple[str, Any]],
+) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, child in pairs:
+        if key in value:
+            raise ValueError("duplicate JSON key")
+        value[key] = child
+    return value
+
+
+def _codex_jsonl_events(stdout: str) -> list[dict[str, Any]]:
+    parsed: list[dict[str, Any]] = []
+    terminal_seen = False
+    lines = stdout.splitlines()
+    if not lines:
+        raise ValueError("Codex JSONL stream is empty")
+    for line in lines:
+        if not line:
+            raise ValueError("Codex JSONL stream contains a blank record")
         try:
-            value = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if (
-            type(value) is dict
-            and value.get("type") == "item.completed"
-            and type(value.get("item")) is dict
-            and str(value["item"].get("type", "")).endswith("tool_call")
-        ):
-            events.append(value)
-    return events
+            value = json.loads(
+                line, object_pairs_hook=_json_object_without_duplicates
+            )
+        except (json.JSONDecodeError, ValueError) as error:
+            raise ValueError("Codex JSONL record is invalid") from error
+        if type(value) is not dict:
+            raise ValueError("Codex JSONL record must be an object")
+        event_type = value.get("type")
+        if type(event_type) is not str or event_type not in CODEX_JSONL_EVENT_TYPES:
+            raise ValueError("Codex JSONL event type is unknown")
+        if terminal_seen:
+            raise ValueError("Codex JSONL stream continues after its terminal event")
+        if event_type.startswith("item."):
+            item = value.get("item")
+            if (
+                type(item) is not dict
+                or type(item.get("type")) is not str
+                or item["type"] not in CODEX_JSONL_ITEM_TYPES
+            ):
+                raise ValueError("Codex JSONL item type is unknown")
+        if event_type in {"turn.completed", "turn.failed"}:
+            terminal_seen = True
+        parsed.append(value)
+    if not terminal_seen:
+        raise ValueError("Codex JSONL stream is unterminated")
+    return parsed
+
+
+def _tool_events(stdout: str) -> list[dict[str, Any]]:
+    parsed = _codex_jsonl_events(stdout)
+    if parsed[-1]["type"] != "turn.completed":
+        raise ValueError("successful Codex JSONL stream did not complete")
+    return [
+        event
+        for event in parsed
+        if event["type"] == "item.completed"
+        and event["item"]["type"] in CODEX_JSONL_TOOL_ITEM_TYPES
+    ]
 
 
 def _is_model_unavailable(completed: subprocess.CompletedProcess[str]) -> bool:
-    diagnostic = f"{completed.stdout}\n{completed.stderr}"
+    if completed.returncode == 0:
+        return False
     patterns = (
         r"(?i)\bmodel\b.{0,120}\b(?:unavailable|not available|not found|unsupported)\b",
         r"(?i)\b(?:no|not)\s+access\b.{0,120}\bmodel\b",
         r"(?i)\bmodel\b.{0,120}\b(?:access denied|permission denied)\b",
     )
-    return any(re.search(pattern, diagnostic) is not None for pattern in patterns)
+    diagnostics = [completed.stderr]
+    for line in completed.stdout.splitlines():
+        try:
+            value = json.loads(
+                line, object_pairs_hook=_json_object_without_duplicates
+            )
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if type(value) is not dict:
+            continue
+        event_type = value.get("type")
+        candidate: Any = None
+        if event_type == "error":
+            candidate = value.get("message")
+        elif event_type == "turn.failed":
+            error = value.get("error")
+            candidate = error.get("message") if type(error) is dict else error
+        if type(candidate) is str:
+            diagnostics.append(candidate)
+    return any(
+        re.search(pattern, diagnostic) is not None
+        for diagnostic in diagnostics
+        for pattern in patterns
+    )
 
 
 def run_host(
@@ -502,14 +828,34 @@ def run_host(
             )
             return BLOCKED, evidence
 
-        descriptor, output_name = tempfile.mkstemp(prefix="dev136-codex-", suffix=".txt")
-        os.close(descriptor)
-        output_path = Path(output_name)
+        try:
+            execution_path, bound_path, bound_root = _bound_executable_copy(pre)
+        except (OSError, ValueError):
+            evidence = _evidence(
+                "host", fixture, fixture_bytes, rows, snapshot=first_snapshot,
+                blocker="post_capture_prerequisite_drift", forced_status="fail",
+            )
+            return FAIL, evidence
+
+        try:
+            descriptor, output_name = tempfile.mkstemp(
+                prefix="dev136-codex-", suffix=".txt"
+            )
+            os.close(descriptor)
+            output_path = Path(output_name)
+        except OSError:
+            bound_path.unlink()
+            bound_root.rmdir()
+            evidence = _evidence(
+                "host", fixture, fixture_bytes, rows, snapshot=first_snapshot,
+                blocker="process_failed", forced_status="fail",
+            )
+            return FAIL, evidence
         completed: subprocess.CompletedProcess[str] | None = None
         process_error = False
         try:
             command = [
-                executable, "exec", "--ephemeral", "--json", "-m", EXPECTED_MODEL,
+                execution_path, "exec", "--ephemeral", "--json", "-m", EXPECTED_MODEL,
                 "--output-last-message", str(output_path), "-",
             ]
             try:
@@ -519,15 +865,25 @@ def run_host(
                     capture_output=True,
                     text=True,
                     check=False,
+                    executable=str(bound_path),
                 )
             except Exception:
                 process_error = True
 
             try:
-                post = prerequisite_checker(executable, EXPECTED_MODEL, EXPECTED_CODEX_VERSION)
+                post = prerequisite_checker(
+                    execution_path, EXPECTED_MODEL, EXPECTED_CODEX_VERSION
+                )
             except Exception:
                 post = {}
-            if _snapshot_identity(pre) != _snapshot_identity(post):
+            try:
+                identity_stable = _capture_matches_snapshot(pre)
+            except (OSError, ValueError):
+                identity_stable = False
+            if (
+                not identity_stable
+                or _snapshot_identity(pre) != _snapshot_identity(post)
+            ):
                 evidence = _evidence(
                     "host", fixture, fixture_bytes, rows, snapshot=first_snapshot,
                     blocker="post_capture_prerequisite_drift", forced_status="fail",
@@ -545,8 +901,15 @@ def run_host(
                     blocker="process_failed", forced_status="fail",
                 )
                 return FAIL, evidence
-            response = output_path.read_bytes()
-            events = _tool_events(completed.stdout)
+            try:
+                response = output_path.read_bytes()
+                events = _tool_events(completed.stdout)
+            except (OSError, ValueError):
+                evidence = _evidence(
+                    "host", fixture, fixture_bytes, rows, snapshot=first_snapshot,
+                    blocker="process_failed", forced_status="fail",
+                )
+                return FAIL, evidence
             host_result = {
                 "codexExitCode": completed.returncode,
                 "responseSha256": _sha256(response),
@@ -570,6 +933,14 @@ def run_host(
         finally:
             try:
                 output_path.unlink()
+            except FileNotFoundError:
+                pass
+            try:
+                bound_path.unlink()
+            except FileNotFoundError:
+                pass
+            try:
+                bound_root.rmdir()
             except FileNotFoundError:
                 pass
 
@@ -687,17 +1058,11 @@ def _validate_evidence(
 
 
 def _open_destination_parent(path: Path) -> int:
-    if path.parent.is_symlink():
-        raise ValueError("evidence parent indirection is not allowed")
-    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
-    descriptor = os.open(path.parent, flags)
+    descriptor = _open_directory_no_symlinks(path.parent)
     try:
         opened = os.fstat(descriptor)
-        current = os.stat(path.parent, follow_symlinks=False)
-        if not stat.S_ISDIR(opened.st_mode) or (opened.st_dev, opened.st_ino) != (
-            current.st_dev, current.st_ino
-        ):
-            raise ValueError("evidence parent changed during binding")
+        if not stat.S_ISDIR(opened.st_mode):
+            raise ValueError("evidence parent must be a directory")
         try:
             destination = os.stat(path.name, dir_fd=descriptor, follow_symlinks=False)
         except FileNotFoundError:
@@ -781,39 +1146,51 @@ def _plugin_is_installed_enabled_with_capabilities(stdout: str) -> bool:
         listing = json.loads(stdout)
     except json.JSONDecodeError:
         return False
-    if type(listing) is not dict or type(listing.get("installed")) is not list:
-        return False
-    plugin_id = "apple-foundation-models-handoff@agent-apple-foundation-handoff"
-    matches = [
-        item for item in listing["installed"]
-        if type(item) is dict and item.get("pluginId") == plugin_id
-    ]
-    if len(matches) != 1:
-        return False
-    plugin = matches[0]
-    if not (
-        plugin.get("name") == "apple-foundation-models-handoff"
-        and plugin.get("installed") is True
-        and plugin.get("enabled") is True
+    if (
+        type(listing) is not dict
+        or set(listing) != {"installed", "available"}
+        or type(listing.get("installed")) is not list
+        or listing.get("available") != []
     ):
         return False
-    source = plugin.get("source")
-    if type(source) is not dict or source.get("source") != "local":
+    if len(listing["installed"]) != 1:
         return False
-    source_path = source.get("path")
-    if type(source_path) is not str:
+    plugin = listing["installed"][0]
+    if type(plugin) is not dict or set(plugin) != PLUGIN_ENTRY_KEYS:
         return False
-    manifest_path = Path(source_path) / ".codex-plugin/plugin.json"
+    plugin_root = _absolute_lexical_path(ROOT / "plugins" / PLUGIN_ID)
+    expected_fields = {
+        "pluginId": PLUGIN_SELECTOR,
+        "name": PLUGIN_ID,
+        "marketplaceName": MARKETPLACE_NAME,
+        "version": "0.1.0",
+        "installed": True,
+        "enabled": True,
+        "source": {"source": "local", "path": str(plugin_root)},
+        "marketplaceSource": {
+            "sourceType": "local",
+            "source": str(_absolute_lexical_path(ROOT)),
+        },
+        "installPolicy": "AVAILABLE",
+        "authPolicy": "ON_INSTALL",
+    }
+    if plugin != expected_fields:
+        return False
+    manifest_path = plugin_root / ".codex-plugin/plugin.json"
     try:
-        if manifest_path.is_symlink() or not manifest_path.is_file():
-            return False
-        manifest = json.loads(manifest_path.read_bytes())
-    except (OSError, json.JSONDecodeError):
+        manifest = json.loads(_read_regular_file_no_symlinks(manifest_path))
+        for skill, expected_digest in SKILL_PAYLOAD_SHA256.items():
+            payload = _read_regular_file_no_symlinks(
+                plugin_root / "skills" / skill / "SKILL.md"
+            )
+            if _sha256(payload) != expected_digest:
+                return False
+    except (OSError, ValueError, json.JSONDecodeError):
         return False
     interface = manifest.get("interface") if type(manifest) is dict else None
     capabilities = interface.get("capabilities") if type(interface) is dict else None
     return (
-        manifest.get("name") == "apple-foundation-models-handoff"
+        manifest.get("name") == PLUGIN_ID
         and capabilities == list(WORKFLOW_SECTIONS)
     )
 
@@ -827,6 +1204,13 @@ def default_prerequisite_checker(executable: str, model: str, version: str) -> d
             "authenticated": False, "modelAvailable": False, "pluginAvailable": False,
             "discovery": "blocked", "installation": "blocked",
         }
+    except ExecutableCaptureError as error:
+        return {
+            "resolvedExecutable": None, "executableSha256": None, "version": None,
+            "authenticated": False, "modelAvailable": False, "pluginAvailable": False,
+            "discovery": "blocked", "installation": "blocked",
+            "captureError": error.reason,
+        }
     except (OSError, ValueError):
         return {
             "resolvedExecutable": None, "executableSha256": None, "version": None,
@@ -834,7 +1218,8 @@ def default_prerequisite_checker(executable: str, model: str, version: str) -> d
             "discovery": "blocked", "installation": "blocked",
             "captureError": "nonregular_binary",
         }
-    version_probe = _probe([executable, "--version"])
+    captured_executable = captured["resolvedExecutable"]
+    version_probe = _probe([captured_executable, "--version"])
     expected_version_line = f"codex-cli {EXPECTED_CODEX_VERSION}"
     observed_version = None
     if (
@@ -844,9 +1229,16 @@ def default_prerequisite_checker(executable: str, model: str, version: str) -> d
         and version_probe.stdout == f"{expected_version_line}\n"
     ):
         observed_version = EXPECTED_CODEX_VERSION
-    login_probe = _probe([executable, "login", "status"])
-    authenticated = login_probe is not None and login_probe.returncode == 0
-    plugin_probe = _probe([executable, "plugin", "list", "--json"])
+    login_probe = _probe([captured_executable, "login", "status"])
+    authenticated = (
+        login_probe is not None
+        and login_probe.returncode == 0
+        and login_probe.stdout == ""
+        and login_probe.stderr == "Logged in using ChatGPT\n"
+    )
+    plugin_probe = _probe(
+        [captured_executable, "plugin", "list", "--json"]
+    )
     plugin_available = (
         plugin_probe is not None
         and plugin_probe.returncode == 0
@@ -929,7 +1321,10 @@ def _positive_envelope(
     for raw_line in lines[4:]:
         if not raw_line.startswith("  "):
             return False, routing, values
-        match = re.fullmatch(r"\s{2}([A-Za-z][A-Za-z0-9]*(?:\[\])?)\s*:\s*(.+)", raw_line)
+        match = re.fullmatch(
+            r"\s{2}([A-Za-z][A-Za-z0-9]*(?:\[\])?)\s*(?:=|:)\s*(.+)",
+            raw_line,
+        )
         if match is None or match.group(1) in values:
             return False, routing, values
         names.append(match.group(1))
@@ -944,8 +1339,34 @@ def _usable_version(value: str | None) -> bool:
         return False
     normalized = value.strip().strip('"\'').lower()
     return bool(normalized) and normalized not in {
-        "unknown", "n/a", "none", "null", "tbd", "placeholder"
+        "unknown", "n/a", "none", "null", "tbd", "placeholder",
+        "not_specified", "unchanged_existing_version",
     } and "<" not in normalized and ">" not in normalized
+
+
+def _has_authorized_follow_on_boundary(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", text.lower())
+    boundary = re.search(
+        r"\bseparate(?:ly)?\b.{0,80}\bauthoriz(?:ed|ation)\b.{0,80}"
+        r"\bfollow(?:-| )on\b"
+        r"|\bauthoriz(?:ed|ation)\b.{0,80}\bseparate(?:ly)?\b.{0,80}"
+        r"\bfollow(?:-| )on\b"
+        r"|\bseparate(?:ly)?\b.{0,80}\bfollow(?:-| )on\b.{0,80}"
+        r"\bauthoriz(?:ed|ation)\b",
+        normalized,
+    )
+    if boundary is None:
+        return False
+    prefix = normalized[max(0, boundary.start() - 32):boundary.start()]
+    phrase = normalized[boundary.start():boundary.end()]
+    return re.search(
+        r"\b(?:no|not|never|without)\b(?:\s+\w+){0,5}\s*$",
+        prefix,
+    ) is None and re.search(
+        r"\b(?:no|not|never|without)\b(?:\s+\w+){0,5}\s+"
+        r"(?:separate|authorized|authorization|follow(?:-| )on)\b",
+        phrase,
+    ) is None
 
 
 def live_score(
@@ -1015,12 +1436,9 @@ def live_score(
         ) else "fail"
         if case["routerInput"]["requestedOperation"] == "compound_review_fix":
             findings = after.find("Findings")
-            tail = after[findings:].lower() if findings >= 0 else ""
             assertions["review_first_ordering"] = "pass" if (
                 findings >= 0
-                and "authorized" in tail
-                and "separate" in tail
-                and ("follow-on" in tail or "follow on" in tail)
+                and _has_authorized_follow_on_boundary(after[findings:])
             ) else "fail"
     observation = {
         "provenance": "approved_redacted",
@@ -1056,9 +1474,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--evidence", type=Path, required=True)
     args = parser.parse_args(argv)
 
-    fixture_bytes = args.cases.read_bytes()
-    fixture = json.loads(fixture_bytes)
-    _validate_fixture(fixture, fixture_bytes)
+    try:
+        fixture_bytes = args.cases.read_bytes()
+        fixture = json.loads(fixture_bytes)
+        _validate_fixture(fixture, fixture_bytes)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+        sys.stderr.write("fixture_contract_invalid\n")
+        return FAIL
     if args.model != EXPECTED_MODEL or args.codex_version != EXPECTED_CODEX_VERSION:
         reason = "model_mismatch" if args.model != EXPECTED_MODEL else "version_mismatch"
         evidence = _blocked_cli_evidence(args.mode, fixture, fixture_bytes, reason)
@@ -1071,7 +1493,23 @@ def main(argv: list[str] | None = None) -> int:
     if args.mode == "offline":
         if args.scorer_outputs is None:
             parser.error("--scorer-outputs is required in offline mode")
-        scorer_outputs = json.loads(args.scorer_outputs.read_bytes())
+        try:
+            scorer_outputs = json.loads(args.scorer_outputs.read_bytes())
+            _validate_scorer_outputs(fixture, scorer_outputs)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+            evidence = _evidence(
+                "offline", fixture, fixture_bytes, [], blocker="scoring_failed",
+                forced_status="fail",
+            )
+            try:
+                write_evidence(
+                    args.evidence, evidence, fixture=fixture,
+                    fixture_bytes=fixture_bytes, scorer_outputs={},
+                )
+            except (OSError, ValueError):
+                pass
+            sys.stderr.write("scorer_outputs_invalid\n")
+            return FAIL
         code, evidence = run_offline(fixture, scorer_outputs, fixture_bytes=fixture_bytes)
         write_evidence(
             args.evidence, evidence, fixture=fixture, fixture_bytes=fixture_bytes,
