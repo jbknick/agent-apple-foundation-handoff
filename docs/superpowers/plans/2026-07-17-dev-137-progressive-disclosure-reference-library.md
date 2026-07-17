@@ -881,6 +881,116 @@ git commit -m "test(DEV-137): record reviewed reference probe"
 
 ---
 
+### Task 5B: Replace generic tool inference with exact Codex command evidence
+
+**Decision source:** DEV-137 Linear comment
+`3b643609-4f59-40a1-b527-7a2d2f36bdd4`, approved after independent review of
+`064119d52c9525b0586790f64fd4c8759f36ca19`. The already-recorded Codex host
+failure remains authoritative; this task authorizes deterministic repair only,
+not another host execution.
+
+**Files:**
+- Modify: `tests/e2e/codex_reference_disclosure.py`
+- Modify: this plan only for the approved design and exact validation commands
+- Do not modify host evidence until a separately authorized fresh host run
+
+**Interfaces:**
+- Consumes: official Codex `rust-v0.144.5` `command_execution` JSONL events,
+  the exact five-file reference topology, and the Task 5 expected owner for each
+  case.
+- Produces: exactly two sequential command lifecycles: discovery with
+  `rg --files plugins/apple-foundation-models-handoff/references`, then a read
+  with `cat <one-approved-owner-path>`.
+- Removes from the accepted evidence surface: generic nested tool mappings,
+  structured argv inference, alternative readers, command prefixes/wrappers,
+  mixed or extra tool items, completion-order inference, and reused item IDs.
+
+- [ ] **Step 1: Commit the approved plan before implementation**
+
+Commit this Task 5B section alone so the design change is independently
+reviewable:
+
+```bash
+git add docs/superpowers/plans/2026-07-17-dev-137-progressive-disclosure-reference-library.md
+git diff --cached --check
+git commit -m "docs(DEV-137): pin exact command evidence repair"
+```
+
+- [ ] **Step 2: Add tests-only RED contract changes**
+
+In `DirectedReferenceProbeTests`:
+
+1. update test event builders to the exact pinned command item fields:
+   `id`, `type`, `command`, `aggregated_output`, `exit_code`, and `status`;
+2. require strict event order `started(discovery)`, `completed(discovery)`,
+   `started(read)`, `completed(read)` with two unique IDs;
+3. require the exact discovery tokens and exact `cat` owner tokens;
+4. reject reversed/interleaved completion, sequential ID reuse, command updates,
+   unpaired items, extra commands, and every non-command tool item;
+5. reject wrappers, alternate discovery/read commands, additional/duplicate
+   operands, globs, direct search readers, nested mappings, structured argv,
+   sibling inputs, and arbitrary programs even when they mention one owner;
+6. reject duplicate JSON keys and non-standard `NaN`/`Infinity` constants in
+   JSONL and stringified tool arguments; and
+7. require the prompt to name the two exact commands without naming the correct
+   owner.
+
+Run only import-safe unittest commands; never execute the probe entrypoint:
+
+```bash
+PYTHONPATH=tests/e2e PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v \
+  codex_reference_disclosure.DirectedReferenceProbeTests
+```
+
+Expected: assertion-only failures against the generic classifier, with zero
+import, setup, or host errors. Commit tests only:
+
+```bash
+git add tests/e2e/codex_reference_disclosure.py
+git diff --cached --check
+git commit -m "test(DEV-137): specify exact command evidence"
+```
+
+- [ ] **Step 3: Implement the closed official-event classifier**
+
+Replace recursive payload inference for this probe with a small parser over the
+official command lifecycle. Validate the exact event/item schema, preserve start
+order, require completion before the next start, bind completion to the same ID
+and command, require success status and exit code zero, and resolve only the one
+`cat` operand through the existing canonical-root regular-file check.
+
+Update `build_prompt` to require the exact discovery and read commands while
+withholding the owner basename. Do not change expected owners or semantic result
+classifications. Do not add a fallback parser.
+
+Run:
+
+```bash
+PYTHONPATH=tests/e2e PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v \
+  codex_reference_disclosure.DirectedReferenceProbeTests
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_*.py' -v
+PYTHONPYCACHEPREFIX=/tmp/dev137-pycache python3 -m py_compile \
+  tests/e2e/codex_reference_disclosure.py
+git diff --check
+```
+
+Commit production only:
+
+```bash
+git add tests/e2e/codex_reference_disclosure.py
+git diff --cached --check
+git commit -m "fix(DEV-137): require exact command evidence"
+```
+
+- [ ] **Step 4: Independent review without a host call**
+
+Request a fresh code/spec review that challenges exact schemas, event ordering,
+unique lifecycle IDs, command token closure, extra tool events, JSON constants,
+path containment, and preservation of all semantic owner/result checks. Address
+findings tests-first in separate commits. Do not run Codex or Claude.
+
+---
+
 ### Task 6: Add and pass the mandatory combined-stack workflow-triggered Codex gate
 
 **Files:**
