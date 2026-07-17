@@ -1456,6 +1456,103 @@ class DirectedReferenceProbeTests(unittest.TestCase):
                     {"ambiguous_reference_read", "bulk_reference_content_read"},
                 )
 
+    def test_strict_reference_access_rejects_item_boundary_and_hidden_context_bypasses(
+        self,
+    ):
+        owner = f"{REFERENCE_ROOT_RELATIVE}/apple-api-availability.md"
+        discovery = self.command_events(
+            f"rg --files {REFERENCE_ROOT_RELATIVE}",
+            identifier="discovery-1",
+        )
+        targeted_read = self.command_events(
+            f"sed -n '1,40p' {owner}",
+            identifier="reader-1",
+        )
+        rejected = {
+            "one_tool_item_combines_discovery_and_read": self.tool_events(
+                "mcp_tool_call",
+                {
+                    "arguments": {
+                        "steps": [
+                            {
+                                "command": f"rg --files {REFERENCE_ROOT_RELATIVE}",
+                                "cwd": str(ROOT),
+                            },
+                            {
+                                "command": f"sed -n '1,40p' {owner}",
+                                "cwd": str(ROOT),
+                            },
+                        ]
+                    }
+                },
+            ),
+            "env_hides_reference_context_search": (
+                discovery
+                + self.command_events(
+                    "env rg Apple .",
+                    cwd=str(REFERENCE_ROOT),
+                    identifier="hidden-1",
+                )
+                + targeted_read
+            ),
+            "glob_hides_reference_context_read": (
+                discovery
+                + self.command_events(
+                    "cat *.md",
+                    cwd=str(REFERENCE_ROOT),
+                    identifier="hidden-1",
+                )
+                + targeted_read
+            ),
+            "structured_command_argv_is_not_recursively_flattened": (
+                discovery
+                + self.tool_events(
+                    "mcp_tool_call",
+                    {
+                        "arguments": {
+                            "payload": {
+                                "command": ["rg", "needle", owner, "."],
+                                "cwd": str(ROOT),
+                            }
+                        }
+                    },
+                    identifier="reader-1",
+                )
+            ),
+        }
+        for name, events in rejected.items():
+            with self.subTest(bypass=name):
+                with self.assertRaises(ProbeFailure):
+                    observed_reference_reads(
+                        events,
+                        "synthetic-case",
+                        require_exact_sequence=True,
+                    )
+
+    def test_json_tool_arguments_normalize_parse_failures_to_probe_failure(self):
+        owner = f"{REFERENCE_ROOT_RELATIVE}/apple-api-availability.md"
+        rejected = {
+            "malformed": f'{{"path":"{owner}"',
+            "duplicate_key": (
+                f'{{"path":"{owner}","path":"{owner}"}}'
+            ),
+        }
+        for name, arguments in rejected.items():
+            with self.subTest(arguments=name):
+                try:
+                    observed_reference_reads(
+                        self.tool_events(
+                            "mcp_tool_call",
+                            {"arguments": arguments},
+                        ),
+                        "synthetic-case",
+                    )
+                except Exception as failure:
+                    self.assertIsInstance(failure, ProbeFailure)
+                    self.assertEqual("invalid_tool_event", failure.reason)
+                else:
+                    self.fail("invalid JSON tool arguments were accepted")
+
     def test_run_case_requires_the_exact_reference_access_sequence(self):
         completed = subprocess.CompletedProcess(
             args=[],
