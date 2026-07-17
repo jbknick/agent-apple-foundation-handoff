@@ -17,6 +17,7 @@ FIXTURE_PATH = ROOT / "tests/fixtures/dev-136-codex-skill-cases.json"
 EVIDENCE_PATH = ROOT / "docs/research/evidence/dev-136-codex-skill-tdd.json"
 PROTOTYPE_PATH = ROOT / "docs/research/evidence/dev-134-activation-prototype.json"
 RUNNER_PATH = ROOT / "tests/e2e/codex_skill_forward_tests.py"
+TEST_EXECUTABLE_PATH = Path(sys.executable).resolve()
 
 SKILLS = (
     "design-apple-foundation-models-handoff",
@@ -315,6 +316,11 @@ FORWARD_ASSERTIONS = (
 )
 
 FORWARD_STATUSES = {"pass", "fail", "blocked", "not_applicable"}
+FORWARD_EARLY_STOP_REASONS = {
+    "post_capture_prerequisite_drift",
+    "process_failed",
+    "scoring_failed",
+}
 FORWARD_EVIDENCE_KEYS = {
     "schemaVersion",
     "sourceIssue",
@@ -392,6 +398,9 @@ FORBIDDEN_FORWARD_EVIDENCE_KEYS = {
     "transcript",
 }
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+OFFICIAL_FIXTURE_SHA256 = (
+    "6c5bd8dafb1b75990e88ec288de18282c00b99151f33a7566253395c4ef93dcb"
+)
 
 
 def load_json(path: Path) -> dict:
@@ -428,12 +437,18 @@ def canonical_payload_sha256(value) -> str:
     return sha256_bytes(payload)
 
 
-def fixture_payload_sha256(fixture: dict) -> str:
-    return canonical_payload_sha256(fixture)
+def fixture_bytes_sha256(fixture_bytes: bytes) -> str:
+    return sha256_bytes(fixture_bytes)
 
 
-def captured_executable_sha256() -> str:
-    return sha256_bytes(b"approved-synthetic-codex-executable-identity")
+def deterministic_fixture_bytes(fixture: dict) -> bytes:
+    return (
+        json.dumps(fixture, ensure_ascii=False, indent=2) + "\n"
+    ).encode("utf-8")
+
+
+def executable_bytes_sha256(path: Path = TEST_EXECUTABLE_PATH) -> str:
+    return sha256_bytes(path.read_bytes())
 
 
 def prompt_sha256(case: dict) -> str:
@@ -1266,10 +1281,51 @@ def _forward_outputs(fixture: dict, **overrides: str) -> dict[str, dict]:
     }
 
 
-def _passing_prerequisites(executable: str = "/opt/codex") -> dict:
+def _run_offline(
+    runner,
+    fixture: dict,
+    scorer_outputs: dict[str, dict],
+    fixture_bytes: bytes | None = None,
+):
+    return runner.run_offline(
+        fixture,
+        scorer_outputs,
+        fixture_bytes=(
+            deterministic_fixture_bytes(fixture)
+            if fixture_bytes is None
+            else fixture_bytes
+        ),
+    )
+
+
+def _run_host(
+    runner,
+    fixture: dict,
+    executable: str,
+    process_runner,
+    prerequisite_checker,
+    scorer,
+    fixture_bytes: bytes | None = None,
+):
+    return runner.run_host(
+        fixture,
+        executable,
+        process_runner,
+        prerequisite_checker,
+        scorer,
+        fixture_bytes=(
+            deterministic_fixture_bytes(fixture)
+            if fixture_bytes is None
+            else fixture_bytes
+        ),
+    )
+
+
+def _passing_prerequisites(executable: str | None = None) -> dict:
+    path = Path(executable) if executable is not None else TEST_EXECUTABLE_PATH
     return {
-        "resolvedExecutable": executable,
-        "executableSha256": captured_executable_sha256(),
+        "resolvedExecutable": str(path),
+        "executableSha256": executable_bytes_sha256(path),
         "version": "0.144.5",
         "authenticated": True,
         "modelAvailable": True,
@@ -1386,13 +1442,23 @@ def _assert_forward_evidence_derivations(
     scorer_outputs: dict[str, dict],
     evidence: dict,
     *,
+    fixture_bytes: bytes | None = None,
     host_results: list[dict] | None = None,
     executable_sha256: str | None = None,
 ) -> None:
     _assert_forward_evidence_schema(test, evidence)
-    test.assertEqual(fixture_payload_sha256(fixture), evidence["fixtureSha256"])
+    if fixture_bytes is None:
+        fixture_bytes = deterministic_fixture_bytes(fixture)
+    test.assertEqual(fixture_bytes_sha256(fixture_bytes), evidence["fixtureSha256"])
     rows = evidence["cases"]
-    test.assertLessEqual(len(rows), len(fixture["cases"]))
+    blocker_reason = evidence["host"]["blockerReason"]
+    if evidence["mode"] == "offline" or blocker_reason is None:
+        test.assertEqual(len(fixture["cases"]), len(rows))
+    elif len(rows) < len(fixture["cases"]):
+        test.assertNotEqual("pass", evidence["status"])
+        test.assertIn(blocker_reason, FORWARD_EARLY_STOP_REASONS)
+    else:
+        test.assertEqual(len(fixture["cases"]), len(rows))
     for index, (case, row) in enumerate(
         zip(fixture["cases"], rows, strict=False)
     ):
@@ -1429,7 +1495,11 @@ def _assert_forward_evidence_derivations(
         "notApplicableCount": verdicts.count("not_applicable"),
     }
     test.assertEqual(expected_summary, evidence["summary"])
-    test.assertEqual(_derived_status(verdicts), evidence["status"])
+    if len(rows) < len(fixture["cases"]):
+        test.assertIn(evidence["status"], {"fail", "blocked"})
+        test.assertIn(blocker_reason, FORWARD_EARLY_STOP_REASONS)
+    else:
+        test.assertEqual(_derived_status(verdicts), evidence["status"])
     test.assertEqual(
         executable_sha256,
         evidence["host"]["resolvedExecutableSha256"],
@@ -1443,14 +1513,20 @@ def _write_bound_evidence(
     fixture: dict,
     scorer_outputs: dict[str, dict],
     *,
+    fixture_bytes: bytes | None = None,
+    host_results: list[dict] | None = None,
     executable_sha256: str | None = None,
     fault_hook=None,
 ) -> None:
+    if fixture_bytes is None:
+        fixture_bytes = deterministic_fixture_bytes(fixture)
     runner.write_evidence(
         path,
         evidence,
         fixture=fixture,
+        fixture_bytes=fixture_bytes,
         scorer_outputs=scorer_outputs,
+        host_results=host_results,
         executable_sha256=executable_sha256,
         fault_hook=fault_hook,
     )
@@ -1585,10 +1661,11 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
         process = _FakeHostProcess(timeline=timeline)
         outputs = _forward_outputs(fixture)
         scorer = _FakeScorer(outputs, timeline)
-        checker = _FakePrerequisiteChecker(_passing_prerequisites("/captured/codex"))
-        code, evidence = self.runner.run_host(
+        checker = _FakePrerequisiteChecker(_passing_prerequisites())
+        code, evidence = _run_host(
+            self.runner,
             fixture,
-            "/captured/codex",
+            str(TEST_EXECUTABLE_PATH),
             process,
             checker,
             scorer,
@@ -1598,7 +1675,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
         self.assertEqual(["execute", "score"], timeline)
         self.assertEqual([fixture["cases"][0]["prompt"]], process.inputs)
         command = process.commands[0]
-        self.assertEqual(["/captured/codex", "exec"], command[:2])
+        self.assertEqual([str(TEST_EXECUTABLE_PATH), "exec"], command[:2])
         self.assertIn("--ephemeral", command)
         self.assertIn("--json", command)
         self.assertEqual(1, command.count("-m"))
@@ -1619,8 +1696,43 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
             outputs,
             evidence,
             host_results=process.results,
-            executable_sha256=captured_executable_sha256(),
+            executable_sha256=executable_bytes_sha256(),
         )
+
+    def test_executable_capture_hashes_real_regular_bytes_and_rejects_indirection(self) -> None:
+        self.assertTrue(TEST_EXECUTABLE_PATH.is_file())
+        self.assertFalse(TEST_EXECUTABLE_PATH.is_symlink())
+        captured = self.runner.capture_executable(str(TEST_EXECUTABLE_PATH))
+        self.assertEqual(str(TEST_EXECUTABLE_PATH), captured["resolvedExecutable"])
+        self.assertEqual(
+            executable_bytes_sha256(),
+            captured["executableSha256"],
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            linked = root / "linked-executable"
+            linked.symlink_to(TEST_EXECUTABLE_PATH)
+            with self.assertRaises((OSError, ValueError)):
+                self.runner.capture_executable(str(linked))
+
+            nonregular = root / "directory-executable"
+            nonregular.mkdir()
+            with self.assertRaises((OSError, ValueError)):
+                self.runner.capture_executable(str(nonregular))
+
+            replaced = root / "replaceable-executable"
+            replaced.write_bytes(TEST_EXECUTABLE_PATH.read_bytes())
+            replaced.chmod(0o700)
+            before = self.runner.capture_executable(str(replaced))
+            replaced.write_bytes(replaced.read_bytes() + b"replaced")
+            replaced.chmod(0o700)
+            after = self.runner.capture_executable(str(replaced))
+            self.assertEqual(executable_bytes_sha256(replaced), after["executableSha256"])
+            self.assertNotEqual(
+                before["executableSha256"],
+                after["executableSha256"],
+            )
 
     def test_scoring_schema_is_closed_and_status_precedence_is_stable(self) -> None:
         case = self.fixture["cases"][0]
@@ -1677,7 +1789,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                     else {"activation": assertion_status}
                 )
                 outputs = {case["id"]: _forward_observation(case, **overrides)}
-                code, evidence = self.runner.run_offline(fixture, outputs)
+                code, evidence = _run_offline(self.runner, fixture, outputs)
                 self.assertEqual(expected_code, code)
                 self.assertEqual("offline", evidence["mode"])
                 self.assertEqual(assertion_status, evidence["status"])
@@ -1698,7 +1810,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
             aggregate["cases"][1],
             activation="fail",
         )
-        code, evidence = self.runner.run_offline(aggregate, outputs)
+        code, evidence = _run_offline(self.runner, aggregate, outputs)
         self.assertEqual(self.runner.FAIL, code)
         self.assertEqual("fail", evidence["status"])
         _assert_forward_evidence_derivations(
@@ -1708,6 +1820,51 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
             outputs,
             evidence,
         )
+
+    def test_dict_mode_hashes_exact_supplied_fixture_bytes_not_reserialization(self) -> None:
+        self.assertEqual(
+            OFFICIAL_FIXTURE_SHA256,
+            fixture_bytes_sha256(FIXTURE_PATH.read_bytes()),
+        )
+        fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
+        outputs = _forward_outputs(fixture)
+        pretty_bytes = deterministic_fixture_bytes(fixture)
+        compact_bytes = (
+            json.dumps(
+                fixture,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+            + "\n"
+        ).encode("utf-8")
+        self.assertEqual(json.loads(pretty_bytes), json.loads(compact_bytes))
+        self.assertNotEqual(
+            fixture_bytes_sha256(pretty_bytes),
+            fixture_bytes_sha256(compact_bytes),
+        )
+        for fixture_bytes in (pretty_bytes, compact_bytes):
+            with self.subTest(bytes_sha256=fixture_bytes_sha256(fixture_bytes)):
+                code, evidence = _run_offline(
+                    self.runner,
+                    fixture,
+                    outputs,
+                    fixture_bytes,
+                )
+                self.assertEqual(self.runner.PASS, code)
+                self.assertEqual(
+                    fixture_bytes_sha256(fixture_bytes),
+                    evidence["fixtureSha256"],
+                )
+
+        mismatched = copy.deepcopy(fixture)
+        mismatched["cases"][0]["prompt"] += " mismatched bytes"
+        code, _ = _run_offline(
+            self.runner,
+            fixture,
+            outputs,
+            deterministic_fixture_bytes(mismatched),
+        )
+        self.assertEqual(self.runner.FAIL, code)
 
     def test_host_uses_fresh_processes_and_pre_post_checks_per_case(self) -> None:
         fixture = _forward_fixture(
@@ -1719,9 +1876,10 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
         scorer = _FakeScorer(outputs, timeline)
         checker = _FakePrerequisiteChecker(_passing_prerequisites())
 
-        code, evidence = self.runner.run_host(
+        code, evidence = _run_host(
+            self.runner,
             fixture,
-            "/opt/codex",
+            str(TEST_EXECUTABLE_PATH),
             process,
             checker,
             scorer,
@@ -1739,7 +1897,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
             scorer.calls,
         )
         self.assertEqual(
-            [("/opt/codex", "gpt-5.6-sol", "0.144.5")] * 4,
+            [(str(TEST_EXECUTABLE_PATH), "gpt-5.6-sol", "0.144.5")] * 4,
             checker.calls,
         )
         self.assertEqual([1, 2], [row["sessionOrdinal"] for row in evidence["cases"]])
@@ -1751,7 +1909,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
             outputs,
             evidence,
             host_results=process.results,
-            executable_sha256=captured_executable_sha256(),
+            executable_sha256=executable_bytes_sha256(),
         )
 
     def test_host_blocks_exact_prerequisites_without_fallback(self) -> None:
@@ -1773,9 +1931,10 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                 process = _FakeHostProcess()
                 scorer = _FakeScorer(_forward_outputs(fixture))
                 checker = _FakePrerequisiteChecker(snapshot)
-                code, evidence = self.runner.run_host(
+                code, evidence = _run_host(
+                    self.runner,
                     fixture,
-                    "/opt/codex",
+                    str(TEST_EXECUTABLE_PATH),
                     process,
                     checker,
                     scorer,
@@ -1784,9 +1943,12 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                 self.assertEqual([], process.commands)
                 self.assertEqual([], scorer.calls)
                 self.assertEqual(1, len(checker.calls))
+                self.assertEqual([], evidence["cases"])
+                self.assertEqual(0, evidence["summary"]["attemptedCount"])
+                self.assertEqual("blocked", evidence["status"])
                 self.assertEqual(reason, evidence["host"]["blockerReason"])
                 self.assertEqual(
-                    None if reason == "missing_binary" else captured_executable_sha256(),
+                    None if reason == "missing_binary" else executable_bytes_sha256(),
                     evidence["host"]["resolvedExecutableSha256"],
                 )
                 _assert_forward_evidence_schema(self, evidence)
@@ -1796,7 +1958,11 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
             "DEV136-FWD-DESIGN-001", "DEV136-FWD-REVIEW-001"
         )
         post_mutations = {
-            "resolved_path": {"resolvedExecutable": "/opt/replaced-codex"},
+            "resolved_path": {
+                "resolvedExecutable": str(
+                    TEST_EXECUTABLE_PATH.with_name("replaced-codex")
+                )
+            },
             "executable_bytes": {"executableSha256": "f" * 64},
             "version": {"version": "0.144.6"},
             "authentication": {"authenticated": False},
@@ -1808,11 +1974,13 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                 post = _passing_prerequisites()
                 post.update(mutation)
                 process = _FakeHostProcess()
-                scorer = _FakeScorer(_forward_outputs(fixture))
+                outputs = _forward_outputs(fixture)
+                scorer = _FakeScorer(outputs)
                 checker = _FakePrerequisiteChecker(_passing_prerequisites(), post)
-                code, evidence = self.runner.run_host(
+                code, evidence = _run_host(
+                    self.runner,
                     fixture,
-                    "/opt/codex",
+                    str(TEST_EXECUTABLE_PATH),
                     process,
                     checker,
                     scorer,
@@ -1828,20 +1996,32 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                     "post_capture_prerequisite_drift",
                     evidence["host"]["blockerReason"],
                 )
+                self.assertEqual([], evidence["cases"])
+                _assert_forward_evidence_derivations(
+                    self,
+                    self.runner,
+                    fixture,
+                    outputs,
+                    evidence,
+                    host_results=process.results,
+                    executable_sha256=executable_bytes_sha256(),
+                )
 
         second_post = _passing_prerequisites()
         second_post.update({"pluginAvailable": False})
         process = _FakeHostProcess()
-        scorer = _FakeScorer(_forward_outputs(fixture))
+        outputs = _forward_outputs(fixture)
+        scorer = _FakeScorer(outputs)
         checker = _FakePrerequisiteChecker(
             _passing_prerequisites(),
             _passing_prerequisites(),
             _passing_prerequisites(),
             second_post,
         )
-        code, _ = self.runner.run_host(
+        code, evidence = _run_host(
+            self.runner,
             fixture,
-            "/opt/codex",
+            str(TEST_EXECUTABLE_PATH),
             process,
             checker,
             scorer,
@@ -1851,14 +2031,29 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
         self.assertEqual(4, len(checker.calls))
         self.assertEqual([fixture["cases"][0]["id"]], scorer.calls)
         self.assertTrue(all(not path.exists() for path in process.output_paths))
+        self.assertEqual(
+            [fixture["cases"][0]["id"]],
+            [row["caseId"] for row in evidence["cases"]],
+        )
+        _assert_forward_evidence_derivations(
+            self,
+            self.runner,
+            fixture,
+            outputs,
+            evidence,
+            host_results=process.results,
+            executable_sha256=executable_bytes_sha256(),
+        )
 
         fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
         process = _FakeHostProcess(returncodes=[7])
-        scorer = _FakeScorer(_forward_outputs(fixture))
+        outputs = _forward_outputs(fixture)
+        scorer = _FakeScorer(outputs)
         checker = _FakePrerequisiteChecker(_passing_prerequisites())
-        code, evidence = self.runner.run_host(
+        code, evidence = _run_host(
+            self.runner,
             fixture,
-            "/opt/codex",
+            str(TEST_EXECUTABLE_PATH),
             process,
             checker,
             scorer,
@@ -1869,18 +2064,30 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
         self.assertEqual(2, len(checker.calls))
         self.assertEqual("process_failed", evidence["host"]["blockerReason"])
         self.assertTrue(all(not path.exists() for path in process.output_paths))
+        self.assertEqual([], evidence["cases"])
+        _assert_forward_evidence_derivations(
+            self,
+            self.runner,
+            fixture,
+            outputs,
+            evidence,
+            host_results=process.results,
+            executable_sha256=executable_bytes_sha256(),
+        )
 
     def test_scorer_failure_cleans_raw_response_and_returns_stable_failure(self) -> None:
         fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
         process = _FakeHostProcess()
+        outputs = _forward_outputs(fixture)
         scorer = _FakeScorer(
-            _forward_outputs(fixture),
+            outputs,
             error=RuntimeError("injected scorer failure"),
         )
         checker = _FakePrerequisiteChecker(_passing_prerequisites())
-        code, evidence = self.runner.run_host(
+        code, evidence = _run_host(
+            self.runner,
             fixture,
-            "/opt/codex",
+            str(TEST_EXECUTABLE_PATH),
             process,
             checker,
             scorer,
@@ -1891,6 +2098,16 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
         self.assertEqual("scoring_failed", evidence["host"]["blockerReason"])
         self.assertNotIn("injected scorer failure", json.dumps(evidence))
         self.assertTrue(all(not path.exists() for path in process.output_paths))
+        self.assertEqual([], evidence["cases"])
+        _assert_forward_evidence_derivations(
+            self,
+            self.runner,
+            fixture,
+            outputs,
+            evidence,
+            host_results=process.results,
+            executable_sha256=executable_bytes_sha256(),
+        )
 
     def test_host_hashes_and_discards_raw_private_response_content(self) -> None:
         fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
@@ -1899,9 +2116,10 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
         process = _FakeHostProcess(responses=[raw])
         outputs = _forward_outputs(fixture)
         scorer = _FakeScorer(outputs)
-        code, evidence = self.runner.run_host(
+        code, evidence = _run_host(
+            self.runner,
             fixture,
-            "/opt/codex",
+            str(TEST_EXECUTABLE_PATH),
             process,
             _FakePrerequisiteChecker(
                 _passing_prerequisites(), _passing_prerequisites()
@@ -1924,11 +2142,12 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
             outputs,
             evidence,
             host_results=process.results,
-            executable_sha256=captured_executable_sha256(),
+            executable_sha256=executable_bytes_sha256(),
         )
 
     def assert_invalid_fixture_rejected_before_use(self, fixture: dict) -> None:
-        offline_code, _ = self.runner.run_offline(
+        offline_code, _ = _run_offline(
+            self.runner,
             fixture,
             _ExplodingScorerOutputs(),
         )
@@ -1936,9 +2155,10 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
 
         process = _FakeHostProcess()
         scorer = _FakeScorer({})
-        host_code, _ = self.runner.run_host(
+        host_code, _ = _run_host(
+            self.runner,
             fixture,
-            "/opt/codex",
+            str(TEST_EXECUTABLE_PATH),
             process,
             _FakePrerequisiteChecker(_passing_prerequisites()),
             scorer,
@@ -1994,9 +2214,10 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
         process = _FakeHostProcess()
         outputs = _forward_outputs(fixture, activation="fail")
         scorer = _FakeScorer(outputs)
-        code, evidence = self.runner.run_host(
+        code, evidence = _run_host(
+            self.runner,
             fixture,
-            "/opt/codex",
+            str(TEST_EXECUTABLE_PATH),
             process,
             _FakePrerequisiteChecker(
                 _passing_prerequisites(), _passing_prerequisites()
@@ -2014,7 +2235,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
             outputs,
             evidence,
             host_results=process.results,
-            executable_sha256=captured_executable_sha256(),
+            executable_sha256=executable_bytes_sha256(),
         )
 
     def test_cli_writes_evidence_and_returns_real_pass_fail_blocked_exits(self) -> None:
@@ -2068,12 +2289,17 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                     self.assertTrue(evidence_path.is_file())
                     evidence = load_json(evidence_path)
                     self.assertEqual(assertion_status, evidence["status"])
+                    self.assertEqual(
+                        OFFICIAL_FIXTURE_SHA256,
+                        evidence["fixtureSha256"],
+                    )
                     _assert_forward_evidence_derivations(
                         self,
                         self.runner,
                         self.fixture,
                         outputs,
                         evidence,
+                        fixture_bytes=FIXTURE_PATH.read_bytes(),
                     )
 
             for flag, wrong_value, blocker_reason in (
@@ -2146,19 +2372,147 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
             self.assertEqual("missing_binary", blocked["host"]["blockerReason"])
             _assert_forward_evidence_schema(self, blocked)
 
+            linked_codex = root / "linked-codex"
+            linked_codex.symlink_to(TEST_EXECUTABLE_PATH)
+            linked_evidence = root / "linked-host-evidence.json"
+            linked_command = list(host_command)
+            linked_command[linked_command.index("--evidence") + 1] = str(
+                linked_evidence
+            )
+            environment["CODEX_BIN"] = str(linked_codex)
+            completed = subprocess.run(
+                linked_command,
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                env=environment,
+            )
+            self.assertEqual(2, completed.returncode, completed.stderr)
+            linked_blocked = load_json(linked_evidence)
+            self.assertEqual("blocked", linked_blocked["status"])
+            self.assertEqual(
+                "nonregular_binary",
+                linked_blocked["host"]["blockerReason"],
+            )
+            self.assertIsNone(
+                linked_blocked["host"]["resolvedExecutableSha256"]
+            )
+
+    def test_host_writer_binds_normalized_process_measurements_without_raw_payloads(self) -> None:
+        fixture = _forward_fixture(
+            "DEV136-FWD-DESIGN-001",
+            "DEV136-FWD-REVIEW-001",
+        )
+        fixture_bytes = deterministic_fixture_bytes(fixture)
+        outputs = _forward_outputs(fixture)
+        process = _FakeHostProcess(
+            responses=[b"approved response one", b"approved response two"]
+        )
+        evidence_code, evidence = _run_host(
+            self.runner,
+            fixture,
+            str(TEST_EXECUTABLE_PATH),
+            process,
+            _FakePrerequisiteChecker(_passing_prerequisites()),
+            _FakeScorer(outputs),
+            fixture_bytes,
+        )
+        self.assertEqual(self.runner.PASS, evidence_code)
+        _assert_forward_evidence_derivations(
+            self,
+            self.runner,
+            fixture,
+            outputs,
+            evidence,
+            fixture_bytes=fixture_bytes,
+            host_results=process.results,
+            executable_sha256=executable_bytes_sha256(),
+        )
+        self.assertTrue(
+            all(
+                set(result)
+                == {
+                    "codexExitCode",
+                    "responseSha256",
+                    "responseBytes",
+                    "toolEventCount",
+                }
+                for result in process.results
+            )
+        )
+
+        mutations = {
+            "codex_exit": lambda value: value["cases"][0].update(
+                {"codexExitCode": 9}
+            ),
+            "response_hash": lambda value: value["cases"][0].update(
+                {"responseSha256": "c" * 64}
+            ),
+            "response_bytes": lambda value: value["cases"][0].update(
+                {"responseBytes": value["cases"][0]["responseBytes"] + 1}
+            ),
+            "tool_events": lambda value: value["cases"][0].update(
+                {"toolEventCount": value["cases"][0]["toolEventCount"] + 1}
+            ),
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "host-evidence.json"
+            path.write_text("old-host-evidence", encoding="utf-8")
+            _write_bound_evidence(
+                self.runner,
+                path,
+                evidence,
+                fixture,
+                outputs,
+                fixture_bytes=fixture_bytes,
+                host_results=process.results,
+                executable_sha256=executable_bytes_sha256(),
+            )
+            self.assertEqual(evidence, load_json(path))
+
+            for name, mutate in mutations.items():
+                with self.subTest(mutation=name):
+                    path.write_text("old-host-evidence", encoding="utf-8")
+                    mutant = copy.deepcopy(evidence)
+                    mutate(mutant)
+                    with self.assertRaises(ValueError):
+                        _write_bound_evidence(
+                            self.runner,
+                            path,
+                            mutant,
+                            fixture,
+                            outputs,
+                            fixture_bytes=fixture_bytes,
+                            host_results=process.results,
+                            executable_sha256=executable_bytes_sha256(),
+                        )
+                    self.assertEqual(
+                        "old-host-evidence",
+                        path.read_text(encoding="utf-8"),
+                    )
+
     def test_evidence_writer_rejects_recursive_schema_and_privacy_mutations(self) -> None:
         fixture = _forward_fixture(
             "DEV136-FWD-DESIGN-001",
             "DEV136-FWD-REVIEW-001",
         )
         outputs = _forward_outputs(fixture)
-        _, evidence = self.runner.run_offline(fixture, outputs)
+        _, evidence = _run_offline(self.runner, fixture, outputs)
 
         def falsify_score(value: dict) -> None:
             value["cases"][0]["assertions"]["activation"] = "fail"
             value["cases"][0]["verdict"] = "fail"
             value["status"] = "fail"
             value["summary"].update({"passedCount": 1, "failedCount": 1})
+
+        def drop_trailing_pass_row(value: dict) -> None:
+            value["cases"].pop()
+            value["summary"].update(
+                {
+                    "attemptedCount": 1,
+                    "passedCount": 1,
+                }
+            )
 
         mutations = {
             "top_extra": lambda value: value.update({"unexpected": True}),
@@ -2242,6 +2596,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
             "fixture_count_drift": lambda value: value["summary"].update(
                 {"fixtureCaseCount": 3}
             ),
+            "incomplete_pass_bundle": drop_trailing_pass_row,
         }
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "evidence.json"
@@ -2266,7 +2621,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
     def test_evidence_writer_is_closed_atomic_and_failure_safe(self) -> None:
         fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
         outputs = _forward_outputs(fixture)
-        _, evidence = self.runner.run_offline(fixture, outputs)
+        _, evidence = _run_offline(self.runner, fixture, outputs)
         _assert_forward_evidence_derivations(
             self,
             self.runner,
@@ -2278,6 +2633,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
             root = Path(directory)
             path = root / "evidence.json"
             path.write_text("stale", encoding="utf-8")
+            old_inode = path.stat().st_ino
             _write_bound_evidence(
                 self.runner,
                 path,
@@ -2285,6 +2641,10 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                 fixture,
                 outputs,
             )
+            new_inode = path.stat().st_ino
+            if old_inode == 0 or new_inode == 0:
+                self.skipTest("filesystem does not expose stable inode identity")
+            self.assertNotEqual(old_inode, new_inode)
             self.assertEqual(evidence, load_json(path))
             self.assertEqual([path], list(root.iterdir()))
 
