@@ -1219,6 +1219,67 @@ class DirectedReferenceProbeTests(unittest.TestCase):
                         expected_reasons,
                     )
 
+    def test_rg_files_discovery_rejects_closed_grammar_bypasses(self):
+        reference_root = REFERENCE_ROOT_RELATIVE
+        rejected = {
+            "unknown_long_split": (
+                f"rg --files --mystery value {reference_root}"
+            ),
+            "unknown_long_equals": (
+                f"rg --files --mystery=value {reference_root}"
+            ),
+            "ignore_file_split": (
+                f"rg --files --ignore-file /tmp/ignore {reference_root}"
+            ),
+            "ignore_file_equals": (
+                f"rg --files --ignore-file=/tmp/ignore {reference_root}"
+            ),
+            "pre_reader": (
+                f"rg --files --pre /tmp/helper {reference_root}"
+            ),
+            "pre_glob": (
+                f"rg --files --pre-glob '*.md' {reference_root}"
+            ),
+            "search_zip": f"rg --files --search-zip {reference_root}",
+            "pattern_file_short": (
+                f"rg --files -f /tmp/patterns {reference_root}"
+            ),
+            "pattern_file_long": (
+                f"rg --files --file /tmp/patterns {reference_root}"
+            ),
+        }
+        expected_reasons = {
+            "ambiguous_reference_read",
+            "bulk_reference_content_read",
+        }
+        for surface in (
+            "command_event",
+            "nested_mapping",
+            "json_string_arguments",
+        ):
+            with self.subTest(surface=surface, form="exact_discovery"):
+                self.assertEqual(
+                    set(),
+                    observed_reference_reads(
+                        self.direct_reader_events(
+                            f"rg --files {reference_root}",
+                            surface=surface,
+                            cwd=ROOT,
+                        ),
+                        "synthetic-case",
+                    ),
+                )
+            for name, command in rejected.items():
+                with self.subTest(surface=surface, form=name):
+                    self.assert_probe_failure_in(
+                        self.direct_reader_events(
+                            command,
+                            surface=surface,
+                            cwd=ROOT,
+                        ),
+                        expected_reasons,
+                    )
+
     def test_duplicate_direct_reader_invocations_fail_instead_of_set_deduplication(self):
         owner = f"{REFERENCE_ROOT_RELATIVE}/apple-api-availability.md"
         command = f"rg -n needle {owner}"
