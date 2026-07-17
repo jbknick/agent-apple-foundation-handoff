@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from collections import Counter
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1641,6 +1642,57 @@ class _AtomicFault:
             raise OSError(f"injected {phase} failure")
 
 
+def _canonical_live_response(
+    case: dict,
+    *,
+    state_version: str = "state-v1",
+    policy_version: str = "policy-v1",
+    review_boundary: str = "A separate authorized follow-on boundary is required.",
+) -> bytes:
+    router = case["routerInput"]
+    machine = [
+        "activationStatus = activated",
+        f"selectedSkill = {case['skillUnderTest']}",
+        (
+            "routerInput = { "
+            f"domain = {router['domain']}, "
+            f"requestedOperation: {router['requestedOperation']}, "
+            f"artifactState = {router['artifactState']}, "
+            f"evidenceState: {router['evidenceState']} "
+            "}"
+        ),
+        "architectureResult",
+        '  architectureSchemaVersion: "1.0"',
+        f'  stateVersion: "{state_version}"',
+        f'  policyVersion: "{policy_version}"',
+        "  workflow: review",
+        "  scope: synthetic implementation",
+        "  pattern = baton_pass",
+        "  source = { profile: source, provider: apple_on_device }",
+        "  destination = { profile: review, provider: apple_on_device }",
+        "  finalResponseOwner: review",
+        "  apiAvailability[] = []",
+        "  stateModel: deterministic",
+        "  trustBoundaries[]: [model_to_application]",
+        "  contextPolicy: minimized",
+        "  toolAndEffectPolicy: application_owned",
+        "  failurePolicy: fail_closed",
+        "  verification[] = [pass]",
+        "  limitations[]: []",
+    ]
+    sections = [
+        *(f"## {heading}\nBounded result." for heading in COMMON_SECTIONS),
+        "## Findings\n" + review_boundary,
+    ]
+    return (
+        "```text\n"
+        + "\n".join(machine)
+        + "\n```\n\n"
+        + "\n\n".join(sections)
+        + "\n"
+    ).encode("utf-8")
+
+
 class CodexForwardRunnerContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -2727,6 +2779,681 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                     fixture,
                     outputs,
                 )
+
+    def test_live_score_accepts_mixed_delimiters_and_rejects_placeholders_or_negated_review_boundary(self) -> None:
+        case = _forward_fixture("DEV136-FWD-REVIEW-001")["cases"][0]
+        expected_positive = _forward_assertions(one_clarification="not_applicable")
+
+        with self.subTest(boundary="canonical_mixed_delimiters"):
+            observation = self.runner.live_score(
+                case,
+                _canonical_live_response(case),
+                [],
+            )
+            self.assertEqual(expected_positive, observation["assertions"])
+
+        for placeholder in ("not_specified", "unchanged_existing_version"):
+            with self.subTest(boundary="version_placeholder", value=placeholder):
+                observation = self.runner.live_score(
+                    case,
+                    _canonical_live_response(
+                        case,
+                        state_version=placeholder,
+                        policy_version=placeholder,
+                    ),
+                    [],
+                )
+                self.assertEqual(
+                    "fail",
+                    observation["assertions"]["independent_version_labels"],
+                )
+
+        with self.subTest(boundary="negated_follow_on_authority"):
+            observation = self.runner.live_score(
+                case,
+                _canonical_live_response(
+                    case,
+                    review_boundary=(
+                        "There is no separate authorized follow-on boundary."
+                    ),
+                ),
+                [],
+            )
+            self.assertEqual(
+                "fail",
+                observation["assertions"]["review_first_ordering"],
+            )
+
+    def test_paths_reject_ancestor_symlinks_and_execution_is_bound_to_captured_identity(self) -> None:
+        fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
+        outputs = _forward_outputs(fixture)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            with self.subTest(boundary="executable_ancestor_symlink"):
+                real_parent = root / "real-executable-parent"
+                real_parent.mkdir()
+                executable = real_parent / "codex"
+                executable.write_bytes(b"#!/bin/sh\nexit 0\n")
+                executable.chmod(0o700)
+                linked_parent = root / "linked-executable-parent"
+                linked_parent.symlink_to(real_parent, target_is_directory=True)
+                with self.assertRaises((OSError, ValueError)):
+                    self.runner.capture_executable(
+                        str(linked_parent / executable.name)
+                    )
+
+            with self.subTest(boundary="evidence_ancestor_symlink"):
+                _, evidence = _run_offline(self.runner, fixture, outputs)
+                real_parent = root / "real-evidence-parent"
+                nested = real_parent / "nested"
+                nested.mkdir(parents=True)
+                linked_parent = root / "linked-evidence-parent"
+                linked_parent.symlink_to(real_parent, target_is_directory=True)
+                destination = linked_parent / "nested/evidence.json"
+                with self.assertRaises((OSError, ValueError)):
+                    _write_bound_evidence(
+                        self.runner,
+                        destination,
+                        evidence,
+                        fixture,
+                        outputs,
+                    )
+                self.assertFalse((nested / "evidence.json").exists())
+
+            with self.subTest(boundary="captured_execution_path"):
+                captured = root / "captured-codex"
+                requested = root / "uncaptured-codex"
+                for path in (captured, requested):
+                    path.write_bytes(b"#!/bin/sh\nexit 0\n")
+                    path.chmod(0o700)
+                process = _FakeHostProcess()
+                code, _ = _run_host(
+                    self.runner,
+                    fixture,
+                    str(requested),
+                    process,
+                    _FakePrerequisiteChecker(
+                        _passing_prerequisites(str(captured))
+                    ),
+                    _FakeScorer(outputs),
+                )
+                safely_bound = (
+                    code == self.runner.FAIL and not process.commands
+                ) or process.commands[0][0] == str(captured)
+                self.assertTrue(safely_bound)
+
+            with self.subTest(boundary="transient_executable_swap"):
+                executable = root / "swappable-codex"
+                replacement = root / "replacement-codex"
+                executable.write_bytes(b"#!/bin/sh\n# captured\nexit 0\n")
+                executable.chmod(0o700)
+                replacement.write_bytes(b"#!/bin/sh\n# replacement\nexit 0\n")
+                replacement.chmod(0o700)
+                captured_digest = executable_bytes_sha256(executable)
+
+                class SwappingChecker:
+                    def __init__(self) -> None:
+                        self.calls = 0
+
+                    def __call__(
+                        self,
+                        binary: str,
+                        model: str,
+                        version: str,
+                    ) -> dict:
+                        self.calls += 1
+                        snapshot = _passing_prerequisites(binary)
+                        if self.calls == 1:
+                            os.replace(replacement, executable)
+                        return snapshot
+
+                class InspectingProcess(_FakeHostProcess):
+                    def __init__(self) -> None:
+                        super().__init__()
+                        self.executed_hashes: list[str] = []
+
+                    def __call__(self, command: list[str], **kwargs):
+                        self.executed_hashes.append(
+                            executable_bytes_sha256(Path(command[0]))
+                        )
+                        return super().__call__(command, **kwargs)
+
+                process = InspectingProcess()
+                code, _ = _run_host(
+                    self.runner,
+                    fixture,
+                    str(executable),
+                    process,
+                    SwappingChecker(),
+                    _FakeScorer(outputs),
+                )
+                self.assertEqual(self.runner.FAIL, code)
+                self.assertTrue(
+                    not process.commands
+                    or process.executed_hashes == [captured_digest]
+                )
+
+            with self.subTest(boundary="nonexecutable_binary_taxonomy"):
+                nonexecutable = root / "nonexecutable-codex"
+                nonexecutable.write_bytes(b"regular but not executable")
+                nonexecutable.chmod(0o600)
+                snapshot = self.runner.default_prerequisite_checker(
+                    str(nonexecutable),
+                    "gpt-5.6-sol",
+                    "0.144.5",
+                )
+                self.assertEqual(
+                    "nonexecutable_binary",
+                    snapshot.get("captureError"),
+                )
+                self.assertEqual(
+                    "nonexecutable_binary",
+                    self.runner._precondition_blocker(snapshot),
+                )
+
+    def test_prerequisites_require_exact_auth_plugin_entry_and_regular_skill_payloads(self) -> None:
+        def build_plugin_tree(repo_root: Path) -> tuple[Path, dict]:
+            plugin_root = (
+                repo_root / "plugins/apple-foundation-models-handoff"
+            )
+            manifest_path = plugin_root / ".codex-plugin/plugin.json"
+            manifest_path.parent.mkdir(parents=True)
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "name": "apple-foundation-models-handoff",
+                        "interface": {
+                            "capabilities": list(WORKFLOW_SECTIONS),
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            for skill in SKILLS:
+                target = plugin_root / "skills" / skill / "SKILL.md"
+                target.parent.mkdir(parents=True)
+                target.write_bytes(
+                    (
+                        ROOT
+                        / "plugins/apple-foundation-models-handoff/skills"
+                        / skill
+                        / "SKILL.md"
+                    ).read_bytes()
+                )
+            entry = {
+                "pluginId": (
+                    "apple-foundation-models-handoff@"
+                    "agent-apple-foundation-handoff"
+                ),
+                "name": "apple-foundation-models-handoff",
+                "marketplaceName": "agent-apple-foundation-handoff",
+                "version": "0.1.0",
+                "installed": True,
+                "enabled": True,
+                "source": {"source": "local", "path": str(plugin_root)},
+                "marketplaceSource": {
+                    "sourceType": "local",
+                    "source": str(repo_root),
+                },
+                "installPolicy": "AVAILABLE",
+                "authPolicy": "ON_INSTALL",
+            }
+            return plugin_root, {"installed": [entry], "available": []}
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            baseline_root = root / "baseline"
+            _, listing = build_plugin_tree(baseline_root)
+            with mock.patch.object(self.runner, "ROOT", baseline_root):
+                self.assertTrue(
+                    self.runner._plugin_is_installed_enabled_with_capabilities(
+                        json.dumps(listing)
+                    )
+                )
+
+            version_probe = subprocess.CompletedProcess(
+                ["codex", "--version"],
+                0,
+                "codex-cli 0.144.5\n",
+                "",
+            )
+            exact_auth_probe = subprocess.CompletedProcess(
+                ["codex", "login", "status"],
+                0,
+                "",
+                "Logged in using ChatGPT\n",
+            )
+            plugin_probe = subprocess.CompletedProcess(
+                ["codex", "plugin", "list", "--json"],
+                0,
+                json.dumps(listing),
+                "",
+            )
+            with mock.patch.object(self.runner, "ROOT", baseline_root), mock.patch.object(
+                self.runner,
+                "_probe",
+                side_effect=(version_probe, exact_auth_probe, plugin_probe),
+            ):
+                snapshot = self.runner.default_prerequisite_checker(
+                    str(TEST_EXECUTABLE_PATH),
+                    "gpt-5.6-sol",
+                    "0.144.5",
+                )
+            self.assertTrue(snapshot["authenticated"])
+            self.assertTrue(snapshot["pluginAvailable"])
+
+            invalid_auth_results = (
+                subprocess.CompletedProcess(
+                    ["codex", "login", "status"],
+                    0,
+                    "Logged in using ChatGPT\n",
+                    "",
+                ),
+                subprocess.CompletedProcess(
+                    ["codex", "login", "status"],
+                    0,
+                    "",
+                    "",
+                ),
+                subprocess.CompletedProcess(
+                    ["codex", "login", "status"],
+                    0,
+                    "",
+                    "Logged in using ChatGPT\nextra\n",
+                ),
+            )
+            for auth_probe in invalid_auth_results:
+                with self.subTest(auth=(auth_probe.stdout, auth_probe.stderr)), mock.patch.object(
+                    self.runner, "ROOT", baseline_root
+                ), mock.patch.object(
+                    self.runner,
+                    "_probe",
+                    side_effect=(version_probe, auth_probe, plugin_probe),
+                ):
+                    snapshot = self.runner.default_prerequisite_checker(
+                        str(TEST_EXECUTABLE_PATH),
+                        "gpt-5.6-sol",
+                        "0.144.5",
+                    )
+                    self.assertFalse(snapshot["authenticated"])
+
+            for mutation in (
+                "entry_extra_key",
+                "available_not_empty",
+                "skill_missing",
+                "skill_symlink",
+                "skill_payload_invalid",
+            ):
+                with self.subTest(plugin_contract=mutation):
+                    repo_root = root / mutation
+                    plugin_root, mutated = build_plugin_tree(repo_root)
+                    entry = mutated["installed"][0]
+                    if mutation == "entry_extra_key":
+                        entry["unexpected"] = True
+                    elif mutation == "available_not_empty":
+                        mutated["available"] = [copy.deepcopy(entry)]
+                    else:
+                        skill_path = (
+                            plugin_root
+                            / "skills"
+                            / SKILLS[0]
+                            / "SKILL.md"
+                        )
+                        if mutation == "skill_missing":
+                            skill_path.unlink()
+                        elif mutation == "skill_symlink":
+                            skill_path.unlink()
+                            skill_path.symlink_to(
+                                plugin_root
+                                / "skills"
+                                / SKILLS[1]
+                                / "SKILL.md"
+                            )
+                        else:
+                            skill_path.write_text(
+                                "---\nname: wrong-skill\n---\n",
+                                encoding="utf-8",
+                            )
+                    with mock.patch.object(self.runner, "ROOT", repo_root):
+                        self.assertFalse(
+                            self.runner._plugin_is_installed_enabled_with_capabilities(
+                                json.dumps(mutated)
+                            )
+                        )
+
+    def test_cli_normalizes_invalid_fixture_and_scorer_inputs_without_tracebacks(self) -> None:
+        def command(
+            cases: Path,
+            scorer: Path,
+            evidence: Path,
+        ) -> list[str]:
+            return [
+                sys.executable,
+                str(RUNNER_PATH),
+                "--mode",
+                "offline",
+                "--model",
+                "gpt-5.6-sol",
+                "--codex-version",
+                "0.144.5",
+                "--cases",
+                str(cases),
+                "--evidence",
+                str(evidence),
+                "--scorer-outputs",
+                str(scorer),
+            ]
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            valid_scorer = root / "valid-scorer.json"
+            valid_scorer.write_text(
+                json.dumps(_forward_outputs(self.fixture)),
+                encoding="utf-8",
+            )
+            fixture_inputs = {
+                "contract": json.dumps(
+                    {
+                        "private": (
+                            "Bearer synthetic-private-secret from "
+                            "/Users/private/customer.txt"
+                        )
+                    }
+                ),
+                "malformed_json": (
+                    '{"private":"Bearer synthetic-private-secret '
+                    'from /Users/private/customer.txt"'
+                ),
+            }
+            for name, payload in fixture_inputs.items():
+                with self.subTest(input="fixture", mutation=name):
+                    cases = root / f"{name}-fixture.json"
+                    cases.write_text(payload, encoding="utf-8")
+                    evidence = root / f"{name}-fixture-evidence.json"
+                    evidence.write_text("preserve-existing-evidence", encoding="utf-8")
+                    completed = subprocess.run(
+                        command(cases, valid_scorer, evidence),
+                        cwd=ROOT,
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertEqual(1, completed.returncode)
+                    self.assertEqual("", completed.stdout)
+                    self.assertEqual(
+                        ["fixture_contract_invalid"],
+                        completed.stderr.strip().splitlines(),
+                    )
+                    self.assertNotIn("Traceback", completed.stderr)
+                    self.assertNotIn("synthetic-private-secret", completed.stderr)
+                    self.assertNotIn("/Users/", completed.stderr)
+                    self.assertEqual(
+                        "preserve-existing-evidence",
+                        evidence.read_text(encoding="utf-8"),
+                    )
+
+            scorer_inputs = {
+                "contract": json.dumps(
+                    {
+                        "rawResponse": (
+                            "Bearer synthetic-private-secret from "
+                            "/Users/private/customer.txt"
+                        )
+                    }
+                ),
+                "malformed_json": (
+                    '{"rawResponse":"Bearer synthetic-private-secret '
+                    'from /Users/private/customer.txt"'
+                ),
+            }
+            for name, payload in scorer_inputs.items():
+                with self.subTest(input="scorer", mutation=name):
+                    scorer = root / f"{name}-scorer.json"
+                    scorer.write_text(payload, encoding="utf-8")
+                    evidence = root / f"{name}-scorer-evidence.json"
+                    completed = subprocess.run(
+                        command(FIXTURE_PATH, scorer, evidence),
+                        cwd=ROOT,
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertEqual(1, completed.returncode)
+                    self.assertEqual("", completed.stdout)
+                    self.assertEqual(
+                        ["scorer_outputs_invalid"],
+                        completed.stderr.strip().splitlines(),
+                    )
+                    self.assertNotIn("Traceback", completed.stderr)
+                    self.assertNotIn("synthetic-private-secret", completed.stderr)
+                    self.assertNotIn("/Users/", completed.stderr)
+                    normalized = load_json(evidence)
+                    self.assertEqual("fail", normalized["status"])
+                    self.assertEqual(
+                        "scoring_failed",
+                        normalized["host"]["blockerReason"],
+                    )
+                    self.assertEqual(0, normalized["summary"]["attemptedCount"])
+                    self.assertNotIn(
+                        "synthetic-private-secret",
+                        json.dumps(normalized),
+                    )
+
+    def test_codex_01445_tool_events_are_exact_and_malformed_jsonl_fails_closed(self) -> None:
+        completed_item_types = (
+            "agent_message",
+            "reasoning",
+            "command_execution",
+            "file_change",
+            "mcp_tool_call",
+            "collab_tool_call",
+            "web_search",
+            "todo_list",
+            "error",
+        )
+        jsonl = "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "item.completed",
+                        "item": {"type": item_type},
+                    }
+                )
+                for item_type in completed_item_types
+            ]
+            + [json.dumps({"type": "turn.completed", "usage": {}})]
+        )
+        with self.subTest(jsonl="pinned_event_taxonomy"):
+            events = self.runner._tool_events(jsonl)
+            self.assertEqual(
+                [
+                    "command_execution",
+                    "file_change",
+                    "mcp_tool_call",
+                    "collab_tool_call",
+                    "web_search",
+                ],
+                [event["item"]["type"] for event in events],
+            )
+
+        suffix_spoof = "\n".join(
+            (
+                json.dumps(
+                    {
+                        "type": "item.completed",
+                        "item": {"type": "not_a_tool_call"},
+                    }
+                ),
+                json.dumps({"type": "turn.completed", "usage": {}}),
+            )
+        )
+        with self.subTest(jsonl="suffix_spoof"):
+            with self.assertRaises(ValueError):
+                self.runner._tool_events(suffix_spoof)
+
+        malformed_streams = {
+            "invalid_json": "not-json",
+            "non_object": "[]",
+            "unknown_top_level": json.dumps({"type": "unknown"}),
+            "unknown_completed_item": json.dumps(
+                {
+                    "type": "item.completed",
+                    "item": {"type": "unknown"},
+                }
+            ),
+            "missing_terminal": json.dumps(
+                {
+                    "type": "item.completed",
+                    "item": {"type": "command_execution"},
+                }
+            ),
+        }
+        for name, payload in malformed_streams.items():
+            with self.subTest(jsonl=name):
+                with self.assertRaises(ValueError):
+                    self.runner._tool_events(payload)
+
+        fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
+        outputs = _forward_outputs(fixture)
+
+        class MalformedProcess(_FakeHostProcess):
+            def __call__(self, command: list[str], **kwargs):
+                completed = super().__call__(command, **kwargs)
+                return subprocess.CompletedProcess(
+                    command,
+                    0,
+                    "not-json\n",
+                    completed.stderr,
+                )
+
+        with self.subTest(jsonl="runner_normalization"):
+            process = MalformedProcess()
+            scorer = _FakeScorer(outputs)
+            try:
+                code, evidence = _run_host(
+                    self.runner,
+                    fixture,
+                    str(TEST_EXECUTABLE_PATH),
+                    process,
+                    _FakePrerequisiteChecker(_passing_prerequisites()),
+                    scorer,
+                )
+            except (ValueError, json.JSONDecodeError) as error:
+                self.fail(
+                    "malformed JSONL escaped instead of returning normalized fail: "
+                    f"{type(error).__name__}"
+                )
+            self.assertEqual(self.runner.FAIL, code)
+            self.assertEqual(
+                "process_failed",
+                evidence["host"]["blockerReason"],
+            )
+            self.assertEqual([], scorer.calls)
+
+    def test_model_unavailable_requires_cli_or_structured_error_not_agent_prose(self) -> None:
+        agent_prose = "\n".join(
+            (
+                json.dumps(
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "type": "agent_message",
+                            "text": "The model is unavailable in this scenario.",
+                        },
+                    }
+                ),
+                json.dumps({"type": "turn.completed", "usage": {}}),
+            )
+        )
+        agent_failure = subprocess.CompletedProcess(
+            ["codex", "exec"],
+            1,
+            agent_prose,
+            "",
+        )
+        cli_failure = subprocess.CompletedProcess(
+            ["codex", "exec"],
+            1,
+            "",
+            "Error: model gpt-5.6-sol is unavailable\n",
+        )
+        structured_failure = subprocess.CompletedProcess(
+            ["codex", "exec"],
+            1,
+            json.dumps(
+                {
+                    "type": "error",
+                    "message": "model gpt-5.6-sol is unavailable",
+                }
+            )
+            + "\n",
+            "",
+        )
+        with self.subTest(diagnostic="agent_message_prose"):
+            self.assertFalse(self.runner._is_model_unavailable(agent_failure))
+        with self.subTest(diagnostic="bounded_cli"):
+            self.assertTrue(self.runner._is_model_unavailable(cli_failure))
+        with self.subTest(diagnostic="structured_error"):
+            self.assertTrue(
+                self.runner._is_model_unavailable(structured_failure)
+            )
+
+        fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
+        outputs = _forward_outputs(fixture)
+
+        class AgentProseFailureProcess(_FakeHostProcess):
+            def __init__(self) -> None:
+                super().__init__(returncodes=[1])
+
+            def __call__(self, command: list[str], **kwargs):
+                completed = super().__call__(command, **kwargs)
+                return subprocess.CompletedProcess(
+                    command,
+                    1,
+                    agent_prose,
+                    completed.stderr,
+                )
+
+        with self.subTest(diagnostic="runner_agent_message_prose"):
+            process = AgentProseFailureProcess()
+            code, evidence = _run_host(
+                self.runner,
+                fixture,
+                str(TEST_EXECUTABLE_PATH),
+                process,
+                _FakePrerequisiteChecker(_passing_prerequisites()),
+                _FakeScorer(outputs),
+            )
+            self.assertEqual(self.runner.FAIL, code)
+            self.assertEqual(
+                "process_failed",
+                evidence["host"]["blockerReason"],
+            )
+
+    def test_plugin_activation_is_nonpass_until_fresh_host_cases_prove_it(self) -> None:
+        snapshot = _passing_prerequisites()
+        with self.subTest(evidence="structural_only"):
+            structural = self.runner._prerequisite_statuses(snapshot, None)
+            self.assertEqual("pass", structural["discovery"])
+            self.assertEqual("pass", structural["installation"])
+            self.assertNotEqual("pass", structural["pluginActivation"])
+
+        fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
+        outputs = _forward_outputs(fixture)
+        with self.subTest(evidence="fresh_host_cases"):
+            code, evidence = _run_host(
+                self.runner,
+                fixture,
+                str(TEST_EXECUTABLE_PATH),
+                _FakeHostProcess(),
+                _FakePrerequisiteChecker(snapshot),
+                _FakeScorer(outputs),
+            )
+            self.assertEqual(self.runner.PASS, code)
+            self.assertEqual(
+                "pass",
+                evidence["host"]["prerequisites"]["pluginActivation"],
+            )
 
 
 if __name__ == "__main__":
