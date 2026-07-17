@@ -318,6 +318,7 @@ FORWARD_ASSERTIONS = (
 
 FORWARD_STATUSES = {"pass", "fail", "blocked", "not_applicable"}
 FORWARD_EARLY_STOP_REASONS = {
+    "event_stream_invalid",
     "post_capture_prerequisite_drift",
     "process_failed",
     "scoring_failed",
@@ -1335,6 +1336,96 @@ def _passing_prerequisites(executable: str | None = None) -> dict:
     }
 
 
+def _codex_usage() -> dict[str, int]:
+    return {
+        "input_tokens": 11,
+        "cached_input_tokens": 2,
+        "output_tokens": 7,
+        "reasoning_output_tokens": 3,
+    }
+
+
+def _codex_command_item(
+    *,
+    item_id: str = "item_0",
+    command: str = "synthetic-command",
+    aggregated_output: str = "",
+    exit_code: int | None = None,
+    status: str = "in_progress",
+) -> dict:
+    return {
+        "id": item_id,
+        "type": "command_execution",
+        "command": command,
+        "aggregated_output": aggregated_output,
+        "exit_code": exit_code,
+        "status": status,
+    }
+
+
+def _canonical_codex_jsonl() -> str:
+    events = (
+        {"type": "thread.started", "thread_id": "thread_synthetic"},
+        {"type": "turn.started"},
+        {"type": "item.started", "item": _codex_command_item()},
+        {
+            "type": "item.completed",
+            "item": _codex_command_item(
+                aggregated_output="synthetic output",
+                exit_code=0,
+                status="completed",
+            ),
+        },
+        {"type": "turn.completed", "usage": _codex_usage()},
+    )
+    return "\n".join(json.dumps(event, sort_keys=True) for event in events)
+
+
+def _build_forward_plugin_tree(repo_root: Path) -> tuple[Path, dict]:
+    plugin_root = repo_root / "plugins/apple-foundation-models-handoff"
+    manifest_path = plugin_root / ".codex-plugin/plugin.json"
+    manifest_path.parent.mkdir(parents=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "name": "apple-foundation-models-handoff",
+                "interface": {"capabilities": list(WORKFLOW_SECTIONS)},
+            }
+        ),
+        encoding="utf-8",
+    )
+    for skill in SKILLS:
+        target = plugin_root / "skills" / skill / "SKILL.md"
+        target.parent.mkdir(parents=True)
+        target.write_bytes(
+            (
+                ROOT
+                / "plugins/apple-foundation-models-handoff/skills"
+                / skill
+                / "SKILL.md"
+            ).read_bytes()
+        )
+    entry = {
+        "pluginId": (
+            "apple-foundation-models-handoff@"
+            "agent-apple-foundation-handoff"
+        ),
+        "name": "apple-foundation-models-handoff",
+        "marketplaceName": "agent-apple-foundation-handoff",
+        "version": "0.1.0",
+        "installed": True,
+        "enabled": True,
+        "source": {"source": "local", "path": str(plugin_root)},
+        "marketplaceSource": {
+            "sourceType": "local",
+            "source": str(repo_root),
+        },
+        "installPolicy": "AVAILABLE",
+        "authPolicy": "ON_INSTALL",
+    }
+    return plugin_root, {"installed": [entry], "available": []}
+
+
 def _assert_forward_evidence_schema(
     test: unittest.TestCase,
     evidence: dict,
@@ -1570,12 +1661,7 @@ class _FakeHostProcess:
         response = self.responses[min(index, len(self.responses) - 1)]
         output_path.write_bytes(response)
         returncode = self.returncodes[min(index, len(self.returncodes) - 1)]
-        jsonl = "\n".join(
-            (
-                '{"type":"item.completed","item":{"type":"mcp_tool_call"}}',
-                '{"type":"turn.completed"}',
-            )
-        )
+        jsonl = _canonical_codex_jsonl()
         self.results.append(
             {
                 "codexExitCode": returncode,
@@ -3004,58 +3090,10 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                 self.assertIn(descriptor, observed["pass_fds"])
 
     def test_prerequisites_require_exact_auth_plugin_entry_and_regular_skill_payloads(self) -> None:
-        def build_plugin_tree(repo_root: Path) -> tuple[Path, dict]:
-            plugin_root = (
-                repo_root / "plugins/apple-foundation-models-handoff"
-            )
-            manifest_path = plugin_root / ".codex-plugin/plugin.json"
-            manifest_path.parent.mkdir(parents=True)
-            manifest_path.write_text(
-                json.dumps(
-                    {
-                        "name": "apple-foundation-models-handoff",
-                        "interface": {
-                            "capabilities": list(WORKFLOW_SECTIONS),
-                        },
-                    }
-                ),
-                encoding="utf-8",
-            )
-            for skill in SKILLS:
-                target = plugin_root / "skills" / skill / "SKILL.md"
-                target.parent.mkdir(parents=True)
-                target.write_bytes(
-                    (
-                        ROOT
-                        / "plugins/apple-foundation-models-handoff/skills"
-                        / skill
-                        / "SKILL.md"
-                    ).read_bytes()
-                )
-            entry = {
-                "pluginId": (
-                    "apple-foundation-models-handoff@"
-                    "agent-apple-foundation-handoff"
-                ),
-                "name": "apple-foundation-models-handoff",
-                "marketplaceName": "agent-apple-foundation-handoff",
-                "version": "0.1.0",
-                "installed": True,
-                "enabled": True,
-                "source": {"source": "local", "path": str(plugin_root)},
-                "marketplaceSource": {
-                    "sourceType": "local",
-                    "source": str(repo_root),
-                },
-                "installPolicy": "AVAILABLE",
-                "authPolicy": "ON_INSTALL",
-            }
-            return plugin_root, {"installed": [entry], "available": []}
-
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             baseline_root = root / "baseline"
-            _, listing = build_plugin_tree(baseline_root)
+            _, listing = _build_forward_plugin_tree(baseline_root)
             with mock.patch.object(self.runner, "ROOT", baseline_root):
                 self.assertTrue(
                     self.runner._plugin_is_installed_enabled_with_capabilities(
@@ -3138,7 +3176,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
             ):
                 with self.subTest(plugin_contract=mutation):
                     repo_root = root / mutation
-                    plugin_root, mutated = build_plugin_tree(repo_root)
+                    plugin_root, mutated = _build_forward_plugin_tree(repo_root)
                     entry = mutated["installed"][0]
                     if mutation == "entry_extra_key":
                         entry["unexpected"] = True
@@ -3290,39 +3328,34 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                     )
 
     def test_codex_01445_tool_events_are_exact_and_malformed_jsonl_fails_closed(self) -> None:
-        completed_item_types = (
-            "agent_message",
-            "reasoning",
-            "command_execution",
-            "file_change",
-            "mcp_tool_call",
-            "collab_tool_call",
-            "web_search",
-            "todo_list",
-            "error",
-        )
-        jsonl = "\n".join(
-            [
-                json.dumps(
-                    {
-                        "type": "item.completed",
-                        "item": {"type": item_type},
-                    }
-                )
-                for item_type in completed_item_types
-            ]
-            + [json.dumps({"type": "turn.completed", "usage": {}})]
-        )
         with self.subTest(jsonl="pinned_event_taxonomy"):
-            events = self.runner._tool_events(jsonl)
             self.assertEqual(
-                [
+                {
+                    "agent_message",
+                    "reasoning",
                     "command_execution",
                     "file_change",
                     "mcp_tool_call",
                     "collab_tool_call",
                     "web_search",
-                ],
+                    "todo_list",
+                    "error",
+                },
+                self.runner.CODEX_JSONL_ITEM_TYPES,
+            )
+            self.assertEqual(
+                {
+                    "command_execution",
+                    "file_change",
+                    "mcp_tool_call",
+                    "collab_tool_call",
+                    "web_search",
+                },
+                self.runner.CODEX_JSONL_TOOL_ITEM_TYPES,
+            )
+            events = self.runner._tool_events(_canonical_codex_jsonl())
+            self.assertEqual(
+                ["command_execution"],
                 [event["item"]["type"] for event in events],
             )
 
@@ -3395,7 +3428,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                 )
             self.assertEqual(self.runner.FAIL, code)
             self.assertEqual(
-                "process_failed",
+                "event_stream_invalid",
                 evidence["host"]["blockerReason"],
             )
             self.assertEqual([], scorer.calls)
@@ -3519,6 +3552,596 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
         self.assertFalse(
             self.runner._is_model_unavailable(nested_item_failure)
         )
+
+    def test_prerequisite_probes_and_all_cases_share_first_bound_executable_identity(self) -> None:
+        probes: list[tuple[list[str], str | None, str | None, int | None]] = []
+
+        def probe_process(command: list[str], **kwargs):
+            override = kwargs.get("executable")
+            bound = Path(override) if isinstance(override, str) else None
+            probes.append(
+                (
+                    list(command),
+                    override,
+                    executable_bytes_sha256(bound)
+                    if bound is not None and bound.is_file()
+                    else None,
+                    bound.stat().st_mode & 0o777
+                    if bound is not None and bound.is_file()
+                    else None,
+                )
+            )
+            if command[1:] == ["--version"]:
+                return subprocess.CompletedProcess(command, 0, "codex-cli 0.144.5\n", "")
+            if command[1:] == ["login", "status"]:
+                return subprocess.CompletedProcess(command, 0, "", "Logged in using ChatGPT\n")
+            return subprocess.CompletedProcess(command, 0, "{}", "")
+
+        original = str(TEST_EXECUTABLE_PATH)
+        digest = executable_bytes_sha256()
+        with mock.patch.object(
+            self.runner.subprocess, "run", side_effect=probe_process
+        ), mock.patch.object(
+            self.runner, "_plugin_is_installed_enabled_with_capabilities", return_value=True
+        ):
+            snapshot = self.runner.default_prerequisite_checker(
+                original, "gpt-5.6-sol", "0.144.5"
+            )
+        with self.subTest(bound_probe="version_auth_plugin"):
+            overrides = [probe[1] for probe in probes]
+            self.assertEqual(
+                (
+                    3,
+                    {original},
+                    1,
+                    [digest] * 3,
+                    [0o700] * 3,
+                    digest,
+                ),
+                (
+                    len(probes),
+                    {probe[0][0] for probe in probes},
+                    len(set(overrides)) if all(isinstance(value, str) for value in overrides) else 0,
+                    [probe[2] for probe in probes],
+                    [probe[3] for probe in probes],
+                    snapshot["executableSha256"],
+                ),
+            )
+        for override in {value for value in overrides if isinstance(value, str)}:
+            self.assertFalse(Path(override).exists())
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = root / "first-codex"
+            second = root / "second-codex"
+            first.write_bytes(b"#!/bin/sh\n# first executable\nexit 0\n")
+            second.write_bytes(b"#!/bin/sh\n# second executable\nexit 0\n")
+            first.chmod(0o700)
+            second.chmod(0o700)
+            first_snapshot = _passing_prerequisites(str(first))
+            second_snapshot = _passing_prerequisites(str(second))
+            fixture = _forward_fixture(
+                "DEV136-FWD-DESIGN-001", "DEV136-FWD-REVIEW-001"
+            )
+            process = _FakeHostProcess()
+            scorer = _FakeScorer(_forward_outputs(fixture))
+            checker = _FakePrerequisiteChecker(
+                first_snapshot,
+                first_snapshot,
+                second_snapshot,
+                second_snapshot,
+            )
+            code, evidence = _run_host(
+                self.runner,
+                fixture,
+                str(first),
+                process,
+                checker,
+                scorer,
+            )
+            with self.subTest(bound_probe="cross_case_identity"):
+                self.assertEqual(
+                    (
+                        self.runner.FAIL,
+                        1,
+                        [fixture["cases"][0]["id"]],
+                        "post_capture_prerequisite_drift",
+                        first_snapshot["executableSha256"],
+                    ),
+                    (
+                        code,
+                        len(process.commands),
+                        scorer.calls,
+                        evidence["host"]["blockerReason"],
+                        evidence["host"]["resolvedExecutableSha256"],
+                    ),
+                )
+
+    def test_codex_01445_jsonl_schemas_and_command_lifecycle_are_exact(self) -> None:
+        canonical = [
+            json.loads(line) for line in _canonical_codex_jsonl().splitlines()
+        ]
+        self.assertEqual(
+            "item_0",
+            self.runner._tool_events(_canonical_codex_jsonl())[0]["item"]["id"],
+        )
+        for status, exit_code in (
+            ("completed", 0),
+            ("failed", 7),
+            ("declined", -1),
+        ):
+            value = copy.deepcopy(canonical)
+            value[3]["item"].update(
+                {"status": status, "exit_code": exit_code}
+            )
+            with self.subTest(jsonl=f"valid_command_{status}"):
+                self.assertEqual(
+                    status,
+                    self.runner._tool_events(
+                        "\n".join(
+                            json.dumps(event, sort_keys=True) for event in value
+                        )
+                    )[0]["item"]["status"],
+                )
+
+        failure = (
+            {"type": "thread.started", "thread_id": "thread_synthetic"},
+            {"type": "turn.started"},
+            {"type": "error", "message": "model gpt-5.6-sol is unavailable"},
+            {
+                "type": "turn.failed",
+                "error": {"message": "model gpt-5.6-sol is unavailable"},
+            },
+        )
+        try:
+            parsed_failure = self.runner._codex_jsonl_events(
+                "\n".join(json.dumps(event) for event in failure)
+            )
+            parsed_failure_types = [event["type"] for event in parsed_failure]
+        except ValueError:
+            parsed_failure_types = None
+        with self.subTest(jsonl="exact_top_level_error_and_failed_turn"):
+            self.assertEqual(
+                ["thread.started", "turn.started", "error", "turn.failed"],
+                parsed_failure_types,
+            )
+
+        def stream(events: list[dict]) -> str:
+            return "\n".join(json.dumps(event, sort_keys=True) for event in events)
+
+        def mutated(change) -> list[dict]:
+            value = copy.deepcopy(canonical)
+            change(value)
+            return value
+
+        malformed = {
+            "missing_thread_started": canonical[1:],
+            "thread_schema": mutated(lambda value: value[0].pop("thread_id")),
+            "turn_order": mutated(lambda value: value.pop(1)),
+            "usage_schema": mutated(
+                lambda value: value[-1].__setitem__("usage", {"input_tokens": 1})
+            ),
+            "command_schema": mutated(
+                lambda value: value[2]["item"].pop("status")
+            ),
+            "command_schema_extra": mutated(
+                lambda value: value[2]["item"].__setitem__("unexpected", True)
+            ),
+            "command_start_state": mutated(
+                lambda value: value[2]["item"].update(
+                    {"aggregated_output": "premature", "exit_code": 0}
+                )
+            ),
+            "command_completion_state": mutated(
+                lambda value: value[3]["item"].update(
+                    {"status": "completed", "exit_code": 7}
+                )
+            ),
+            "command_pair_mismatch": mutated(
+                lambda value: value[3]["item"].update(
+                    {"id": "item_other", "command": "different-command"}
+                )
+            ),
+            "completion_without_start": mutated(lambda value: value.pop(2)),
+            "duplicate_start": mutated(
+                lambda value: value.insert(3, copy.deepcopy(value[2]))
+            ),
+            "open_item": mutated(lambda value: value.pop(3)),
+            "command_item_updated": mutated(
+                lambda value: value[2].__setitem__("type", "item.updated")
+            ),
+            "error_in_success_stream": mutated(
+                lambda value: value.insert(
+                    -1, {"type": "error", "message": "synthetic stream error"}
+                )
+            ),
+        }
+
+        for name, events in malformed.items():
+            with self.subTest(jsonl=name):
+                with self.assertRaises(ValueError):
+                    self.runner._tool_events(stream(events))
+
+        fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
+        outputs = _forward_outputs(fixture)
+
+        class MissingThreadProcess(_FakeHostProcess):
+            def __call__(self, command: list[str], **kwargs):
+                completed = super().__call__(command, **kwargs)
+                lines = completed.stdout.splitlines()
+                return subprocess.CompletedProcess(
+                    command, 0, "\n".join(lines[1:]), completed.stderr
+                )
+
+        process = MissingThreadProcess()
+        scorer = _FakeScorer(outputs)
+        code, evidence = _run_host(
+            self.runner,
+            fixture,
+            str(TEST_EXECUTABLE_PATH),
+            process,
+            _FakePrerequisiteChecker(_passing_prerequisites()),
+            scorer,
+        )
+        with self.subTest(jsonl="runner_event_stream_normalization"):
+            self.assertEqual(
+                (self.runner.FAIL, "event_stream_invalid", []),
+                (code, evidence["host"]["blockerReason"], scorer.calls),
+            )
+
+    def test_evidence_prerequisites_are_derived_from_mode_blocker_and_rows(self) -> None:
+        fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
+        fixture_bytes = deterministic_fixture_bytes(fixture)
+        outputs = _forward_outputs(fixture)
+        _, offline = _run_offline(
+            self.runner, fixture, outputs, fixture_bytes
+        )
+        self.assertEqual(
+            {key: "not_applicable" for key in FORWARD_PREREQUISITE_KEYS},
+            offline["host"]["prerequisites"],
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "evidence.json"
+
+            def reject(mutant: dict, scorer_outputs: dict, **bindings) -> None:
+                with self.assertRaises(ValueError):
+                    _write_bound_evidence(
+                        self.runner, destination, mutant, fixture, scorer_outputs,
+                        fixture_bytes=fixture_bytes, **bindings,
+                    )
+
+            for fact in ("authentication", "pluginActivation"):
+                with self.subTest(mode="offline", impossible_fact=fact):
+                    mutant = copy.deepcopy(offline)
+                    mutant["host"]["prerequisites"][fact] = "pass"
+                    reject(mutant, outputs)
+
+            process = _FakeHostProcess()
+            code, host_pass = _run_host(
+                self.runner,
+                fixture,
+                str(TEST_EXECUTABLE_PATH),
+                process,
+                _FakePrerequisiteChecker(_passing_prerequisites()),
+                _FakeScorer(outputs),
+                fixture_bytes,
+            )
+            self.assertEqual(self.runner.PASS, code)
+            self.assertEqual(
+                "pass",
+                host_pass["host"]["prerequisites"]["pluginActivation"],
+            )
+            with self.subTest(mode="host", impossible_fact="completed_activation_nonpass"):
+                mutant = copy.deepcopy(host_pass)
+                mutant["host"]["prerequisites"]["pluginActivation"] = (
+                    "not_applicable"
+                )
+                reject(
+                    mutant, outputs, host_results=process.results,
+                    executable_sha256=executable_bytes_sha256(),
+                )
+
+            blocker_mutations = (
+                ("authentication_unavailable", {"authenticated": False}, "authentication"),
+                (
+                    "plugin_activation_unavailable",
+                    {
+                        "pluginAvailable": False,
+                        "discovery": "blocked",
+                        "installation": "blocked",
+                    },
+                    "pluginActivation",
+                ),
+            )
+            for reason, snapshot_mutation, impossible_fact in blocker_mutations:
+                snapshot = _passing_prerequisites()
+                snapshot.update(snapshot_mutation)
+                code, blocked = _run_host(
+                    self.runner,
+                    fixture,
+                    str(TEST_EXECUTABLE_PATH),
+                    _FakeHostProcess(),
+                    _FakePrerequisiteChecker(snapshot),
+                    _FakeScorer(outputs),
+                    fixture_bytes,
+                )
+                self.assertEqual(
+                    (self.runner.BLOCKED, reason),
+                    (code, blocked["host"]["blockerReason"]),
+                )
+                with self.subTest(blocker=reason, impossible_fact=impossible_fact):
+                    mutant = copy.deepcopy(blocked)
+                    mutant["host"]["prerequisites"][impossible_fact] = "pass"
+                    reject(
+                        mutant, {}, executable_sha256=executable_bytes_sha256()
+                    )
+
+    def test_live_score_rejects_spaced_hyphenated_placeholders_and_postposed_negation(self) -> None:
+        case = _forward_fixture("DEV136-FWD-REVIEW-001")["cases"][0]
+        for placeholder in (
+            "not specified",
+            "not-specified",
+            "unchanged existing version",
+            "unchanged-existing-version",
+        ):
+            with self.subTest(version_placeholder=placeholder):
+                observation = self.runner.live_score(
+                    case,
+                    _canonical_live_response(
+                        case,
+                        state_version=placeholder,
+                        policy_version=placeholder,
+                    ),
+                    [],
+                )
+                self.assertEqual(
+                    "fail",
+                    observation["assertions"]["independent_version_labels"],
+                )
+
+        with self.subTest(review_boundary="postposed_negation"):
+            observation = self.runner.live_score(
+                case,
+                _canonical_live_response(
+                    case,
+                    review_boundary=(
+                        "A separate authorized follow-on boundary does not exist."
+                    ),
+                ),
+                [],
+            )
+            self.assertEqual(
+                "fail",
+                observation["assertions"]["review_first_ordering"],
+            )
+
+    def test_model_unavailable_is_bound_to_exact_model_and_diagnostic_grammar(self) -> None:
+        def completed(*, stderr: str = "", stdout: str = ""):
+            return subprocess.CompletedProcess(
+                ["codex", "exec", "-m", "gpt-5.6-sol"],
+                1,
+                stdout,
+                stderr,
+            )
+
+        accepted = (
+            completed(stderr="Error: model gpt-5.6-sol is unavailable\n"),
+            completed(
+                stdout=json.dumps(
+                    {
+                        "type": "error",
+                        "message": "model gpt-5.6-sol is unavailable",
+                    }
+                )
+                + "\n"
+            ),
+            completed(
+                stdout=json.dumps(
+                    {
+                        "type": "turn.failed",
+                        "error": {
+                            "message": "model gpt-5.6-sol is unavailable"
+                        },
+                    }
+                )
+                + "\n"
+            ),
+        )
+        for index, result in enumerate(accepted):
+            with self.subTest(diagnostic="accepted", index=index):
+                self.assertTrue(self.runner._is_model_unavailable(result))
+
+        rejected = {
+            "unrelated_model": completed(
+                stderr="Error: model gpt-5.5 is unavailable\n"
+            ),
+            "example_prose": completed(
+                stderr=(
+                    "Example only: Error: model gpt-5.6-sol is unavailable\n"
+                )
+            ),
+            "structured_unrelated_model": completed(
+                stdout=json.dumps(
+                    {"type": "error", "message": "model gpt-5.5 is unavailable"}
+                )
+                + "\n"
+            ),
+            "structured_extra_key": completed(
+                stdout=json.dumps(
+                    {
+                        "type": "error",
+                        "message": "model gpt-5.6-sol is unavailable",
+                        "example": True,
+                    }
+                )
+                + "\n"
+            ),
+            "turn_failed_extra_key": completed(
+                stdout=json.dumps(
+                    {
+                        "type": "turn.failed",
+                        "error": {
+                            "message": "model gpt-5.6-sol is unavailable"
+                        },
+                        "example": True,
+                    }
+                )
+                + "\n"
+            ),
+        }
+        for name, result in rejected.items():
+            with self.subTest(diagnostic=name):
+                self.assertFalse(self.runner._is_model_unavailable(result))
+
+    def test_duplicate_json_inputs_fail_closed_and_replace_stale_fixture_evidence(self) -> None:
+        def command(cases: Path, scorer: Path, evidence: Path) -> list[str]:
+            return [
+                sys.executable, str(RUNNER_PATH), "--mode", "offline",
+                "--model", "gpt-5.6-sol", "--codex-version", "0.144.5",
+                "--cases", str(cases), "--evidence", str(evidence),
+                "--scorer-outputs", str(scorer),
+            ]
+
+        outputs = _forward_outputs(self.fixture)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            valid_scorer = root / "valid-scorer.json"
+            valid_scorer.write_text(json.dumps(outputs), encoding="utf-8")
+            duplicate_fixture = root / "duplicate-fixture.json"
+            duplicate_fixture.write_text(
+                FIXTURE_PATH.read_text(encoding="utf-8").replace(
+                    '"schemaVersion": "1.0",',
+                    (
+                        '"schemaVersion": "Bearer synthetic-private-secret '
+                        'from /Users/private/customer.txt",\n'
+                        '  "schemaVersion": "1.0",'
+                    ),
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            duplicate_scorer = root / "duplicate-scorer.json"
+            scorer_text = json.dumps(outputs, separators=(",", ":"))
+            first_case = self.fixture["cases"][0]["id"]
+            duplicate_scorer.write_text(
+                scorer_text.replace(
+                    f'"{first_case}":',
+                    f'"{first_case}":null,"{first_case}":',
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            duplicate_inputs = (
+                ("fixture", duplicate_fixture, valid_scorer, "fixture_contract_invalid"),
+                ("scorer", FIXTURE_PATH, duplicate_scorer, "scorer_outputs_invalid"),
+            )
+            for name, cases, scorer, diagnostic in duplicate_inputs:
+                result = subprocess.run(
+                    command(cases, scorer, root / f"{name}-evidence.json"),
+                    cwd=ROOT, capture_output=True, text=True,
+                )
+                with self.subTest(duplicate_json=name):
+                    self.assertEqual(
+                        (1, [diagnostic]),
+                        (result.returncode, result.stderr.strip().splitlines()),
+                    )
+
+            evidence_path = root / "stale-pass-evidence.json"
+            result = subprocess.run(
+                command(FIXTURE_PATH, valid_scorer, evidence_path),
+                cwd=ROOT, capture_output=True, text=True,
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            stale_inode = evidence_path.stat().st_ino
+            malformed = root / "malformed-fixture.json"
+            malformed_bytes = (
+                b'{"private":"Bearer synthetic-private-secret from '
+                b'/Users/private/customer.txt"'
+            )
+            malformed.write_bytes(malformed_bytes)
+            result = subprocess.run(
+                command(malformed, valid_scorer, evidence_path),
+                cwd=ROOT, capture_output=True, text=True,
+            )
+            evidence = load_json(evidence_path)
+            serialized = json.dumps(evidence, sort_keys=True)
+            zero_summary = {
+                "fixtureCaseCount": 0, "attemptedCount": 0, "passedCount": 0,
+                "failedCount": 0, "blockedCount": 0, "notApplicableCount": 0,
+            }
+            expected_prerequisites = {
+                key: "not_applicable" for key in FORWARD_PREREQUISITE_KEYS
+            }
+            with self.subTest(invalid_fixture="atomic_failure_envelope"):
+                self.assertEqual(
+                    (
+                        1, True, FORWARD_EVIDENCE_KEYS, "fail", "offline",
+                        sha256_bytes(malformed_bytes), "fixture_contract_invalid",
+                        expected_prerequisites, zero_summary, [], False,
+                    ),
+                    (
+                        result.returncode, stale_inode != evidence_path.stat().st_ino,
+                        set(evidence), evidence["status"], evidence["mode"],
+                        evidence["fixtureSha256"], evidence["host"]["blockerReason"],
+                        evidence["host"]["prerequisites"], evidence["summary"],
+                        evidence["cases"],
+                        "synthetic-private-secret" in serialized or "/Users/" in serialized,
+                    ),
+                )
+                self.assertNotIn("synthetic-private-secret", result.stderr)
+                self.assertNotIn("/Users/", result.stderr)
+
+            plugin_root, listing = _build_forward_plugin_tree(root / "plugin-json")
+            duplicate_listing = json.dumps(listing).replace(
+                '"enabled": true', '"enabled": false, "enabled": true', 1
+            )
+            with mock.patch.object(self.runner, "ROOT", root / "plugin-json"):
+                with self.subTest(duplicate_json="plugin_listing"):
+                    self.assertFalse(
+                        self.runner._plugin_is_installed_enabled_with_capabilities(duplicate_listing)
+                    )
+
+            duplicate_manifest = (
+                '{"name":"wrong-plugin",'
+                '"name":"apple-foundation-models-handoff",'
+                '"interface":{"capabilities":'
+                + json.dumps(list(WORKFLOW_SECTIONS))
+                + "}}"
+            )
+            (plugin_root / ".codex-plugin/plugin.json").write_text(
+                duplicate_manifest, encoding="utf-8"
+            )
+            with mock.patch.object(self.runner, "ROOT", root / "plugin-json"):
+                with self.subTest(duplicate_json="plugin_manifest"):
+                    self.assertFalse(
+                        self.runner._plugin_is_installed_enabled_with_capabilities(json.dumps(listing))
+                    )
+
+    def test_plugin_topology_is_exactly_five_one_file_skill_directories(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for mutation in ("sixth_skill", "extra_skill_file"):
+                repo_root = root / mutation
+                plugin_root, listing = _build_forward_plugin_tree(repo_root)
+                if mutation == "sixth_skill":
+                    extra = plugin_root / "skills/unapproved-sixth-skill/SKILL.md"
+                    extra.parent.mkdir(parents=True)
+                    extra.write_text(
+                        "---\nname: unapproved-sixth-skill\n---\n",
+                        encoding="utf-8",
+                    )
+                elif mutation == "extra_skill_file":
+                    (plugin_root / "skills" / SKILLS[0] / "EXTRA.md").write_text(
+                        "unapproved extra payload\n", encoding="utf-8"
+                    )
+                with mock.patch.object(self.runner, "ROOT", repo_root):
+                    with self.subTest(plugin_topology=mutation):
+                        self.assertFalse(
+                            self.runner._plugin_is_installed_enabled_with_capabilities(
+                                json.dumps(listing)
+                            )
+                        )
 
     def test_plugin_activation_is_nonpass_until_fresh_host_cases_prove_it(self) -> None:
         snapshot = _passing_prerequisites()
