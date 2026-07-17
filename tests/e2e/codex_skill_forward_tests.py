@@ -172,6 +172,21 @@ CODEX_JSONL_TOOL_ITEM_TYPES = {
     "command_execution", "file_change", "mcp_tool_call", "collab_tool_call",
     "web_search",
 }
+CODEX_JSONL_ITEM_EVENT_TYPES = {
+    "agent_message": {"item.completed"},
+    "reasoning": {"item.completed"},
+    "command_execution": {"item.started", "item.completed"},
+    "file_change": {"item.completed"},
+    "mcp_tool_call": {"item.started", "item.completed"},
+    "collab_tool_call": {"item.started", "item.completed"},
+    "web_search": {"item.started", "item.completed"},
+    "todo_list": {"item.started", "item.updated", "item.completed"},
+    "error": {"item.completed"},
+}
+CODEX_JSONL_PAIRED_ITEM_TYPES = {
+    "command_execution", "mcp_tool_call", "collab_tool_call", "web_search",
+    "todo_list",
+}
 
 TRUSTED_SYSTEM_PATH_ALIASES = {
     Path("/var"): Path("/private/var"),
@@ -199,7 +214,7 @@ def _fixture_contract() -> dict[str, Any]:
     raw = CANONICAL_FIXTURE.read_bytes()
     if _sha256(raw) != OFFICIAL_FIXTURE_SHA256:
         raise ValueError("canonical fixture identity mismatch")
-    value = json.loads(raw, object_pairs_hook=_json_object_without_duplicates)
+    value = _strict_json_loads(raw)
     if not isinstance(value, dict):
         raise ValueError("canonical fixture must be an object")
     return value
@@ -209,9 +224,7 @@ def _validate_fixture(fixture: dict[str, Any], fixture_bytes: bytes) -> None:
     if type(fixture) is not dict or type(fixture_bytes) is not bytes:
         raise ValueError("fixture and exact fixture bytes are required")
     try:
-        decoded = json.loads(
-            fixture_bytes, object_pairs_hook=_json_object_without_duplicates
-        )
+        decoded = _strict_json_loads(fixture_bytes)
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError("fixture bytes are not valid JSON") from error
     if decoded != fixture:
@@ -776,6 +789,18 @@ def _json_object_without_duplicates(
     return value
 
 
+def _reject_json_constant(_constant: str) -> None:
+    raise ValueError("non-standard JSON constant")
+
+
+def _strict_json_loads(value: str | bytes | bytearray) -> Any:
+    return json.loads(
+        value,
+        object_pairs_hook=_json_object_without_duplicates,
+        parse_constant=_reject_json_constant,
+    )
+
+
 def _require_closed_object(
     value: Any, keys: set[str], label: str
 ) -> dict[str, Any]:
@@ -822,6 +847,8 @@ def _validate_codex_item(item: Any, event_type: str) -> dict[str, Any]:
     item_type = item.get("type")
     if type(item_type) is not str or item_type not in CODEX_JSONL_ITEM_TYPES:
         raise ValueError("Codex JSONL item type is unknown")
+    if event_type not in CODEX_JSONL_ITEM_EVENT_TYPES[item_type]:
+        raise ValueError("Codex JSONL item lifecycle is invalid")
     _require_string(item.get("id"), "item id")
 
     if item_type in {"agent_message", "reasoning"}:
@@ -866,7 +893,7 @@ def _validate_codex_item(item: Any, event_type: str) -> dict[str, Any]:
                 raise ValueError("command completion state is malformed")
     elif item_type == "file_change":
         _require_closed_object(item, {"id", "type", "changes", "status"}, "file change")
-        if item["status"] not in {"in_progress", "completed", "failed"}:
+        if item["status"] not in {"completed", "failed"}:
             raise ValueError("file change status is malformed")
         if type(item["changes"]) is not list:
             raise ValueError("file changes are malformed")
@@ -885,6 +912,10 @@ def _validate_codex_item(item: Any, event_type: str) -> dict[str, Any]:
         _require_string(item["tool"], "MCP tool", nonempty=False)
         if item["status"] not in {"in_progress", "completed", "failed"}:
             raise ValueError("MCP status is malformed")
+        if event_type == "item.started" and item["status"] != "in_progress":
+            raise ValueError("MCP start state is malformed")
+        if event_type == "item.completed" and item["status"] == "in_progress":
+            raise ValueError("MCP completion state is malformed")
         if item["result"] is not None:
             result = item["result"]
             if type(result) is not dict or set(result) not in (
@@ -928,6 +959,10 @@ def _validate_codex_item(item: Any, event_type: str) -> dict[str, Any]:
                 raise ValueError("collab agent message is malformed")
         if item["status"] not in {"in_progress", "completed", "failed"}:
             raise ValueError("collab tool status is malformed")
+        if event_type == "item.started" and item["status"] != "in_progress":
+            raise ValueError("collab tool start state is malformed")
+        if event_type == "item.completed" and item["status"] == "in_progress":
+            raise ValueError("collab tool completion state is malformed")
     elif item_type == "web_search":
         _require_closed_object(item, {"id", "type", "query", "action"}, "web search")
         _require_string(item["query"], "web search query", nonempty=False)
@@ -956,9 +991,7 @@ def _codex_jsonl_events(stdout: str) -> list[dict[str, Any]]:
         if not line:
             raise ValueError("Codex JSONL stream contains a blank record")
         try:
-            value = json.loads(
-                line, object_pairs_hook=_json_object_without_duplicates
-            )
+            value = _strict_json_loads(line)
         except (json.JSONDecodeError, ValueError) as error:
             raise ValueError("Codex JSONL record is invalid") from error
         if type(value) is not dict:
@@ -1022,9 +1055,11 @@ def _codex_jsonl_events(stdout: str) -> list[dict[str, Any]]:
                     raise ValueError("Codex JSONL item type does not emit updates")
             else:
                 opened = open_items.get(item_id)
+                if item["type"] in CODEX_JSONL_PAIRED_ITEM_TYPES and (
+                    opened is None or opened["type"] != item["type"]
+                ):
+                    raise ValueError("Codex JSONL item completion is unpaired")
                 if item["type"] == "command_execution":
-                    if opened is None or opened["type"] != "command_execution":
-                        raise ValueError("command completion is unpaired")
                     if opened["command"] != item["command"]:
                         raise ValueError("command completion identity is mismatched")
                 if opened is not None:
@@ -1077,9 +1112,7 @@ def _is_model_unavailable(completed: subprocess.CompletedProcess[str]) -> bool:
         return True
     for line in completed.stdout.splitlines():
         try:
-            value = json.loads(
-                line, object_pairs_hook=_json_object_without_duplicates
-            )
+            value = _strict_json_loads(line)
         except (json.JSONDecodeError, ValueError):
             continue
         if type(value) is not dict:
@@ -1547,9 +1580,7 @@ def _plugin_skill_payloads_are_exact(plugin_root: Path) -> bool:
 
 def _plugin_is_installed_enabled_with_capabilities(stdout: str) -> bool:
     try:
-        listing = json.loads(
-            stdout, object_pairs_hook=_json_object_without_duplicates
-        )
+        listing = _strict_json_loads(stdout)
     except (json.JSONDecodeError, ValueError):
         return False
     if (
@@ -1584,9 +1615,8 @@ def _plugin_is_installed_enabled_with_capabilities(stdout: str) -> bool:
         return False
     manifest_path = plugin_root / ".codex-plugin/plugin.json"
     try:
-        manifest = json.loads(
-            _read_regular_file_no_symlinks(manifest_path),
-            object_pairs_hook=_json_object_without_duplicates,
+        manifest = _strict_json_loads(
+            _read_regular_file_no_symlinks(manifest_path)
         )
     except (OSError, ValueError, json.JSONDecodeError):
         return False
@@ -1770,7 +1800,7 @@ def _positive_envelope(
 def _usable_version(value: str | None) -> bool:
     if value is None:
         return False
-    normalized = value.strip().strip('"\'').lower()
+    normalized = value.strip().strip('"\'').strip().lower()
     normalized = re.sub(r"[-_\s]+", "_", normalized)
     return bool(normalized) and normalized not in {
         "unknown", "n/a", "none", "null", "tbd", "placeholder",
@@ -1779,7 +1809,13 @@ def _usable_version(value: str | None) -> bool:
 
 
 def _has_authorized_follow_on_boundary(text: str) -> bool:
-    normalized = re.sub(r"\s+", " ", text.lower())
+    normalized = text.lower()
+    normalized = re.sub(
+        r"\b(?:isn|aren|wasn|weren|doesn|don|can)['’]t\b|\bcannot\b",
+        " not ",
+        normalized,
+    )
+    normalized = re.sub(r"\s+", " ", normalized)
     boundary = re.search(
         r"\bseparate(?:ly)?\b.{0,80}\bauthoriz(?:ed|ation)\b.{0,80}"
         r"\bfollow(?:-| )on\b"
@@ -1928,10 +1964,7 @@ def _invalid_fixture_evidence(mode: str, fixture_bytes: bytes) -> dict[str, Any]
 
 def _existing_evidence_is_stale_success(path: Path) -> bool:
     try:
-        value = json.loads(
-            _read_regular_file_no_symlinks(path),
-            object_pairs_hook=_json_object_without_duplicates,
-        )
+        value = _strict_json_loads(_read_regular_file_no_symlinks(path))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
         return False
     return (
@@ -1973,9 +2006,7 @@ def main(argv: list[str] | None = None) -> int:
     fixture_bytes = b""
     try:
         fixture_bytes = args.cases.read_bytes()
-        fixture = json.loads(
-            fixture_bytes, object_pairs_hook=_json_object_without_duplicates
-        )
+        fixture = _strict_json_loads(fixture_bytes)
         _validate_fixture(fixture, fixture_bytes)
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
         try:
@@ -1999,10 +2030,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.scorer_outputs is None:
             parser.error("--scorer-outputs is required in offline mode")
         try:
-            scorer_outputs = json.loads(
-                args.scorer_outputs.read_bytes(),
-                object_pairs_hook=_json_object_without_duplicates,
-            )
+            scorer_outputs = _strict_json_loads(args.scorer_outputs.read_bytes())
             _validate_scorer_outputs(fixture, scorer_outputs)
         except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
             evidence = _evidence(
