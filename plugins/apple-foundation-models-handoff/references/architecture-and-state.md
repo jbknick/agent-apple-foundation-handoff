@@ -14,26 +14,54 @@ ownership or recovery works.
 
 ## Common result schema
 
-Every positive result contains exactly one common domain plus the addition
-owned by the operation:
+Every positive result has exactly this normalized outer envelope:
 
-| Result domain | Required purpose |
+```text
+activationStatus = activated
+selectedSkill
+routerInput = { domain, requestedOperation, artifactState, evidenceState }
+architectureResult
+```
+
+`architectureResult` contains the complete common contract:
+
+```text
+architectureSchemaVersion: "1.0"
+workflow
+scope
+pattern = baton_pass | isolated_consultation | deterministic_routing | transcript_transfer
+source = { profile, provider }
+destination = { profile, provider }
+finalResponseOwner
+apiAvailability[] = { surface, versionLabel, compileStatus, source }
+stateModel
+trustBoundaries[]
+contextPolicy
+toolAndEffectPolicy
+failurePolicy
+verification[] = { id, layer, status, evidence }
+limitations[]
+```
+
+The workflow-specific sections are additive inside `architectureResult`; they
+never replace it or create another outer result domain:
+
+| Workflow | Additive sections |
 | --- | --- |
-| `architectureResult` | Selected topology, state contract, ownership decision, alternatives, rationale, components, and proof plan |
-| `implementationResult` | Approved-contract identity, bounded changes, tests, and observed results |
-| `reviewResult` | Findings, evidence locations, residual risks, and no mutation claim |
-| `debugResult` | Reproduction, root cause, affected invariant, correction boundary, and regression proof |
-| `validationResult` | Deterministic gates, host rows, blockers, rubric result, and limitations |
+| Design | Alternatives; Decision Rationale; Proposed Components; Implementation and Test Plan |
+| Implement | Approved Decision; Change Boundary; Changed Paths; Compilation and Regression Results |
+| Review | Findings ranked by severity with stable check ID, exact evidence, impact, and bounded correction |
+| Debug | Observed and Expected State; First Divergence; Root Cause; Correction; Regression Proof |
+| Validate | Layer Matrix; Counts and Hashes; Rubric Result; Blockers and Skips; Release Implication |
 
-All positive domains carry `architectureSchemaVersion`, `stateVersion`,
+All positive results carry `architectureSchemaVersion`, `stateVersion`,
 `policyVersion`, source and destination identities, final-response owner,
 current phase, evidence status, blockers, assumptions, and limitations.
-Workflow-specific additions are named here only; their activation and prose
-belong to the production skill entrypoints.
 
-Non-positive results are bounded to either `not_applicable` with the normalized
-requested domain/operation or `clarification_required` with one missing input
-and one question. They contain no fabricated architecture or Apple claim.
+Non-positive results are bounded to `no_activation` with reason
+`out_of_domain`, or `clarification_required` with one missing input and one
+question. They contain no `architectureResult`, fabricated architecture, or
+Apple claim.
 
 ## Ownership and state fields
 

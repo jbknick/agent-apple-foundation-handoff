@@ -172,21 +172,21 @@ BETA_CASE_SIGNATURES = (
     "case serviceUnavailable(PrivateCloudComputeLanguageModel.Error.ServiceUnavailable)",
 )
 BETA_PAYLOAD_SIGNATURES = (
-    "init(contextSize: Int, tokenCount: Int, debugDescription: String, metadata: [String : any Sendable])",
-    "init(resetDate: Date?, debugDescription: String, metadata: [String : any Sendable])",
-    "init(explanation: String, debugDescription: String, metadata: [String : any Sendable])",
-    "init(debugDescription: String, metadata: [String : any Sendable])",
-    "init(capability: LanguageModelCapabilities.Capability, debugDescription: String, metadata: [String : any Sendable])",
-    "init(unsupportedContent: [Transcript.Entry], debugDescription: String, metadata: [String : any Sendable])",
-    "init(schemaName: String?, debugDescription: String, metadata: [String : any Sendable])",
-    "init(languageCode: Locale.LanguageCode, debugDescription: String, metadata: [String : any Sendable])",
-    "init(limitIncreaseSuggestion: PrivateCloudComputeLanguageModel.QuotaUsage.LimitIncreaseSuggestion?, resetDate: Date?, debugDescription: String)",
+    "init(contextSize: Int, tokenCount: Int, debugDescription: String, metadata: [String : any Sendable] = [:])",
+    "init(resetDate: Date?, debugDescription: String, metadata: [String : any Sendable] = [:])",
+    "init(explanation: String, debugDescription: String, metadata: [String : any Sendable] = [:])",
+    "init(debugDescription: String, metadata: [String : any Sendable] = [:])",
+    "init(capability: LanguageModelCapabilities.Capability, debugDescription: String, metadata: [String : any Sendable] = [:])",
+    "init(unsupportedContent: [Transcript.Entry], debugDescription: String, metadata: [String : any Sendable] = [:])",
+    "init(schemaName: String?, debugDescription: String, metadata: [String : any Sendable] = [:])",
+    "init(languageCode: Locale.LanguageCode, debugDescription: String, metadata: [String : any Sendable] = [:])",
+    "init(limitIncreaseSuggestion: PrivateCloudComputeLanguageModel.QuotaUsage.LimitIncreaseSuggestion? = nil, resetDate: Date? = nil, debugDescription: String)",
     "init(tool: any Tool, underlyingError: any Error)",
     "var contextSize: Int",
     "var tokenCount: Int",
     "var resetDate: Date?",
-    "var explanation: LanguageModelSession.Response<String>",
-    "var explanationStream: LanguageModelSession.ResponseStream<String>",
+    "nonisolated(nonsending) var explanation: LanguageModelSession.Response<String> { get async throws }",
+    "var explanationStream: LanguageModelSession.ResponseStream<String> { get }",
     "var capability: LanguageModelCapabilities.Capability",
     "var unsupportedContent: [Transcript.Entry]",
     "var schemaName: String?",
@@ -194,6 +194,7 @@ BETA_PAYLOAD_SIGNATURES = (
     "var limitIncreaseSuggestion: PrivateCloudComputeLanguageModel.QuotaUsage.LimitIncreaseSuggestion?",
     "var tool: any Tool",
     "var underlyingError: any Error",
+    "var errorDescription: String? { get }",
 )
 
 D_IDS = (
@@ -212,6 +213,28 @@ D_IDS = (
     "D-EVIDENCE-001",
     "D-RUBRIC-001",
 )
+D_ID_MEANINGS = {
+    "D-SCHEMA-001": "Versioned case/policy/result shape and oracle separation",
+    "D-ROUTE-001": "Required and allowed destination",
+    "D-OWNER-001": "Exactly one final response by the declared owner",
+    "D-TRANSITION-001": "Valid, contiguous, acyclic, budgeted transitions",
+    "D-TOOL-001": "Actor/tool allowlist and call budget",
+    "D-CONTEXT-001": "Declared required-context inclusion",
+    "D-CONTEXT-002": "Forbidden-context exclusion",
+    "D-GRANT-001": (
+        "Bound provider grant and independent state/policy revision match"
+    ),
+    "D-PHASE-001": "Canonical phase/event order and recovery position",
+    "D-EFFECT-001": "Unique effect identities and one matching ledger entry",
+    "D-EFFECT-002": (
+        "One original command, no replay command, reconciliation before retry"
+    ),
+    "D-FALLBACK-001": "Only a declared safe fallback",
+    "D-EVIDENCE-001": "Safe allowlisted evidence and exact hashes",
+    "D-RUBRIC-001": (
+        "Complete, anchored, hash-bound rubric integrity and verdict"
+    ),
+}
 E_IDS = (
     "E-CLAUDE-LOAD-001",
     "E-CODEX-LOAD-001",
@@ -316,12 +339,12 @@ class ReferenceLibraryTests(unittest.TestCase):
     def test_architecture_contract_is_complete(self):
         text = self.texts()["architecture-and-state.md"]
         required = (
+            "activationStatus = activated",
+            "selectedSkill",
+            "routerInput = { domain, requestedOperation, artifactState, evidenceState }",
             'architectureSchemaVersion: "1.0"',
             "architectureResult",
-            "implementationResult",
-            "reviewResult",
-            "debugResult",
-            "validationResult",
+            "workflow-specific sections are additive inside",
             "stateVersion",
             "policyVersion",
             "stable",
@@ -339,6 +362,13 @@ class ReferenceLibraryTests(unittest.TestCase):
         self.assertRegex(text, r"stateVersion.*policyVersion|policyVersion.*stateVersion")
         self.assertIn("independently", text)
         self.assertNotIn("exactly-once", text)
+        for invented_domain in (
+            "implementationResult",
+            "reviewResult",
+            "debugResult",
+            "validationResult",
+        ):
+            self.assertNotIn(invented_domain, text)
 
     def test_pattern_contract_is_complete(self):
         text = self.texts()["orchestration-patterns.md"]
@@ -390,6 +420,19 @@ class ReferenceLibraryTests(unittest.TestCase):
         ):
             with self.subTest(signature=signature):
                 self.assertIn(signature, text)
+        self.assertEqual(
+            9,
+            text.count("metadata: [String : any Sendable] = [:]"),
+            "every LanguageModelError payload initializer preserves its DocC default",
+        )
+        self.assertEqual(
+            2,
+            text.count(
+                "init(debugDescription: String, metadata: "
+                "[String : any Sendable] = [:])"
+            ),
+            "Timeout and GuardrailViolation have the same exact initializer",
+        )
         self.assertNotRegex(text, r"ToolCallingMode\s+(?:enum|cases)")
 
     def test_swift_fences_have_one_allowed_label_and_compiled_blocks_typecheck(self):
@@ -517,6 +560,17 @@ class ReferenceLibraryTests(unittest.TestCase):
         text = self.texts()["evaluation-and-observability.md"]
         for evidence_id in (*D_IDS, *E_IDS):
             self.assertIn(evidence_id, text)
+        for evidence_id, meaning in D_ID_MEANINGS.items():
+            with self.subTest(evidence_id=evidence_id):
+                self.assertIn(f"| `{evidence_id}` | {meaning} |", text)
+        self.assertIn(
+            "D-GRANT-001 binds person/session, source profile/provider, "
+            "destination profile/provider, purpose, exact classes, exact fields, "
+            "tools, retention, expiry, applicable provider disclosure, exceptional "
+            "C2 permission, stateVersion, and policyVersion; any bound-field change "
+            "invalidates the grant.",
+            text.replace("\n", " "),
+        )
         for state in ("pass", "fail", "blocked", "not_applicable"):
             self.assertRegex(text, rf"`{state}`")
         self.assertIn("value: null", text)

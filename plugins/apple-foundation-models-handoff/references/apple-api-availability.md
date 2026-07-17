@@ -235,22 +235,22 @@ Complete `LanguageModelError` payload surfaces:
 
 | Payload | Exact initializer and public properties |
 | --- | --- |
-| `ContextSizeExceeded` | `init(contextSize: Int, tokenCount: Int, debugDescription: String, metadata: [String : any Sendable])`<br>`var contextSize: Int`<br>`var tokenCount: Int`<br>`var debugDescription: String`<br>`var metadata: [String : any Sendable]` |
-| `RateLimited` | `init(resetDate: Date?, debugDescription: String, metadata: [String : any Sendable])`<br>`var resetDate: Date?`<br>`var debugDescription: String`<br>`var metadata: [String : any Sendable]` |
-| `Refusal` | `init(explanation: String, debugDescription: String, metadata: [String : any Sendable])`<br>`var explanation: LanguageModelSession.Response<String>`<br>`var explanationStream: LanguageModelSession.ResponseStream<String>`<br>`var debugDescription: String`<br>`var metadata: [String : any Sendable]` |
-| `Timeout` | `init(debugDescription: String, metadata: [String : any Sendable])`<br>`var debugDescription: String`<br>`var metadata: [String : any Sendable]` |
-| `GuardrailViolation` | `init(debugDescription: String, metadata: [String : any Sendable])`<br>`var debugDescription: String`<br>`var metadata: [String : any Sendable]` |
-| `UnsupportedCapability` | `init(capability: LanguageModelCapabilities.Capability, debugDescription: String, metadata: [String : any Sendable])`<br>`var capability: LanguageModelCapabilities.Capability`<br>`var debugDescription: String`<br>`var metadata: [String : any Sendable]` |
-| `UnsupportedTranscriptContent` | `init(unsupportedContent: [Transcript.Entry], debugDescription: String, metadata: [String : any Sendable])`<br>`var unsupportedContent: [Transcript.Entry]`<br>`var debugDescription: String`<br>`var metadata: [String : any Sendable]` |
-| `UnsupportedGenerationGuide` | `init(schemaName: String?, debugDescription: String, metadata: [String : any Sendable])`<br>`var schemaName: String?`<br>`var debugDescription: String`<br>`var metadata: [String : any Sendable]` |
-| `UnsupportedLanguageOrLocale` | `init(languageCode: Locale.LanguageCode, debugDescription: String, metadata: [String : any Sendable])`<br>`var languageCode: Locale.LanguageCode`<br>`var debugDescription: String`<br>`var metadata: [String : any Sendable]` |
+| `ContextSizeExceeded` | `init(contextSize: Int, tokenCount: Int, debugDescription: String, metadata: [String : any Sendable] = [:])`<br>`var contextSize: Int`<br>`var tokenCount: Int`<br>`var debugDescription: String`<br>`var metadata: [String : any Sendable]` |
+| `RateLimited` | `init(resetDate: Date?, debugDescription: String, metadata: [String : any Sendable] = [:])`<br>`var resetDate: Date?`<br>`var debugDescription: String`<br>`var metadata: [String : any Sendable]` |
+| `Refusal` | `init(explanation: String, debugDescription: String, metadata: [String : any Sendable] = [:])`<br>`nonisolated(nonsending) var explanation: LanguageModelSession.Response<String> { get async throws }`<br>`var explanationStream: LanguageModelSession.ResponseStream<String> { get }`<br>`var debugDescription: String`<br>`var metadata: [String : any Sendable]` |
+| `Timeout` | `init(debugDescription: String, metadata: [String : any Sendable] = [:])`<br>`var debugDescription: String`<br>`var metadata: [String : any Sendable]` |
+| `GuardrailViolation` | `init(debugDescription: String, metadata: [String : any Sendable] = [:])`<br>`var debugDescription: String`<br>`var metadata: [String : any Sendable]` |
+| `UnsupportedCapability` | `init(capability: LanguageModelCapabilities.Capability, debugDescription: String, metadata: [String : any Sendable] = [:])`<br>`var capability: LanguageModelCapabilities.Capability`<br>`var debugDescription: String`<br>`var metadata: [String : any Sendable]` |
+| `UnsupportedTranscriptContent` | `init(unsupportedContent: [Transcript.Entry], debugDescription: String, metadata: [String : any Sendable] = [:])`<br>`var unsupportedContent: [Transcript.Entry]`<br>`var debugDescription: String`<br>`var metadata: [String : any Sendable]` |
+| `UnsupportedGenerationGuide` | `init(schemaName: String?, debugDescription: String, metadata: [String : any Sendable] = [:])`<br>`var schemaName: String?`<br>`var debugDescription: String`<br>`var metadata: [String : any Sendable]` |
+| `UnsupportedLanguageOrLocale` | `init(languageCode: Locale.LanguageCode, debugDescription: String, metadata: [String : any Sendable] = [:])`<br>`var languageCode: Locale.LanguageCode`<br>`var debugDescription: String`<br>`var metadata: [String : any Sendable]` |
 
 Complete model/provider payload surfaces:
 
 | Payload | Exact initializer and public properties |
 | --- | --- |
 | `SystemLanguageModel.Error.AssetsUnavailable` | `init(debugDescription: String)`<br>`var debugDescription: String` |
-| `PrivateCloudComputeLanguageModel.Error.QuotaLimitReached` | `init(limitIncreaseSuggestion: PrivateCloudComputeLanguageModel.QuotaUsage.LimitIncreaseSuggestion?, resetDate: Date?, debugDescription: String)`<br>`var limitIncreaseSuggestion: PrivateCloudComputeLanguageModel.QuotaUsage.LimitIncreaseSuggestion?`<br>`var resetDate: Date?`<br>`var debugDescription: String` |
+| `PrivateCloudComputeLanguageModel.Error.QuotaLimitReached` | `init(limitIncreaseSuggestion: PrivateCloudComputeLanguageModel.QuotaUsage.LimitIncreaseSuggestion? = nil, resetDate: Date? = nil, debugDescription: String)`<br>`var limitIncreaseSuggestion: PrivateCloudComputeLanguageModel.QuotaUsage.LimitIncreaseSuggestion?`<br>`var resetDate: Date?`<br>`var debugDescription: String` |
 | `PrivateCloudComputeLanguageModel.Error.NetworkFailure` | `init(debugDescription: String)`<br>`var debugDescription: String` |
 | `PrivateCloudComputeLanguageModel.Error.ServiceUnavailable` | `init(debugDescription: String)`<br>`var debugDescription: String` |
 
@@ -262,7 +262,7 @@ this complete data/initializer surface:
 | `LanguageModelSession.ToolCallError` | `init(tool: any Tool, underlyingError: any Error)` |
 | `LanguageModelSession.ToolCallError` | `var tool: any Tool` |
 | `LanguageModelSession.ToolCallError` | `var underlyingError: any Error` |
-| `LanguageModelSession.ToolCallError` | `var errorDescription: String?` |
+| `LanguageModelSession.ToolCallError` | `var errorDescription: String? { get }` |
 
 ## Provider and PCC boundary
 

@@ -33,20 +33,27 @@ ledger.
 
 | ID | Contract |
 | --- | --- |
-| `D-SCHEMA-001` | Result schema and closed positive/non-positive shapes |
-| `D-ROUTE-001` | Pattern/direct-reference route selection |
-| `D-OWNER-001` | Source, destination, and final-response ownership |
-| `D-TRANSITION-001` | Valid phase/version/edge transition behavior |
-| `D-TOOL-001` | Tool allowlist, typed arguments/results, and command boundary |
-| `D-CONTEXT-001` | Context classification and minimum-necessary envelope |
-| `D-CONTEXT-002` | Provenance and destination/provider restrictions |
-| `D-GRANT-001` | Bound grant and immediate confirmation revalidation |
-| `D-PHASE-001` | Stable/transition/recovery/termination ordering |
-| `D-EFFECT-001` | One command/effect identity and ledger behavior |
-| `D-EFFECT-002` | Reconciliation-before-retry and replay safety |
-| `D-FALLBACK-001` | Safe fallback does not widen trust |
-| `D-EVIDENCE-001` | Safe normalized evidence allowlist and scans |
-| `D-RUBRIC-001` | Rubric shape, arithmetic, thresholds, and invalid cases |
+| `D-SCHEMA-001` | Versioned case/policy/result shape and oracle separation |
+| `D-ROUTE-001` | Required and allowed destination |
+| `D-OWNER-001` | Exactly one final response by the declared owner |
+| `D-TRANSITION-001` | Valid, contiguous, acyclic, budgeted transitions |
+| `D-TOOL-001` | Actor/tool allowlist and call budget |
+| `D-CONTEXT-001` | Declared required-context inclusion |
+| `D-CONTEXT-002` | Forbidden-context exclusion |
+| `D-GRANT-001` | Bound provider grant and independent state/policy revision match |
+| `D-PHASE-001` | Canonical phase/event order and recovery position |
+| `D-EFFECT-001` | Unique effect identities and one matching ledger entry |
+| `D-EFFECT-002` | One original command, no replay command, reconciliation before retry |
+| `D-FALLBACK-001` | Only a declared safe fallback |
+| `D-EVIDENCE-001` | Safe allowlisted evidence and exact hashes |
+| `D-RUBRIC-001` | Complete, anchored, hash-bound rubric integrity and verdict |
+
+D-GRANT-001 binds person/session, source profile/provider, destination
+profile/provider, purpose, exact classes, exact fields, tools, retention,
+expiry, applicable provider disclosure, exceptional C2 permission,
+stateVersion, and policyVersion; any bound-field change invalidates the
+grant. The two versions advance independently and must each match the approved
+policy and result.
 
 Host/evidence identities are:
 
