@@ -3,7 +3,7 @@
   "evidenceKind": "design_scenario",
   "sourceIssue": "DEV-132",
   "designArtifact": "docs/superpowers/specs/2026-07-17-dev-132-mvp-architecture-design.md",
-  "designArtifactSha256": "faf70d5ff5c8609ad9f70314b12636b2a4367c1ae695710de81f4da8a4d35320",
+  "designArtifactSha256": "2270f2225f277e5401178d17817acde6f0ad4bf9e4480f08b768c6fdca584044",
   "status": "pass",
   "limitations": [
     "This normalized synthetic proof evaluates architecture contracts only; it did not invoke a Claude or Codex host, a model, a provider, or an Apple runtime.",
