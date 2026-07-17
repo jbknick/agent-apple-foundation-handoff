@@ -411,7 +411,7 @@ The first four supported Foundation Models rows are
 ```bash
 INTERFACE="$(find \
   "$SDK/System/Library/Frameworks/FoundationModels.framework/Modules/FoundationModels.swiftmodule" \
-  -name 'arm64-apple-macos.swiftinterface' -print -quit)"
+  -name 'arm64e-apple-macos.swiftinterface' -print -quit)"
 test -n "$INTERFACE"
 test "$(shasum -a 256 "$INTERFACE" | awk '{print $1}')" = \
   ff2285670b0966addb9827dc895a3ee3c9db6e186baae62c034fed012632aacc
