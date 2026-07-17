@@ -992,6 +992,55 @@ class GeneratedArtifactTests(unittest.TestCase):
                     str(raised.exception),
                 )
 
+    def test_invalid_skill_descriptions_are_rejected(self):
+        capability = SKILLS[0]
+        skill = ROOT / SKILLS_ROOT / capability / "SKILL.md"
+        approved_line = next(
+            line
+            for line in skill.read_text(encoding="utf-8").splitlines()
+            if line.startswith("description: ")
+        )
+        approved = approved_line.removeprefix("description: ")
+        other_skill = ROOT / SKILLS_ROOT / SKILLS[1] / "SKILL.md"
+        other_description = next(
+            line.removeprefix("description: ")
+            for line in other_skill.read_text(encoding="utf-8").splitlines()
+            if line.startswith("description: ")
+        )
+
+        mutations = (
+            ("empty sequence", "[]"),
+            ("null", "null"),
+            ("unterminated quote", '"unterminated'),
+            ("quoted approved description", f'"{approved}"'),
+            ("wrong unquoted description", "Wrong description."),
+            ("another skill description", other_description),
+        )
+        for name, replacement in mutations:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                isolated_root = Path(directory)
+                self._copy_canonical_inputs(isolated_root)
+                isolated_skill = (
+                    isolated_root / SKILLS_ROOT / capability / "SKILL.md"
+                )
+                original = isolated_skill.read_text(encoding="utf-8")
+                mutated = original.replace(
+                    approved_line,
+                    f"description: {replacement}",
+                    1,
+                )
+                self.assertNotEqual(original, mutated)
+                isolated_skill.write_text(mutated, encoding="utf-8")
+
+                with self.assertRaises(sync.CanonicalInputError) as raised:
+                    sync.load_canonical_inputs(isolated_root)
+
+                self._assert_private_safe_skill_error(
+                    raised.exception,
+                    isolated_root,
+                    isolated_skill,
+                )
+
     def test_exact_capabilities_and_skill_component_are_accepted(self):
         with tempfile.TemporaryDirectory() as directory:
             isolated_root = Path(directory)
