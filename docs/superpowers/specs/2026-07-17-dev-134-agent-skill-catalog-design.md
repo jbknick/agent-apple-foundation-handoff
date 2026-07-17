@@ -674,23 +674,56 @@ their non-positive shape.
 
 ### DEV134-POS-002: flawed reducer review
 
-- Representative synthetic request: “Review this existing Foundation Models handoff reducer for ambiguous ownership, unlimited transitions, and full-transcript transfer, and return findings without editing it.”
+- Representative synthetic request: “Review the supplied synthetic Foundation Models handoff reducer against the approved architecture contract, return findings, and make no edits.”
 - Input class: existing implementation findings request.
 - Router: `review`, `implementation`, `failing`.
 - Expected activation: `review-apple-foundation-models-handoff`.
 - Direct references: all five concern owners.
 - Full walkthrough: yes; detailed below.
+
+**Synthetic artifact input: DEV134-SYNTH-REDUCER-002-v1**
+*(pseudocode, not Swift or an Apple API)*
+
+```text
+state.activeProfiles = proposal.profiles
+while proposal.next != none:
+    apply(proposal.next)
+destination.context = source.fullTranscript
+if modelSummary.approved:
+    state.authorization = approved
+effectResult = executor.execute(proposal.effect)
+if effectResult.timeout:
+    state.phase = terminated
+```
+
+**Expected findings-only oracle:** The Resolution below and Full walkthrough B
+are evaluation-only expectations. They are not included in the request or
+artifact presented to the reviewer.
+
 - Resolution: reject ambiguous owner, unbounded transitions, full transcript,
   and incomplete recovery using stable IDs and bounded corrections.
 
 ### DEV134-POS-003: approved contract implementation
 
-- Representative synthetic request: “Implement only the transition-budget check defined by approved synthetic architecture decision ARCH-SYN-001 in the reducer and its tests.”
+- Representative synthetic request: “Use the embedded approved synthetic contract input and implement only its named transition-budget change in the two affected synthetic paths.”
 - Input class: bounded application change tied to an approved decision.
 - Router: `implement`, `approved_contract`, `available`.
 - Expected activation: `implement-apple-foundation-models-handoff`.
 - References: architecture/state, approved pattern, Apple availability,
   security/recovery, and evaluation proof loaded directly.
+
+**Synthetic approved contract input**
+
+- Immutable ID: `DEV134-SYNTH-CONTRACT-003-v1`.
+- Approved content (exact): `When phase is not stable, reject the transition before reading or decrementing the transition budget and emit no executor command.`
+- Approved content SHA-256: `7a8c5c6e9ab3e7c7a99fe5d3c2dec17e3e173e391aa15f280df3d6c626c837a5`.
+- Affected paths: `Sources/HandoffReducer.swift` and
+  `Tests/HandoffReducerTests.swift` (synthetic names only; they are not claims
+  that these paths exist in this repository).
+- Approved boundary: the versioned ID, verbatim content, digest, and two paths
+  above are the complete approved boundary. They grant no authority to infer or
+  edit anything else.
+
 - Resolution: implement only the named boundary and report changed paths plus
   compile/regression results.
 
@@ -806,27 +839,29 @@ research profile gathers evidence and a review profile takes over and answers.
 | State and Lifecycle | Independent versions, `stable -> transitioning -> stable`, valid edge, one active owner, finite budgets, checkpoint, and persistent recovery. `D-PHASE-001`. |
 | Trust and Model Boundaries | Application reducer owns authority; on-device/PCC/custom providers remain distinct; model text is a proposal. |
 | Context Policy | Target-necessary history, full provenance, atomic C0-C3 decision, C3 rejection. `D-CONTEXT-001`, `D-CONTEXT-002`. |
-| Tools Effects and Confirmation | Bound grant, immediate confirmation, auth/permission/recipient recheck, typed result provenance, one effect identity. `D-TOOL-001`, `D-GRANT-001`, `D-EFFECT-001`. |
-| Failure Recovery and Fallback | Pre-commit restore; uncertainty enters `recoveryRequired`; replay emits no command; reconciliation precedes retry; fallback never expands trust. `D-EFFECT-002`, `D-FALLBACK-001`. |
-| Verification and Evidence | Mandatory D catalog, seven-dimension rubric input, metadata-only live evidence, safe synthetic allowance, and blocked host rows. `D-EVIDENCE-001`, `D-RUBRIC-001`. |
+| Tools Effects and Confirmation | No tool or external high-impact effect is requested. Provider/context grant and revalidation still apply; `D-GRANT-001` remains applicable. `D-TOOL-001` is `not_applicable`; `D-EFFECT-001` is `not_applicable`; no confirmation, effect ID, or ledger row is claimed. |
+| Failure Recovery and Fallback | Pre-commit transition recovery restores the checkpoint, and safe provider fallback never expands trust; `D-FALLBACK-001` remains applicable. Effect reconciliation/replay is not applicable, and `D-EFFECT-002` is `not_applicable` because no effect was dispatched. |
+| Verification and Evidence | Mandatory applicable D checks, the seven-dimension rubric input, metadata-only live evidence, safe synthetic allowance, and blocked host rows are reported. The three scenario-level `not_applicable` statuses remain `not_applicable` and are not converted into passes. `D-EVIDENCE-001`, `D-RUBRIC-001`. |
 | Limitations | No runtime enforcement, live model, compatible beta host, external exactly-once guarantee, or activation claim. |
 | Alternatives | Baton-pass versus isolated consultation, routing, and transcript transfer with topology/history/control/owner comparison. |
 | Decision Rationale | Destination must continue and answer, so control/final ownership transfer is intentional. |
-| Proposed Components | Framework-neutral reducer/state/context/grant/effect/evidence components and scoped file boundaries, not invented Apple types. |
-| Implementation and Test Plan | Test-first reducer/security fixtures, SDK-supported compile checks, safe evidence gates, and separately blocked real-host/Apple rows. |
+| Proposed Components | Framework-neutral reducer/state/context/grant/fallback/evidence components and scoped file boundaries, not invented Apple types or an executed effect component. |
+| Implementation and Test Plan | Test-first reducer, context/grant, pre-commit transition recovery, and fallback fixtures; SDK-supported compile checks; safe evidence gates; and separately blocked real-host/Apple rows. |
 
 The expected guardrail set contains `D-ROUTE-001`, `D-OWNER-001`,
-`D-TRANSITION-001`, `D-TOOL-001`, `D-CONTEXT-001`, `D-CONTEXT-002`,
-`D-GRANT-001`, `D-PHASE-001`, `D-EFFECT-001`, `D-EFFECT-002`,
-`D-FALLBACK-001`, `D-EVIDENCE-001`, and `D-RUBRIC-001`. The scenario passes
-only when every common/design section is present and the destination alone owns
-the final response.
+`D-TRANSITION-001`, `D-CONTEXT-001`, `D-CONTEXT-002`, `D-GRANT-001`,
+`D-PHASE-001`, `D-FALLBACK-001`, `D-EVIDENCE-001`, and `D-RUBRIC-001`.
+`D-TOOL-001`, `D-EFFECT-001`, and `D-EFFECT-002` are separately
+`not_applicable` for this no-tool, no-effect scenario. The scenario passes only
+when every common/design section is present, the applicable checks pass, the
+three non-applicable checks retain their honest status, and the destination
+alone owns the final response.
 
 ### Full walkthrough B: `DEV134-POS-002`
 
-Representative synthetic request: review a reducer that lets either profile
-answer, has no transition limit, copies the full transcript, trusts a model
-summary as approval, and terminates after an uncertain dispatch timeout.
+Representative synthetic request: review the supplied synthetic Foundation
+Models handoff reducer `DEV134-SYNTH-REDUCER-002-v1` against the approved
+architecture contract, return findings, and make no edits.
 
 | Required section | Expected content and finding |
 | --- | --- |
