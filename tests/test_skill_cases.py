@@ -5645,6 +5645,283 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                 )
                 _assert_forward_evidence_schema(self, evidence)
 
+    def _assert_pre_response_bound_copy_stop(
+        self,
+        snapshot: dict,
+        *,
+        expected_capture_error: str,
+        expected_cleanup: str,
+        expected_code: int,
+        expected_status: str,
+        expected_reason: str,
+        private_needles: tuple[str, ...],
+    ) -> None:
+        fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
+        process = _FakeHostProcess()
+        scorer = _FakeScorer(_forward_outputs(fixture))
+        checker = _FakePrerequisiteChecker(snapshot)
+
+        code, evidence = _run_host(
+            self.runner,
+            fixture,
+            str(TEST_EXECUTABLE_PATH),
+            process,
+            checker,
+            scorer,
+        )
+
+        self.assertEqual(expected_capture_error, snapshot["captureError"])
+        self.assertEqual(
+            expected_cleanup, snapshot["preflightBoundCopyCleanup"]
+        )
+        self.assertIsNone(snapshot["boundExecutableCopySha256"])
+        self.assertEqual(expected_code, code)
+        self.assertEqual(expected_status, evidence["status"])
+        self.assertEqual(expected_reason, evidence["host"]["blockerReason"])
+        self.assertIsNone(evidence["host"]["boundExecutableCopySha256"])
+        self.assertEqual([], evidence["cases"])
+        self.assertEqual(0, evidence["summary"]["attemptedCount"])
+        self.assertEqual([], process.commands)
+        self.assertEqual([], scorer.calls)
+        self.assertEqual(1, len(checker.calls))
+        expected_cleanup_evidence = {
+            key: "not_applicable" for key in FORWARD_CLEANUP_KEYS
+        }
+        expected_cleanup_evidence["boundExecutableCopy"] = expected_cleanup
+        self.assertEqual(expected_cleanup_evidence, evidence["cleanup"])
+        serialized = json.dumps(evidence, sort_keys=True)
+        self.assertFalse(
+            any(needle and needle in serialized for needle in private_needles)
+        )
+        _assert_forward_evidence_schema(self, evidence)
+
+    def test_bound_copy_preownership_enospc_is_blocked_without_attempt(
+        self,
+    ) -> None:
+        private_message = (
+            "PRIVATE preownership ENOSPC at /private/host/bound-construction"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_path = root / "source-codex"
+            source_path.write_bytes(b"small verified executable")
+            source_path.chmod(0o700)
+
+            with mock.patch.object(
+                self.runner.tempfile,
+                "mkdtemp",
+                side_effect=OSError(errno.ENOSPC, private_message),
+            ):
+                snapshot = self.runner.default_prerequisite_checker(
+                    str(source_path),
+                    "gpt-5.6-sol",
+                    "0.144.5",
+                    source_capture=expected_source_capture(),
+                )
+
+            self.assertEqual([source_path], list(root.iterdir()))
+
+        self._assert_pre_response_bound_copy_stop(
+            snapshot,
+            expected_capture_error="bound_copy_failure",
+            expected_cleanup="not_applicable",
+            expected_code=self.runner.BLOCKED,
+            expected_status="blocked",
+            expected_reason="bound_copy_unavailable",
+            private_needles=(private_message, str(root)),
+        )
+
+    def test_bound_copy_midcopy_enospc_with_cleanup_is_blocked_without_attempt(
+        self,
+    ) -> None:
+        private_message = "PRIVATE mid-copy ENOSPC at /private/host/bound-copy"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_path = root / "source-codex"
+            source_path.write_bytes(b"small verified executable")
+            source_path.chmod(0o700)
+            real_mkdtemp = tempfile.mkdtemp
+            real_cleanup = self.runner._remove_bound_executable_copy
+            created_roots: list[Path] = []
+            cleanup_calls: list[tuple[Path, Path]] = []
+
+            def make_bound_root(*args, **kwargs) -> str:
+                kwargs["dir"] = root
+                created = Path(real_mkdtemp(*args, **kwargs))
+                created_roots.append(created)
+                return str(created)
+
+            def observed_cleanup(path: Path, bound_root: Path) -> bool:
+                cleanup_calls.append((path, bound_root))
+                return real_cleanup(path, bound_root)
+
+            with (
+                mock.patch.object(
+                    self.runner.tempfile,
+                    "mkdtemp",
+                    side_effect=make_bound_root,
+                ),
+                mock.patch.object(
+                    self.runner.os,
+                    "write",
+                    side_effect=OSError(errno.ENOSPC, private_message),
+                ),
+                mock.patch.object(
+                    self.runner,
+                    "_remove_bound_executable_copy",
+                    side_effect=observed_cleanup,
+                ),
+            ):
+                snapshot = self.runner.default_prerequisite_checker(
+                    str(source_path),
+                    "gpt-5.6-sol",
+                    "0.144.5",
+                    source_capture=expected_source_capture(),
+                )
+
+            self.assertEqual(1, len(created_roots))
+            bound_root = created_roots[0]
+            bound_path = bound_root / "codex"
+            self.assertEqual([(bound_path, bound_root)], cleanup_calls)
+            self.assertFalse(bound_path.exists())
+            self.assertFalse(bound_root.exists())
+
+        self._assert_pre_response_bound_copy_stop(
+            snapshot,
+            expected_capture_error="bound_copy_failure",
+            expected_cleanup="pass",
+            expected_code=self.runner.BLOCKED,
+            expected_status="blocked",
+            expected_reason="bound_copy_unavailable",
+            private_needles=(private_message, str(root)),
+        )
+
+    def test_bound_copy_midcopy_enospc_cleanup_failure_fails_without_attempt(
+        self,
+    ) -> None:
+        private_message = (
+            "PRIVATE persistent mid-copy ENOSPC at /private/host/bound-copy"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_path = root / "source-codex"
+            source_path.write_bytes(b"small verified executable")
+            source_path.chmod(0o700)
+            real_mkdtemp = tempfile.mkdtemp
+            real_cleanup = self.runner._remove_bound_executable_copy
+            created_roots: list[Path] = []
+            cleanup_calls: list[tuple[Path, Path]] = []
+
+            def make_bound_root(*args, **kwargs) -> str:
+                kwargs["dir"] = root
+                created = Path(real_mkdtemp(*args, **kwargs))
+                created_roots.append(created)
+                return str(created)
+
+            def refuse_cleanup(path: Path, bound_root: Path) -> bool:
+                cleanup_calls.append((path, bound_root))
+                return False
+
+            try:
+                with (
+                    mock.patch.object(
+                        self.runner.tempfile,
+                        "mkdtemp",
+                        side_effect=make_bound_root,
+                    ),
+                    mock.patch.object(
+                        self.runner.os,
+                        "write",
+                        side_effect=OSError(errno.ENOSPC, private_message),
+                    ),
+                    mock.patch.object(
+                        self.runner,
+                        "_remove_bound_executable_copy",
+                        side_effect=refuse_cleanup,
+                    ),
+                ):
+                    snapshot = self.runner.default_prerequisite_checker(
+                        str(source_path),
+                        "gpt-5.6-sol",
+                        "0.144.5",
+                        source_capture=expected_source_capture(),
+                    )
+
+                self.assertEqual(1, len(created_roots))
+                bound_root = created_roots[0]
+                bound_path = bound_root / "codex"
+                self.assertEqual(
+                    [(bound_path, bound_root)] * 2,
+                    cleanup_calls,
+                )
+                self.assertTrue(bound_path.exists())
+                self.assertTrue(bound_root.exists())
+
+                self._assert_pre_response_bound_copy_stop(
+                    snapshot,
+                    expected_capture_error="bound_copy_cleanup_failed",
+                    expected_cleanup="fail",
+                    expected_code=self.runner.FAIL,
+                    expected_status="fail",
+                    expected_reason="post_capture_prerequisite_drift",
+                    private_needles=(private_message, str(root)),
+                )
+            finally:
+                if created_roots:
+                    real_cleanup(created_roots[0] / "codex", created_roots[0])
+
+    def test_bound_copy_source_disappearance_after_capture_fails_without_attempt(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_path = root / "source-codex"
+            source_path.write_bytes(b"small verified executable")
+            source_path.chmod(0o700)
+            real_capture = self.runner.capture_executable
+            capture_calls = 0
+
+            def capture_then_remove(path: str) -> dict[str, str]:
+                nonlocal capture_calls
+                capture_calls += 1
+                captured = real_capture(path)
+                if capture_calls == 1:
+                    source_path.unlink()
+                return captured
+
+            with (
+                mock.patch.object(
+                    self.runner,
+                    "capture_executable",
+                    side_effect=capture_then_remove,
+                ),
+                mock.patch.object(
+                    self.runner.tempfile,
+                    "mkdtemp",
+                    wraps=tempfile.mkdtemp,
+                ) as make_bound_root,
+            ):
+                snapshot = self.runner.default_prerequisite_checker(
+                    str(source_path),
+                    "gpt-5.6-sol",
+                    "0.144.5",
+                    source_capture=expected_source_capture(),
+                )
+
+            self.assertEqual(1, capture_calls)
+            self.assertEqual(0, make_bound_root.call_count)
+            self.assertFalse(source_path.exists())
+
+        self._assert_pre_response_bound_copy_stop(
+            snapshot,
+            expected_capture_error="bound_copy_identity_drift",
+            expected_cleanup="not_applicable",
+            expected_code=self.runner.FAIL,
+            expected_status="fail",
+            expected_reason="post_capture_prerequisite_drift",
+            private_needles=(str(root),),
+        )
+
     def test_unavailable_pre_response_bound_copy_is_blocked_without_attempt(
         self,
     ) -> None:
