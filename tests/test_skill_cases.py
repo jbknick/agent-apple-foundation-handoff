@@ -1398,6 +1398,36 @@ def _canonical_codex_jsonl() -> str:
     return "\n".join(json.dumps(event, sort_keys=True) for event in events)
 
 
+def _raw_codex_web_search_item(
+    outer_id: str,
+    inner_id: str,
+    *,
+    query: str,
+    action: dict,
+) -> str:
+    return (
+        f'{{"id":{json.dumps(outer_id)},"type":"web_search",'
+        f'"id":{json.dumps(inner_id)},"query":{json.dumps(query)},'
+        f'"action":{json.dumps(action, separators=(",", ":"))}}}'
+    )
+
+
+def _raw_codex_web_search_stream(*events: tuple[str, str]) -> str:
+    records = [
+        '{"type":"thread.started","thread_id":"thread_synthetic"}',
+        '{"type":"turn.started"}',
+        *(
+            f'{{"type":{json.dumps(event_type)},"item":{item}}}'
+            for event_type, item in events
+        ),
+        json.dumps(
+            {"type": "turn.completed", "usage": _codex_usage()},
+            separators=(",", ":"),
+        ),
+    ]
+    return "\n".join(records)
+
+
 def _build_forward_plugin_tree(repo_root: Path) -> tuple[Path, dict]:
     plugin_root = repo_root / "plugins/apple-foundation-models-handoff"
     manifest_path = plugin_root / ".codex-plugin/plugin.json"
@@ -5633,6 +5663,101 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                 },
             },
             events[0]["item"],
+        )
+
+    def test_codex_01445_web_search_rejects_inner_id_change(self) -> None:
+        started = _raw_codex_web_search_item(
+            "item_0",
+            "search-1",
+            query="",
+            action={"type": "other"},
+        )
+        completed = _raw_codex_web_search_item(
+            "item_0",
+            "search-2",
+            query="rust async await",
+            action={"type": "search", "query": "rust async await"},
+        )
+
+        with self.assertRaisesRegex(ValueError, "identity"):
+            self.runner._tool_events(
+                _raw_codex_web_search_stream(
+                    ("item.started", started),
+                    ("item.completed", completed),
+                )
+            )
+
+    def test_codex_01445_web_search_rejects_concurrent_inner_id_reuse(self) -> None:
+        first_started = _raw_codex_web_search_item(
+            "item_0",
+            "search-1",
+            query="",
+            action={"type": "other"},
+        )
+        second_started = _raw_codex_web_search_item(
+            "item_1",
+            "search-1",
+            query="",
+            action={"type": "other"},
+        )
+        first_completed = _raw_codex_web_search_item(
+            "item_0",
+            "search-1",
+            query="first query",
+            action={"type": "search", "query": "first query"},
+        )
+        second_completed = _raw_codex_web_search_item(
+            "item_1",
+            "search-1",
+            query="second query",
+            action={"type": "search", "query": "second query"},
+        )
+
+        with self.assertRaisesRegex(ValueError, "identity"):
+            self.runner._tool_events(
+                _raw_codex_web_search_stream(
+                    ("item.started", first_started),
+                    ("item.started", second_started),
+                    ("item.completed", first_completed),
+                    ("item.completed", second_completed),
+                )
+            )
+
+    def test_codex_01445_web_search_keeps_inner_identity_private(self) -> None:
+        started = _raw_codex_web_search_item(
+            "item_0",
+            "search-1",
+            query="",
+            action={"type": "other"},
+        )
+        completed = _raw_codex_web_search_item(
+            "item_0",
+            "search-1",
+            query="rust async await",
+            action={"type": "search", "query": "rust async await"},
+        )
+
+        self.assertEqual(
+            [
+                {
+                    "type": "item.completed",
+                    "item": {
+                        "id": "item_0",
+                        "type": "web_search",
+                        "query": "rust async await",
+                        "action": {
+                            "type": "search",
+                            "query": "rust async await",
+                        },
+                    },
+                }
+            ],
+            self.runner._tool_events(
+                _raw_codex_web_search_stream(
+                    ("item.started", started),
+                    ("item.completed", completed),
+                )
+            ),
         )
 
     def test_codex_01445_noncommand_item_lifecycles_and_statuses_are_exact(self) -> None:
