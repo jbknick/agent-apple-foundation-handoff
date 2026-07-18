@@ -803,9 +803,11 @@ boundaries pass, rerun all 25 cases into a new temporary evidence path.
 Independent review of the combined GREEN found that the completed `spawn_agent`
 association accepts `receiver_thread_ids=[""]` with an identically keyed
 `agents_states` map. Add a tests-only negative mutation proving empty receiver IDs
-and empty state-map keys fail closed while a nonempty official lifecycle still
-passes. Then require every completed receiver identity and every associated state key
-to be a nonempty string before checking uniqueness and exact key-set association.
+and empty state-map keys fail closed while a nonblank official lifecycle still
+passes. Include spaces-only and tab-only receiver/state identity mutations. Then
+require every completed receiver identity and every associated state key to be a
+string whose trimmed value is nonempty before checking uniqueness and exact raw
+key-set association.
 
 Commit the RED test and GREEN parser separately. Rerun the supported lifecycle,
 every collab transition negative, the complete skill-case suite, repository suite,
