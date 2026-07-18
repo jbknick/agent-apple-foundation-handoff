@@ -18,6 +18,7 @@ FIXTURE_PATH = ROOT / "tests/fixtures/dev-136-codex-skill-cases.json"
 EVIDENCE_PATH = ROOT / "docs/research/evidence/dev-136-codex-skill-tdd.json"
 PROTOTYPE_PATH = ROOT / "docs/research/evidence/dev-134-activation-prototype.json"
 RUNNER_PATH = ROOT / "tests/e2e/codex_skill_forward_tests.py"
+PLUGIN_LOAD_PATH = ROOT / "tests/e2e/codex_plugin_load.py"
 TEST_EXECUTABLE_PATH = Path(sys.executable).resolve()
 
 SKILLS = (
@@ -418,6 +419,22 @@ def load_forward_runner():
     )
     if spec is None or spec.loader is None:
         raise AssertionError("DEV-136 RED: forward runner cannot be imported")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_plugin_load_probe():
+    if not PLUGIN_LOAD_PATH.is_file():
+        raise AssertionError(
+            "DEV-136 RED: tests/e2e/codex_plugin_load.py is absent"
+        )
+    spec = importlib.util.spec_from_file_location(
+        "codex_plugin_load_contract", PLUGIN_LOAD_PATH
+    )
+    if spec is None or spec.loader is None:
+        raise AssertionError("DEV-136 RED: plugin-load probe cannot be imported")
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
@@ -1621,6 +1638,229 @@ def _write_bound_evidence(
         executable_sha256=executable_sha256,
         fault_hook=fault_hook,
     )
+
+
+class CodexPluginLoadContractTests(unittest.TestCase):
+    EXPECTED_FILES = {
+        ".claude-plugin/plugin.json",
+        ".codex-plugin/plugin.json",
+        "metadata/codex-interface.json",
+        "skills/design-apple-foundation-models-handoff/SKILL.md",
+        "skills/implement-apple-foundation-models-handoff/SKILL.md",
+        "skills/review-apple-foundation-models-handoff/SKILL.md",
+        "skills/debug-apple-foundation-models-handoff/SKILL.md",
+        "skills/validate-apple-foundation-models-handoff/SKILL.md",
+    }
+    EXPECTED_DIRECTORIES = {
+        ".claude-plugin",
+        ".codex-plugin",
+        "metadata",
+        "skills",
+        "skills/design-apple-foundation-models-handoff",
+        "skills/implement-apple-foundation-models-handoff",
+        "skills/review-apple-foundation-models-handoff",
+        "skills/debug-apple-foundation-models-handoff",
+        "skills/validate-apple-foundation-models-handoff",
+    }
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.probe_module = load_plugin_load_probe()
+
+    def _write_payload(
+        self,
+        root: Path,
+        files: set[str],
+        capabilities: list[str] | None = None,
+    ) -> None:
+        for relative_path in files:
+            target = root / relative_path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if relative_path == ".codex-plugin/plugin.json":
+                target.write_text(
+                    json.dumps(
+                        {
+                            "name": "apple-foundation-models-handoff",
+                            "interface": {
+                                "capabilities": capabilities or [],
+                            },
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+            else:
+                target.write_bytes((relative_path + "\n").encode("utf-8"))
+
+    def _run_probe_without_host_io(self) -> dict:
+        module = self.probe_module
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = root / "repository"
+            source = repository / "plugins/apple-foundation-models-handoff"
+            codex_home = root / "codex-home"
+            installed = codex_home / "cache/apple-foundation-models-handoff"
+            codex_home.mkdir()
+            declared_files = set(module.EXPECTED_CACHE_FILES)
+            declared_capabilities = list(SKILLS)
+            self._write_payload(source, declared_files, declared_capabilities)
+            self._write_payload(installed, declared_files, declared_capabilities)
+
+            def entry(*, installed_state: bool, enabled: bool) -> dict:
+                return {
+                    "pluginId": module.SELECTOR,
+                    "name": module.PLUGIN_ID,
+                    "marketplaceName": module.MARKETPLACE,
+                    "version": module.PLUGIN_VERSION,
+                    "installed": installed_state,
+                    "enabled": enabled,
+                    "source": {"source": "local", "path": str(source)},
+                    "marketplaceSource": {
+                        "sourceType": "local",
+                        "source": str(repository),
+                    },
+                    "installPolicy": "AVAILABLE",
+                    "authPolicy": "ON_INSTALL",
+                }
+
+            responses = iter(
+                (
+                    {
+                        "marketplaceName": module.MARKETPLACE,
+                        "installedRoot": str(repository),
+                        "alreadyAdded": False,
+                    },
+                    {
+                        "installed": [],
+                        "available": [
+                            entry(installed_state=False, enabled=False)
+                        ],
+                    },
+                    {
+                        "pluginId": module.SELECTOR,
+                        "name": module.PLUGIN_ID,
+                        "marketplaceName": module.MARKETPLACE,
+                        "version": module.PLUGIN_VERSION,
+                        "authPolicy": "ON_INSTALL",
+                        "installedPath": str(installed),
+                    },
+                    {
+                        "installed": [
+                            entry(installed_state=True, enabled=True)
+                        ],
+                        "available": [],
+                    },
+                )
+            )
+            temporary_home = mock.MagicMock()
+            temporary_home.__enter__.return_value = str(codex_home)
+            temporary_home.__exit__.return_value = False
+            executable = Path(sys.executable).resolve(strict=True)
+            production_require = module.require
+
+            def require_except_superseded_capability_check(
+                condition: bool, reason: str
+            ) -> None:
+                if reason != "capabilities_not_empty":
+                    production_require(condition, reason)
+
+            with (
+                mock.patch.object(module, "ROOT", repository),
+                mock.patch.object(module, "PLUGIN_ROOT", source),
+                mock.patch.object(
+                    module.tempfile,
+                    "TemporaryDirectory",
+                    return_value=temporary_home,
+                ),
+                mock.patch.object(module, "run_json", side_effect=responses),
+                mock.patch.object(module, "exact_version", return_value=True),
+                mock.patch.object(
+                    module,
+                    "require",
+                    side_effect=require_except_superseded_capability_check,
+                ),
+            ):
+                return module.probe(str(executable), executable, executable)
+
+    def test_plugin_load_accepts_exact_eight_file_directory_closure(self) -> None:
+        module = self.probe_module
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_payload(root, self.EXPECTED_FILES, list(SKILLS))
+            self.assertEqual(
+                self.EXPECTED_DIRECTORIES,
+                {
+                    path.relative_to(root).as_posix()
+                    for path in root.rglob("*")
+                    if path.is_dir()
+                },
+            )
+            try:
+                observed = module.scan_payload(
+                    root, "approved_payload_contract_mismatch"
+                )
+            except module.ProbeFailure as failure:
+                self.fail(f"exact approved payload rejected: {failure.reason}")
+            self.assertEqual(self.EXPECTED_FILES, observed)
+
+    def test_plugin_load_rejects_unapproved_or_nonregular_topology(self) -> None:
+        module = self.probe_module
+        for mutation in ("extra_file", "extra_directory", "symlink"):
+            with self.subTest(mutation=mutation):
+                with tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    self._write_payload(root, self.EXPECTED_FILES, list(SKILLS))
+                    if mutation == "extra_file":
+                        (root / "EXTRA.md").write_text(
+                            "unapproved\n", encoding="utf-8"
+                        )
+                    elif mutation == "extra_directory":
+                        (root / "unapproved-empty-directory").mkdir()
+                    else:
+                        target = root / (
+                            "skills/design-apple-foundation-models-handoff/"
+                            "SKILL.md"
+                        )
+                        target.unlink()
+                        target.symlink_to(root / ".codex-plugin/plugin.json")
+                    with self.assertRaises(module.ProbeFailure):
+                        module.scan_payload(
+                            root, "approved_payload_contract_mismatch"
+                        )
+
+    def test_plugin_load_reports_exact_ordered_capabilities(self) -> None:
+        result = self._run_probe_without_host_io()
+        self.assertEqual(list(SKILLS), result["capabilities"])
+
+    def test_plugin_load_reports_forward_runner_activation_ownership(self) -> None:
+        result = self._run_probe_without_host_io()
+        self.assertEqual(
+            "not_applicable/behavior_owned_by_forward_runner",
+            result["capabilityActivation"],
+        )
+
+    def test_plugin_load_json_accepts_valid_and_rejects_duplicate_keys(self) -> None:
+        module = self.probe_module
+        self.assertEqual(
+            {"finite": [0, 1.5, -2]},
+            module.parse_json_object(
+                b'{"finite":[0,1.5,-2]}', "strict_json_required"
+            ),
+        )
+        with self.assertRaises(module.ProbeFailure):
+            module.parse_json_object(
+                b'{"duplicate":0,"duplicate":1}',
+                "strict_json_required",
+            )
+
+    def test_plugin_load_json_rejects_nonfinite_constants(self) -> None:
+        module = self.probe_module
+        for constant in (b"NaN", b"Infinity", b"-Infinity"):
+            with self.subTest(constant=constant.decode("ascii")):
+                with self.assertRaises(module.ProbeFailure):
+                    module.parse_json_object(
+                        b'{"nonfinite":' + constant + b"}",
+                        "strict_json_required",
+                    )
 
 
 class _FakePrerequisiteChecker:
