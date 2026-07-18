@@ -2325,6 +2325,121 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
             executable_sha256=executable_bytes_sha256(),
         )
 
+    def test_bound_executable_lifecycle_closes_before_post_case_checker(self) -> None:
+        fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
+        outputs = _forward_outputs(fixture)
+        scenarios = {
+            "success": (self.runner.PASS, None),
+            "process_exception": (self.runner.FAIL, "process_failed"),
+            "process_nonzero": (self.runner.FAIL, "process_failed"),
+            "model_unavailable": (self.runner.BLOCKED, "model_unavailable"),
+            "post_check_exception": (
+                self.runner.FAIL,
+                "post_capture_prerequisite_drift",
+            ),
+        }
+
+        for scenario, (expected_code, expected_blocker) in scenarios.items():
+            with (
+                self.subTest(scenario=scenario),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                root = Path(directory)
+                bound_paths: list[Path] = []
+                bound_roots: list[Path] = []
+                observed: dict[str, tuple[bool, bool]] = {}
+                snapshot = _passing_prerequisites()
+
+                def bound_copy(_: dict) -> tuple[str, Path, Path]:
+                    bound_root = root / f"bound-{len(bound_roots)}"
+                    bound_root.mkdir()
+                    bound_path = bound_root / "codex"
+                    bound_path.write_bytes(b"verified executable sentinel")
+                    bound_path.chmod(0o700)
+                    bound_paths.append(bound_path)
+                    bound_roots.append(bound_root)
+                    return str(TEST_EXECUTABLE_PATH), bound_path, bound_root
+
+                class LifecycleProcess(_FakeHostProcess):
+                    def __call__(self, command: list[str], **kwargs):
+                        bound_path = Path(kwargs["executable"])
+                        observed["process_start"] = (
+                            bound_path.is_file(),
+                            bound_path.parent.is_dir(),
+                        )
+                        if scenario == "process_exception":
+                            observed["process_end"] = (
+                                bound_path.is_file(),
+                                bound_path.parent.is_dir(),
+                            )
+                            raise RuntimeError("synthetic process failure")
+                        completed = super().__call__(command, **kwargs)
+                        observed["process_end"] = (
+                            bound_path.is_file(),
+                            bound_path.parent.is_dir(),
+                        )
+                        if scenario == "process_nonzero":
+                            return subprocess.CompletedProcess(
+                                command, 7, completed.stdout, completed.stderr
+                            )
+                        if scenario == "model_unavailable":
+                            return subprocess.CompletedProcess(
+                                command,
+                                1,
+                                completed.stdout,
+                                "Error: model gpt-5.6-sol is unavailable\n",
+                            )
+                        return completed
+
+                class LifecycleChecker:
+                    def __init__(self) -> None:
+                        self.calls = 0
+
+                    def __call__(
+                        self,
+                        executable: str,
+                        model: str,
+                        version: str,
+                    ) -> dict:
+                        self.calls += 1
+                        if self.calls == 1:
+                            return copy.deepcopy(snapshot)
+                        observed["post_check_entry"] = (
+                            bound_paths[0].exists(),
+                            bound_roots[0].exists(),
+                        )
+                        if scenario == "post_check_exception":
+                            raise RuntimeError("synthetic post-check failure")
+                        return copy.deepcopy(snapshot)
+
+                process = LifecycleProcess()
+                checker = LifecycleChecker()
+                with mock.patch.object(
+                    self.runner,
+                    "_bound_executable_copy",
+                    side_effect=bound_copy,
+                ):
+                    code, evidence = _run_host(
+                        self.runner,
+                        fixture,
+                        str(TEST_EXECUTABLE_PATH),
+                        process,
+                        checker,
+                        _FakeScorer(outputs),
+                    )
+
+                self.assertEqual(expected_code, code)
+                self.assertEqual(
+                    expected_blocker,
+                    evidence["host"]["blockerReason"],
+                )
+                self.assertEqual((True, True), observed["process_start"])
+                self.assertEqual((True, True), observed["process_end"])
+                self.assertEqual(2, checker.calls)
+                self.assertTrue(all(not path.exists() for path in bound_paths))
+                self.assertTrue(all(not path.exists() for path in bound_roots))
+                self.assertEqual((False, False), observed["post_check_entry"])
+
     def test_host_blocks_exact_prerequisites_without_fallback(self) -> None:
         fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
         blockers = {
