@@ -1547,3 +1547,70 @@ results.
 2. `test(DEV-137): make path collections data only`
 3. `test(DEV-137): count duplicate command operands`
 4. `fix(DEV-137): make path collections data only`
+
+### Task 11: Replace the program special case with structural sibling ownership
+
+**Files:**
+- Modify: `tests/test_codex_reference_disclosure.py`
+- Modify: `tests/e2e/codex_reference_disclosure.py`
+
+**Decision:** Command-shape rejection is alias-independent. At each mapping,
+first recognize a direct owner: one valid `path`/`file_path` record or a direct
+data-only `paths` collection. Without a direct owner, if one direct child
+subtree contains a reference path and a distinct sibling subtree contains
+non-reference scalar data, reject the mapping as ambiguous command-shaped
+evidence. Recurse through a single passive wrapper so nested direct owners remain
+valid. Do not key the decision on `program`, `executable`, `binary`, `args`, or
+any other alias spelling.
+
+- [ ] **Step 1: Add alias-independent RED regressions**
+
+At mapping and observed boundaries, add scalar, list, mapping, split-nested, and
+serialized command/reference sibling shapes using `program`, `executable`,
+`binary`, and arbitrary aliases with explicit `args.path` and `args.paths`
+records. Include the five independently observed scalar/serialized `program`
+failures. Positive controls must cover direct path records with passive metadata,
+direct `label + paths`, one passive wrapper around a direct owner, top-level
+data-only reference lists, and mappings whose children contain no reference.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v \
+  tests.test_codex_reference_disclosure.ReferenceToolPayloadTests
+git diff --check
+```
+
+Expected RED: only the new owned-record sibling forms are falsely accepted;
+prior positives and negatives retain their existing result. Commit only tests as
+`test(DEV-137): reject ambiguous structural siblings`.
+
+- [ ] **Step 2: Implement recursive distinct-sibling classification**
+
+Remove `contains_program_container`. For every mapping without a direct owner,
+classify each direct child subtree as reference-bearing and/or containing
+non-reference scalar data. Reject only when the reference and non-reference
+evidence occurs in distinct child indices; when both are inside one child,
+recurse and let the nested mapping apply the same rule. Keep direct owners
+exempt only after their data-path/member validation succeeds. Preserve data-only
+collection parsing, occurrence counts, syntactic command input, strict JSON,
+path canonicalization, lifecycle, access-sequence, and bulk gates.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v \
+  tests.test_codex_reference_disclosure.ReferenceToolPayloadTests
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v \
+  tests.test_codex_reference_disclosure
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v \
+  tests.test_reference_library
+python3 -m py_compile tests/e2e/codex_reference_disclosure.py
+git diff --check
+```
+
+Commit parser only as
+`fix(DEV-137): reject ambiguous structural siblings`. Obtain another independent
+adversarial review before full Codex-only verification.
+
+**Additional atomic boundaries:**
+
+1. `docs(DEV-137): reject ambiguous structural siblings`
+2. `test(DEV-137): reject ambiguous structural siblings`
+3. `fix(DEV-137): reject ambiguous structural siblings`
