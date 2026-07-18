@@ -1276,6 +1276,24 @@ def _validate_codex_item(item: Any, event_type: str) -> dict[str, Any]:
             raise ValueError("collab tool start state is malformed")
         if event_type == "item.completed" and item["status"] == "in_progress":
             raise ValueError("collab tool completion state is malformed")
+        if item["tool"] == "spawn_agent":
+            receivers = item["receiver_thread_ids"]
+            agent_states = item["agents_states"]
+            if event_type == "item.started" and (receivers or agent_states):
+                raise ValueError("collab spawn start state is malformed")
+            if event_type == "item.completed":
+                if item["status"] == "completed":
+                    receiver_set = set(receivers)
+                    if (
+                        not receivers
+                        or len(receiver_set) != len(receivers)
+                        or receiver_set != set(agent_states)
+                    ):
+                        raise ValueError(
+                            "collab spawn completion state is malformed"
+                        )
+                elif receivers or agent_states:
+                    raise ValueError("failed collab spawn state is malformed")
     elif item_type == "web_search":
         _require_closed_object(
             item,
@@ -1410,6 +1428,15 @@ def _codex_jsonl_events(stdout: str) -> list[dict[str, Any]]:
                 immutable_fields = CODEX_JSONL_IMMUTABLE_IDENTITY_FIELDS.get(
                     item["type"], ()
                 )
+                if (
+                    item["type"] == "collab_tool_call"
+                    and item["tool"] == "spawn_agent"
+                ):
+                    immutable_fields = tuple(
+                        field
+                        for field in immutable_fields
+                        if field != "receiver_thread_ids"
+                    )
                 if any(
                     not _json_type_exact_equal(opened[field], item[field])
                     for field in immutable_fields
