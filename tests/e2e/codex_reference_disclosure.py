@@ -734,11 +734,27 @@ def command_reference_reads(
     return observed, int(bool(observed))
 
 
+def contains_structured_command(value: object) -> bool:
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            if key in {"command", "argv"} or (
+                key == "input" and not isinstance(nested, str)
+            ):
+                return True
+            if contains_structured_command(nested):
+                return True
+    elif isinstance(value, list):
+        return any(contains_structured_command(nested) for nested in value)
+    return False
+
+
 def mapping_reference_reads(
     value: object,
     base: Path,
     task_id: str,
     access_sequence: list[str] | None = None,
+    *,
+    allow_serialized_command: bool = False,
 ) -> tuple[set[str], int]:
     observed: set[str] = set()
     read_count = 0
@@ -754,6 +770,11 @@ def mapping_reference_reads(
             except (json.JSONDecodeError, ValueError):
                 raise ProbeFailure("invalid_tool_event", task_id) from None
             if isinstance(decoded, (dict, list)):
+                if (
+                    not allow_serialized_command
+                    and contains_structured_command(decoded)
+                ):
+                    raise ProbeFailure("invalid_tool_event", task_id)
                 nested_observed, nested_count = mapping_reference_reads(
                     decoded, base, task_id, access_sequence
                 )
@@ -796,6 +817,8 @@ def mapping_reference_reads(
     for key, nested in value.items():
         if key in {"cwd", "workdir"}:
             continue
+        if key == "argv":
+            raise ProbeFailure("invalid_tool_event", task_id)
         if key in {"path", "file_path"} and isinstance(nested, str):
             name = validate_reference_candidate(
                 nested,
@@ -816,7 +839,9 @@ def mapping_reference_reads(
             )
             observed.update(nested_observed)
             read_count += nested_count
-        elif key == "input" and isinstance(nested, str):
+        elif key == "input":
+            if not isinstance(nested, str):
+                raise ProbeFailure("invalid_tool_event", task_id)
             if any(character.isspace() for character in nested):
                 nested_observed, nested_count = command_reference_reads(
                     nested, task_id, local_base, access_sequence
@@ -829,7 +854,11 @@ def mapping_reference_reads(
             read_count += nested_count
         else:
             nested_observed, nested_count = mapping_reference_reads(
-                nested, local_base, task_id, access_sequence
+                nested,
+                local_base,
+                task_id,
+                access_sequence,
+                allow_serialized_command=key == "arguments",
             )
             observed.update(nested_observed)
             read_count += nested_count
