@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import re
+import stat
 import unittest
 
 
@@ -40,7 +41,20 @@ SKILL_DESCRIPTIONS = {
     ),
 }
 
-SKILLS = tuple(SKILL_DESCRIPTIONS)
+WORKFLOW_SKILLS = tuple(SKILL_DESCRIPTIONS)
+ROUTER_SKILL = "route-apple-foundation-models-handoff"
+ALL_CAPABILITIES = (*WORKFLOW_SKILLS, ROUTER_SKILL)
+
+ROUTER_DESCRIPTION = (
+    "Route a non-positive Apple Foundation Models handoff request before workflow "
+    "selection: reject App Intents or Shortcuts, Apple Handoff or NSUserActivity, "
+    "generic Swift or actors, generic Core ML, coding-session handoff, Agent Skills, "
+    "and Foundation Models runtime Skills; ask one clarification for ambiguous Apple "
+    "handoff wording or implementation without an approved architecture and exact "
+    "change boundary. Return only no_activation or clarification_required; never use "
+    "for a confirmed request that can select design, implement, review, debug, or "
+    "validate."
+)
 
 ROUTER_ENUMS = {
     "domain": (
@@ -171,27 +185,27 @@ COMMON_SECTIONS = (
 )
 
 WORKFLOW_SECTIONS = {
-    SKILLS[0]: (
+    WORKFLOW_SKILLS[0]: (
         "Alternatives",
         "Decision Rationale",
         "Proposed Components",
         "Implementation and Test Plan",
     ),
-    SKILLS[1]: (
+    WORKFLOW_SKILLS[1]: (
         "Approved Decision",
         "Change Boundary",
         "Changed Paths",
         "Compilation and Regression Results",
     ),
-    SKILLS[2]: ("Findings",),
-    SKILLS[3]: (
+    WORKFLOW_SKILLS[2]: ("Findings",),
+    WORKFLOW_SKILLS[3]: (
         "Observed and Expected State",
         "First Divergence",
         "Root Cause",
         "Correction",
         "Regression Proof",
     ),
-    SKILLS[4]: (
+    WORKFLOW_SKILLS[4]: (
         "Layer Matrix",
         "Counts and Hashes",
         "Rubric Result",
@@ -271,14 +285,55 @@ NO_ACTIVATION_VALUES = {
     "activationStatus": "no_activation",
     "reasonCode": "out_of_domain",
     "domain": "out_of_domain",
-    "requestedOperation": " | ".join(ROUTER_ENUMS["requestedOperation"]),
+    "requestedOperation": "unspecified",
 }
-CLARIFICATION_VALUES = {
+DOMAIN_CLARIFICATION_VALUES = {
     "activationStatus": "clarification_required",
-    "clarificationKind": "domain | approved_contract",
-    "missingInput": "domain | approved_contract",
-    "question": "<one bounded question>",
+    "clarificationKind": "domain",
+    "missingInput": "domain",
+    "question": "<one concise domain question ending in exactly one question mark>",
 }
+APPROVED_CONTRACT_CLARIFICATION_VALUES = {
+    "activationStatus": "clarification_required",
+    "clarificationKind": "approved_contract",
+    "missingInput": "approved_contract",
+    "question": (
+        "<one concise approved-contract question ending in exactly one question mark>"
+    ),
+}
+
+WORKFLOW_FORBIDDEN_NON_POSITIVE_MARKERS = (
+    "no_activation",
+    "clarification_required",
+    "clarificationKind",
+    "missingInput",
+    "Adjacent non-triggers",
+    "Ask exactly one targeted clarification",
+    "Non-positive results",
+)
+
+ROUTER_DECISION_RULES = (
+    "Evaluate the four router fields in the shown order.",
+    "Domain ambiguity takes precedence over every other branch.",
+    "For `domain = ambiguous`, return the domain clarification.",
+    "For `domain = out_of_domain`, return no_activation.",
+    "For a confirmed Foundation Models handoff implementation request without both an approved architecture and an exact change boundary, return the approved-contract clarification.",
+    "For every confirmed request eligible for design, implement, review, debug, or validate, stop because this router is inapplicable.",
+)
+
+ROUTER_OUTPUT_RULES = (
+    "Return exactly one branch template as one fenced `text` block and emit nothing else.",
+    "Replace a clarification placeholder with one concise question whose value contains exactly one `?` and ends with it.",
+)
+
+ROUTER_PROHIBITIONS = (
+    "Never emit positive activation, selectedSkill, routerInput, architectureResult, an architecture field, a heading, a workflow section, or a version label.",
+    "Never name, invoke, emulate, or redirect internally to another skill.",
+    "Never inspect the repository, SDK, host, application, artifact, or evidence.",
+    "Never read or link a progressive-disclosure reference.",
+    "Never make an Apple API, security, runtime, effect, or release claim.",
+    "Never add explanatory prose before or after the result fence.",
+)
 
 CORE_SEMANTIC_SECTION_TITLES = (
     "Routing and Inspection",
@@ -827,10 +882,6 @@ def assert_exclusive_section_ownership(
     )
     router_fields = {
         *ROUTER_ENUMS,
-        "reasonCode",
-        "clarificationKind",
-        "missingInput",
-        "question",
     }
     for assignment in assignment_pattern.finditer(text):
         field = assignment.group(1)
@@ -928,12 +979,6 @@ def assert_exclusive_section_ownership(
             r"blocked",
             re.IGNORECASE | re.DOTALL,
         ),
-        re.compile(
-            r"non-positive results.{0,80}(?:contain|emit|include|load) no.{0,80}"
-            r"architectureResult.{0,80}workflow-specific sections.{0,80}references"
-            r".{0,80}fabricated Apple claims.{0,80}host activation evidence",
-            re.IGNORECASE | re.DOTALL,
-        ),
     )
     for index, pattern in enumerate(guardrail_patterns, start=1):
         assert_pattern_owned(
@@ -946,11 +991,9 @@ def assert_exclusive_section_ownership(
 
     routing_phrases = (
         "Choose exactly one primary workflow",
-        "Ask exactly one targeted clarification",
         "review first",
         "separate authorized follow-on boundary",
         "Do not invoke another skill",
-        "Adjacent non-triggers",
     )
     for phrase in routing_phrases:
         assert_pattern_owned(
@@ -959,19 +1002,6 @@ def assert_exclusive_section_ownership(
             re.compile(re.escape(phrase), re.IGNORECASE),
             routing,
             phrase,
-        )
-
-    for shape_title in ("no_activation", "clarification_required"):
-        normalized = normalize_title(shape_title)
-        matches = [
-            section
-            for section in sections
-            if normalize_title(section.title) == normalized
-        ]
-        test_case.assertEqual(1, len(matches), f"duplicate routing shape: {shape_title}")
-        test_case.assertTrue(
-            section_owns(routing, matches[0].heading_start),
-            f"{shape_title} must be owned by Routing and Inspection",
         )
 
     for position, item in numbered_item_spans(text):
@@ -1004,33 +1034,19 @@ def assert_structured_skill_contract(
         test_case.assertEqual(expected, enum_values(routing.direct_body, field), field)
     routing_rules = (
         "Choose exactly one primary workflow",
-        "Ask exactly one targeted clarification",
         "review first",
         "separate authorized follow-on boundary",
         "Do not invoke another skill",
-        *ADJACENT_NON_TRIGGERS,
     )
     for rule in routing_rules:
         test_case.assertIn(rule, routing.direct_body)
 
-    no_activation = child_named(test_case, sections, routing, "no_activation")
-    assert_exact_shape(
-        test_case,
-        no_activation,
-        NO_ACTIVATION_FIELDS,
-        NO_ACTIVATION_VALUES,
-    )
-    assert_non_positive_exclusions(test_case, no_activation)
-    clarification = child_named(
-        test_case, sections, routing, "clarification_required"
-    )
-    assert_exact_shape(
-        test_case,
-        clarification,
-        CLARIFICATION_FIELDS,
-        CLARIFICATION_VALUES,
-    )
-    assert_non_positive_exclusions(test_case, clarification)
+    for marker in WORKFLOW_FORBIDDEN_NON_POSITIVE_MARKERS:
+        test_case.assertNotIn(
+            marker,
+            text,
+            f"{skill}: non-positive routing ownership belongs only to the router",
+        )
 
     steps = numbered_items(protocol.body)
     test_case.assertEqual(tuple(range(1, 11)), tuple(number for number, _ in steps))
@@ -1130,15 +1146,6 @@ def assert_structured_skill_contract(
             re.IGNORECASE,
         ),
     )
-    test_case.assertRegex(
-        re.sub(r"\s+", " ", guardrails.body),
-        re.compile(
-            r"non-positive results.{0,80}(?:contain|emit|include|load) no.{0,80}"
-            r"architectureResult.{0,80}workflow-specific sections.{0,80}references"
-            r".{0,80}fabricated Apple claims.{0,80}host activation evidence",
-            re.IGNORECASE,
-        ),
-    )
 
 
 def build_valid_skill_fixture(skill: str) -> str:
@@ -1186,21 +1193,9 @@ def build_valid_skill_fixture(skill: str) -> str:
         f"---\nname: {skill}\ndescription: {description}\n---\n\n"
         "## Routing and Inspection\n"
         + "\n".join(router_lines)
-        + "\nChoose exactly one primary workflow. Ask exactly one targeted clarification. "
-        "For compound review and fix, run review first and name a separate authorized "
-        "follow-on boundary. Do not invoke another skill.\n"
-        "Adjacent non-triggers: "
-        + "; ".join(ADJACENT_NON_TRIGGERS)
-        + ".\n\n"
-        "### no_activation\n"
-        "```text\nactivationStatus = no_activation\nreasonCode = out_of_domain\n"
-        "domain = out_of_domain\n"
-        f"requestedOperation = {NO_ACTIVATION_VALUES['requestedOperation']}\n```\n\n"
-        "### clarification_required\n"
-        "```text\nactivationStatus = clarification_required\n"
-        "clarificationKind = domain | approved_contract\n"
-        "missingInput = domain | approved_contract\n"
-        "question = <one bounded question>\n```\n\n"
+        + "\nChoose exactly one primary workflow. For compound review and fix, run review "
+        "first and name a separate authorized follow-on boundary. Do not invoke "
+        "another skill.\n\n"
         "## Common Workflow Protocol\n"
         f"{protocol_lines}\n\n"
         "## Output Contract\n"
@@ -1222,8 +1217,152 @@ def build_valid_skill_fixture(skill: str) -> str:
         + "\n".join(
             sentence for _, sentence in OUTER_HARNESS_GUARDRAIL_SENTENCES
         )
-        + "\nNon-positive results contain no architectureResult, workflow-specific sections, "
-        "references, fabricated Apple claims, or host activation evidence.\n"
+        + "\n"
+    )
+
+
+def build_valid_router_fixture() -> str:
+    router_lines = [
+        f"{field} = {' | '.join(values)}" for field, values in ROUTER_ENUMS.items()
+    ]
+    no_activation = "\n".join(
+        f"{field} = {NO_ACTIVATION_VALUES[field]}" for field in NO_ACTIVATION_FIELDS
+    )
+    domain_clarification = "\n".join(
+        f"{field} = {DOMAIN_CLARIFICATION_VALUES[field]}"
+        for field in CLARIFICATION_FIELDS
+    )
+    approved_contract_clarification = "\n".join(
+        f"{field} = {APPROVED_CONTRACT_CLARIFICATION_VALUES[field]}"
+        for field in CLARIFICATION_FIELDS
+    )
+    return (
+        f"---\nname: {ROUTER_SKILL}\ndescription: '{ROUTER_DESCRIPTION}'\n---\n\n"
+        "# Route Apple Foundation Models Handoff\n\n"
+        "## Decision Procedure\n\n"
+        + "\n".join(router_lines)
+        + "\n\n"
+        + "\n".join(f"{index}. {rule}" for index, rule in enumerate(ROUTER_DECISION_RULES, 1))
+        + "\n\n## Output Contract\n\n"
+        + "\n".join(ROUTER_OUTPUT_RULES)
+        + "\n\n### no_activation\n\n```text\n"
+        + no_activation
+        + "\n```\n\n### domain clarification_required\n\n```text\n"
+        + domain_clarification
+        + "\n```\n\n### approved_contract clarification_required\n\n```text\n"
+        + approved_contract_clarification
+        + "\n```\n\n## Prohibitions\n\n"
+        + "\n".join(f"- {rule}" for rule in ROUTER_PROHIBITIONS)
+        + "\n"
+    )
+
+
+def assert_capability_topology(
+    test_case: unittest.TestCase, capabilities: tuple[str, ...]
+) -> None:
+    test_case.assertEqual(ALL_CAPABILITIES, capabilities)
+    test_case.assertEqual(len(capabilities), len(set(capabilities)))
+    test_case.assertEqual(WORKFLOW_SKILLS, capabilities[:-1])
+    test_case.assertEqual(ROUTER_SKILL, capabilities[-1])
+
+
+def assert_router_contract(test_case: unittest.TestCase, text: str) -> None:
+    expected_frontmatter = (
+        f"---\nname: {ROUTER_SKILL}\ndescription: '{ROUTER_DESCRIPTION}'\n---\n"
+    )
+    test_case.assertTrue(
+        text.startswith(expected_frontmatter),
+        "router frontmatter name and approved description must be verbatim",
+    )
+    sections = parse_markdown_sections(text)
+    decision = semantic_section(test_case, sections, "decision", "procedure")
+    output = semantic_section(test_case, sections, "output", "contract")
+    prohibitions = semantic_section(test_case, sections, "prohibition")
+    test_case.assertEqual(
+        [decision.heading_start, output.heading_start, prohibitions.heading_start],
+        sorted(
+            (decision.heading_start, output.heading_start, prohibitions.heading_start)
+        ),
+    )
+
+    for field, expected in ROUTER_ENUMS.items():
+        test_case.assertEqual(expected, enum_values(decision.direct_body, field), field)
+    decision_items = numbered_items(decision.direct_body)
+    test_case.assertEqual(
+        tuple(range(1, len(ROUTER_DECISION_RULES) + 1)),
+        tuple(number for number, _ in decision_items),
+    )
+    test_case.assertEqual(
+        ROUTER_DECISION_RULES,
+        tuple(item for _, item in decision_items),
+    )
+
+    for rule in ROUTER_OUTPUT_RULES:
+        test_case.assertIn(rule, output.direct_body)
+    test_case.assertEqual(
+        (
+            "no_activation",
+            "domain clarification_required",
+            "approved_contract clarification_required",
+        ),
+        tuple(child.title for child in direct_children(sections, output)),
+    )
+    no_activation = child_named(test_case, sections, output, "no_activation")
+    assert_exact_shape(
+        test_case,
+        no_activation,
+        NO_ACTIVATION_FIELDS,
+        NO_ACTIVATION_VALUES,
+    )
+    domain_clarification = child_named(
+        test_case, sections, output, "domain clarification_required"
+    )
+    assert_exact_shape(
+        test_case,
+        domain_clarification,
+        CLARIFICATION_FIELDS,
+        DOMAIN_CLARIFICATION_VALUES,
+    )
+    approved_contract_clarification = child_named(
+        test_case, sections, output, "approved_contract clarification_required"
+    )
+    assert_exact_shape(
+        test_case,
+        approved_contract_clarification,
+        CLARIFICATION_FIELDS,
+        APPROVED_CONTRACT_CLARIFICATION_VALUES,
+    )
+    test_case.assertEqual(3, text.count("```text\n"))
+    test_case.assertEqual(3, len(re.findall(r"(?m)^```$", text)))
+
+    for branch in (
+        no_activation,
+        domain_clarification,
+        approved_contract_clarification,
+    ):
+        assert_non_positive_exclusions(test_case, branch)
+    test_case.assertEqual(
+        tuple(f"- {rule}" for rule in ROUTER_PROHIBITIONS),
+        tuple(line for line in prohibitions.direct_body.splitlines() if line),
+    )
+
+    test_case.assertNotRegex(text, r"\[[^]]+\]\([^)]+\)")
+    no_source_assertions = text
+    for prohibition in ROUTER_PROHIBITIONS:
+        no_source_assertions = no_source_assertions.replace(prohibition, "")
+    test_case.assertNotRegex(
+        no_source_assertions,
+        re.compile(
+            r"official Apple documentation|installed SDK interfaces|WWDC|"
+            r"Apple-owned repositories|compiled_sdk_|interface_verified_sdk_|"
+            r"LanguageModelSession|SystemLanguageModel|@Generable|@Guide",
+            re.IGNORECASE,
+        ),
+    )
+    test_case.assertNotRegex(text, r"(?m)^activationStatus = activated$")
+    test_case.assertNotRegex(
+        text,
+        r"(?m)^(?:selectedSkill|routerInput|architectureResult|versionLabel)\s*[:=]",
     )
 
 
@@ -1234,15 +1373,18 @@ class SkillContractTests(unittest.TestCase):
         self.assertFalse(path.is_symlink(), f"{path}: skill must be an authored file")
         return path.read_text(encoding="utf-8")
 
-    def test_exact_five_skill_surface_has_one_authored_file_each(self) -> None:
+    def test_exact_six_capability_surface_has_one_regular_authored_file_each(
+        self,
+    ) -> None:
         self.assertTrue(
             SKILLS_ROOT.is_dir(),
             f"{SKILLS_ROOT}: required production skill root is missing",
         )
         observed = sorted(path.name for path in SKILLS_ROOT.iterdir())
-        self.assertEqual(sorted(SKILLS), observed)
+        self.assertEqual(sorted(ALL_CAPABILITIES), observed)
+        assert_capability_topology(self, ALL_CAPABILITIES)
 
-        for skill in SKILLS:
+        for skill in ALL_CAPABILITIES:
             with self.subTest(skill=skill):
                 directory = SKILLS_ROOT / skill
                 self.assertTrue(directory.is_dir())
@@ -1250,6 +1392,9 @@ class SkillContractTests(unittest.TestCase):
                 self.assertEqual(
                     ["SKILL.md"], sorted(path.name for path in directory.iterdir())
                 )
+                skill_file = directory / "SKILL.md"
+                self.assertFalse(skill_file.is_symlink())
+                self.assertTrue(stat.S_ISREG(skill_file.lstat().st_mode))
 
     def test_frontmatter_is_exact_and_activation_descriptions_match_dev_134(self) -> None:
         for skill, description in SKILL_DESCRIPTIONS.items():
@@ -1262,8 +1407,10 @@ class SkillContractTests(unittest.TestCase):
                 )
                 self.assertTrue(text.removeprefix(expected).strip())
 
+        assert_router_contract(self, self.require_skill_text(ROUTER_SKILL))
+
     def test_each_skill_has_the_ordered_scoped_executable_contract(self) -> None:
-        for skill in SKILLS:
+        for skill in WORKFLOW_SKILLS:
             with self.subTest(skill=skill):
                 assert_structured_skill_contract(
                     self, self.require_skill_text(skill), skill
@@ -1273,7 +1420,7 @@ class SkillContractTests(unittest.TestCase):
         assignment = re.compile(
             r"\s{2}([A-Za-z][A-Za-z0-9]*(?:\[\])?)\s*(?:=|:)\s*(.+)"
         )
-        for skill in SKILLS:
+        for skill in WORKFLOW_SKILLS:
             with self.subTest(skill=skill):
                 text = self.require_skill_text(skill)
                 sections = parse_markdown_sections(text)
@@ -1315,7 +1462,7 @@ class SkillContractTests(unittest.TestCase):
                 )
 
     def test_each_skill_owns_deterministic_response_serialization(self) -> None:
-        for skill in SKILLS:
+        for skill in WORKFLOW_SKILLS:
             text = self.require_skill_text(skill)
             sections = parse_markdown_sections(text)
             output = semantic_section(self, sections, "output", "contract")
@@ -1344,7 +1491,7 @@ class SkillContractTests(unittest.TestCase):
                     assert_single_owned_phrase(self, text, output, sentence, label)
 
     def test_each_skill_owns_non_recursive_outer_harness_guardrails(self) -> None:
-        for skill in SKILLS:
+        for skill in WORKFLOW_SKILLS:
             text = self.require_skill_text(skill)
             sections = parse_markdown_sections(text)
             guardrails = semantic_section(self, sections, "guardrail")
@@ -1360,7 +1507,7 @@ class SkillContractTests(unittest.TestCase):
 
 
 class SkillContractMutationTests(unittest.TestCase):
-    skill = SKILLS[0]
+    skill = WORKFLOW_SKILLS[0]
 
     def assert_rejected(self, text: str) -> None:
         with self.assertRaises(AssertionError):
@@ -1370,15 +1517,101 @@ class SkillContractMutationTests(unittest.TestCase):
         with self.assertRaises(AssertionError):
             assert_structured_skill_contract(self, text, skill)
 
+    def assert_router_rejected(self, text: str) -> None:
+        with self.assertRaises(AssertionError):
+            assert_router_contract(self, text)
+
     def test_reference_fixture_satisfies_the_structured_oracle(self) -> None:
         assert_structured_skill_contract(
             self, build_valid_skill_fixture(self.skill), self.skill
         )
+        assert_router_contract(self, build_valid_router_fixture())
+
+    def test_seventh_unapproved_and_substituted_capabilities_are_rejected(self) -> None:
+        mutations = {
+            "seventh capability": (*ALL_CAPABILITIES, "unapproved-skill"),
+            "missing router": WORKFLOW_SKILLS,
+            "duplicate router": (*ALL_CAPABILITIES, ROUTER_SKILL),
+            "reordered router": (ROUTER_SKILL, *WORKFLOW_SKILLS),
+            "substituted router": (*WORKFLOW_SKILLS, "unapproved-router"),
+        }
+        for mutation, capabilities in mutations.items():
+            with self.subTest(mutation=mutation), self.assertRaises(AssertionError):
+                assert_capability_topology(self, capabilities)
+
+    def test_router_shape_ownership_and_prohibition_mutations_are_rejected(
+        self,
+    ) -> None:
+        fixture = build_valid_router_fixture()
+        domain_question = (
+            "question = <one concise domain question ending in exactly one question "
+            "mark>"
+        )
+        positive_envelope = (
+            "```text\nactivationStatus = activated\n"
+            f"selectedSkill = {WORKFLOW_SKILLS[0]}\n```"
+        )
+        mutations = {
+            "unquoted invalid YAML description": fixture.replace(
+                f"description: '{ROUTER_DESCRIPTION}'",
+                f"description: {ROUTER_DESCRIPTION}",
+                1,
+            ),
+            "router positive envelope": fixture.replace(
+                "```text\nactivationStatus = no_activation",
+                positive_envelope + "\n```text\nactivationStatus = no_activation",
+                1,
+            ),
+            "router reference": fixture.replace(
+                "## Prohibitions\n\n",
+                "## Prohibitions\n\n[Reference](../../references/architecture-and-state.md)\n",
+                1,
+            ),
+            "extra result prose": fixture.replace(
+                "requestedOperation = unspecified\n```",
+                "requestedOperation = unspecified\n```\nExtra explanation.",
+                1,
+            ),
+            "wrong field order": fixture.replace(
+                "reasonCode = out_of_domain\ndomain = out_of_domain",
+                "domain = out_of_domain\nreasonCode = out_of_domain",
+                1,
+            ),
+            "wrong question cardinality": fixture.replace(
+                "contains exactly one `?` and ends with it",
+                "contains exactly two `?` characters and ends with one",
+                1,
+            ),
+            "second domain question": fixture.replace(
+                domain_question,
+                domain_question + "\nquestion = <another question>",
+                1,
+            ),
+            "missing domain precedence": fixture.replace(
+                ROUTER_DECISION_RULES[1],
+                "Evaluate ambiguity after every other branch.",
+                1,
+            ),
+            "missing prohibition": fixture.replace(ROUTER_PROHIBITIONS[2], "", 1),
+        }
+        for mutation, candidate in mutations.items():
+            with self.subTest(mutation=mutation):
+                self.assert_router_rejected(candidate)
+
+    def test_workflow_cannot_become_a_second_non_positive_owner(self) -> None:
+        fixture = build_valid_skill_fixture(self.skill)
+        mutation = fixture.replace(
+            "## Common Workflow Protocol\n",
+            "### no_activation\n```text\nactivationStatus = no_activation\n```\n\n"
+            "## Common Workflow Protocol\n",
+            1,
+        )
+        self.assert_rejected(mutation)
 
     def test_deterministic_output_and_outer_harness_mutations_are_rejected(
         self,
     ) -> None:
-        for skill in SKILLS:
+        for skill in WORKFLOW_SKILLS:
             fixture = build_valid_skill_fixture(skill)
             selected_assignment = f"selectedSkill = {skill}"
             mutations = {
@@ -1432,7 +1665,7 @@ class SkillContractMutationTests(unittest.TestCase):
     def test_stable_invariant_removal_misplacement_and_token_dumps_are_rejected(
         self,
     ) -> None:
-        for skill in SKILLS:
+        for skill in WORKFLOW_SKILLS:
             fixture = build_valid_skill_fixture(skill)
             cases = [
                 (title, phrase)
@@ -1479,7 +1712,7 @@ class SkillContractMutationTests(unittest.TestCase):
         assignment = "versionLabel = " + " | ".join(
             CONTROLLED_AVAILABILITY_LABELS
         )
-        for skill in SKILLS:
+        for skill in WORKFLOW_SKILLS:
             fixture = build_valid_skill_fixture(skill)
             removed = fixture.replace(assignment, "", 1)
             misplaced = removed.replace(
@@ -1564,82 +1797,44 @@ class SkillContractMutationTests(unittest.TestCase):
             with self.subTest(mutation=name):
                 self.assert_rejected(candidate)
 
-    def test_non_positive_shape_omissions_and_malformed_fields_are_rejected(self) -> None:
-        fixture = build_valid_skill_fixture(self.skill)
-        requested_operation = (
-            f"requestedOperation = {NO_ACTIVATION_VALUES['requestedOperation']}\n"
-        )
+    def test_router_non_positive_shape_omissions_and_malformed_fields_are_rejected(
+        self,
+    ) -> None:
+        fixture = build_valid_router_fixture()
         mutations = {
             "missing requested operation": fixture.replace(
-                requested_operation, "", 1
-            ),
-            "extra positive field": fixture.replace(
-                requested_operation,
-                f"{requested_operation}architectureResult = <forbidden>\n",
-                1,
-            ),
-            "malformed clarification kind": fixture.replace(
-                "clarificationKind = domain | approved_contract",
-                "clarificationKind = domain | approved_contract | implementation_detail",
-                1,
+                "requestedOperation = unspecified\n```", "```", 1
             ),
             "invalid no activation domain": fixture.replace(
-                "domain = out_of_domain",
-                "domain = ambiguous",
+                "domain = out_of_domain\nrequestedOperation = unspecified",
+                "domain = ambiguous\nrequestedOperation = unspecified",
                 1,
             ),
             "invalid requested operation": fixture.replace(
-                requested_operation,
-                f"{requested_operation.rstrip()} | unknown_action\n",
+                "requestedOperation = unspecified\n```",
+                "requestedOperation = design\n```",
                 1,
             ),
-            "invalid missing input": fixture.replace(
-                "missingInput = domain | approved_contract",
-                "missingInput = implementation_detail",
+            "wrong domain clarification kind": fixture.replace(
+                "clarificationKind = domain\nmissingInput = domain",
+                "clarificationKind = approved_contract\nmissingInput = domain",
                 1,
             ),
-            "fabricated host activation evidence": fixture.replace(
-                f"{requested_operation}```",
-                f"{requested_operation}```\n"
-                "Host activation evidence claims a pass.",
-                1,
-            ),
-        }
-
-        for name, candidate in mutations.items():
-            with self.subTest(mutation=name):
-                self.assert_rejected(candidate)
-
-    def test_non_positive_shapes_reject_arbitrary_prose_outside_the_exact_block(
-        self,
-    ) -> None:
-        fixture = build_valid_skill_fixture(self.skill)
-        requested_operation = (
-            f"requestedOperation = {NO_ACTIVATION_VALUES['requestedOperation']}\n"
-        )
-        mutations = {
-            "no activation prose": fixture.replace(
-                f"{requested_operation}```",
-                f"{requested_operation}```\n"
-                "Arbitrary prose is forbidden here.",
-                1,
-            ),
-            "clarification prose": fixture.replace(
-                "question = <one bounded question>\n```",
-                "question = <one bounded question>\n```\n"
-                "Arbitrary prose is forbidden here.",
+            "wrong approved contract missing input": fixture.replace(
+                "clarificationKind = approved_contract\n"
+                "missingInput = approved_contract",
+                "clarificationKind = approved_contract\nmissingInput = domain",
                 1,
             ),
             "prose inside normalized block": fixture.replace(
-                f"{requested_operation}```",
-                f"{requested_operation}Arbitrary prose is forbidden here.\n```",
+                "requestedOperation = unspecified\n```",
+                "requestedOperation = unspecified\nArbitrary prose.\n```",
                 1,
             ),
         }
-
-        for name, candidate in mutations.items():
-            with self.subTest(mutation=name):
-                self.assert_rejected(candidate)
+        for mutation, candidate in mutations.items():
+            with self.subTest(mutation=mutation):
+                self.assert_router_rejected(candidate)
 
     def test_evidence_status_omissions_extras_and_nonnull_na_are_rejected(self) -> None:
         fixture = build_valid_skill_fixture(self.skill)
