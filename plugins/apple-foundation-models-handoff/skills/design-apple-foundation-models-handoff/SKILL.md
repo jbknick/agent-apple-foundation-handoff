@@ -80,7 +80,7 @@ architectureResult
   toolAndEffectPolicy: <tool, confirmation, and effect authority policy>
   failurePolicy: <fail-closed recovery and fallback policy>
   verification[] = { id, layer, status, evidence }
-  limitations[]: <limitations and blockers>
+  limitations[]: <one-line limitations and blockers summary; close the fence immediately after this line>
 ```
 
 ### Activation and Scope
@@ -91,7 +91,10 @@ Serialize `selectedSkill` as the literal assignment
 immediately following line. Emit exactly one response-level fenced `text` block,
 reserve it for the result envelope, and emit no additional fenced `text` blocks.
 Every activated response emits exactly the 21 shown nonblank result-envelope lines in
-order with placeholders replaced inline and no added lines. Never wrap, pretty-print,
+order with placeholders replaced inline and no added lines. Close the result-envelope
+fence immediately after that 21st line, and put every explanation, bullet, subfield,
+example, and detail only under the required headings after the fence.
+Never wrap, pretty-print,
 or expand `routerInput` or any `architectureResult` child across physical lines,
 keeping each on its single template line. After the envelope, render only the exact
 required headings, each exactly once and in the listed order. Replace every inline
