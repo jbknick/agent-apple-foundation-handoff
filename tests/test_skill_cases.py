@@ -2440,6 +2440,263 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                 self.assertTrue(all(not path.exists() for path in bound_roots))
                 self.assertEqual((False, False), observed["post_check_entry"])
 
+    def test_output_temp_close_failure_leaves_no_descriptor_or_path(self) -> None:
+        fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
+        outputs = _forward_outputs(fixture)
+        allocated: dict[str, int | Path] = {}
+        escaped: Exception | None = None
+        outcome = None
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bound_root = root / "bound"
+            bound_root.mkdir()
+            bound_path = bound_root / "codex"
+            bound_path.write_bytes(b"verified executable sentinel")
+            bound_path.chmod(0o700)
+            real_mkstemp = tempfile.mkstemp
+            real_close = os.close
+            close_fault_injected = False
+
+            def bound_copy(_: dict) -> tuple[str, Path, Path]:
+                return str(TEST_EXECUTABLE_PATH), bound_path, bound_root
+
+            def allocate_output(*args, **kwargs) -> tuple[int, str]:
+                descriptor, name = real_mkstemp(*args, dir=root, **kwargs)
+                allocated["descriptor"] = descriptor
+                allocated["path"] = Path(name)
+                return descriptor, name
+
+            def close_output_once(descriptor: int) -> None:
+                nonlocal close_fault_injected
+                if (
+                    descriptor == allocated.get("descriptor")
+                    and not close_fault_injected
+                ):
+                    close_fault_injected = True
+                    raise OSError("injected output descriptor close failure")
+                real_close(descriptor)
+
+            with (
+                mock.patch.object(
+                    self.runner,
+                    "_bound_executable_copy",
+                    side_effect=bound_copy,
+                ),
+                mock.patch.object(
+                    self.runner.tempfile,
+                    "mkstemp",
+                    side_effect=allocate_output,
+                ),
+                mock.patch.object(
+                    self.runner.os,
+                    "close",
+                    side_effect=close_output_once,
+                ),
+            ):
+                try:
+                    outcome = _run_host(
+                        self.runner,
+                        fixture,
+                        str(TEST_EXECUTABLE_PATH),
+                        _FakeHostProcess(),
+                        _FakePrerequisiteChecker(_passing_prerequisites()),
+                        _FakeScorer(outputs),
+                    )
+                except Exception as error:  # pragma: no cover - assertion captures it
+                    escaped = error
+
+            descriptor = int(allocated["descriptor"])
+            output_path = Path(allocated["path"])
+            try:
+                os.fstat(descriptor)
+                descriptor_open = True
+            except OSError:
+                descriptor_open = False
+            output_path_exists = output_path.exists()
+            if descriptor_open:
+                real_close(descriptor)
+            output_path.unlink(missing_ok=True)
+
+        self.assertIsNone(escaped)
+        self.assertIsNotNone(outcome)
+        code, evidence = outcome
+        self.assertIn(code, {self.runner.PASS, self.runner.FAIL})
+        self.assertIn(evidence["status"], {"pass", "fail"})
+        self.assertEqual(
+            {"descriptorOpen": False, "outputPathExists": False},
+            {
+                "descriptorOpen": descriptor_open,
+                "outputPathExists": output_path_exists,
+            },
+        )
+        self.assertNotIn("injected output descriptor", json.dumps(evidence))
+
+    def test_output_allocation_failure_retries_bound_cleanup_and_normalizes(self) -> None:
+        fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
+        outputs = _forward_outputs(fixture)
+        escaped: Exception | None = None
+        outcome = None
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bound_root = root / "bound"
+            bound_root.mkdir()
+            bound_path = bound_root / "codex"
+            bound_path.write_bytes(b"verified executable sentinel")
+            bound_path.chmod(0o700)
+            cleanup_attempts = 0
+
+            def bound_copy(_: dict) -> tuple[str, Path, Path]:
+                return str(TEST_EXECUTABLE_PATH), bound_path, bound_root
+
+            def allocation_failure(*_args, **_kwargs):
+                raise OSError("injected output allocation failure")
+
+            def retryable_bound_cleanup(path: Path, directory: Path) -> bool:
+                nonlocal cleanup_attempts
+                cleanup_attempts += 1
+                if cleanup_attempts == 1:
+                    return False
+                path.unlink(missing_ok=True)
+                try:
+                    directory.rmdir()
+                except FileNotFoundError:
+                    pass
+                return True
+
+            with (
+                mock.patch.object(
+                    self.runner,
+                    "_bound_executable_copy",
+                    side_effect=bound_copy,
+                ),
+                mock.patch.object(
+                    self.runner.tempfile,
+                    "mkstemp",
+                    side_effect=allocation_failure,
+                ),
+                mock.patch.object(
+                    self.runner,
+                    "_remove_bound_executable_copy",
+                    side_effect=retryable_bound_cleanup,
+                ),
+            ):
+                try:
+                    outcome = _run_host(
+                        self.runner,
+                        fixture,
+                        str(TEST_EXECUTABLE_PATH),
+                        _FakeHostProcess(),
+                        _FakePrerequisiteChecker(_passing_prerequisites()),
+                        _FakeScorer(outputs),
+                    )
+                except Exception as error:  # pragma: no cover - assertion captures it
+                    escaped = error
+
+            bound_path_exists = bound_path.exists()
+            bound_root_exists = bound_root.exists()
+            bound_path.unlink(missing_ok=True)
+            if bound_root.exists():
+                bound_root.rmdir()
+
+        self.assertIsNone(escaped)
+        self.assertIsNotNone(outcome)
+        code, evidence = outcome
+        self.assertEqual(self.runner.FAIL, code)
+        self.assertEqual("fail", evidence["status"])
+        self.assertEqual("process_failed", evidence["host"]["blockerReason"])
+        self.assertEqual(2, cleanup_attempts)
+        self.assertEqual(
+            {"boundPathExists": False, "boundRootExists": False},
+            {
+                "boundPathExists": bound_path_exists,
+                "boundRootExists": bound_root_exists,
+            },
+        )
+        self.assertNotIn("injected output allocation", json.dumps(evidence))
+
+    def test_raw_output_unlink_failure_zeroizes_and_normalizes(self) -> None:
+        fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
+        outputs = _forward_outputs(fixture)
+        raw = b"Bearer synthetic-private-secret from /Users/private/customer.txt"
+        process = _FakeHostProcess(responses=[raw])
+        escaped: Exception | None = None
+        outcome = None
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bound_root = root / "bound"
+            bound_root.mkdir()
+            bound_path = bound_root / "codex"
+            bound_path.write_bytes(b"verified executable sentinel")
+            bound_path.chmod(0o700)
+            real_mkstemp = tempfile.mkstemp
+            real_unlink = os.unlink
+
+            def bound_copy(_: dict) -> tuple[str, Path, Path]:
+                return str(TEST_EXECUTABLE_PATH), bound_path, bound_root
+
+            def allocate_output(*args, **kwargs) -> tuple[int, str]:
+                return real_mkstemp(*args, dir=root, **kwargs)
+
+            def deny_raw_output_unlink(path, *args, **kwargs) -> None:
+                if Path(path).name.startswith("dev136-codex-"):
+                    raise PermissionError("injected raw-output unlink failure")
+                real_unlink(path, *args, **kwargs)
+
+            with (
+                mock.patch.object(
+                    self.runner,
+                    "_bound_executable_copy",
+                    side_effect=bound_copy,
+                ),
+                mock.patch.object(
+                    self.runner.tempfile,
+                    "mkstemp",
+                    side_effect=allocate_output,
+                ),
+                mock.patch.object(
+                    self.runner.os,
+                    "unlink",
+                    side_effect=deny_raw_output_unlink,
+                ),
+            ):
+                try:
+                    outcome = _run_host(
+                        self.runner,
+                        fixture,
+                        str(TEST_EXECUTABLE_PATH),
+                        process,
+                        _FakePrerequisiteChecker(_passing_prerequisites()),
+                        _FakeScorer(outputs),
+                    )
+                except Exception as error:  # pragma: no cover - assertion captures it
+                    escaped = error
+
+            output_path = process.output_paths[0]
+            retained = output_path.read_bytes() if output_path.exists() else b""
+            output_path_exists = output_path.exists()
+            try:
+                real_unlink(output_path)
+            except FileNotFoundError:
+                pass
+
+        self.assertIsNone(escaped)
+        self.assertIsNotNone(outcome)
+        code, evidence = outcome
+        self.assertEqual(self.runner.FAIL, code)
+        self.assertEqual("fail", evidence["status"])
+        self.assertIn(
+            evidence["host"]["blockerReason"],
+            FORWARD_EARLY_STOP_REASONS,
+        )
+        self.assertNotIn(raw, retained)
+        self.assertTrue(not retained or set(retained) == {0})
+        self.assertNotIn("synthetic-private-secret", json.dumps(evidence))
+        self.assertNotIn("injected raw-output unlink", json.dumps(evidence))
+        self.assertTrue(output_path_exists or retained == b"")
+
     def test_host_blocks_exact_prerequisites_without_fallback(self) -> None:
         fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
         blockers = {
