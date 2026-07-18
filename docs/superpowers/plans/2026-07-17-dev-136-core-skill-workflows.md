@@ -816,6 +816,176 @@ pre-repair head is non-evidence and must be discarded; restart affected host
 boundaries and the full 25-case matrix only from the corrected, independently
 approved head.
 
+## Task 7F: Accept the pinned Codex file-change lifecycle
+
+**Files:**
+
+- Modify: `tests/test_skill_cases.py`
+- Modify: `tests/e2e/codex_skill_forward_tests.py`
+
+Official Codex `rust-v0.144.5` maps all non-message/non-reasoning items through
+the started/completed identity table. The exact host replay emitted four
+`file_change` pairs and the current runner rejected every start record.
+
+### Step 1: Add exact lifecycle RED
+
+Add an official-shape positive stream with one `item.started/file_change`
+(`status=in_progress`) and one `item.completed/file_change`
+(`status=completed`) sharing one nonblank outer ID and the same closed `changes`
+list. Add negatives for completion without start, duplicate start, mismatched
+outer ID, changed `changes`, a terminal start status, an in-progress completion,
+unknown status, and extra item/change fields. Keep completion `failed` supported
+only as the terminal failure state.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v \
+  tests.test_skill_cases.CodexForwardRunnerContractTests.test_codex_01445_file_change_lifecycle_matches_official_output
+git diff --check
+```
+
+Expected RED: only the official supported pair is rejected as
+`Codex JSONL item lifecycle is invalid`; the exact negative mutations remain
+rejected. Commit only the test file as
+`test(DEV-136): capture file change lifecycle`.
+
+### Step 2: Implement the narrow paired rule
+
+Permit `file_change` on start and completion, add it to the paired item types,
+require `in_progress` at start, require `completed` or `failed` at completion,
+and compare the closed `changes` list as immutable pair identity. Preserve the
+existing item ID, schema, change kind, path, duplicate, pairing, turn, and event
+rules. Do not make any other lifecycle optional.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v \
+  tests.test_skill_cases.CodexForwardRunnerContractTests.test_codex_01445_file_change_lifecycle_matches_official_output \
+  tests.test_skill_cases.CodexForwardRunnerContractTests.test_codex_01445_noncommand_item_lifecycles_and_statuses_are_exact \
+  tests.test_skill_cases.CodexForwardRunnerContractTests.test_codex_01445_jsonl_schemas_and_command_lifecycle_are_exact
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_skill_cases -v
+python3 -m py_compile tests/e2e/codex_skill_forward_tests.py
+git diff --check
+```
+
+Commit only the runner as `fix(DEV-136): parse file change lifecycle`, then
+obtain independent parser review before another host matrix.
+
+## Task 7G: Make every result-envelope field syntactically complete
+
+**Files:**
+
+- Modify: `tests/test_skill_contract.py`
+- Modify: the five canonical
+  `plugins/apple-foundation-models-handoff/skills/*/SKILL.md` files
+
+The live scorer requires every `architectureResult` child to be an indented
+assignment with a nonempty value, but the canonical templates and their tests
+currently encode several required fields as bare names. Preserve the exact
+field names, order, schema version, pattern enum, and semantics.
+
+### Step 1: Add parser-backed template RED
+
+Add a structural test that extracts the one fenced positive template, requires
+the four preamble lines, and parses every indented result line with the same
+closed name/assignment grammar as the live scorer. Require exactly these fields
+in order: `architectureSchemaVersion`, `stateVersion`, `policyVersion`,
+`workflow`, `scope`, `pattern`, `source`, `destination`, `finalResponseOwner`,
+`apiAvailability[]`, `stateModel`, `trustBoundaries[]`, `contextPolicy`,
+`toolAndEffectPolicy`, `failurePolicy`, `verification[]`, and `limitations[]`.
+Every value slot must be nonempty.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v \
+  tests.test_skill_contract.SkillContractTests.test_positive_result_template_is_parseable
+git diff --check
+```
+
+Expected RED: all five skills fail only on the current bare fields. Commit only
+the test as `test(DEV-136): require parseable result templates`.
+
+### Step 2: Correct only the canonical templates
+
+Give every bare required field a descriptive nonempty value slot using `:` or
+`=`. Do not add fields, headings, prose sections, APIs, capabilities, or response
+formats. Update the shared expected template in the test only in the RED commit;
+the GREEN commit changes canonical skills only.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_skill_contract -v
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_skill_cases -v
+python3 scripts/sync_generated_artifacts.py --check
+git diff --check
+```
+
+Commit only the five canonical skills as
+`fix(DEV-136): complete result template assignments` and request independent
+contract review.
+
+## Task 7H: Isolate every mutating Codex host case
+
+**Files:**
+
+- Modify: `tests/test_skill_cases.py`
+- Modify: `tests/e2e/codex_skill_forward_tests.py`
+
+The host matrix created Swift source/test files in the authoritative DEV-136
+worktree. The runner must preserve full repository context without allowing a
+model-generated change to reach the issue checkout.
+
+### Step 1: Add isolation and cleanup RED
+
+Add synthetic host-runner tests requiring every process invocation to receive a
+fresh detached disposable Git worktree as `cwd`. Prove successful, nonzero,
+exception, scoring-failure, and early-stop paths force-remove that worktree and
+leave the authoritative status snapshot byte-identical. Inject cleanup failure
+and authoritative state drift; both must produce a stable explicit hard-failure
+reason without exposing an absolute path or raw diff in evidence. Prove one
+case's created file is absent from the next case and from `ROOT`.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v \
+  tests.test_skill_cases.CodexForwardRunnerContractTests.test_host_cases_use_disposable_worktrees \
+  tests.test_skill_cases.CodexForwardRunnerContractTests.test_host_worktree_cleanup_failures_fail_closed
+git diff --check
+```
+
+Expected RED: the current process runner has no `cwd` isolation and writes into
+the caller checkout. Commit tests only as
+`test(DEV-136): require isolated host cases`.
+
+### Step 2: Implement disposable worktree ownership
+
+Create a fresh detached worktree at the captured repository HEAD per case using
+argument-vector subprocess calls. Pass only that path as the Codex process cwd.
+In `finally`, force-remove the worktree, prune its private metadata, and verify
+both path removal and the authoritative status snapshot. Treat construction,
+cleanup, or source-state drift as a named hard failure; never clean or rewrite
+the authoritative checkout. Keep disposable paths, status bytes, and generated
+content out of normalized evidence. Preserve bound-binary and private-response
+cleanup precedence.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v \
+  tests.test_skill_cases.CodexForwardRunnerContractTests.test_host_cases_use_disposable_worktrees \
+  tests.test_skill_cases.CodexForwardRunnerContractTests.test_host_worktree_cleanup_failures_fail_closed
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_skill_cases -v
+python3 -m py_compile tests/e2e/codex_skill_forward_tests.py
+git diff --check
+```
+
+Commit only the runner as `fix(DEV-136): isolate host case worktrees`. Obtain
+independent cleanup/security review before running any authenticated case.
+
+## Task 7I: Retry the affected rows and full Codex-only matrix
+
+After independent approval of Tasks 7F through 7H, rerun the five prior failing
+baseline/forward boundaries plus `DEV136-FWD-IMPLEMENT-001` into a new temporary
+normalized evidence path. Inspect only counts, statuses, hashes, and assertion
+names. If all affected rows pass, run the exact 25-case Codex 0.144.5
+`gpt-5.6-sol` matrix. Verify the authoritative DEV-136 worktree remains clean
+after every run and that no disposable worktree remains registered. Do not run
+Claude Code. Any new mismatch returns to recorded RED/GREEN diagnosis; it is
+not repaired by weakening a rubric.
+
 ## Task 8: Full verification before completion
 
 Invoke `superpowers:verification-before-completion` and run fresh commands.
