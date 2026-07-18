@@ -5922,6 +5922,215 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
             private_needles=(str(root),),
         )
 
+    def test_bound_copy_finalizer_close_uncertainty_fails_without_retry(
+        self,
+    ) -> None:
+        private_message = (
+            "PRIVATE source finalizer uncertainty at /private/host/bound-copy"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_path = root / "source-codex"
+            source_path.write_bytes(b"small verified executable")
+            source_path.chmod(0o700)
+            replacement_path = root / "replacement"
+            replacement_path.write_bytes(
+                b"replacement descriptor must remain open"
+            )
+            real_mkdtemp = tempfile.mkdtemp
+            real_verified_open = self.runner._open_verified_executable
+            real_open = os.open
+            real_close = os.close
+            real_cleanup = self.runner._remove_bound_executable_copy
+            created_roots: list[Path] = []
+            verified_open_calls = 0
+            helper_source_descriptor = -1
+            replacement_descriptor = -1
+            helper_source_close_calls = 0
+
+            def make_bound_root(*args, **kwargs) -> str:
+                kwargs["dir"] = root
+                created = Path(real_mkdtemp(*args, **kwargs))
+                created_roots.append(created)
+                return str(created)
+
+            def observe_verified_open(path: str):
+                nonlocal verified_open_calls, helper_source_descriptor
+                opened = real_verified_open(path)
+                verified_open_calls += 1
+                if verified_open_calls == 2:
+                    helper_source_descriptor = opened[1]
+                return opened
+
+            def close_after_effect(descriptor: int) -> None:
+                nonlocal replacement_descriptor, helper_source_close_calls
+                if descriptor == helper_source_descriptor:
+                    helper_source_close_calls += 1
+                    if helper_source_close_calls == 1:
+                        real_close(descriptor)
+                        replacement = real_open(
+                            replacement_path,
+                            os.O_RDONLY,
+                        )
+                        if replacement != descriptor:
+                            os.dup2(replacement, descriptor)
+                            real_close(replacement)
+                        replacement_descriptor = descriptor
+                        raise OSError(private_message)
+                real_close(descriptor)
+
+            try:
+                with (
+                    mock.patch.object(
+                        self.runner.tempfile,
+                        "mkdtemp",
+                        side_effect=make_bound_root,
+                    ),
+                    mock.patch.object(
+                        self.runner,
+                        "_open_verified_executable",
+                        side_effect=observe_verified_open,
+                    ),
+                    mock.patch.object(
+                        self.runner.os,
+                        "close",
+                        side_effect=close_after_effect,
+                    ),
+                ):
+                    snapshot = self.runner.default_prerequisite_checker(
+                        str(source_path),
+                        "gpt-5.6-sol",
+                        "0.144.5",
+                        source_capture=expected_source_capture(),
+                    )
+
+                self.assertEqual(1, len(created_roots))
+                bound_root = created_roots[0]
+                bound_path = bound_root / "codex"
+                self._assert_pre_response_bound_copy_stop(
+                    snapshot,
+                    expected_capture_error="bound_copy_cleanup_failed",
+                    expected_cleanup="fail",
+                    expected_code=self.runner.FAIL,
+                    expected_status="fail",
+                    expected_reason="post_capture_prerequisite_drift",
+                    private_needles=(private_message, str(root)),
+                )
+                self.assertEqual(1, helper_source_close_calls)
+                self.assertGreaterEqual(replacement_descriptor, 0)
+                os.fstat(replacement_descriptor)
+                self.assertFalse(bound_path.exists())
+                self.assertFalse(bound_root.exists())
+            finally:
+                if replacement_descriptor >= 0:
+                    try:
+                        real_close(replacement_descriptor)
+                    except OSError:
+                        pass
+                if created_roots:
+                    real_cleanup(created_roots[0] / "codex", created_roots[0])
+
+    def test_bound_copy_post_helper_recapture_drift_cleans_and_fails(
+        self,
+    ) -> None:
+        private_message = (
+            "PRIVATE post-helper recapture drift at /private/host/bound-copy"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_path = root / "source-codex"
+            source_path.write_bytes(b"small verified executable")
+            source_path.chmod(0o700)
+            real_mkdtemp = tempfile.mkdtemp
+            real_capture = self.runner.capture_executable
+            real_cleanup = self.runner._remove_bound_executable_copy
+            created_roots: list[Path] = []
+            capture_calls = 0
+            cleanup_calls: list[tuple[Path, Path]] = []
+            escaped: Exception | None = None
+            snapshot: dict | None = None
+
+            def make_bound_root(*args, **kwargs) -> str:
+                kwargs["dir"] = root
+                created = Path(real_mkdtemp(*args, **kwargs))
+                created_roots.append(created)
+                return str(created)
+
+            def recapture_drift(path: str) -> dict[str, str]:
+                nonlocal capture_calls
+                capture_calls += 1
+                if capture_calls == 3:
+                    raise ValueError(private_message)
+                return real_capture(path)
+
+            def observed_cleanup(path: Path, bound_root: Path) -> bool:
+                cleanup_calls.append((path, bound_root))
+                return real_cleanup(path, bound_root)
+
+            probes = mock.Mock(
+                side_effect=AssertionError(
+                    "prerequisite probes must not run after recapture drift"
+                )
+            )
+            try:
+                with (
+                    mock.patch.object(
+                        self.runner.tempfile,
+                        "mkdtemp",
+                        side_effect=make_bound_root,
+                    ),
+                    mock.patch.object(
+                        self.runner,
+                        "capture_executable",
+                        side_effect=recapture_drift,
+                    ),
+                    mock.patch.object(
+                        self.runner,
+                        "_remove_bound_executable_copy",
+                        side_effect=observed_cleanup,
+                    ),
+                    mock.patch.object(
+                        self.runner,
+                        "_probe",
+                        side_effect=probes,
+                    ),
+                ):
+                    try:
+                        snapshot = self.runner.default_prerequisite_checker(
+                            str(source_path),
+                            "gpt-5.6-sol",
+                            "0.144.5",
+                            source_capture=expected_source_capture(),
+                        )
+                    except Exception as error:  # pragma: no cover - RED capture
+                        escaped = error
+
+                self.assertIsNone(
+                    escaped,
+                    "post-helper bound-copy recapture drift must normalize",
+                )
+                self.assertIsNotNone(snapshot)
+                self.assertEqual(1, len(created_roots))
+                bound_root = created_roots[0]
+                bound_path = bound_root / "codex"
+                self.assertEqual(3, capture_calls)
+                self.assertEqual(0, probes.call_count)
+                self.assertEqual([(bound_path, bound_root)], cleanup_calls)
+                self.assertFalse(bound_path.exists())
+                self.assertFalse(bound_root.exists())
+                self._assert_pre_response_bound_copy_stop(
+                    snapshot,
+                    expected_capture_error="bound_copy_identity_drift",
+                    expected_cleanup="pass",
+                    expected_code=self.runner.FAIL,
+                    expected_status="fail",
+                    expected_reason="post_capture_prerequisite_drift",
+                    private_needles=(private_message, str(root)),
+                )
+            finally:
+                if created_roots:
+                    real_cleanup(created_roots[0] / "codex", created_roots[0])
+
     def test_unavailable_pre_response_bound_copy_is_blocked_without_attempt(
         self,
     ) -> None:
