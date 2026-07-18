@@ -1108,6 +1108,114 @@ Codex case. A persistent injected cleanup refusal is proven by attempts and
 fail-closed normalization; the test owns removal of its deliberately retained
 artifacts.
 
+## Task 7K: Bind activated output to the literal 21-line serializer
+
+**Files:**
+
+- Modify: `tests/test_skill_contract.py`
+- Modify: `plugins/apple-foundation-models-handoff/skills/design-apple-foundation-models-handoff/SKILL.md`
+- Modify: `plugins/apple-foundation-models-handoff/skills/implement-apple-foundation-models-handoff/SKILL.md`
+- Modify: `plugins/apple-foundation-models-handoff/skills/review-apple-foundation-models-handoff/SKILL.md`
+- Modify: `plugins/apple-foundation-models-handoff/skills/debug-apple-foundation-models-handoff/SKILL.md`
+- Modify: `plugins/apple-foundation-models-handoff/skills/validate-apple-foundation-models-handoff/SKILL.md`
+- Modify: `tests/e2e/codex_skill_forward_tests.py`
+
+A normalized, non-acceptance Codex diagnostic rejected the preface hypothesis:
+the response began with exactly one `text` fence, named the expected skill, and
+rendered all required headings in order. It instead pretty-printed the activated
+envelope into 52 nonblank lines. `routerInput` expanded across lines and moved
+`architectureResult` out of its required fourth position; nested result fields
+also expanded. The current template names router fields without showing their
+required populated key/value serialization, while “populate every nested field”
+permits line expansion despite the adjacent one-line router rule.
+
+### Step 1: Add the literal-serializer RED
+
+In `POSITIVE_RESULT_LINES`, change the router template to this single physical
+line:
+
+```text
+routerInput = { domain = <domain>, requestedOperation = <requestedOperation>, artifactState = <artifactState>, evidenceState = <evidenceState> }
+```
+
+Add two exact `OUTPUT_SERIALIZATION_SENTENCES` requirements owned by `Output
+Contract`: every activated response uses exactly the 21 shown nonblank envelope
+lines in order with placeholders replaced inline and no added lines; neither
+`routerInput` nor any `architectureResult` child may be wrapped, pretty-printed,
+or expanded across physical lines. Reuse the existing exact-template,
+ownership, and mutation oracles. Do not change the approved DEV-136 fixture,
+production scorer, router values, headings, evidence schema, or rubric.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v \
+  tests.test_skill_contract.SkillContractTests.test_positive_result_template_is_parseable \
+  tests.test_skill_contract.SkillContractTests.test_each_skill_owns_deterministic_response_serialization \
+  tests.test_skill_contract.SkillContractMutationTests.test_deterministic_output_and_outer_harness_mutations_are_rejected \
+  tests.test_skill_contract.SkillContractMutationTests.test_positive_result_rejects_every_exact_shape_mutation
+git diff --check
+```
+
+Expected RED: production skills fail only because their router template and two
+literal-serializer rules are stale; the synthetic fixture and mutation oracle
+remain self-consistent. Commit only `tests/test_skill_contract.py` as
+`test(DEV-136): expose expanded result envelopes`.
+
+### Step 2: Correct the five canonical skill contracts
+
+Update each canonical positive template to the exact populated one-line
+`routerInput`. Add the two literal-serializer sentences once under its `Output
+Contract`, adjacent to the single-fence rule. Replace the ambiguous instruction
+to populate nested fields with inline-placeholder language, preserving the rule
+that the shape is not replaced with YAML, JSON, or prose. Do not add the
+disproved preface-only rule and do not edit generated Codex artifacts directly.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v \
+  tests.test_skill_contract.SkillContractTests.test_positive_result_template_is_parseable \
+  tests.test_skill_contract.SkillContractTests.test_each_skill_owns_deterministic_response_serialization \
+  tests.test_skill_contract.SkillContractMutationTests.test_deterministic_output_and_outer_harness_mutations_are_rejected \
+  tests.test_skill_contract.SkillContractMutationTests.test_positive_result_rejects_every_exact_shape_mutation
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_skill_contract -v
+git diff --check
+```
+
+Commit only the five canonical `SKILL.md` files as
+`fix(DEV-136): keep result envelopes on template lines`.
+
+### Step 3: Refresh exact installed-payload identities
+
+Compute SHA-256 for each corrected canonical `SKILL.md` and update only its five
+`SKILL_PAYLOAD_SHA256` values in the host runner. This binds discovery to the
+corrected bytes and continues to reject stale installed caches.
+
+```bash
+shasum -a 256 plugins/apple-foundation-models-handoff/skills/*/SKILL.md
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_skill_cases -v
+python3 -m py_compile tests/e2e/codex_skill_forward_tests.py
+python3 scripts/sync_generated_artifacts.py --check
+git diff --check
+```
+
+Commit only `tests/e2e/codex_skill_forward_tests.py` as
+`test(DEV-136): bind literal envelope payloads`.
+
+### Step 4: Review the correction before host execution
+
+Use the subagent-driven workflow for an independent specification and contract
+review. Require exact tests-only RED provenance, no scorer/fixture/rubric
+weakening, no generated-file edits, no new Apple claims, exact five-skill
+symmetry, and payload digests matching canonical bytes. Correct findings in
+focused commits and rerun all affected offline gates.
+
+### Step 5: Retry affected rows, then the full matrix
+
+From the clean reviewed head, rebuild the approved six-case ordered subset and
+run the exact Codex 0.144.5 / `gpt-5.6-sol` host boundary. Retain only normalized
+evidence and verify source checkout, captured executable, private output, bound
+copy, and disposable worktree cleanup after every case. Require all six rows to
+pass before starting the full 25-case matrix. Any new mismatch returns to a
+recorded RED/GREEN diagnosis; never weaken the contract or cherry-pick a pass.
+
 ## Task 8: Full verification before completion
 
 Invoke `superpowers:verification-before-completion` and run fresh commands.
