@@ -2140,6 +2140,46 @@ class _GitLifecycleFault:
         return subprocess.run(command, **kwargs)
 
 
+class _PostAddVerificationFault:
+    def __init__(self, *, fail_cleanup: bool) -> None:
+        self.fail_cleanup = fail_cleanup
+        self.worktree: Path | None = None
+        self.verification_failures = 0
+        self.remove_faults = 0
+        self.prune_faults = 0
+
+    def __call__(self, command: list[str], **kwargs):
+        arguments = list(command)
+        operation = None
+        if "worktree" in arguments:
+            index = arguments.index("worktree")
+            if index + 1 < len(arguments):
+                operation = arguments[index + 1]
+        if operation == "add":
+            completed = subprocess.run(command, **kwargs)
+            self.worktree = Path(arguments[-2])
+            return completed
+        if (
+            self.worktree is not None
+            and arguments[:3] == ["git", "-C", str(self.worktree)]
+            and arguments[3:] == ["rev-parse", "HEAD"]
+        ):
+            self.verification_failures += 1
+            raise OSError(
+                "PRIVATE post-add verification failure "
+                "at /private/disposable/verification"
+            )
+        if self.fail_cleanup and operation == "remove":
+            self.remove_faults += 1
+            raise OSError(
+                "PRIVATE force-remove failure at /private/disposable/remove"
+            )
+        if self.fail_cleanup and operation == "prune":
+            self.prune_faults += 1
+            raise OSError("PRIVATE prune failure at /private/disposable/prune")
+        return subprocess.run(command, **kwargs)
+
+
 class _FakeScorer:
     def __init__(
         self,
@@ -2785,6 +2825,249 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
 
                 _discard_test_worktrees(source, process.execution_cwds)
                 self.assertEqual([], violations)
+
+    def test_host_partial_setup_cleanup_failures_take_precedence(self) -> None:
+        scenarios = {
+            "cleanup_failure": (
+                True,
+                "host_case_cleanup_failed",
+                True,
+            ),
+            "fully_verified_cleanup": (
+                False,
+                "host_case_setup_failed",
+                False,
+            ),
+        }
+        for scenario, (
+            fail_cleanup,
+            expected_reason,
+            expected_stale_registration,
+        ) in scenarios.items():
+            with (
+                self.subTest(scenario=scenario),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                test_root = Path(directory)
+                source = test_root / "source"
+                _initialize_test_git_repository(source)
+                source_before = _test_git_status_snapshot(source)
+                fixture = _forward_fixture(
+                    "DEV136-FWD-DESIGN-001",
+                    "DEV136-FWD-REVIEW-001",
+                )
+                fault = _PostAddVerificationFault(
+                    fail_cleanup=fail_cleanup
+                )
+
+                try:
+                    with (
+                        mock.patch.object(self.runner, "ROOT", source),
+                        mock.patch.object(
+                            self.runner,
+                            "_run_git",
+                            side_effect=fault,
+                            create=True,
+                        ),
+                    ):
+                        code, evidence = _run_host(
+                            self.runner,
+                            fixture,
+                            str(TEST_EXECUTABLE_PATH),
+                            _FakeHostProcess(),
+                            _FakePrerequisiteChecker(
+                                _passing_prerequisites()
+                            ),
+                            _FakeScorer(_forward_outputs(fixture)),
+                        )
+
+                    source_after = _test_git_status_snapshot(source)
+                    registrations_before_cleanup = _run_test_git(
+                        source,
+                        "worktree",
+                        "list",
+                        "--porcelain",
+                        "-z",
+                    ).stdout
+                    worktree = fault.worktree
+                    stale_registration = worktree is not None and (
+                        str(worktree).encode() in registrations_before_cleanup
+                    )
+                finally:
+                    _discard_test_worktrees(
+                        source,
+                        [] if fault.worktree is None else [fault.worktree],
+                    )
+
+                registrations_after_cleanup = _run_test_git(
+                    source,
+                    "worktree",
+                    "list",
+                    "--porcelain",
+                    "-z",
+                ).stdout
+                serialized = json.dumps(evidence, sort_keys=True)
+                private_needles = (
+                    str(test_root),
+                    "" if worktree is None else str(worktree),
+                    "PRIVATE post-add verification failure",
+                    "PRIVATE force-remove failure",
+                    "PRIVATE prune failure",
+                    source_before.decode(errors="replace"),
+                    registrations_before_cleanup.decode(errors="replace"),
+                )
+                self.assertEqual(self.runner.FAIL, code)
+                self.assertEqual("fail", evidence["status"])
+                self.assertIsNotNone(fault.worktree)
+                self.assertEqual(1, fault.verification_failures)
+                if fail_cleanup:
+                    self.assertGreater(fault.remove_faults, 0)
+                    self.assertGreater(fault.prune_faults, 0)
+                self.assertEqual(expected_stale_registration, stale_registration)
+                self.assertEqual(source_before, source_after)
+                self.assertFalse(worktree.exists())
+                self.assertNotIn(
+                    str(worktree).encode(), registrations_after_cleanup
+                )
+                self.assertFalse(
+                    any(
+                        needle and needle in serialized
+                        for needle in private_needles
+                    )
+                )
+                self.assertNotRegex(
+                    serialized,
+                    r"(?<![A-Za-z0-9_.-])/(?:[A-Za-z0-9._-]+/)*"
+                    r"[A-Za-z0-9._-]+",
+                )
+                self.assertEqual(
+                    expected_reason, evidence["host"]["blockerReason"]
+                )
+
+    def test_host_setup_failure_preserves_bound_cleanup_precedence(self) -> None:
+        scenarios = {
+            "persistent_refusal": (
+                True,
+                "post_capture_prerequisite_drift",
+                True,
+            ),
+            "transient_retry_success": (
+                False,
+                "host_case_setup_failed",
+                False,
+            ),
+        }
+        for scenario, (
+            persistent_refusal,
+            expected_reason,
+            expected_residue_before_test_cleanup,
+        ) in scenarios.items():
+            with (
+                self.subTest(scenario=scenario),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                test_root = Path(directory)
+                bound_root = test_root / "bound"
+                bound_root.mkdir()
+                bound_path = bound_root / "codex"
+                bound_path.write_bytes(b"PRIVATE verified executable sentinel")
+                bound_path.chmod(0o700)
+                fixture = _forward_fixture(
+                    "DEV136-FWD-DESIGN-001",
+                    "DEV136-FWD-REVIEW-001",
+                )
+                process = _FakeHostProcess()
+                scorer = _FakeScorer(_forward_outputs(fixture))
+                cleanup_attempts: list[tuple[Path, Path]] = []
+                real_bound_cleanup = self.runner._remove_bound_executable_copy
+
+                def cleanup_attempt(path: Path, root: Path) -> bool:
+                    cleanup_attempts.append((path, root))
+                    if persistent_refusal or len(cleanup_attempts) == 1:
+                        return False
+                    return real_bound_cleanup(path, root)
+
+                try:
+                    with (
+                        mock.patch.object(
+                            self.runner,
+                            "_bound_executable_copy",
+                            return_value=(
+                                str(TEST_EXECUTABLE_PATH),
+                                bound_path,
+                                bound_root,
+                            ),
+                        ) as bound_copy,
+                        mock.patch.object(
+                            self.runner,
+                            "_create_host_case_worktree",
+                            side_effect=OSError(
+                                "PRIVATE worktree setup failure "
+                                "at /private/disposable/setup"
+                            ),
+                        ) as setup_failure,
+                        mock.patch.object(
+                            self.runner,
+                            "_remove_bound_executable_copy",
+                            side_effect=cleanup_attempt,
+                        ),
+                    ):
+                        code, evidence = _run_host(
+                            self.runner,
+                            fixture,
+                            str(TEST_EXECUTABLE_PATH),
+                            process,
+                            _FakePrerequisiteChecker(
+                                _passing_prerequisites()
+                            ),
+                            scorer,
+                        )
+
+                    residue_before_test_cleanup = (
+                        bound_path.exists() and bound_root.exists()
+                    )
+                finally:
+                    bound_path.unlink(missing_ok=True)
+                    shutil.rmtree(bound_root, ignore_errors=True)
+
+                residue_after_test_cleanup = (
+                    bound_path.exists() or bound_root.exists()
+                )
+                serialized = json.dumps(evidence, sort_keys=True)
+                private_needles = (
+                    str(test_root),
+                    "PRIVATE verified executable sentinel",
+                    "PRIVATE worktree setup failure",
+                )
+                self.assertEqual(self.runner.FAIL, code)
+                self.assertEqual("fail", evidence["status"])
+                self.assertEqual([], evidence["cases"])
+                self.assertEqual(1, setup_failure.call_count)
+                self.assertEqual(1, bound_copy.call_count)
+                self.assertEqual(
+                    [(bound_path, bound_root)] * 2, cleanup_attempts
+                )
+                self.assertEqual(
+                    expected_residue_before_test_cleanup,
+                    residue_before_test_cleanup,
+                )
+                self.assertFalse(residue_after_test_cleanup)
+                self.assertEqual([], process.commands)
+                self.assertEqual([], scorer.calls)
+                self.assertFalse(
+                    any(
+                        needle and needle in serialized
+                        for needle in private_needles
+                    )
+                )
+                self.assertNotRegex(
+                    serialized,
+                    r"(?<![A-Za-z0-9_.-])/(?:[A-Za-z0-9._-]+/)*"
+                    r"[A-Za-z0-9._-]+",
+                )
+                self.assertEqual(
+                    expected_reason, evidence["host"]["blockerReason"]
+                )
 
     def test_bound_executable_lifecycle_closes_before_post_case_checker(self) -> None:
         fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
