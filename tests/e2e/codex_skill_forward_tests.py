@@ -824,6 +824,80 @@ def _strict_json_loads(value: str | bytes | bytearray) -> Any:
     )
 
 
+class _CodexJsonObjectPairs(list[tuple[str, Any]]):
+    pass
+
+
+def _codex_json_value_without_duplicates(value: Any) -> Any:
+    if type(value) is _CodexJsonObjectPairs:
+        decoded: dict[str, Any] = {}
+        for key, child in value:
+            if key in decoded:
+                raise ValueError("duplicate Codex JSONL key")
+            decoded[key] = _codex_json_value_without_duplicates(child)
+        return decoded
+    if type(value) is list:
+        return [_codex_json_value_without_duplicates(child) for child in value]
+    return value
+
+
+def _codex_jsonl_item(value: Any, event_type: Any) -> Any:
+    if type(value) is not _CodexJsonObjectPairs:
+        return _codex_json_value_without_duplicates(value)
+    keys = [key for key, _child in value]
+    duplicate_keys = {key for key in keys if keys.count(key) > 1}
+    if not duplicate_keys:
+        return _codex_json_value_without_duplicates(value)
+    if (
+        event_type not in {"item.started", "item.completed"}
+        or duplicate_keys != {"id"}
+        or keys.count("id") != 2
+        or set(keys) != {"id", "type", "query", "action"}
+    ):
+        raise ValueError("unsupported Codex JSONL duplicate key")
+    fields: dict[str, list[Any]] = {}
+    for key, child in value:
+        fields.setdefault(key, []).append(child)
+    first_id, second_id = fields["id"]
+    if (
+        fields["type"] != ["web_search"]
+        or type(first_id) is not str
+        or re.fullmatch(r"item_[0-9]+", first_id) is None
+        or type(second_id) is not str
+        or not second_id
+    ):
+        raise ValueError("unsupported Codex JSONL duplicate id")
+    return {
+        "id": first_id,
+        "type": "web_search",
+        "query": _codex_json_value_without_duplicates(fields["query"][0]),
+        "action": _codex_json_value_without_duplicates(fields["action"][0]),
+    }
+
+
+def _codex_jsonl_record_loads(value: str) -> Any:
+    decoded = json.loads(
+        value,
+        object_pairs_hook=_CodexJsonObjectPairs,
+        parse_constant=_reject_json_constant,
+    )
+    if type(decoded) is not _CodexJsonObjectPairs:
+        return _codex_json_value_without_duplicates(decoded)
+    keys = [key for key, _child in decoded]
+    if len(keys) != len(set(keys)):
+        raise ValueError("duplicate Codex JSONL record key")
+    fields = dict(decoded)
+    event_type = fields.get("type")
+    return {
+        key: (
+            _codex_jsonl_item(child, event_type)
+            if key == "item"
+            else _codex_json_value_without_duplicates(child)
+        )
+        for key, child in decoded
+    }
+
+
 def _require_closed_object(
     value: Any, keys: set[str], label: str
 ) -> dict[str, Any]:
@@ -1014,7 +1088,7 @@ def _codex_jsonl_events(stdout: str) -> list[dict[str, Any]]:
         if not line:
             raise ValueError("Codex JSONL stream contains a blank record")
         try:
-            value = _strict_json_loads(line)
+            value = _codex_jsonl_record_loads(line)
         except (json.JSONDecodeError, ValueError) as error:
             raise ValueError("Codex JSONL record is invalid") from error
         if type(value) is not dict:
