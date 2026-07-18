@@ -307,6 +307,187 @@ class ReferenceToolPayloadTests(unittest.TestCase):
                     raised.exception.reason,
                 )
 
+    def test_ambiguous_structural_siblings_fail_closed_at_both_boundaries(
+        self,
+    ) -> None:
+        rejected = {
+            # Independently observed scalar and serialized program gaps.
+            "program scalar with args path": {
+                "program": "sort",
+                "args": {"path": OWNER},
+            },
+            "program scalar with args paths": {
+                "program": "sort",
+                "args": {"paths": [OWNER]},
+            },
+            "program scalar split with args path": {
+                "left": {"program": "sort"},
+                "right": {"args": {"path": OWNER}},
+            },
+            "program serialized value with args path": {
+                "program": '["sort"]',
+                "args": {"path": OWNER},
+            },
+            "program serialized envelope with args path": (
+                f'{{"program":"sort","args":{{"path":"{OWNER}"}}}}'
+            ),
+            # List and mapping values keep the matrix independent of shape.
+            "program list with args path": {
+                "program": ["sort"],
+                "args": {"path": OWNER},
+            },
+            "program mapping with args paths": {
+                "program": {"name": "sort"},
+                "args": {"paths": [OWNER]},
+            },
+            "executable scalar with args path": {
+                "executable": "sort",
+                "args": {"path": OWNER},
+            },
+            "executable list with args paths": {
+                "executable": ["sort"],
+                "args": {"paths": [OWNER]},
+            },
+            "executable mapping with args path": {
+                "executable": {"name": "sort"},
+                "args": {"path": OWNER},
+            },
+            "executable split with args paths": {
+                "left": {"executable": "sort"},
+                "right": {"args": {"paths": [OWNER]}},
+            },
+            "executable serialized with args path": (
+                f'{{"executable":"sort","args":{{"path":"{OWNER}"}}}}'
+            ),
+            "binary scalar with args paths": {
+                "binary": "sort",
+                "args": {"paths": [OWNER]},
+            },
+            "binary list with args path": {
+                "binary": ["sort"],
+                "args": {"path": OWNER},
+            },
+            "binary mapping with args paths": {
+                "binary": {"name": "sort"},
+                "args": {"paths": [OWNER]},
+            },
+            "binary split with args path": {
+                "left": {"binary": "sort"},
+                "right": {"args": {"path": OWNER}},
+            },
+            "binary serialized with args paths": (
+                f'{{"binary":"sort","args":{{"paths":["{OWNER}"]}}}}'
+            ),
+            "arbitrary scalar aliases with path": {
+                "alpha": "sort",
+                "omega": {"path": OWNER},
+            },
+            "arbitrary list aliases with paths": {
+                "alpha": ["sort"],
+                "omega": {"paths": [OWNER]},
+            },
+            "arbitrary mapping aliases with path": {
+                "alpha": {"name": "sort"},
+                "omega": {"path": OWNER},
+            },
+            "arbitrary split aliases with paths": {
+                "left": {"alpha": "sort"},
+                "right": {"omega": {"paths": [OWNER]}},
+            },
+            "arbitrary serialized aliases with path": (
+                f'{{"alpha":"sort","omega":{{"path":"{OWNER}"}}}}'
+            ),
+        }
+
+        for surface, arguments in rejected.items():
+            with self.subTest(surface=surface, boundary="mapping"):
+                with self.assertRaises(probe.ProbeFailure) as raised:
+                    probe.mapping_reference_reads(
+                        arguments,
+                        probe.ROOT,
+                        TASK_ID,
+                    )
+
+                self.assertEqual(
+                    "invalid_tool_event",
+                    raised.exception.reason,
+                )
+
+            with self.subTest(surface=surface, boundary="observed"):
+                with self.assertRaises(probe.ProbeFailure) as raised:
+                    probe.observed_reference_reads(
+                        tool_events({"arguments": arguments}),
+                        TASK_ID,
+                    )
+
+                self.assertEqual(
+                    "invalid_tool_event",
+                    raised.exception.reason,
+                )
+
+    def test_structural_sibling_positive_controls_remain_supported(
+        self,
+    ) -> None:
+        expected_owner = ({OWNER.rsplit("/", 1)[-1]}, 1)
+        controls = {
+            "direct path record with passive metadata": (
+                {
+                    "path": OWNER,
+                    "label": "primary",
+                    "line": 12,
+                    "kind": "reference",
+                },
+                expected_owner,
+                True,
+            ),
+            "direct label and paths": (
+                {"label": "selected", "paths": [OWNER]},
+                expected_owner,
+                True,
+            ),
+            "single passive wrapper around direct owner": (
+                {"metadata": {"path": OWNER, "label": "wrapped"}},
+                expected_owner,
+                True,
+            ),
+            "top-level data-only reference list": (
+                [OWNER],
+                expected_owner,
+                False,
+            ),
+            "mapping with no reference-bearing children": (
+                {"program": "sort", "args": {"label": "synthetic"}},
+                (set(), 0),
+                True,
+            ),
+        }
+
+        for surface, (
+            arguments,
+            expected_mapping,
+            has_observed_form,
+        ) in controls.items():
+            with self.subTest(surface=surface, boundary="mapping"):
+                self.assertEqual(
+                    expected_mapping,
+                    probe.mapping_reference_reads(
+                        arguments,
+                        probe.ROOT,
+                        TASK_ID,
+                    ),
+                )
+
+            if not has_observed_form:
+                continue
+            with self.subTest(surface=surface, boundary="observed"):
+                self.assertEqual(
+                    expected_mapping[0],
+                    probe.observed_reference_reads(
+                        tool_events({"arguments": arguments}),
+                        TASK_ID,
+                    ),
+                )
+
     def test_duplicate_path_data_preserves_occurrence_count_and_is_bulk(
         self,
     ) -> None:
