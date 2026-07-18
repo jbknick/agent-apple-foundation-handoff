@@ -1443,6 +1443,34 @@ def _build_forward_plugin_tree(repo_root: Path) -> tuple[Path, dict]:
     return plugin_root, {"installed": [entry], "available": []}
 
 
+def _unrelated_forward_plugin_entry(
+    repo_root: Path,
+    *,
+    identity: str,
+    installed: bool,
+) -> dict:
+    plugin_name = f"unrelated-{identity}"
+    marketplace_name = f"unrelated-marketplace-{identity}"
+    return {
+        "pluginId": f"{plugin_name}@{marketplace_name}",
+        "name": plugin_name,
+        "marketplaceName": marketplace_name,
+        "version": "9.8.7",
+        "installed": installed,
+        "enabled": installed,
+        "source": {
+            "source": "local",
+            "path": str(repo_root / "plugins" / plugin_name),
+        },
+        "marketplaceSource": {
+            "sourceType": "local",
+            "source": str(repo_root / marketplace_name),
+        },
+        "installPolicy": "AVAILABLE",
+        "authPolicy": "ON_INSTALL",
+    }
+
+
 def _assert_forward_evidence_schema(
     test: unittest.TestCase,
     evidence: dict,
@@ -3417,7 +3445,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
 
             for mutation in (
                 "entry_extra_key",
-                "available_not_empty",
+                "target_in_available",
                 "skill_missing",
                 "skill_symlink",
                 "skill_payload_invalid",
@@ -3428,8 +3456,11 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                     entry = mutated["installed"][0]
                     if mutation == "entry_extra_key":
                         entry["unexpected"] = True
-                    elif mutation == "available_not_empty":
-                        mutated["available"] = [copy.deepcopy(entry)]
+                    elif mutation == "target_in_available":
+                        available_target = copy.deepcopy(entry)
+                        available_target["installed"] = False
+                        available_target["enabled"] = False
+                        mutated["available"] = [available_target]
                     else:
                         skill_path = (
                             plugin_root
@@ -3458,6 +3489,183 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                                 json.dumps(mutated)
                             )
                         )
+
+    def test_plugin_prerequisite_accepts_exact_target_among_unrelated_plugins(
+        self,
+    ) -> None:
+        coexistence_cases = {
+            "target_only": ([], []),
+            "unrelated_installed": ([True], []),
+            "unrelated_available": ([], [False]),
+            "unrelated_installed_and_available": ([True], [False]),
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name, (installed_states, available_states) in coexistence_cases.items():
+                repo_root = root / name
+                _, listing = _build_forward_plugin_tree(repo_root)
+                listing["installed"].extend(
+                    _unrelated_forward_plugin_entry(
+                        repo_root,
+                        identity=f"installed-{index}",
+                        installed=state,
+                    )
+                    for index, state in enumerate(installed_states)
+                )
+                listing["available"].extend(
+                    _unrelated_forward_plugin_entry(
+                        repo_root,
+                        identity=f"available-{index}",
+                        installed=state,
+                    )
+                    for index, state in enumerate(available_states)
+                )
+                with self.subTest(coexistence=name), mock.patch.object(
+                    self.runner, "ROOT", repo_root
+                ):
+                    self.assertTrue(
+                        self.runner._plugin_is_installed_enabled_with_capabilities(
+                            json.dumps(listing)
+                        )
+                    )
+
+    def test_plugin_prerequisite_rejects_missing_duplicate_or_inexact_target(
+        self,
+    ) -> None:
+        def target_available(listing: dict, _plugin_root: Path) -> None:
+            available_target = copy.deepcopy(listing["installed"][0])
+            available_target["installed"] = False
+            available_target["enabled"] = False
+            listing["available"] = [available_target]
+
+        def selector_lookalike(listing: dict, _plugin_root: Path) -> None:
+            lookalike = copy.deepcopy(listing["installed"][0])
+            lookalike["pluginId"] = (
+                "apple-foundation-models-handoff@lookalike-marketplace"
+            )
+            listing["installed"].append(lookalike)
+
+        mutations = {
+            "zero_target": lambda listing, _plugin_root: listing.update(
+                {
+                    "installed": [
+                        _unrelated_forward_plugin_entry(
+                            _plugin_root.parents[1],
+                            identity="installed-zero-target",
+                            installed=True,
+                        )
+                    ],
+                    "available": [
+                        _unrelated_forward_plugin_entry(
+                            _plugin_root.parents[1],
+                            identity="available-zero-target",
+                            installed=False,
+                        )
+                    ],
+                }
+            ),
+            "duplicate_installed_target": lambda listing, _plugin_root: listing[
+                "installed"
+            ].append(copy.deepcopy(listing["installed"][0])),
+            "target_in_available": target_available,
+            "malformed_target": lambda listing, _plugin_root: listing.update(
+                {"installed": ["not-a-plugin-entry"]}
+            ),
+            "extra_key_target": lambda listing, _plugin_root: listing[
+                "installed"
+            ][0].update({"unexpected": True}),
+            "selector_lookalike_beside_target": selector_lookalike,
+            "target_name_mismatch": lambda listing, _plugin_root: listing[
+                "installed"
+            ][0].update({"name": "lookalike-apple-foundation-models-handoff"}),
+            "target_marketplace_mismatch": lambda listing, _plugin_root: listing[
+                "installed"
+            ][0].update({"marketplaceName": "lookalike-marketplace"}),
+            "target_source_mismatch": lambda listing, plugin_root: listing[
+                "installed"
+            ][0].update(
+                {"source": {"source": "local", "path": str(plugin_root.parent)}}
+            ),
+            "target_marketplace_source_mismatch": lambda listing, plugin_root: listing[
+                "installed"
+            ][0].update(
+                {
+                    "marketplaceSource": {
+                        "sourceType": "local",
+                        "source": str(plugin_root),
+                    }
+                }
+            ),
+            "manifest_name_mismatch": lambda _listing, plugin_root: (
+                plugin_root / ".codex-plugin/plugin.json"
+            ).write_text(
+                json.dumps(
+                    {
+                        "name": "lookalike-apple-foundation-models-handoff",
+                        "interface": {"capabilities": list(WORKFLOW_SECTIONS)},
+                    }
+                ),
+                encoding="utf-8",
+            ),
+            "manifest_capabilities_mismatch": lambda _listing, plugin_root: (
+                plugin_root / ".codex-plugin/plugin.json"
+            ).write_text(
+                json.dumps(
+                    {
+                        "name": "apple-foundation-models-handoff",
+                        "interface": {
+                            "capabilities": list(WORKFLOW_SECTIONS)[:-1],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            ),
+            "top_level_extra_key": lambda listing, _plugin_root: listing.update(
+                {"unexpected": []}
+            ),
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name, mutate in mutations.items():
+                repo_root = root / name
+                plugin_root, listing = _build_forward_plugin_tree(repo_root)
+                mutate(listing, plugin_root)
+                with self.subTest(target_contract=name), mock.patch.object(
+                    self.runner, "ROOT", repo_root
+                ):
+                    self.assertFalse(
+                        self.runner._plugin_is_installed_enabled_with_capabilities(
+                            json.dumps(listing)
+                        )
+                    )
+
+            for skill in SKILLS:
+                repo_root = root / f"hash-{skill}"
+                plugin_root, listing = _build_forward_plugin_tree(repo_root)
+                skill_path = plugin_root / "skills" / skill / "SKILL.md"
+                skill_path.write_bytes(skill_path.read_bytes() + b"\nmutation\n")
+                with self.subTest(target_contract=f"hash-{skill}"), mock.patch.object(
+                    self.runner, "ROOT", repo_root
+                ):
+                    self.assertFalse(
+                        self.runner._plugin_is_installed_enabled_with_capabilities(
+                            json.dumps(listing)
+                        )
+                    )
+
+            repo_root = root / "duplicate-listing-key"
+            _, listing = _build_forward_plugin_tree(repo_root)
+            duplicate_listing = json.dumps(listing).replace(
+                '{"installed":', '{"installed": [], "installed":', 1
+            )
+            with self.subTest(target_contract="duplicate_listing_key"), mock.patch.object(
+                self.runner, "ROOT", repo_root
+            ):
+                self.assertFalse(
+                    self.runner._plugin_is_installed_enabled_with_capabilities(
+                        duplicate_listing
+                    )
+                )
 
     def test_cli_normalizes_invalid_fixture_and_scorer_inputs_without_tracebacks(self) -> None:
         def command(
