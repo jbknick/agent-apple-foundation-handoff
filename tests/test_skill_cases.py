@@ -5494,6 +5494,147 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.runner._strict_json_loads(web_search)
 
+    def test_codex_01445_web_search_lifecycle_matches_official_output(self) -> None:
+        usage = json.dumps(_codex_usage(), separators=(",", ":"))
+
+        def item_event(event_type: str, item: str) -> str:
+            return f'{{"type":"{event_type}","item":{item}}}'
+
+        def stream(*events: str) -> str:
+            return "\n".join(
+                (
+                    '{"type":"thread.started","thread_id":"thread_synthetic"}',
+                    '{"type":"turn.started"}',
+                    *events,
+                    f'{{"type":"turn.completed","usage":{usage}}}',
+                )
+            )
+
+        started = (
+            '{"id":"item_0","type":"web_search","id":"search-1",'
+            '"query":"","action":{"type":"other"}}'
+        )
+        completed = (
+            '{"id":"item_0","type":"web_search","id":"search-1",'
+            '"query":"rust async await","action":{"type":"search",'
+            '"query":"rust async await"}}'
+        )
+
+        malformed_streams = {
+            "nonempty_start_query": stream(
+                item_event(
+                    "item.started",
+                    '{"id":"item_0","type":"web_search","id":"search-1",'
+                    '"query":"rust async await","action":{"type":"other"}}',
+                ),
+                item_event("item.completed", completed),
+            ),
+            "non_other_start_action": stream(
+                item_event(
+                    "item.started",
+                    '{"id":"item_0","type":"web_search","id":"search-1",'
+                    '"query":"","action":{"type":"search","query":""}}',
+                ),
+                item_event("item.completed", completed),
+            ),
+            "open_page_start_action": stream(
+                item_event(
+                    "item.started",
+                    '{"id":"item_0","type":"web_search","id":"search-1",'
+                    '"query":"","action":{"type":"open_page",'
+                    '"url":"https://example.invalid"}}',
+                ),
+                item_event("item.completed", completed),
+            ),
+            "find_in_page_start_action": stream(
+                item_event(
+                    "item.started",
+                    '{"id":"item_0","type":"web_search","id":"search-1",'
+                    '"query":"","action":{"type":"find_in_page",'
+                    '"url":"https://example.invalid","pattern":"synthetic"}}',
+                ),
+                item_event("item.completed", completed),
+            ),
+            "open_other_start_action": stream(
+                item_event(
+                    "item.started",
+                    '{"id":"item_0","type":"web_search","id":"search-1",'
+                    '"query":"","action":{"type":"other","extra":"open"}}',
+                ),
+                item_event("item.completed", completed),
+            ),
+            "mismatched_outer_id": stream(
+                item_event("item.started", started),
+                item_event(
+                    "item.completed",
+                    completed.replace('"item_0"', '"item_1"', 1),
+                ),
+            ),
+            "unpaired_completion": stream(
+                item_event("item.completed", completed),
+            ),
+            "duplicate_completion_query": stream(
+                item_event("item.started", started),
+                item_event(
+                    "item.completed",
+                    '{"id":"item_0","type":"web_search","id":"search-1",'
+                    '"query":"rust async await","query":"duplicate",'
+                    '"action":{"type":"search","query":"rust async await"}}',
+                ),
+            ),
+            "malformed_completion_action": stream(
+                item_event("item.started", started),
+                item_event(
+                    "item.completed",
+                    '{"id":"item_0","type":"web_search","id":"search-1",'
+                    '"query":"rust async await","action":{"type":"search",'
+                    '"query":7}}',
+                ),
+            ),
+            "open_completion_action": stream(
+                item_event("item.started", started),
+                item_event(
+                    "item.completed",
+                    '{"id":"item_0","type":"web_search","id":"search-1",'
+                    '"query":"rust async await","action":{"type":"search",'
+                    '"query":"rust async await","extra":"open"}}',
+                ),
+            ),
+        }
+        for name, malformed in malformed_streams.items():
+            with self.subTest(rejected=name):
+                with self.assertRaises(ValueError):
+                    self.runner._tool_events(malformed)
+
+        official_stream = stream(
+            item_event("item.started", started),
+            item_event("item.completed", completed),
+        )
+        try:
+            events = self.runner._tool_events(official_stream)
+        except ValueError as error:
+            self.assertEqual(
+                "Codex JSONL item identity is mismatched",
+                str(error),
+            )
+            self.fail(
+                "Codex 0.144.5 official web-search lifecycle is rejected because "
+                "query/action are still classified as immutable"
+            )
+        self.assertEqual(1, len(events))
+        self.assertEqual(
+            {
+                "id": "item_0",
+                "type": "web_search",
+                "query": "rust async await",
+                "action": {
+                    "type": "search",
+                    "query": "rust async await",
+                },
+            },
+            events[0]["item"],
+        )
+
     def test_codex_01445_noncommand_item_lifecycles_and_statuses_are_exact(self) -> None:
         def item_event(event_type: str, item: dict) -> dict:
             return {"type": event_type, "item": copy.deepcopy(item)}
