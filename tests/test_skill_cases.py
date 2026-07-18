@@ -5999,7 +5999,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
             "web_search": {
                 "id": "web_0",
                 "type": "web_search",
-                "query": "synthetic",
+                "query": "",
                 "action": {"type": "other"},
             },
             "todo_list": {
@@ -6040,6 +6040,16 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                 "status": "completed",
             }
         )
+        web_search_completed = copy.deepcopy(items["web_search"])
+        web_search_completed.update(
+            {
+                "query": "synthetic search",
+                "action": {
+                    "type": "search",
+                    "query": "synthetic search",
+                },
+            }
+        )
         todo_updated = copy.deepcopy(items["todo_list"])
         todo_updated["items"][0]["completed"] = True
         todo_completed = copy.deepcopy(todo_updated)
@@ -6059,6 +6069,10 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
             "collab_status_and_agents_states_change": [
                 item_event("item.started", items["collab_tool_call"]),
                 item_event("item.completed", collab_completed),
+            ],
+            "web_search_query_and_action_change": [
+                item_event("item.started", items["web_search"]),
+                item_event("item.completed", web_search_completed),
             ],
             "todo_items_change_through_lifecycle": [
                 item_event("item.started", items["todo_list"]),
@@ -6090,11 +6104,6 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
             "collab_prompt": (
                 "collab_tool_call",
                 {"prompt": "mutated prompt"},
-            ),
-            "web_search_query": ("web_search", {"query": "mutated"}),
-            "web_search_action": (
-                "web_search",
-                {"action": {"type": "search", "query": "mutated"}},
             ),
         }
         for name, (item_type, mutation) in immutable_mutations.items():
