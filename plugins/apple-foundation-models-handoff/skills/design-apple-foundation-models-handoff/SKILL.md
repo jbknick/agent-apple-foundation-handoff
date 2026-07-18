@@ -14,35 +14,12 @@ requestedOperation = design | implement | review | debug | validate | compound_r
 artifactState = absent | proposal | approved_contract | implementation | evidence_bundle | unknown
 evidenceState = not_requested | missing | available | failing | blocked | unknown
 
-Classify the domain before selecting work. Activate design only for a new or
+Activate design only for a new or
 materially revised Foundation Models handoff architecture, topology, state model,
 or trust boundary.
 
-Choose exactly one primary workflow. Ask exactly one targeted clarification when
-the domain is ambiguous. For compound review and fix, run review first and name a
-separate authorized follow-on boundary. Do not invoke another skill.
-
-Adjacent non-triggers: Apple Handoff; NSUserActivity; App Intents; Swift actors;
-generic Core ML; coding-session handoff; Agent Skills;
-Foundation Models runtime Skills.
-
-### no_activation
-
-```text
-activationStatus = no_activation
-reasonCode = out_of_domain
-domain = out_of_domain
-requestedOperation = design | implement | review | debug | validate | compound_review_fix | unspecified
-```
-
-### clarification_required
-
-```text
-activationStatus = clarification_required
-clarificationKind = domain | approved_contract
-missingInput = domain | approved_contract
-question = <one bounded question>
-```
+Choose exactly one primary workflow. For compound review and fix, run review first
+and name a separate authorized follow-on boundary. Do not invoke another skill.
 
 ## Common Workflow Protocol
 
@@ -235,6 +212,3 @@ do not create a substitute.
 Never invoke `codex exec`, `tests/e2e/codex_skill_forward_tests.py`, or a Claude/Codex
 host matrix from inside this skill. Existing normalized host evidence may be
 inspected, but missing outer-harness evidence is `blocked`.
-
-Non-positive results contain no architectureResult, workflow-specific sections,
-references, fabricated Apple claims, or host activation evidence.
