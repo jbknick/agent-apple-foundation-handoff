@@ -1012,6 +1012,14 @@ the authoritative checkout. Keep disposable paths, status bytes, and generated
 content out of normalized evidence. Preserve bound-binary and private-response
 cleanup precedence.
 
+Use exact normalized hard-failure reasons: `host_case_setup_failed` for
+construction or verification failure before execution,
+`host_case_cleanup_failed` for force-removal, prune, path-removal, or
+registration-verification failure, and `source_worktree_drift` when the
+authoritative status snapshot changes. These are failures, never prerequisite
+blockers or skips. Never retain temp paths, status bytes, generated content, or
+raw diffs, and never clean or revert the authoritative checkout.
+
 ```bash
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v \
   tests.test_skill_cases.CodexForwardRunnerContractTests.test_host_cases_use_disposable_worktrees \
