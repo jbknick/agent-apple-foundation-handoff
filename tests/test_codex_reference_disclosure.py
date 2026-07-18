@@ -291,6 +291,89 @@ class ReferenceToolPayloadTests(unittest.TestCase):
             paths,
         )
 
+    def test_direct_path_records_with_metadata_remain_supported(self) -> None:
+        other_owner = (
+            f"{probe.REFERENCE_ROOT_RELATIVE}/architecture-and-state.md"
+        )
+        records = {
+            "path": {
+                "path": OWNER,
+                "label": "primary",
+                "line": 12,
+                "kind": "reference",
+                "score": 0.9,
+            },
+            "file_path": {
+                "file_path": other_owner,
+                "label": "secondary",
+                "line": 24,
+                "kind": "reference",
+                "score": 0.8,
+            },
+        }
+        expected = {
+            "path": ({OWNER.rsplit("/", 1)[-1]}, 1),
+            "file_path": ({"architecture-and-state.md"}, 1),
+        }
+
+        for field, record in records.items():
+            with self.subTest(field=field):
+                standalone = probe.mapping_reference_reads(
+                    record,
+                    probe.ROOT,
+                    TASK_ID,
+                )
+                try:
+                    list_wrapped = probe.mapping_reference_reads(
+                        [record],
+                        probe.ROOT,
+                        TASK_ID,
+                    )
+                except probe.ProbeFailure as failure:
+                    self.fail(
+                        f"valid {field} metadata record rejected: "
+                        f"{failure.reason}"
+                    )
+
+                self.assertEqual(expected[field], standalone)
+                self.assertEqual(standalone, list_wrapped)
+
+    def test_alias_independent_structural_siblings_fail_closed(self) -> None:
+        compact = (
+            f'{{"binary":"sort","parameters":{{"values":["{OWNER}"]}}}}'
+        )
+        rejected = {
+            "executable and arguments": {
+                "executable": "sort",
+                "arguments": [OWNER],
+            },
+            "program and args": {"program": "sort", "args": [OWNER]},
+            "exe and params": {"exe": "sort", "params": [OWNER]},
+            "binary and parameters": {
+                "binary": "sort",
+                "parameters": [OWNER],
+            },
+            "arbitrary aliases": {"alpha": "sort", "omega": [OWNER]},
+            "nested aliases": {
+                "metadata": {"program": "sort", "args": [OWNER]}
+            },
+            "compact JSON aliases": compact,
+        }
+
+        for surface, arguments in rejected.items():
+            with self.subTest(surface=surface):
+                with self.assertRaises(probe.ProbeFailure) as raised:
+                    probe.mapping_reference_reads(
+                        arguments,
+                        probe.ROOT,
+                        TASK_ID,
+                    )
+
+                self.assertEqual(
+                    "invalid_tool_event",
+                    raised.exception.reason,
+                )
+
     def test_ordinary_metadata_and_path_lists_remain_supported(self) -> None:
         other_owner = (
             f"{probe.REFERENCE_ROOT_RELATIVE}/architecture-and-state.md"
