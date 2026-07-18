@@ -5422,7 +5422,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
 
         web_search = (
             '{"id":"item_0","type":"web_search","id":"search-1",'
-            '"query":"synthetic","action":{"type":"other"}}'
+            '"query":"","action":{"type":"other"}}'
         )
         with self.subTest(compatibility="exact_pinned_shape"):
             try:
@@ -5686,7 +5686,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
             "web_search": {
                 "id": "web_0",
                 "type": "web_search",
-                "query": "synthetic",
+                "query": "",
                 "action": {"type": "other"},
             },
             "todo_list": {
