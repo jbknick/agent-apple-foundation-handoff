@@ -1303,7 +1303,12 @@ Add tests that reproduce all independently reviewed defects:
    children, and explicit `executable` plus `args`/`argv` sibling command shapes
    that reach a reference path must fail; ordinary mapping metadata/path controls
    remain valid.
-7. Malformed JSON and duplicate-key JSON must raise `ProbeFailure` with the
+7. Each direct list child is one semantic unit: a direct `path`/`file_path`
+   record remains reference-bearing when it also carries label/line metadata.
+   A mapping with no direct path owner that pairs a direct non-reference scalar
+   sibling with a distinct nested reference-bearing container fails regardless of
+   command-key alias spelling.
+8. Malformed JSON and duplicate-key JSON must raise `ProbeFailure` with the
    stable `invalid_tool_event` reason, never `NameError` or raw `ValueError`.
 
 ```bash
@@ -1328,7 +1333,8 @@ object or array command envelopes, bare command-like arrays at any nesting
 level, mixed reference/non-reference scalar arrays independent of order or
 executable recognition (including scalar leaves inside nested children), explicit
 `executable` plus `args`/`argv` sibling command containers that reach references,
-and indirect executable prefixes before path/read
+structurally equivalent scalar-sibling plus nested-reference mappings, and indirect
+executable prefixes before path/read
 classification in strict and non-strict modes. Treat wildcard directory reads and reference-root search
 targets as bulk access. Catch the duplicate-key hook's actual exception type
 alongside JSON decoding errors and rethrow only `ProbeFailure`.
