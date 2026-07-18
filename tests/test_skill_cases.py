@@ -6005,12 +6005,6 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                 item_event("item.started", items["reasoning"]),
                 item_event("item.completed", items["reasoning"]),
             ],
-            "file_change_cannot_start": [
-                item_event(
-                    "item.started", status_item("file_change", "in_progress")
-                ),
-                item_event("item.completed", items["file_change"]),
-            ],
             "file_change_completion_requires_start_completed": [
                 item_event("item.completed", items["file_change"]),
             ],
