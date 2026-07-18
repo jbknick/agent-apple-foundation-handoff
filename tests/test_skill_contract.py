@@ -153,7 +153,8 @@ POSITIVE_RESULT_LINES = (
     "  toolAndEffectPolicy: <tool, confirmation, and effect authority policy>",
     "  failurePolicy: <fail-closed recovery and fallback policy>",
     "  verification[] = { id, layer, status, evidence }",
-    "  limitations[]: <limitations and blockers>",
+    "  limitations[]: <one-line limitations and blockers summary; close the fence "
+    "immediately after this line>",
 )
 
 COMMON_SECTIONS = (
@@ -360,6 +361,12 @@ OUTPUT_SERIALIZATION_SENTENCES = (
         "Every activated response emits exactly the 21 shown nonblank "
         "result-envelope lines in order with placeholders replaced inline and no "
         "added lines.",
+    ),
+    (
+        "line-21 fence terminator",
+        "Close the result-envelope fence immediately after that 21st line, and put "
+        "every explanation, bullet, subfield, example, and detail only under the "
+        "required headings after the fence.",
     ),
     (
         "single-line result envelope serialization",
