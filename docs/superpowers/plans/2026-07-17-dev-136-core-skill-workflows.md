@@ -497,7 +497,7 @@ Run the exact new test and require it to fail for the missing compatibility rule
 
 ```bash
 python3 -m unittest \
-  tests.test_skill_cases.CodexSkillForwardTests.test_codex_01445_web_search_duplicate_id_is_narrowly_normalized \
+  tests.test_skill_cases.CodexForwardRunnerContractTests.test_codex_01445_web_search_duplicate_id_is_narrowly_normalized \
   -v
 ```
 
