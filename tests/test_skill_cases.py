@@ -5760,6 +5760,123 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
             ),
         )
 
+    def test_codex_01445_file_change_lifecycle_matches_official_output(self) -> None:
+        def file_change(
+            status: str,
+            *,
+            item_id: str = "file_0",
+            changes: list[dict] | None = None,
+        ) -> dict:
+            return {
+                "id": item_id,
+                "type": "file_change",
+                "changes": (
+                    [{"path": "synthetic.txt", "kind": "update"}]
+                    if changes is None
+                    else changes
+                ),
+                "status": status,
+            }
+
+        def event(event_type: str, item: dict) -> dict:
+            return {"type": event_type, "item": copy.deepcopy(item)}
+
+        def stream(events: list[dict]) -> str:
+            records = [
+                {"type": "thread.started", "thread_id": "thread_synthetic"},
+                {"type": "turn.started"},
+                *events,
+                {"type": "turn.completed", "usage": _codex_usage()},
+            ]
+            return "\n".join(
+                json.dumps(record, sort_keys=True) for record in records
+            )
+
+        started = file_change("in_progress")
+        completed = file_change("completed")
+        failed = file_change("failed")
+        supported = {
+            "official completed pair": [
+                event("item.started", started),
+                event("item.completed", completed),
+            ],
+            "failed terminal pair": [
+                event("item.started", started),
+                event("item.completed", failed),
+            ],
+        }
+        for name, events in supported.items():
+            with self.subTest(supported=name):
+                try:
+                    parsed = self.runner._codex_jsonl_events(stream(events))
+                except ValueError as error:
+                    self.assertEqual(
+                        "Codex JSONL item lifecycle is invalid",
+                        str(error),
+                    )
+                    self.fail(f"supported file_change pair rejected: {error}")
+                self.assertEqual("turn.completed", parsed[-1]["type"])
+
+        changed = file_change(
+            "completed",
+            changes=[{"path": "changed.txt", "kind": "update"}],
+        )
+        extra_item_key = {**completed, "unexpected": True}
+        extra_change_key = file_change(
+            "completed",
+            changes=[
+                {
+                    "path": "synthetic.txt",
+                    "kind": "update",
+                    "unexpected": True,
+                }
+            ],
+        )
+        rejected = {
+            "completion only completed": [event("item.completed", completed)],
+            "completion only failed": [event("item.completed", failed)],
+            "duplicate start": [
+                event("item.started", started),
+                event("item.started", started),
+                event("item.completed", completed),
+            ],
+            "mismatched outer id": [
+                event("item.started", started),
+                event(
+                    "item.completed",
+                    file_change("completed", item_id="file_other"),
+                ),
+            ],
+            "changed changes": [
+                event("item.started", started),
+                event("item.completed", changed),
+            ],
+            "terminal start": [
+                event("item.started", completed),
+                event("item.completed", completed),
+            ],
+            "in-progress completion": [
+                event("item.started", started),
+                event("item.completed", started),
+            ],
+            "unknown status": [
+                event("item.started", started),
+                event("item.completed", file_change("unknown")),
+            ],
+            "extra item key": [
+                event("item.started", started),
+                event("item.completed", extra_item_key),
+            ],
+            "extra change key": [
+                event("item.started", started),
+                event("item.completed", extra_change_key),
+            ],
+        }
+        for name, events in rejected.items():
+            with self.subTest(rejected=name):
+                with self.assertRaises(ValueError):
+                    self.runner._codex_jsonl_events(stream(events))
+
     def test_codex_01445_noncommand_item_lifecycles_and_statuses_are_exact(self) -> None:
         def item_event(event_type: str, item: dict) -> dict:
             return {"type": event_type, "item": copy.deepcopy(item)}
@@ -5836,14 +5953,6 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
             "completion_only_reasoning": [
                 item_event("item.completed", items["reasoning"]),
             ],
-            "completion_only_file_change_completed": [
-                item_event("item.completed", items["file_change"]),
-            ],
-            "completion_only_file_change_failed": [
-                item_event(
-                    "item.completed", status_item("file_change", "failed")
-                ),
-            ],
             "completion_only_error": [
                 item_event("item.completed", items["error"]),
             ],
@@ -5901,6 +6010,14 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                     "item.started", status_item("file_change", "in_progress")
                 ),
                 item_event("item.completed", items["file_change"]),
+            ],
+            "file_change_completion_requires_start_completed": [
+                item_event("item.completed", items["file_change"]),
+            ],
+            "file_change_completion_requires_start_failed": [
+                item_event(
+                    "item.completed", status_item("file_change", "failed")
+                ),
             ],
             "file_change_completion_cannot_be_in_progress": [
                 item_event(
