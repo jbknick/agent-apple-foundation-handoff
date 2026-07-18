@@ -747,6 +747,19 @@ def is_command_argv_array(value: list[object]) -> bool:
     )
 
 
+def has_mixed_reference_scalars(value: list[object]) -> bool:
+    has_reference = False
+    has_non_reference = False
+    for nested in value:
+        if isinstance(nested, (dict, list)):
+            continue
+        if isinstance(nested, str) and is_reference_path_token(nested):
+            has_reference = True
+        else:
+            has_non_reference = True
+    return has_reference and has_non_reference
+
+
 def contains_structured_command(value: object) -> bool:
     if isinstance(value, dict):
         for key, nested in value.items():
@@ -819,7 +832,7 @@ def mapping_reference_reads(
                 read_count += nested_count
         return observed, read_count
     if isinstance(value, list):
-        if is_command_argv_array(value):
+        if has_mixed_reference_scalars(value) or is_command_argv_array(value):
             raise ProbeFailure("invalid_tool_event", task_id)
         for nested in value:
             nested_observed, nested_count = mapping_reference_reads(
