@@ -196,7 +196,42 @@ class ReferenceToolPayloadTests(unittest.TestCase):
                     raised.exception.reason,
                 )
 
+    def test_mixed_reference_scalar_arrays_fail_closed(self) -> None:
+        compact_sort = f'["sort","{OWNER}"]'
+        rejected = {
+            "unknown sort": ["sort", OWNER],
+            "unknown strings": ["strings", OWNER],
+            "unknown dd": ["dd", OWNER],
+            "unknown cp": ["cp", OWNER],
+            "unknown fish": ["fish", OWNER],
+            "unknown busybox": ["busybox", OWNER],
+            "leading flag": ["--stable", OWNER],
+            "leading environment assignment": ["MODE=synthetic", OWNER],
+            "deep nested": {
+                "metadata": {"details": {"values": ["sort", OWNER]}}
+            },
+            "compact JSON": compact_sort,
+            "reversed": [OWNER, "sort"],
+        }
+
+        for surface, arguments in rejected.items():
+            with self.subTest(surface=surface):
+                with self.assertRaises(probe.ProbeFailure) as raised:
+                    probe.mapping_reference_reads(
+                        arguments,
+                        probe.ROOT,
+                        TASK_ID,
+                    )
+
+                self.assertEqual(
+                    "invalid_tool_event",
+                    raised.exception.reason,
+                )
+
     def test_ordinary_metadata_and_path_lists_remain_supported(self) -> None:
+        other_owner = (
+            f"{probe.REFERENCE_ROOT_RELATIVE}/architecture-and-state.md"
+        )
         metadata = probe.mapping_reference_reads(
             {"metadata": ["synthetic", "control"]},
             probe.ROOT,
@@ -207,9 +242,24 @@ class ReferenceToolPayloadTests(unittest.TestCase):
             probe.ROOT,
             TASK_ID,
         )
+        all_reference_paths = probe.mapping_reference_reads(
+            [OWNER, other_owner],
+            probe.ROOT,
+            TASK_ID,
+        )
+        no_reference_paths = probe.mapping_reference_reads(
+            ["sort", "MODE=synthetic", "--stable"],
+            probe.ROOT,
+            TASK_ID,
+        )
 
         self.assertEqual((set(), 0), metadata)
         self.assertEqual(({OWNER.rsplit("/", 1)[-1]}, 1), paths)
+        self.assertEqual(
+            ({OWNER.rsplit("/", 1)[-1], "architecture-and-state.md"}, 2),
+            all_reference_paths,
+        )
+        self.assertEqual((set(), 0), no_reference_paths)
 
     def test_malformed_json_is_normalized(self) -> None:
         arguments = f'{{"path":"{OWNER}"'
