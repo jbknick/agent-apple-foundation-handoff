@@ -725,6 +725,79 @@ placeholder and complete with populated query/action. Keep the inner-ID and othe
 immutable-field negatives unchanged. Commit this as a tests-only repair, run the full
 Task 7D and repository validation commands, and obtain final independent approval.
 
+## Task 7E: Harden host output determinism and collab spawn lifecycle
+
+**Files:**
+
+- Modify: `tests/test_skill_contract.py`
+- Modify: `tests/test_skill_cases.py`
+- Modify: `tests/e2e/codex_skill_forward_tests.py`
+- Modify: `plugins/apple-foundation-models-handoff/skills/design-apple-foundation-models-handoff/SKILL.md`
+- Modify: `plugins/apple-foundation-models-handoff/skills/implement-apple-foundation-models-handoff/SKILL.md`
+- Modify: `plugins/apple-foundation-models-handoff/skills/review-apple-foundation-models-handoff/SKILL.md`
+- Modify: `plugins/apple-foundation-models-handoff/skills/debug-apple-foundation-models-handoff/SKILL.md`
+- Modify: `plugins/apple-foundation-models-handoff/skills/validate-apple-foundation-models-handoff/SKILL.md`
+
+### Step 1: Capture deterministic-output and recursion requirements as RED
+
+Add skill-contract tests requiring every canonical skill to say, unambiguously:
+
+- serialize `selectedSkill` as an exact assignment to that skill's canonical name;
+- serialize the four populated `routerInput` values on one physical line;
+- put `architectureResult` on the immediately following line;
+- emit exactly one fenced `text` block in the whole response and reserve it for the
+  result envelope;
+- render only the exact required headings, once and in order;
+- never invoke `codex exec`, `tests/e2e/codex_skill_forward_tests.py`, or a
+  Claude/Codex host matrix from inside the skill; existing normalized host evidence
+  may be inspected, but missing outer-harness evidence is `blocked`.
+
+Prove the tests fail against all five current skills, then commit tests only.
+
+### Step 2: Harden the canonical skill text
+
+Add the smallest shared serialization and outer-harness language under the existing
+Output Contract and Guardrails owners. Do not duplicate the machine schema, headings,
+references, router enums, or workflow prose. Do not change fixtures, scorer logic,
+generated Codex metadata, Apple claims, or capability scope.
+
+Run:
+
+```bash
+python3 -m unittest tests.test_skill_contract -v
+python3 -m unittest tests.test_skill_cases -v
+python3 -m unittest discover -s tests -p 'test_*.py' -v
+bats tests/plugin_skeleton.bats
+python3 scripts/sync_generated_artifacts.py --check
+git diff --check
+```
+
+Commit the five canonical skills separately from the RED tests and request an
+independent skill-contract review.
+
+### Step 3: Capture and implement the pinned collab-spawn lifecycle
+
+Add an exact synthetic stream from official Codex 0.144.5
+`collab_spawn_begin_and_end_emit_item_events`: `spawn_agent` starts with empty receiver
+IDs and agent states, then completes with assigned receiver IDs and matching agent
+state keys. Prove the current parser rejects this supported transition. Add negatives
+for nonempty start receivers/states, completed receiver/state mismatch, and receiver
+mutation on non-spawn collab tools.
+
+In GREEN, permit receiver population only for `spawn_agent`; require the exact empty
+start placeholder and a closed completed receiver/state association. Preserve receiver
+identity for other collab tools and retain tool, sender, prompt, outer-ID, schema,
+status, pairing, and metadata rules. Commit RED and GREEN separately and obtain an
+independent parser review.
+
+### Step 4: Rerun affected host boundaries before the matrix
+
+Use the reviewed exact host path to rerun baseline review, baseline debug, baseline
+validate, forward design 001, and the no-activation case that exposed collab parsing.
+Capture only normalized structural/hash evidence; do not retain raw responses or tool
+events. A remaining failure returns to RED/GREEN diagnosis. Only after all affected
+boundaries pass, rerun all 25 cases into a new temporary evidence path.
+
 ## Task 8: Full verification before completion
 
 Invoke `superpowers:verification-before-completion` and run fresh commands.
