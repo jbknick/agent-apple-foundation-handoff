@@ -191,6 +191,159 @@ class ReferenceToolPayloadTests(unittest.TestCase):
                     raised.exception.reason,
                 )
 
+    def test_path_collections_are_data_only_at_mapping_and_observed_boundaries(
+        self,
+    ) -> None:
+        rejected: dict[str, tuple[object, dict[str, Any]]] = {
+            "bare top-level owner": (OWNER, {"arguments": OWNER}),
+            "bare input owner": ({"input": OWNER}, {"input": OWNER}),
+            "top-level command string list": (
+                [f"cat {OWNER}"],
+                {"arguments": [f"cat {OWNER}"]},
+            ),
+            "paths duplicate command string": (
+                {"paths": [f"cat {OWNER} {OWNER}"]},
+                {
+                    "arguments": {
+                        "paths": [f"cat {OWNER} {OWNER}"]
+                    }
+                },
+            ),
+            "paths command mapping": (
+                {"paths": {"command": f"cat {OWNER}"}},
+                {
+                    "arguments": {
+                        "paths": {"command": f"cat {OWNER}"}
+                    }
+                },
+            ),
+            "paths list-wrapped command mapping": (
+                {"paths": [{"command": f"cat {OWNER}"}]},
+                {
+                    "arguments": {
+                        "paths": [{"command": f"cat {OWNER}"}]
+                    }
+                },
+            ),
+        }
+
+        for surface, (mapping_payload, observed_inputs) in rejected.items():
+            with self.subTest(surface=surface, boundary="mapping"):
+                with self.assertRaises(probe.ProbeFailure) as raised:
+                    probe.mapping_reference_reads(
+                        mapping_payload,
+                        probe.ROOT,
+                        TASK_ID,
+                    )
+
+                self.assertEqual(
+                    "invalid_tool_event",
+                    raised.exception.reason,
+                )
+
+            with self.subTest(surface=surface, boundary="observed"):
+                with self.assertRaises(probe.ProbeFailure) as raised:
+                    probe.observed_reference_reads(
+                        tool_events(observed_inputs),
+                        TASK_ID,
+                    )
+
+                self.assertEqual(
+                    "invalid_tool_event",
+                    raised.exception.reason,
+                )
+
+    def test_unowned_explicit_path_records_under_command_branches_fail_closed(
+        self,
+    ) -> None:
+        rejected = {
+            "program container and args path": {
+                "program": ["sort"],
+                "args": {"path": OWNER},
+            },
+            "program container and args paths": {
+                "program": ["sort"],
+                "args": {"paths": [OWNER]},
+            },
+            "split nested mappings with path": {
+                "left": {"program": ["sort"]},
+                "right": {"args": {"path": OWNER}},
+            },
+            "split nested mappings with paths": {
+                "left": {"program": ["sort"]},
+                "right": {"args": {"paths": [OWNER]}},
+            },
+            "serialized args path": (
+                f'{{"program":["sort"],"args":{{"path":"{OWNER}"}}}}'
+            ),
+            "serialized args paths": (
+                f'{{"program":["sort"],"args":{{"paths":["{OWNER}"]}}}}'
+            ),
+        }
+
+        for surface, arguments in rejected.items():
+            with self.subTest(surface=surface, boundary="mapping"):
+                with self.assertRaises(probe.ProbeFailure) as raised:
+                    probe.mapping_reference_reads(
+                        arguments,
+                        probe.ROOT,
+                        TASK_ID,
+                    )
+
+                self.assertEqual(
+                    "invalid_tool_event",
+                    raised.exception.reason,
+                )
+
+            with self.subTest(surface=surface, boundary="observed"):
+                with self.assertRaises(probe.ProbeFailure) as raised:
+                    probe.observed_reference_reads(
+                        tool_events({"arguments": arguments}),
+                        TASK_ID,
+                    )
+
+                self.assertEqual(
+                    "invalid_tool_event",
+                    raised.exception.reason,
+                )
+
+    def test_duplicate_path_data_preserves_occurrence_count_and_is_bulk(
+        self,
+    ) -> None:
+        duplicates = {
+            "clean path strings": {"paths": [OWNER, OWNER]},
+            "explicit path records": {
+                "paths": [
+                    {"path": OWNER, "label": "first"},
+                    {"path": OWNER, "label": "second"},
+                ]
+            },
+        }
+        expected = ({OWNER.rsplit("/", 1)[-1]}, 2)
+
+        for surface, arguments in duplicates.items():
+            with self.subTest(surface=surface, boundary="mapping"):
+                self.assertEqual(
+                    expected,
+                    probe.mapping_reference_reads(
+                        arguments,
+                        probe.ROOT,
+                        TASK_ID,
+                    ),
+                )
+
+            with self.subTest(surface=surface, boundary="observed"):
+                with self.assertRaises(probe.ProbeFailure) as raised:
+                    probe.observed_reference_reads(
+                        tool_events({"arguments": arguments}),
+                        TASK_ID,
+                    )
+
+                self.assertEqual(
+                    "bulk_reference_content_read",
+                    raised.exception.reason,
+                )
+
     def test_command_like_structured_payloads_are_not_inferred_as_reads(self) -> None:
         rejected = {
             "unknown argv list": {"argv": ["cat", OWNER]},
