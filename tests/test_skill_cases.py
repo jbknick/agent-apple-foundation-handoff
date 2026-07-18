@@ -4245,6 +4245,97 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                 (code, evidence["host"]["blockerReason"], scorer.calls),
             )
 
+    def test_codex_01445_web_search_duplicate_id_is_narrowly_normalized(self) -> None:
+        usage = json.dumps(_codex_usage(), separators=(",", ":"))
+
+        def item_event(event_type: str, item: str) -> str:
+            return f'{{"type":"{event_type}","item":{item}}}'
+
+        def paired_stream(started: str, completed: str | None = None) -> str:
+            return "\n".join(
+                (
+                    '{"type":"thread.started","thread_id":"thread_synthetic"}',
+                    '{"type":"turn.started"}',
+                    item_event("item.started", started),
+                    item_event("item.completed", completed or started),
+                    f'{{"type":"turn.completed","usage":{usage}}}',
+                )
+            )
+
+        web_search = (
+            '{"id":"item_0","type":"web_search","id":"search-1",'
+            '"query":"synthetic","action":{"type":"other"}}'
+        )
+        with self.subTest(compatibility="exact_pinned_shape"):
+            try:
+                events = self.runner._tool_events(paired_stream(web_search))
+            except ValueError as error:
+                self.fail(
+                    "Codex 0.144.5 web_search duplicate-id compatibility is missing: "
+                    f"{error}"
+                )
+            self.assertEqual(1, len(events))
+            self.assertEqual("item_0", events[0]["item"]["id"])
+
+        command_started = (
+            '{"id":"item_0","type":"command_execution","id":"command-1",'
+            '"command":"true","aggregated_output":"","exit_code":null,'
+            '"status":"in_progress"}'
+        )
+        command_completed = (
+            '{"id":"item_0","type":"command_execution","id":"command-1",'
+            '"command":"true","aggregated_output":"","exit_code":0,'
+            '"status":"completed"}'
+        )
+        malformed_web_searches = {
+            "three_ids": (
+                '{"id":"item_0","type":"web_search","id":"search-1",'
+                '"id":"search-2","query":"synthetic",'
+                '"action":{"type":"other"}}'
+            ),
+            "duplicate_type": (
+                '{"id":"item_0","type":"web_search","type":"web_search",'
+                '"id":"search-1","query":"synthetic",'
+                '"action":{"type":"other"}}'
+            ),
+            "duplicate_query": (
+                '{"id":"item_0","type":"web_search","id":"search-1",'
+                '"query":"synthetic","query":"duplicate",'
+                '"action":{"type":"other"}}'
+            ),
+            "duplicate_action": (
+                '{"id":"item_0","type":"web_search","id":"search-1",'
+                '"query":"synthetic","action":{"type":"other"},'
+                '"action":{"type":"other"}}'
+            ),
+            "nested_duplicate": (
+                '{"id":"item_0","type":"web_search","id":"search-1",'
+                '"query":"synthetic",'
+                '"action":{"type":"other","type":"other"}}'
+            ),
+            "invalid_outer_id": (
+                '{"id":"web_0","type":"web_search","id":"search-1",'
+                '"query":"synthetic","action":{"type":"other"}}'
+            ),
+        }
+        malformed_streams = {
+            "non_web_search_duplicate_id": paired_stream(
+                command_started, command_completed
+            ),
+            **{
+                name: paired_stream(item)
+                for name, item in malformed_web_searches.items()
+            },
+        }
+        for name, stream in malformed_streams.items():
+            with self.subTest(rejected=name):
+                with self.assertRaises(ValueError):
+                    self.runner._tool_events(stream)
+
+        with self.subTest(rejected="generic_strict_json_loader"):
+            with self.assertRaises(ValueError):
+                self.runner._strict_json_loads(web_search)
+
     def test_codex_01445_noncommand_item_lifecycles_and_statuses_are_exact(self) -> None:
         def item_event(event_type: str, item: dict) -> dict:
             return {"type": event_type, "item": copy.deepcopy(item)}
