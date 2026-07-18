@@ -112,7 +112,7 @@ RESULT_FIELDS = (
 
 POSITIVE_RESULT_LINES = (
     "activationStatus = activated",
-    "selectedSkill",
+    "selectedSkill = {skill}",
     "routerInput = { domain, requestedOperation, artifactState, evidenceState }",
     "architectureResult",
     '  architectureSchemaVersion: "1.0"',
@@ -333,6 +333,42 @@ INTEGRATION_BLOCKER_SENTENCE = (
     f"`{INTEGRATION_BLOCKER_REASON}`."
 )
 
+OUTPUT_SERIALIZATION_SENTENCES = (
+    (
+        "selected skill assignment",
+        "Serialize `selectedSkill` as the literal assignment "
+        "`selectedSkill = {skill}`.",
+    ),
+    (
+        "router and architecture line adjacency",
+        "Serialize all four populated `routerInput` values on exactly one physical "
+        "line, with `architectureResult` on the immediately following line.",
+    ),
+    (
+        "single response envelope fence",
+        "Emit exactly one response-level fenced `text` block, reserve it for the "
+        "result envelope, and emit no additional fenced `text` blocks.",
+    ),
+    (
+        "exact response headings",
+        "After the envelope, render only the exact required headings, each exactly "
+        "once and in the listed order.",
+    ),
+)
+
+OUTER_HARNESS_GUARDRAIL_SENTENCES = (
+    (
+        "recursive host invocation prohibition",
+        "Never invoke `codex exec`, `tests/e2e/codex_skill_forward_tests.py`, or a "
+        "Claude/Codex host matrix from inside this skill.",
+    ),
+    (
+        "missing outer evidence blocker",
+        "Existing normalized host evidence may be inspected, but missing "
+        "outer-harness evidence is `blocked`.",
+    ),
+)
+
 
 @dataclass(frozen=True)
 class MarkdownSection:
@@ -470,8 +506,12 @@ def assert_exact_shape(
     test_case.assertEqual(expected_values, values)
 
 
+def positive_result_lines(skill: str) -> tuple[str, ...]:
+    return tuple(line.replace("{skill}", skill) for line in POSITIVE_RESULT_LINES)
+
+
 def assert_exact_positive_result_shape(
-    test_case: unittest.TestCase, section: MarkdownSection
+    test_case: unittest.TestCase, section: MarkdownSection, skill: str
 ) -> None:
     fenced = re.fullmatch(
         r"```text\n(?P<body>.*?)\n```",
@@ -482,7 +522,7 @@ def assert_exact_positive_result_shape(
         test_case.fail(
             "positive result must contain exactly one fenced normalized text block"
         )
-    test_case.assertEqual("\n".join(POSITIVE_RESULT_LINES), fenced.group("body"))
+    test_case.assertEqual("\n".join(positive_result_lines(skill)), fenced.group("body"))
 
 
 def assert_non_positive_exclusions(
@@ -553,6 +593,47 @@ def assert_single_owned_phrase(
         owner.content_start <= match.start() and match.end() <= owner.end,
         f"{label} must occur only under {owner.title}",
     )
+
+
+def output_serialization_sentences(skill: str) -> tuple[tuple[str, str], ...]:
+    return tuple(
+        (label, sentence.replace("{skill}", skill))
+        for label, sentence in OUTPUT_SERIALIZATION_SENTENCES
+    )
+
+
+def assert_output_serialization_contract(
+    test_case: unittest.TestCase,
+    text: str,
+    output: MarkdownSection,
+    skill: str,
+) -> None:
+    selected_assignment = f"selectedSkill = {skill}"
+    selected_matches = tuple(
+        re.finditer(rf"(?m)^{re.escape(selected_assignment)}$", text)
+    )
+    test_case.assertEqual(
+        1,
+        len(selected_matches),
+        f"{skill}: positive envelope must contain its literal selectedSkill assignment",
+    )
+    selected_match = selected_matches[0]
+    test_case.assertTrue(
+        output.content_start <= selected_match.start()
+        and selected_match.end() <= output.end,
+        "literal selectedSkill assignment must be owned by Output Contract",
+    )
+    for label, sentence in output_serialization_sentences(skill):
+        assert_single_owned_phrase(test_case, text, output, sentence, label)
+
+
+def assert_outer_harness_guardrails(
+    test_case: unittest.TestCase,
+    text: str,
+    guardrails: MarkdownSection,
+) -> None:
+    for label, sentence in OUTER_HARNESS_GUARDRAIL_SENTENCES:
+        assert_single_owned_phrase(test_case, text, guardrails, sentence, label)
 
 
 def assert_pattern_owned(
@@ -923,7 +1004,8 @@ def assert_structured_skill_contract(
                 f"common protocol step {number} lacks {pattern}",
             )
 
-    assert_exact_positive_result_shape(test_case, output)
+    assert_exact_positive_result_shape(test_case, output, skill)
+    assert_output_serialization_contract(test_case, text, output, skill)
 
     expected_output_sections = (*COMMON_SECTIONS, *WORKFLOW_SECTIONS[skill])
     observed_output_sections = tuple(
@@ -969,6 +1051,7 @@ def assert_structured_skill_contract(
         guardrails,
         skill,
     )
+    assert_outer_harness_guardrails(test_case, text, guardrails)
 
     expected_targets = tuple(f"../../references/{name}" for name in REFERENCE_NAMES)
     reference_pattern = r"\[[^]]+\]\(([^)]+references/[^)]+)\)"
@@ -1023,10 +1106,14 @@ def build_valid_skill_fixture(skill: str) -> str:
     router_lines = [
         f"{field} = {' | '.join(values)}" for field, values in ROUTER_ENUMS.items()
     ]
-    output_fields = "\n".join(("```text", *POSITIVE_RESULT_LINES, "```"))
+    output_fields = "\n".join(("```text", *positive_result_lines(skill), "```"))
     rendered_sections = []
     for section in (*COMMON_SECTIONS, *WORKFLOW_SECTIONS[skill]):
         invariant_sentences = list(STABLE_INVARIANT_SENTENCES.get(section, ()))
+        if section == "Activation and Scope":
+            invariant_sentences.extend(
+                sentence for _, sentence in output_serialization_sentences(skill)
+            )
         if section == "Apple API Availability":
             invariant_sentences.extend(
                 (
@@ -1092,7 +1179,10 @@ def build_valid_skill_fixture(skill: str) -> str:
             if skill == "design-apple-foundation-models-handoff"
             else ""
         )
-        + "Non-positive results contain no architectureResult, workflow-specific sections, "
+        + "\n".join(
+            sentence for _, sentence in OUTER_HARNESS_GUARDRAIL_SENTENCES
+        )
+        + "\nNon-positive results contain no architectureResult, workflow-specific sections, "
         "references, fabricated Apple claims, or host activation evidence.\n"
     )
 
@@ -1139,6 +1229,50 @@ class SkillContractTests(unittest.TestCase):
                     self, self.require_skill_text(skill), skill
                 )
 
+    def test_each_skill_owns_deterministic_response_serialization(self) -> None:
+        for skill in SKILLS:
+            text = self.require_skill_text(skill)
+            sections = parse_markdown_sections(text)
+            output = semantic_section(self, sections, "output", "contract")
+            selected_assignment = f"selectedSkill = {skill}"
+            with self.subTest(skill=skill, requirement="literal selectedSkill"):
+                matches = tuple(
+                    re.finditer(
+                        rf"(?m)^{re.escape(selected_assignment)}$",
+                        text,
+                    )
+                )
+                self.assertEqual(
+                    1,
+                    len(matches),
+                    f"{skill}: positive envelope must contain its literal "
+                    "selectedSkill assignment",
+                )
+                self.assertTrue(
+                    output.content_start <= matches[0].start()
+                    and matches[0].end() <= output.end,
+                    "literal selectedSkill assignment must be owned by Output "
+                    "Contract",
+                )
+            for label, sentence in output_serialization_sentences(skill):
+                with self.subTest(skill=skill, requirement=label):
+                    assert_single_owned_phrase(self, text, output, sentence, label)
+
+    def test_each_skill_owns_non_recursive_outer_harness_guardrails(self) -> None:
+        for skill in SKILLS:
+            text = self.require_skill_text(skill)
+            sections = parse_markdown_sections(text)
+            guardrails = semantic_section(self, sections, "guardrail")
+            for label, sentence in OUTER_HARNESS_GUARDRAIL_SENTENCES:
+                with self.subTest(skill=skill, requirement=label):
+                    assert_single_owned_phrase(
+                        self,
+                        text,
+                        guardrails,
+                        sentence,
+                        label,
+                    )
+
 
 class SkillContractMutationTests(unittest.TestCase):
     skill = SKILLS[0]
@@ -1155,6 +1289,54 @@ class SkillContractMutationTests(unittest.TestCase):
         assert_structured_skill_contract(
             self, build_valid_skill_fixture(self.skill), self.skill
         )
+
+    def test_deterministic_output_and_outer_harness_mutations_are_rejected(
+        self,
+    ) -> None:
+        for skill in SKILLS:
+            fixture = build_valid_skill_fixture(skill)
+            selected_assignment = f"selectedSkill = {skill}"
+            mutations = {
+                "wrong literal selectedSkill": fixture.replace(
+                    selected_assignment,
+                    "selectedSkill = wrong-skill",
+                    1,
+                ),
+            }
+            for label, sentence in output_serialization_sentences(skill):
+                mutations[f"missing output rule: {label}"] = fixture.replace(
+                    sentence,
+                    "",
+                    1,
+                )
+                mutations[f"misplaced output rule: {label}"] = fixture.replace(
+                    sentence,
+                    "",
+                    1,
+                ).replace(
+                    "## Guardrails\n",
+                    f"## Guardrails\n{sentence}\n",
+                    1,
+                )
+            for label, sentence in OUTER_HARNESS_GUARDRAIL_SENTENCES:
+                mutations[f"missing guardrail: {label}"] = fixture.replace(
+                    sentence,
+                    "",
+                    1,
+                )
+                mutations[f"misplaced guardrail: {label}"] = fixture.replace(
+                    sentence,
+                    "",
+                    1,
+                ).replace(
+                    "## Output Contract\n",
+                    f"## Output Contract\n{sentence}\n",
+                    1,
+                )
+
+            for mutation, candidate in mutations.items():
+                with self.subTest(skill=skill, mutation=mutation):
+                    self.assert_skill_rejected(candidate, skill)
 
     def test_flat_token_dump_is_rejected(self) -> None:
         fixture = build_valid_skill_fixture(self.skill)
@@ -1418,7 +1600,7 @@ class SkillContractMutationTests(unittest.TestCase):
 
     def test_positive_result_rejects_every_exact_shape_mutation(self) -> None:
         fixture = build_valid_skill_fixture(self.skill)
-        selected = "selectedSkill\n"
+        selected = f"selectedSkill = {self.skill}\n"
         router = (
             "routerInput = { domain, requestedOperation, artifactState, evidenceState }\n"
         )
