@@ -1295,7 +1295,11 @@ Add tests that reproduce all independently reviewed defects:
 4. Bare and JSON-encoded command-like argv arrays under direct arguments,
    compact `input`, and unknown nested keys must fail before scalar recursion;
    ordinary metadata/path lists must remain valid controls.
-5. Malformed JSON and duplicate-key JSON must raise `ProbeFailure` with the
+5. Arrays that mix any reference-path scalar with any non-reference scalar must
+   fail regardless of token order or whether the leading token names a known
+   executable; all-reference path lists and lists without reference paths remain
+   valid controls.
+6. Malformed JSON and duplicate-key JSON must raise `ProbeFailure` with the
    stable `invalid_tool_event` reason, never `NameError` or raw `ValueError`.
 
 ```bash
@@ -1317,7 +1321,8 @@ top-level tool item rather than appending phase labels from recursively nested
 values. Validate exactly one pinned command string per relevant item; reject
 structured command arrays, command-like `argv`/`input` containers, JSON-string
 object or array command envelopes, bare command-like arrays at any nesting
-level, and indirect executable prefixes before path/read
+level, mixed reference/non-reference scalar arrays independent of order or
+executable recognition, and indirect executable prefixes before path/read
 classification in strict and non-strict modes. Treat wildcard directory reads and reference-root search
 targets as bulk access. Catch the duplicate-key hook's actual exception type
 alongside JSON decoding errors and rethrow only `ProbeFailure`.
