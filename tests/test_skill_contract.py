@@ -133,7 +133,8 @@ ARCHITECTURE_RESULT_FIELDS = (
 POSITIVE_RESULT_LINES = (
     "activationStatus = activated",
     "selectedSkill = {skill}",
-    "routerInput = { domain, requestedOperation, artifactState, evidenceState }",
+    "routerInput = { domain = <domain>, requestedOperation = <requestedOperation>, "
+    "artifactState = <artifactState>, evidenceState = <evidenceState> }",
     "architectureResult",
     '  architectureSchemaVersion: "1.0"',
     "  stateVersion: <independent state schema version>",
@@ -354,6 +355,18 @@ INTEGRATION_BLOCKER_SENTENCE = (
 )
 
 OUTPUT_SERIALIZATION_SENTENCES = (
+    (
+        "literal 21-line result envelope",
+        "Every activated response emits exactly the 21 shown nonblank "
+        "result-envelope lines in order with placeholders replaced inline and no "
+        "added lines.",
+    ),
+    (
+        "single-line result envelope serialization",
+        "Never wrap, pretty-print, or expand `routerInput` or any "
+        "`architectureResult` child across physical lines, keeping each on its "
+        "single template line.",
+    ),
     (
         "selected skill assignment",
         "Serialize `selectedSkill` as the literal assignment "
@@ -1667,7 +1680,9 @@ class SkillContractMutationTests(unittest.TestCase):
         fixture = build_valid_skill_fixture(self.skill)
         selected = f"selectedSkill = {self.skill}\n"
         router = (
-            "routerInput = { domain, requestedOperation, artifactState, evidenceState }\n"
+            "routerInput = { domain = <domain>, requestedOperation = "
+            "<requestedOperation>, artifactState = <artifactState>, evidenceState = "
+            "<evidenceState> }\n"
         )
         schema = '  architectureSchemaVersion: "1.0"\n'
         state_version = "  stateVersion: <independent state schema version>\n"
@@ -1696,7 +1711,8 @@ class SkillContractMutationTests(unittest.TestCase):
             "outer omission": fixture.replace("architectureResult\n", "", 1),
             "router shape": fixture.replace(
                 router,
-                "routerInput = { domain, requestedOperation, evidenceState }\n",
+                "routerInput = { domain = <domain>, requestedOperation = "
+                "<requestedOperation>, evidenceState = <evidenceState> }\n",
                 1,
             ),
             "schema version": fixture.replace(
