@@ -469,6 +469,64 @@ unreviewed local workaround.
 Execute Task 6's five baselines and 20 forward cases on the rebased stack. Only
 evidence and evidence-driven skill-fix commits may follow.
 
+## Task 7A: Normalize the pinned Codex 0.144.5 web-search JSONL defect
+
+**Files:**
+
+- Modify: `tests/test_skill_cases.py`
+- Modify: `tests/e2e/codex_skill_forward_tests.py`
+
+### Step 1: Write and commit the failing protocol tests
+
+Add a focused test that manually constructs the exact Codex 0.144.5 JSONL shape
+documented by official tag `rust-v0.144.5`: `item.started` and `item.completed`
+`web_search` records whose immediate item object contains outer `id: item_0` and
+flattened inner `id: search-1`. Require `_tool_events` to retain the first/outer
+lifecycle ID.
+
+Add negative cases proving that the compatibility parser still rejects:
+
+- a duplicate `id` on any non-`web_search` item;
+- three `id` entries on a `web_search` item;
+- duplicate `type`, `query`, or `action` entries;
+- a duplicate nested inside `action`;
+- a non-`item_[0-9]+` outer ID; and
+- the same duplicate web-search object through generic `_strict_json_loads`.
+
+Run the exact new test and require it to fail for the missing compatibility rule:
+
+```bash
+python3 -m unittest \
+  tests.test_skill_cases.CodexSkillForwardTests.test_codex_01445_web_search_duplicate_id_is_narrowly_normalized \
+  -v
+```
+
+Commit only `tests/test_skill_cases.py` as the RED boundary.
+
+### Step 2: Implement the JSONL-only compatibility decoder
+
+Add a Codex-record-specific object-pairs decoder used only by
+`_codex_jsonl_events`. Keep `_strict_json_loads` unchanged for fixtures,
+evidence, manifests, and all other JSON.
+
+Permit exactly two immediate `item.id` entries only when the record is
+`item.started` or `item.completed`, the unique item keys are exactly
+`id,type,query,action`, `type` is exactly `web_search`, both IDs are non-empty
+strings, and the first/outer ID matches `item_[0-9]+`. Preserve the first ID so
+the existing lifecycle pairing remains authoritative. Reject every other
+duplicate key, location, count, or type before normal schema validation.
+
+Run the focused test plus existing strict JSON, JSONL schema, lifecycle, malformed
+stream, and model-unavailable tests. Commit only
+`tests/e2e/codex_skill_forward_tests.py` as the GREEN boundary.
+
+### Step 3: Re-run the exact host matrix
+
+Run the full 25-case Codex host command from Task 8 into a temporary evidence path
+first. Do not replace the tracked baseline evidence unless all 25 rows are valid and
+the evidence validator passes. Record the pinned upstream source, both repair SHAs,
+and the fresh host result in DEV-136, DEV-139, and DEV-141.
+
 ## Task 8: Full verification before completion
 
 Invoke `superpowers:verification-before-completion` and run fresh commands.
