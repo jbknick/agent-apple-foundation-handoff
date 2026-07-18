@@ -63,13 +63,18 @@ ROUTER_RED_EVIDENCE_PATH = (
     ROOT / "docs/research/evidence/dev-136-non-positive-router-red-baseline.json"
 )
 
-SKILLS = (
+WORKFLOW_SKILLS = (
     "design-apple-foundation-models-handoff",
     "implement-apple-foundation-models-handoff",
     "review-apple-foundation-models-handoff",
     "debug-apple-foundation-models-handoff",
     "validate-apple-foundation-models-handoff",
 )
+ROUTER_SKILL = "route-apple-foundation-models-handoff"
+ALL_CAPABILITIES = (*WORKFLOW_SKILLS, ROUTER_SKILL)
+
+# The five-workflow fixture coverage family remains distinct from the router owner.
+SKILLS = WORKFLOW_SKILLS
 
 ROUTER_ENUMS = {
     "domain": (
@@ -152,6 +157,7 @@ CASE_KEYS = {
     "phase",
     "category",
     "skillUnderTest",
+    "expectedSkillOwner",
     "model",
     "sourcePrototypeIds",
     "prompt",
@@ -252,7 +258,17 @@ EVIDENCE_KEYS = {
     "summary",
     "baselines",
     "limitations",
+    "supersession",
 }
+
+SUPERSESSION_KEYS = {
+    "status",
+    "scope",
+    "originalFixtureSha256",
+    "canonicalFixtureSha256",
+    "capabilityEvidence",
+}
+CAPABILITY_EVIDENCE_KEYS = {"path", "role"}
 
 BASELINE_ROW_KEYS = {
     "caseId",
@@ -411,6 +427,7 @@ FORWARD_SUMMARY_KEYS = {
 FORWARD_CASE_KEYS = {
     "caseId",
     "skillUnderTest",
+    "expectedSkillOwner",
     "sessionOrdinal",
     "promptSha256",
     "rubricContractSha256",
@@ -442,9 +459,41 @@ FORBIDDEN_FORWARD_EVIDENCE_KEYS = {
     "transcript",
 }
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
-OFFICIAL_FIXTURE_SHA256 = (
+HISTORICAL_FIXTURE_SHA256 = (
     "6c5bd8dafb1b75990e88ec288de18282c00b99151f33a7566253395c4ef93dcb"
 )
+OFFICIAL_FIXTURE_SHA256 = (
+    "de255f68d724c3b3fdb610d2d9b2ce9f131d7e52ea1cd76cfa02ec7bdfed85f1"
+)
+FIXTURE_WITHOUT_OWNERS_SHA256 = (
+    "aed1d8f41b6c24706243f03016e12fc17f58d8ea7c7c9e524723c77cf1da68f0"
+)
+HISTORICAL_EVIDENCE_CORE_SHA256 = (
+    "7ee3690d90695707522f9cbc09385c9ff5e5cd6bb5c61b122db3be2053e8d1b4"
+)
+NON_POSITIVE_SCORER_SHA256 = (
+    "27476f8047b24c330e2fb2c692e373c0aac4f121de4d9b2211b1206f3db02132"
+)
+APPROVED_SKILL_PAYLOAD_SHA256 = {
+    "design-apple-foundation-models-handoff": (
+        "88eea0be3699a54fd1f00fc2d2c1f08eac12884abd5b726aacc8f9b04dd8d15b"
+    ),
+    "implement-apple-foundation-models-handoff": (
+        "878185233c2b865d8dafc8aafc3a6b89467ba04dba5c160a41610236470d18f7"
+    ),
+    "review-apple-foundation-models-handoff": (
+        "d81c49301d4b1f93ca0950af20e03269e6abd2bc918ce2de1d46c2cd447b4599"
+    ),
+    "debug-apple-foundation-models-handoff": (
+        "da38d298318c87c4a59c0f7e53810fc520c96b2b3780bab683f544963e7d0262"
+    ),
+    "validate-apple-foundation-models-handoff": (
+        "196c032c290f762f051aaa697a145a61bfe2e35b23f4d9f1de72a9adb1da43c9"
+    ),
+    "route-apple-foundation-models-handoff": (
+        "f482ae6a1b0605033a7908368ed4a28922ed222952367742403364ac2f2d84a8"
+    ),
+}
 ROUTER_RED_CAPTURE_COMMIT = "78a0fe9234e79d43a8c1bab130f3005416cf25a0"
 ROUTER_RED_EXECUTABLE_SHA256 = (
     "bdcb530615d44fcc7b35d12fe00f30c3025c25fc22a21193591dcdb064304385"
@@ -651,6 +700,30 @@ def prompt_sha256(case: dict) -> str:
     return sha256_bytes(case["prompt"].encode("utf-8"))
 
 
+def expected_skill_owner(case: dict[str, object]) -> str:
+    if case["expectedActivation"] in {"no_activation", "clarification_required"}:
+        return ROUTER_SKILL
+    return str(case["skillUnderTest"])
+
+
+def fixture_without_owners_sha256(fixture: dict) -> str:
+    original_shape = copy.deepcopy(fixture)
+    for case in original_shape["cases"]:
+        case.pop("expectedSkillOwner", None)
+    return canonical_payload_sha256(original_shape)
+
+
+def non_positive_scorer_sha256(source: str) -> str:
+    start_marker = (
+        '    if expected_activation in {"no_activation", '
+        '"clarification_required"}:\n'
+    )
+    end_marker = '    else:\n        before, block, after = fenced'
+    start = source.index(start_marker)
+    end = source.index(end_marker, start)
+    return sha256_bytes(source[start:end].encode("utf-8"))
+
+
 def rubric_contract_sha256(fixture: dict, case: dict) -> str:
     payload = {
         "name": case["rubricContract"],
@@ -827,6 +900,47 @@ class SkillCaseFixtureTests(unittest.TestCase):
                 for field, values in ROUTER_ENUMS.items():
                     self.assertIn(case["routerInput"][field], values)
 
+    def test_every_case_stores_the_exact_contractual_skill_owner(self) -> None:
+        cases = self.require_fixture()["cases"]
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                self.assertIs(type(case.get("expectedSkillOwner")), str)
+                self.assertEqual(
+                    expected_skill_owner(case),
+                    case.get("expectedSkillOwner"),
+                )
+                self.assertIn(case.get("expectedSkillOwner"), ALL_CAPABILITIES)
+
+        router_owned = [
+            case for case in cases
+            if case.get("expectedSkillOwner") == ROUTER_SKILL
+        ]
+        workflow_owned = [
+            case for case in cases
+            if case.get("expectedSkillOwner") in WORKFLOW_SKILLS
+        ]
+        self.assertEqual(10, len(router_owned))
+        self.assertEqual(15, len(workflow_owned))
+        self.assertEqual(
+            {"negative", "ambiguous"},
+            {case["category"] for case in router_owned},
+        )
+        self.assertFalse(
+            {case["id"] for case in router_owned}
+            & {case["id"] for case in workflow_owned}
+        )
+
+    def test_owner_is_the_only_fixture_amendment(self) -> None:
+        fixture = self.require_fixture()
+        self.assertEqual(
+            FIXTURE_WITHOUT_OWNERS_SHA256,
+            fixture_without_owners_sha256(fixture),
+        )
+        self.assertEqual(
+            OFFICIAL_FIXTURE_SHA256,
+            fixture_bytes_sha256(FIXTURE_PATH.read_bytes()),
+        )
+
     def test_prompts_do_not_leak_expected_answers_or_contract_tokens(self) -> None:
         output_headings = (
             *COMMON_SECTIONS,
@@ -835,7 +949,7 @@ class SkillCaseFixtureTests(unittest.TestCase):
         for case in self.require_fixture()["cases"]:
             with self.subTest(case=case["id"]):
                 prompt = case["prompt"]
-                for token in (*SKILLS, *DISTINCTIVE_INTERNAL_TOKENS):
+                for token in (*ALL_CAPABILITIES, *DISTINCTIVE_INTERNAL_TOKENS):
                     self.assertFalse(
                         token_is_present(prompt, token),
                         f"prompt leaks hidden contract token {token!r}",
@@ -1094,7 +1208,7 @@ class SkillBaselineEvidenceTests(unittest.TestCase):
             evidence["caseContract"],
         )
         self.assertEqual(
-            sha256_bytes(FIXTURE_PATH.read_bytes()),
+            HISTORICAL_FIXTURE_SHA256,
             evidence["fixtureSha256"],
         )
         self.assertEqual(list(APPROVED_LIMITATIONS), evidence["limitations"])
@@ -1164,6 +1278,42 @@ class SkillBaselineEvidenceTests(unittest.TestCase):
                 "passedBaselineCount": len(baselines) - failed_count,
             },
             evidence["summary"],
+        )
+
+    def test_historical_evidence_supersession_is_closed_and_bounded(self) -> None:
+        evidence = self.require_evidence()
+        self.assertIn("supersession", evidence)
+        supersession = evidence["supersession"]
+        self.assertEqual(SUPERSESSION_KEYS, set(supersession))
+        self.assertEqual("superseded", supersession["status"])
+        self.assertEqual(
+            "expectedSkillOwner_field_amendment_only",
+            supersession["scope"],
+        )
+        self.assertEqual(
+            HISTORICAL_FIXTURE_SHA256,
+            supersession["originalFixtureSha256"],
+        )
+        self.assertEqual(
+            OFFICIAL_FIXTURE_SHA256,
+            supersession["canonicalFixtureSha256"],
+        )
+        capability_evidence = supersession["capabilityEvidence"]
+        self.assertEqual(CAPABILITY_EVIDENCE_KEYS, set(capability_evidence))
+        self.assertEqual(
+            "docs/research/evidence/dev-136-codex-skill-host.json",
+            capability_evidence["path"],
+        )
+        self.assertEqual(
+            "new_codex_host_capability_proof",
+            capability_evidence["role"],
+        )
+
+        historical_core = copy.deepcopy(evidence)
+        historical_core.pop("supersession")
+        self.assertEqual(
+            HISTORICAL_EVIDENCE_CORE_SHA256,
+            canonical_payload_sha256(historical_core),
         )
 
     def test_capture_heads_resolve_and_follow_task_1_ancestry(self) -> None:
@@ -1434,6 +1584,8 @@ class ContractMutationReproductionTests(unittest.TestCase):
             validator.test_fixture_metadata_is_exact()
             validator.test_fixture_has_exact_baseline_and_forward_coverage()
             validator.test_every_case_has_exact_shape_and_normative_router_values()
+            validator.test_every_case_stores_the_exact_contractual_skill_owner()
+            validator.test_owner_is_the_only_fixture_amendment()
             validator.test_prompts_do_not_leak_expected_answers_or_contract_tokens()
             validator.test_approved_synthetic_prompts_match_reviewed_hashes()
             validator.test_approved_synthetic_prompts_contain_no_private_material()
@@ -1450,6 +1602,7 @@ class ContractMutationReproductionTests(unittest.TestCase):
             validator.test_evidence_host_and_privacy_metadata_are_exact()
             validator.test_evidence_has_one_real_failing_baseline_per_skill()
             validator.test_evidence_schema_binding_and_derivations_are_exact()
+            validator.test_historical_evidence_supersession_is_closed_and_bounded()
             validator.test_capture_heads_resolve_and_follow_task_1_ancestry()
             validator.test_evidence_contains_no_raw_host_payload_fields_or_local_paths()
 
@@ -1542,12 +1695,43 @@ class ContractMutationReproductionTests(unittest.TestCase):
             "contextual_internal_field": lambda value: value["cases"][0].update(
                 {"prompt": value["cases"][0]["prompt"] + '\n{"SCOPE": "handoff"}'}
             ),
+            "owner_omission": lambda value: value["cases"][0].pop(
+                "expectedSkillOwner", None
+            ),
+            "owner_substitution": lambda value: value["cases"][0].update(
+                {"expectedSkillOwner": WORKFLOW_SKILLS[1]}
+            ),
+            "router_workflow_owner_overlap": lambda value: value["cases"][6].update(
+                {"expectedSkillOwner": value["cases"][6]["skillUnderTest"]}
+            ),
+            "router_workflow_section_overlap": lambda value: value[
+                "workflowSpecificSections"
+            ].update({ROUTER_SKILL: []}),
+            "unapproved_owner": lambda value: value["cases"][0].update(
+                {"expectedSkillOwner": "unapproved-seventh-skill"}
+            ),
         }
         for name, mutate in mutations.items():
             with self.subTest(mutation=name):
                 mutant = copy.deepcopy(self.fixture)
                 mutate(mutant)
                 self.assert_fixture_mutation_rejected(mutant)
+
+    def test_rejects_non_positive_scorer_relaxation(self) -> None:
+        source = RUNNER_PATH.read_text(encoding="utf-8")
+        self.assertEqual(
+            NON_POSITIVE_SCORER_SHA256,
+            non_positive_scorer_sha256(source),
+        )
+        relaxed = source.replace(
+            "and names == expected_fields",
+            "and set(names) == set(expected_fields)",
+        )
+        self.assertNotEqual(source, relaxed)
+        self.assertNotEqual(
+            NON_POSITIVE_SCORER_SHA256,
+            non_positive_scorer_sha256(relaxed),
+        )
 
     def test_rejects_private_prompt_drift(self) -> None:
         prompt_suffixes = {
@@ -1802,12 +1986,12 @@ def _build_forward_plugin_tree(repo_root: Path) -> tuple[Path, dict]:
         json.dumps(
             {
                 "name": "apple-foundation-models-handoff",
-                "interface": {"capabilities": list(WORKFLOW_SECTIONS)},
+                "interface": {"capabilities": list(ALL_CAPABILITIES)},
             }
         ),
         encoding="utf-8",
     )
-    for skill in SKILLS:
+    for skill in ALL_CAPABILITIES:
         target = plugin_root / "skills" / skill / "SKILL.md"
         target.parent.mkdir(parents=True)
         target.write_bytes(
@@ -1922,6 +2106,7 @@ def _assert_forward_evidence_schema(
         test.assertEqual(FORWARD_CASE_KEYS, set(row))
         test.assertRegex(row["caseId"], r"^DEV136-(BASE|FWD)-[A-Z]+-[0-9]{3}$")
         test.assertIn(row["skillUnderTest"], SKILLS)
+        test.assertIn(row["expectedSkillOwner"], ALL_CAPABILITIES)
         test.assertEqual(ordinal, row["sessionOrdinal"])
         test.assertRegex(row["promptSha256"], SHA256_PATTERN)
         test.assertRegex(row["rubricContractSha256"], SHA256_PATTERN)
@@ -1997,6 +2182,10 @@ def _assert_forward_evidence_derivations(
         scored = runner.score_case(case, scorer_outputs[case["id"]])
         test.assertEqual(case["id"], row["caseId"])
         test.assertEqual(case["skillUnderTest"], row["skillUnderTest"])
+        test.assertEqual(
+            case.get("expectedSkillOwner"),
+            row.get("expectedSkillOwner"),
+        )
         test.assertEqual(prompt_sha256(case), row["promptSha256"])
         test.assertEqual(
             rubric_contract_sha256(fixture, case),
@@ -2079,6 +2268,7 @@ class CodexPluginLoadContractTests(unittest.TestCase):
         "skills/review-apple-foundation-models-handoff/SKILL.md",
         "skills/debug-apple-foundation-models-handoff/SKILL.md",
         "skills/validate-apple-foundation-models-handoff/SKILL.md",
+        "skills/route-apple-foundation-models-handoff/SKILL.md",
     }
     EXPECTED_DIRECTORIES = {
         ".claude-plugin",
@@ -2091,6 +2281,7 @@ class CodexPluginLoadContractTests(unittest.TestCase):
         "skills/review-apple-foundation-models-handoff",
         "skills/debug-apple-foundation-models-handoff",
         "skills/validate-apple-foundation-models-handoff",
+        "skills/route-apple-foundation-models-handoff",
     }
 
     @classmethod
@@ -2131,7 +2322,7 @@ class CodexPluginLoadContractTests(unittest.TestCase):
             installed = codex_home / "cache/apple-foundation-models-handoff"
             codex_home.mkdir()
             declared_files = set(module.EXPECTED_CACHE_FILES)
-            declared_capabilities = list(SKILLS)
+            declared_capabilities = list(ALL_CAPABILITIES)
             self._write_payload(source, declared_files, declared_capabilities)
             self._write_payload(installed, declared_files, declared_capabilities)
 
@@ -2217,7 +2408,7 @@ class CodexPluginLoadContractTests(unittest.TestCase):
         module = self.probe_module
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            self._write_payload(root, self.EXPECTED_FILES, list(SKILLS))
+            self._write_payload(root, self.EXPECTED_FILES, list(ALL_CAPABILITIES))
             self.assertEqual(
                 self.EXPECTED_DIRECTORIES,
                 {
@@ -2240,7 +2431,11 @@ class CodexPluginLoadContractTests(unittest.TestCase):
             with self.subTest(mutation=mutation):
                 with tempfile.TemporaryDirectory() as directory:
                     root = Path(directory)
-                    self._write_payload(root, self.EXPECTED_FILES, list(SKILLS))
+                    self._write_payload(
+                        root,
+                        self.EXPECTED_FILES,
+                        list(ALL_CAPABILITIES),
+                    )
                     if mutation == "extra_file":
                         (root / "EXTRA.md").write_text(
                             "unapproved\n", encoding="utf-8"
@@ -2261,7 +2456,7 @@ class CodexPluginLoadContractTests(unittest.TestCase):
 
     def test_plugin_load_reports_exact_ordered_capabilities(self) -> None:
         result = self._run_probe_without_host_io()
-        self.assertEqual(list(SKILLS), result["capabilities"])
+        self.assertEqual(list(ALL_CAPABILITIES), result["capabilities"])
 
     def test_plugin_load_reports_forward_runner_activation_ownership(self) -> None:
         result = self._run_probe_without_host_io()
@@ -2541,7 +2736,7 @@ def _canonical_live_response(
     router = case["routerInput"]
     machine = [
         "activationStatus = activated",
-        f"selectedSkill = {case['skillUnderTest']}",
+        f"selectedSkill = {case.get('expectedSkillOwner', case['skillUnderTest'])}",
         (
             "routerInput = { "
             f"domain = {router['domain']}, "
@@ -2638,6 +2833,236 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
             host_results=process.results,
             executable_sha256=executable_bytes_sha256(),
         )
+
+    def test_topology_payload_and_fixture_digests_are_exact(self) -> None:
+        self.assertEqual(
+            WORKFLOW_SKILLS,
+            getattr(self.runner, "WORKFLOW_SKILLS", None),
+        )
+        self.assertEqual(
+            ROUTER_SKILL,
+            getattr(self.runner, "ROUTER_SKILL", None),
+        )
+        self.assertEqual(
+            ALL_CAPABILITIES,
+            getattr(self.runner, "ALL_CAPABILITIES", None),
+        )
+        self.assertEqual(
+            APPROVED_SKILL_PAYLOAD_SHA256,
+            self.runner.SKILL_PAYLOAD_SHA256,
+        )
+        self.assertEqual(
+            OFFICIAL_FIXTURE_SHA256,
+            self.runner.OFFICIAL_FIXTURE_SHA256,
+        )
+        self.assertEqual(
+            WORKFLOW_SKILLS,
+            tuple(self.runner.WORKFLOW_SECTIONS),
+        )
+        self.assertNotIn(ROUTER_SKILL, self.runner.WORKFLOW_SECTIONS)
+
+    def test_selector_is_repeatable_closed_and_canonical_ordered(self) -> None:
+        self.assertIn(
+            'parser.add_argument("--case-id", action="append", default=[])',
+            RUNNER_PATH.read_text(encoding="utf-8"),
+        )
+        selector = getattr(self.runner, "select_cases", None)
+        self.assertTrue(callable(selector))
+
+        full = selector(self.fixture, [])
+        self.assertEqual(self.fixture, full)
+        self.assertIsNot(self.fixture, full)
+
+        selected = selector(
+            self.fixture,
+            ["DEV136-FWD-VALIDATE-003", "DEV136-FWD-DESIGN-001"],
+        )
+        self.assertEqual(2, selected["caseCount"])
+        self.assertEqual(
+            ["DEV136-FWD-DESIGN-001", "DEV136-FWD-VALIDATE-003"],
+            [case["id"] for case in selected["cases"]],
+        )
+        self.assertEqual(
+            [
+                case
+                for case in self.fixture["cases"]
+                if case["id"]
+                in {"DEV136-FWD-DESIGN-001", "DEV136-FWD-VALIDATE-003"}
+            ],
+            selected["cases"],
+        )
+
+        for case_ids in (
+            ["DEV136-FWD-DESIGN-001", "DEV136-FWD-DESIGN-001"],
+            ["DEV136-FWD-DESIGN-001", "DEV136-UNKNOWN-999"],
+        ):
+            with self.subTest(case_ids=case_ids), self.assertRaises(ValueError):
+                selector(self.fixture, case_ids)
+
+    def test_cli_case_id_selection_binds_canonical_fixture_and_selected_rows(
+        self,
+    ) -> None:
+        selected_fixture = copy.deepcopy(self.fixture)
+        selected_ids = {
+            "DEV136-FWD-DESIGN-001",
+            "DEV136-FWD-VALIDATE-003",
+        }
+        selected_fixture["cases"] = [
+            case for case in selected_fixture["cases"]
+            if case["id"] in selected_ids
+        ]
+        selected_fixture["caseCount"] = len(selected_fixture["cases"])
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            scorer_path = root / "selected-scorer.json"
+            scorer_path.write_text(
+                json.dumps(_forward_outputs(selected_fixture), sort_keys=True),
+                encoding="utf-8",
+            )
+            evidence_path = root / "selected-evidence.json"
+            command = [
+                sys.executable,
+                str(RUNNER_PATH),
+                "--mode",
+                "offline",
+                "--model",
+                "gpt-5.6-sol",
+                "--codex-version",
+                "0.144.5",
+                "--cases",
+                str(FIXTURE_PATH),
+                "--case-id",
+                "DEV136-FWD-VALIDATE-003",
+                "--case-id",
+                "DEV136-FWD-DESIGN-001",
+                "--scorer-outputs",
+                str(scorer_path),
+                "--evidence",
+                str(evidence_path),
+            ]
+            completed = subprocess.run(
+                command,
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(self.runner.PASS, completed.returncode, completed.stderr)
+            evidence = load_json(evidence_path)
+            self.assertEqual(OFFICIAL_FIXTURE_SHA256, evidence["fixtureSha256"])
+            self.assertEqual(2, evidence["summary"]["fixtureCaseCount"])
+            self.assertEqual(
+                ["DEV136-FWD-DESIGN-001", "DEV136-FWD-VALIDATE-003"],
+                [row["caseId"] for row in evidence["cases"]],
+            )
+            self.assertEqual(
+                [
+                    WORKFLOW_SKILLS[0],
+                    ROUTER_SKILL,
+                ],
+                [row["expectedSkillOwner"] for row in evidence["cases"]],
+            )
+
+            for label, case_ids in (
+                (
+                    "duplicate",
+                    ["DEV136-FWD-DESIGN-001", "DEV136-FWD-DESIGN-001"],
+                ),
+                (
+                    "unknown",
+                    ["DEV136-FWD-DESIGN-001", "DEV136-UNKNOWN-999"],
+                ),
+            ):
+                invalid_evidence = root / f"{label}-evidence.json"
+                invalid_command = [
+                    sys.executable,
+                    str(RUNNER_PATH),
+                    "--mode",
+                    "offline",
+                    "--model",
+                    "gpt-5.6-sol",
+                    "--codex-version",
+                    "0.144.5",
+                    "--cases",
+                    str(FIXTURE_PATH),
+                    *[
+                        part
+                        for case_id in case_ids
+                        for part in ("--case-id", case_id)
+                    ],
+                    "--scorer-outputs",
+                    str(scorer_path),
+                    "--evidence",
+                    str(invalid_evidence),
+                ]
+                invalid = subprocess.run(
+                    invalid_command,
+                    cwd=ROOT,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(self.runner.FAIL, invalid.returncode, invalid.stderr)
+                self.assertEqual("fixture_contract_invalid\n", invalid.stderr)
+
+    def test_positive_scoring_uses_contractual_owner_not_host_telemetry(self) -> None:
+        case = copy.deepcopy(
+            _forward_fixture("DEV136-FWD-REVIEW-001")["cases"][0]
+        )
+        case["expectedSkillOwner"] = WORKFLOW_SKILLS[0]
+        observation = self.runner.live_score(
+            case,
+            _canonical_live_response(case),
+            [],
+        )
+        self.assertEqual("pass", observation["assertions"]["activation"])
+        self.assertNotIn("expectedSkillOwner", observation)
+        self.assertNotIn("skillUnderTest", observation)
+
+    def test_evidence_rows_bind_fixture_owner_without_owner_telemetry(self) -> None:
+        fixture = _forward_fixture(
+            "DEV136-FWD-DESIGN-001",
+            "DEV136-FWD-DESIGN-002",
+        )
+        outputs = _forward_outputs(fixture)
+        code, evidence = _run_offline(self.runner, fixture, outputs)
+        self.assertEqual(self.runner.PASS, code)
+        for case, row in zip(
+            fixture["cases"], evidence["cases"], strict=True
+        ):
+            with self.subTest(case=case["id"]):
+                self.assertEqual(
+                    expected_skill_owner(case),
+                    row.get("expectedSkillOwner"),
+                )
+                self.assertNotIn("expectedSkillOwner", outputs[case["id"]])
+                self.assertEqual(case["skillUnderTest"], row["skillUnderTest"])
+
+    def test_router_owned_scoring_never_indexes_workflow_sections(self) -> None:
+        case = copy.deepcopy(
+            _forward_fixture("DEV136-FWD-DESIGN-002")["cases"][0]
+        )
+        case["expectedSkillOwner"] = ROUTER_SKILL
+        response = (
+            "```text\n"
+            "activationStatus = no_activation\n"
+            "reasonCode = out_of_domain\n"
+            "domain = out_of_domain\n"
+            "requestedOperation = unspecified\n"
+            "```\n"
+        ).encode("utf-8")
+
+        class NoWorkflowLookup(dict):
+            def __getitem__(self, key):
+                raise AssertionError(f"router-owned row indexed workflow {key}")
+
+        with mock.patch.object(
+            self.runner,
+            "WORKFLOW_SECTIONS",
+            NoWorkflowLookup(self.runner.WORKFLOW_SECTIONS),
+        ):
+            observation = self.runner.live_score(case, response, [])
+        self.assertEqual("pass", observation["assertions"]["activation"])
+        self.assertEqual("pass", observation["assertions"]["routing"])
 
     def test_executable_capture_hashes_real_regular_bytes_and_rejects_indirection(self) -> None:
         self.assertTrue(TEST_EXECUTABLE_PATH.is_file())
@@ -5800,7 +6225,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                 json.dumps(
                     {
                         "name": "lookalike-apple-foundation-models-handoff",
-                        "interface": {"capabilities": list(WORKFLOW_SECTIONS)},
+                        "interface": {"capabilities": list(ALL_CAPABILITIES)},
                     }
                 ),
                 encoding="utf-8",
@@ -5812,7 +6237,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                     {
                         "name": "apple-foundation-models-handoff",
                         "interface": {
-                            "capabilities": list(WORKFLOW_SECTIONS)[:-1],
+                            "capabilities": list(ALL_CAPABILITIES)[:-1],
                         },
                     }
                 ),
@@ -7683,7 +8108,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                     manifest = (
                         '{"name":"apple-foundation-models-handoff",'
                         '"interface":{"capabilities":'
-                        + json.dumps(list(WORKFLOW_SECTIONS))
+                        + json.dumps(list(ALL_CAPABILITIES))
                         + f'}},"nonStandard":{name}}}'
                     )
                     (plugin_root / ".codex-plugin/plugin.json").write_text(
@@ -8250,7 +8675,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                 '{"name":"wrong-plugin",'
                 '"name":"apple-foundation-models-handoff",'
                 '"interface":{"capabilities":'
-                + json.dumps(list(WORKFLOW_SECTIONS))
+                + json.dumps(list(ALL_CAPABILITIES))
                 + "}}"
             )
             (plugin_root / ".codex-plugin/plugin.json").write_text(
@@ -8262,21 +8687,23 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                         self.runner._plugin_is_installed_enabled_with_capabilities(json.dumps(listing))
                     )
 
-    def test_plugin_topology_is_exactly_five_one_file_skill_directories(self) -> None:
+    def test_plugin_topology_is_exactly_six_one_file_skill_directories(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            for mutation in ("sixth_skill", "extra_skill_file"):
+            for mutation in ("seventh_skill", "extra_skill_file"):
                 repo_root = root / mutation
                 plugin_root, listing = _build_forward_plugin_tree(repo_root)
-                if mutation == "sixth_skill":
-                    extra = plugin_root / "skills/unapproved-sixth-skill/SKILL.md"
+                if mutation == "seventh_skill":
+                    extra = plugin_root / "skills/unapproved-seventh-skill/SKILL.md"
                     extra.parent.mkdir(parents=True)
                     extra.write_text(
-                        "---\nname: unapproved-sixth-skill\n---\n",
+                        "---\nname: unapproved-seventh-skill\n---\n",
                         encoding="utf-8",
                     )
                 elif mutation == "extra_skill_file":
-                    (plugin_root / "skills" / SKILLS[0] / "EXTRA.md").write_text(
+                    (
+                        plugin_root / "skills" / WORKFLOW_SKILLS[0] / "EXTRA.md"
+                    ).write_text(
                         "unapproved extra payload\n", encoding="utf-8"
                     )
                 with mock.patch.object(self.runner, "ROOT", repo_root):
