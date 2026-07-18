@@ -1289,7 +1289,10 @@ Add tests that reproduce all independently reviewed defects:
 2. `env rg Apple .`, `cat *.md` from the reference directory, and nested
    structured command arrays such as `{"command":["rg","needle",owner,"."]}`
    must fail closed.
-3. Malformed JSON and duplicate-key JSON must raise `ProbeFailure` with the
+3. Structured `argv`, structured `input`, and JSON-string command envelopes
+   under otherwise unknown mapping keys must fail before recursive path
+   inference in both strict and reusable non-strict parser paths.
+4. Malformed JSON and duplicate-key JSON must raise `ProbeFailure` with the
    stable `invalid_tool_event` reason, never `NameError` or raw `ValueError`.
 
 ```bash
@@ -1309,8 +1312,9 @@ parser; existing rejection tests remain green. Commit only the test file as
 In `tests/e2e/codex_reference_disclosure.py`, retain access observations per
 top-level tool item rather than appending phase labels from recursively nested
 values. Validate exactly one pinned command string per relevant item; reject
-structured command arrays and indirect executable prefixes before path/read
-classification. Treat wildcard directory reads and reference-root search
+structured command arrays, command-like `argv`/`input` containers, JSON-string
+command envelopes, and indirect executable prefixes before path/read
+classification in strict and non-strict modes. Treat wildcard directory reads and reference-root search
 targets as bulk access. Catch the duplicate-key hook's actual exception type
 alongside JSON decoding errors and rethrow only `ProbeFailure`.
 
