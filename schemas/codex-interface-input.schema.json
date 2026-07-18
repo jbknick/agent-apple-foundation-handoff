@@ -38,7 +38,8 @@
         "implement-apple-foundation-models-handoff",
         "review-apple-foundation-models-handoff",
         "debug-apple-foundation-models-handoff",
-        "validate-apple-foundation-models-handoff"
+        "validate-apple-foundation-models-handoff",
+        "route-apple-foundation-models-handoff"
       ]
     },
     "websiteURL": {

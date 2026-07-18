@@ -35,13 +35,15 @@ CODEX_MARKETPLACE = Path(".agents/plugins/marketplace.json")
 GENERATED_PATHS = (Path("AGENTS.md"), CODEX_MARKETPLACE, CODEX_MANIFEST)
 EXPECTED_SOURCE = "./plugins/apple-foundation-models-handoff"
 EXPECTED_VERSION = "0.1.0"
-EXPECTED_CAPABILITIES = (
+WORKFLOW_SKILLS = (
     "design-apple-foundation-models-handoff",
     "implement-apple-foundation-models-handoff",
     "review-apple-foundation-models-handoff",
     "debug-apple-foundation-models-handoff",
     "validate-apple-foundation-models-handoff",
 )
+ROUTER_SKILL = "route-apple-foundation-models-handoff"
+ALL_CAPABILITIES = (*WORKFLOW_SKILLS, ROUTER_SKILL)
 EXPECTED_SKILL_DESCRIPTIONS = {
     "design-apple-foundation-models-handoff": (
         "Design an Apple Foundation Models handoff architecture, topology, pattern, "
@@ -70,6 +72,16 @@ EXPECTED_SKILL_DESCRIPTIONS = {
         "reproducible proof, a complete pass/fail/blocked/not_applicable matrix, "
         "cross-host comparison, or release implication rather than design, edits, "
         "findings-only review, or diagnosis."
+    ),
+    ROUTER_SKILL: (
+        "Route a non-positive Apple Foundation Models handoff request before workflow "
+        "selection: reject App Intents or Shortcuts, Apple Handoff or NSUserActivity, "
+        "generic Swift or actors, generic Core ML, coding-session handoff, Agent "
+        "Skills, and Foundation Models runtime Skills; ask one clarification for "
+        "ambiguous Apple handoff wording or implementation without an approved "
+        "architecture and exact change boundary. Return only no_activation or "
+        "clarification_required; never use for a confirmed request that can select "
+        "design, implement, review, debug, or validate."
     ),
 }
 ROOT_AGENTS_TEMP_PREFIX = ".AGENTS.md."
@@ -304,8 +316,10 @@ def _validate_codex_interface(value: object) -> None:
     if value["category"] != "Developer Tools":
         raise ValueError("interface category")
     capabilities = value["capabilities"]
-    if capabilities != list(EXPECTED_CAPABILITIES):
+    if capabilities != list(ALL_CAPABILITIES):
         raise ValueError("capabilities")
+    if tuple(capabilities[:-1]) != WORKFLOW_SKILLS or capabilities[-1] != ROUTER_SKILL:
+        raise ValueError("capability topology")
     prompts = value["defaultPrompt"]
     if not isinstance(prompts, list) or not 1 <= len(prompts) <= 3:
         raise ValueError("prompt count")
@@ -403,7 +417,10 @@ def _validate_skill_frontmatter(skill_text: str, capability: str) -> None:
         raise ValueError("frontmatter fields")
     if fields[0][1] != capability:
         raise ValueError("skill identity")
-    if fields[1][1] != EXPECTED_SKILL_DESCRIPTIONS[capability]:
+    expected_description = EXPECTED_SKILL_DESCRIPTIONS[capability]
+    if capability == ROUTER_SKILL:
+        expected_description = f"'{expected_description}'"
+    if fields[1][1] != expected_description:
         raise ValueError("skill description")
 
 
@@ -416,8 +433,11 @@ def _validate_skill_component(
         raise ValueError("repository root")
     if shared_manifest["skills"] != "./skills/":
         raise ValueError("skills component")
-    if codex_interface["capabilities"] != list(EXPECTED_CAPABILITIES):
+    capabilities = codex_interface["capabilities"]
+    if capabilities != list(ALL_CAPABILITIES):
         raise ValueError("capabilities")
+    if tuple(capabilities[:-1]) != WORKFLOW_SKILLS or capabilities[-1] != ROUTER_SKILL:
+        raise ValueError("capability topology")
 
     descriptors: list[int] = []
     try:
@@ -441,10 +461,10 @@ def _validate_skill_component(
 
         with os.scandir(skills_fd) as entries:
             discovered = {entry.name for entry in entries}
-        if discovered != set(EXPECTED_CAPABILITIES):
+        if discovered != set(ALL_CAPABILITIES):
             raise ValueError("skill directories")
 
-        for capability in EXPECTED_CAPABILITIES:
+        for capability in ALL_CAPABILITIES:
             skill_fd, opened_skill = _open_bound_directory_at(
                 skills_fd, capability
             )

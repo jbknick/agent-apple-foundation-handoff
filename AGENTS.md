@@ -11,8 +11,8 @@ Never edit `AGENTS.md` directly; update `CLAUDE.md`, then use `scripts/sync_gene
 - The plugin ID is `apple-foundation-models-handoff`. It helps Apple-platform engineers
   design, implement, review, debug, and validate Foundation Models handoff architectures;
   it is not generic Apple Intelligence education.
-- DEV-135 installed the metadata scaffold. The five production workflows are implemented: `design-apple-foundation-models-handoff`,
-  `implement-apple-foundation-models-handoff`, `review-apple-foundation-models-handoff`, `debug-apple-foundation-models-handoff`, and `validate-apple-foundation-models-handoff`.
+- DEV-135 installed the metadata scaffold. The package exposes five workflows plus one non-positive router. The five production workflows are implemented: `design-apple-foundation-models-handoff`, `implement-apple-foundation-models-handoff`,
+  `review-apple-foundation-models-handoff`, `debug-apple-foundation-models-handoff`, and `validate-apple-foundation-models-handoff`. `route-apple-foundation-models-handoff` is the non-positive router; it is not a workflow.
 - Select the one skill matching the request, then progressively disclose only
   the directly linked reference needed for that concern. Do not copy complete
   workflows into guidance, duplicate the reference corpus, or add a plugin-local

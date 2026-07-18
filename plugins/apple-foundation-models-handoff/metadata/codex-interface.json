@@ -1,7 +1,7 @@
 {
   "displayName": "Apple Foundation Models Handoff",
-  "shortDescription": "Design and verify Apple Foundation Models handoff workflows.",
-  "longDescription": "Five focused workflows for designing, implementing, reviewing, debugging, and validating Apple Foundation Models handoff architectures with explicit Apple API availability, state, trust, recovery, and evidence boundaries.",
+  "shortDescription": "Five workflows plus one non-positive router.",
+  "longDescription": "Five workflows plus one non-positive router for Apple Foundation Models handoff requests, with explicit Apple API availability, state, trust, recovery, and evidence boundaries.",
   "developerName": "Joseph Knickerbocker",
   "category": "Developer Tools",
   "capabilities": [
@@ -9,7 +9,8 @@
     "implement-apple-foundation-models-handoff",
     "review-apple-foundation-models-handoff",
     "debug-apple-foundation-models-handoff",
-    "validate-apple-foundation-models-handoff"
+    "validate-apple-foundation-models-handoff",
+    "route-apple-foundation-models-handoff"
   ],
   "websiteURL": "https://github.com/jbknick/agent-apple-foundation-handoff",
   "defaultPrompt": [
