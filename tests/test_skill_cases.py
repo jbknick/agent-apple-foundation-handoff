@@ -2697,6 +2697,463 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
         self.assertNotIn("injected raw-output unlink", json.dumps(evidence))
         self.assertTrue(output_path_exists or retained == b"")
 
+    def test_close_after_effect_does_not_close_reused_descriptor(self) -> None:
+        fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
+        outputs = _forward_outputs(fixture)
+        escaped: Exception | None = None
+        outcome = None
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bound_root = root / "bound"
+            bound_root.mkdir()
+            bound_path = bound_root / "codex"
+            bound_path.write_bytes(b"verified executable sentinel")
+            bound_path.chmod(0o700)
+            replacement_path = root / "replacement"
+            replacement_path.write_bytes(b"replacement must remain open")
+            real_fdopen = os.fdopen
+            real_mkstemp = tempfile.mkstemp
+            real_open = os.open
+            real_close = os.close
+            owner_constructed = False
+            close_calls = 0
+            reused_descriptor = -1
+
+            def bound_copy(_: dict) -> tuple[str, Path, Path]:
+                return str(TEST_EXECUTABLE_PATH), bound_path, bound_root
+
+            def allocate_output(*args, **kwargs) -> tuple[int, str]:
+                return real_mkstemp(*args, dir=root, **kwargs)
+
+            class CloseAfterEffectOwner:
+                def __init__(self, descriptor: int, *args, **kwargs) -> None:
+                    nonlocal owner_constructed
+                    owner_constructed = True
+                    self._file = real_fdopen(descriptor, *args, **kwargs)
+
+                def __getattr__(self, name: str):
+                    return getattr(self._file, name)
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *_exc_info) -> None:
+                    self.close()
+
+                def close(self) -> None:
+                    nonlocal close_calls, reused_descriptor
+                    close_calls += 1
+                    if close_calls == 1:
+                        descriptor = self._file.fileno()
+                        self._file.close()
+                        reused_descriptor = real_open(replacement_path, os.O_RDONLY)
+                        if reused_descriptor != descriptor:
+                            os.dup2(reused_descriptor, descriptor)
+                            real_close(reused_descriptor)
+                            reused_descriptor = descriptor
+                        raise OSError("injected close-after-effect failure")
+                    real_close(reused_descriptor)
+
+            with (
+                mock.patch.object(
+                    self.runner,
+                    "_bound_executable_copy",
+                    side_effect=bound_copy,
+                ),
+                mock.patch.object(
+                    self.runner.tempfile,
+                    "mkstemp",
+                    side_effect=allocate_output,
+                ),
+                mock.patch.object(
+                    self.runner.os,
+                    "fdopen",
+                    side_effect=CloseAfterEffectOwner,
+                ),
+            ):
+                try:
+                    outcome = _run_host(
+                        self.runner,
+                        fixture,
+                        str(TEST_EXECUTABLE_PATH),
+                        _FakeHostProcess(),
+                        _FakePrerequisiteChecker(_passing_prerequisites()),
+                        _FakeScorer(outputs),
+                    )
+                except Exception as error:  # pragma: no cover - assertion captures it
+                    escaped = error
+
+            replacement_descriptor_open = False
+            if reused_descriptor >= 0:
+                try:
+                    os.fstat(reused_descriptor)
+                    replacement_descriptor_open = True
+                except OSError:
+                    pass
+                if replacement_descriptor_open:
+                    real_close(reused_descriptor)
+
+        self.assertIsNone(escaped)
+        self.assertIsNotNone(outcome)
+        code, evidence = outcome
+        self.assertTrue(owner_constructed, "mkstemp descriptor was not transferred")
+        self.assertEqual(1, close_calls)
+        self.assertTrue(replacement_descriptor_open)
+        self.assertEqual(self.runner.FAIL, code)
+        self.assertEqual("fail", evidence["status"])
+        self.assertEqual("process_failed", evidence["host"]["blockerReason"])
+        self.assertNotIn("close-after-effect", json.dumps(evidence))
+
+    def test_hardlink_path_replacement_does_not_touch_victim(self) -> None:
+        fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
+        outputs = _forward_outputs(fixture)
+        raw = b"Bearer original-private-response"
+        victim_bytes = b"unrelated hardlink victim"
+        process = _FakeHostProcess(responses=[raw])
+        escaped: Exception | None = None
+        outcome = None
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bound_root = root / "bound"
+            bound_root.mkdir()
+            bound_path = bound_root / "codex"
+            bound_path.write_bytes(b"verified executable sentinel")
+            bound_path.chmod(0o700)
+            victim_path = root / "victim"
+            victim_path.write_bytes(victim_bytes)
+            allocated: dict[str, int | Path] = {}
+            real_fdopen = os.fdopen
+            real_ftruncate = os.ftruncate
+            real_mkstemp = tempfile.mkstemp
+            real_unlink = os.unlink
+            observer_descriptor = -1
+            replacement_installed = False
+
+            def bound_copy(_: dict) -> tuple[str, Path, Path]:
+                return str(TEST_EXECUTABLE_PATH), bound_path, bound_root
+
+            def allocate_output(*args, **kwargs) -> tuple[int, str]:
+                nonlocal observer_descriptor
+                descriptor, name = real_mkstemp(*args, dir=root, **kwargs)
+                allocated.update(descriptor=descriptor, path=Path(name))
+                observer_descriptor = os.dup(descriptor)
+                return descriptor, name
+
+            def install_replacement() -> None:
+                nonlocal replacement_installed
+                if replacement_installed:
+                    return
+                replacement_installed = True
+                output_path = Path(allocated["path"])
+                real_unlink(output_path)
+                os.link(victim_path, output_path)
+
+            def fail_direct_ftruncate(descriptor: int, length: int) -> None:
+                if not replacement_installed:
+                    install_replacement()
+                    raise OSError("injected direct truncate failure")
+                real_ftruncate(descriptor, length)
+
+            class TruncateFaultOwner:
+                def __init__(self, descriptor: int, *args, **kwargs) -> None:
+                    self._file = real_fdopen(descriptor, *args, **kwargs)
+
+                def __getattr__(self, name: str):
+                    return getattr(self._file, name)
+
+                def truncate(self, *_args, **_kwargs):
+                    install_replacement()
+                    raise OSError("injected direct truncate failure")
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *_exc_info) -> None:
+                    self.close()
+
+            with (
+                mock.patch.object(
+                    self.runner,
+                    "_bound_executable_copy",
+                    side_effect=bound_copy,
+                ),
+                mock.patch.object(
+                    self.runner.tempfile,
+                    "mkstemp",
+                    side_effect=allocate_output,
+                ),
+                mock.patch.object(
+                    self.runner.os,
+                    "fdopen",
+                    side_effect=TruncateFaultOwner,
+                ),
+                mock.patch.object(
+                    self.runner.os,
+                    "ftruncate",
+                    side_effect=fail_direct_ftruncate,
+                ),
+            ):
+                try:
+                    outcome = _run_host(
+                        self.runner,
+                        fixture,
+                        str(TEST_EXECUTABLE_PATH),
+                        process,
+                        _FakePrerequisiteChecker(_passing_prerequisites()),
+                        _FakeScorer(outputs),
+                    )
+                except Exception as error:  # pragma: no cover - assertion captures it
+                    escaped = error
+
+            output_path = Path(allocated["path"])
+            replacement_exists = output_path.exists()
+            replacement_bytes = output_path.read_bytes() if replacement_exists else b""
+            victim_retained = victim_path.read_bytes()
+            retained_original = b""
+            if observer_descriptor >= 0:
+                os.lseek(observer_descriptor, 0, os.SEEK_SET)
+                retained_original = os.read(observer_descriptor, len(raw) + 1)
+                os.close(observer_descriptor)
+            if replacement_exists:
+                real_unlink(output_path)
+
+        self.assertIsNone(escaped)
+        self.assertIsNotNone(outcome)
+        code, evidence = outcome
+        self.assertTrue(replacement_installed)
+        self.assertEqual(victim_bytes, victim_retained)
+        self.assertTrue(replacement_exists)
+        self.assertEqual(victim_bytes, replacement_bytes)
+        self.assertTrue(not retained_original or set(retained_original) == {0})
+        self.assertEqual(self.runner.FAIL, code)
+        self.assertEqual("fail", evidence["status"])
+        self.assertEqual("process_failed", evidence["host"]["blockerReason"])
+        self.assertNotIn("original-private-response", json.dumps(evidence))
+
+    def test_path_open_failure_still_zeroizes_owned_output_and_normalizes(self) -> None:
+        fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
+        outputs = _forward_outputs(fixture)
+        raw = b"Bearer original-private-response"
+        process = _FakeHostProcess(responses=[raw])
+        escaped: Exception | None = None
+        outcome = None
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bound_root = root / "bound"
+            bound_root.mkdir()
+            bound_path = bound_root / "codex"
+            bound_path.write_bytes(b"verified executable sentinel")
+            bound_path.chmod(0o700)
+            allocated: dict[str, int | Path] = {}
+            real_fdopen = os.fdopen
+            real_mkstemp = tempfile.mkstemp
+            real_open = os.open
+            real_unlink = os.unlink
+            observer_descriptor = -1
+            truncate_faulted = False
+
+            def bound_copy(_: dict) -> tuple[str, Path, Path]:
+                return str(TEST_EXECUTABLE_PATH), bound_path, bound_root
+
+            def allocate_output(*args, **kwargs) -> tuple[int, str]:
+                nonlocal observer_descriptor
+                descriptor, name = real_mkstemp(*args, dir=root, **kwargs)
+                allocated.update(descriptor=descriptor, path=Path(name))
+                observer_descriptor = os.dup(descriptor)
+                return descriptor, name
+
+            def fail_direct_truncate(*_args, **_kwargs) -> None:
+                nonlocal truncate_faulted
+                truncate_faulted = True
+                raise OSError("injected direct truncate failure")
+
+            def deny_output_path_open(path, flags, *args, **kwargs):
+                output_path = allocated.get("path")
+                if (
+                    truncate_faulted
+                    and output_path is not None
+                    and Path(path).name == Path(output_path).name
+                    and kwargs.get("dir_fd") is not None
+                ):
+                    raise PermissionError("injected output path-open failure")
+                return real_open(path, flags, *args, **kwargs)
+
+            class TruncateFaultOwner:
+                def __init__(self, descriptor: int, *args, **kwargs) -> None:
+                    self._file = real_fdopen(descriptor, *args, **kwargs)
+
+                def __getattr__(self, name: str):
+                    return getattr(self._file, name)
+
+                def truncate(self, *_args, **_kwargs):
+                    fail_direct_truncate()
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *_exc_info) -> None:
+                    self.close()
+
+            with (
+                mock.patch.object(
+                    self.runner,
+                    "_bound_executable_copy",
+                    side_effect=bound_copy,
+                ),
+                mock.patch.object(
+                    self.runner.tempfile,
+                    "mkstemp",
+                    side_effect=allocate_output,
+                ),
+                mock.patch.object(
+                    self.runner.os,
+                    "fdopen",
+                    side_effect=TruncateFaultOwner,
+                ),
+                mock.patch.object(
+                    self.runner.os,
+                    "ftruncate",
+                    side_effect=fail_direct_truncate,
+                ),
+                mock.patch.object(
+                    self.runner.os,
+                    "open",
+                    side_effect=deny_output_path_open,
+                ),
+            ):
+                try:
+                    outcome = _run_host(
+                        self.runner,
+                        fixture,
+                        str(TEST_EXECUTABLE_PATH),
+                        process,
+                        _FakePrerequisiteChecker(_passing_prerequisites()),
+                        _FakeScorer(outputs),
+                    )
+                except Exception as error:  # pragma: no cover - assertion captures it
+                    escaped = error
+
+            output_path = Path(allocated["path"])
+            retained_original = b""
+            if observer_descriptor >= 0:
+                os.lseek(observer_descriptor, 0, os.SEEK_SET)
+                retained_original = os.read(observer_descriptor, len(raw) + 1)
+                os.close(observer_descriptor)
+            if output_path.exists():
+                real_unlink(output_path)
+
+        self.assertIsNone(escaped)
+        self.assertIsNotNone(outcome)
+        code, evidence = outcome
+        self.assertTrue(truncate_faulted)
+        self.assertTrue(not retained_original or set(retained_original) == {0})
+        self.assertEqual(self.runner.FAIL, code)
+        self.assertEqual("fail", evidence["status"])
+        self.assertEqual("process_failed", evidence["host"]["blockerReason"])
+        self.assertNotIn(raw, retained_original)
+        self.assertNotIn("original-private-response", json.dumps(evidence))
+        self.assertNotIn("injected output path-open", json.dumps(evidence))
+
+    def test_bound_copy_construction_fault_retries_transient_cleanup(self) -> None:
+        source_bytes = b"small verified executable"
+
+        for fault in ("unlink", "rmdir"):
+            with (
+                self.subTest(fault=fault),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                root = Path(directory)
+                source_path = root / "source-codex"
+                source_path.write_bytes(source_bytes)
+                source_path.chmod(0o700)
+                expected_digest = hashlib.sha256(source_bytes).hexdigest()
+                source_descriptor = os.open(source_path, os.O_RDONLY)
+                real_mkdtemp = tempfile.mkdtemp
+                real_unlink = os.unlink
+                real_rmdir = os.rmdir
+                created_roots: list[Path] = []
+                fault_calls = 0
+
+                def make_bound_root(*args, **kwargs) -> str:
+                    kwargs["dir"] = root
+                    created = Path(real_mkdtemp(*args, **kwargs))
+                    created_roots.append(created)
+                    return str(created)
+
+                def transient_unlink(path, *args, **kwargs) -> None:
+                    nonlocal fault_calls
+                    if fault == "unlink" and Path(path).name == "codex" and fault_calls == 0:
+                        fault_calls += 1
+                        raise OSError("injected transient bound unlink failure")
+                    real_unlink(path, *args, **kwargs)
+
+                def transient_rmdir(path, *args, **kwargs) -> None:
+                    nonlocal fault_calls
+                    if fault == "rmdir" and Path(path).name.startswith("dev136-codex-bound-") and fault_calls == 0:
+                        fault_calls += 1
+                        raise OSError("injected transient bound rmdir failure")
+                    real_rmdir(path, *args, **kwargs)
+
+                snapshot = {
+                    "resolvedExecutable": str(source_path),
+                    "executableSha256": expected_digest,
+                }
+                escaped: Exception | None = None
+                with (
+                    mock.patch.object(
+                        self.runner,
+                        "_open_verified_executable",
+                        return_value=(
+                            source_path,
+                            source_descriptor,
+                            expected_digest,
+                        ),
+                    ),
+                    mock.patch.object(
+                        self.runner.tempfile,
+                        "mkdtemp",
+                        side_effect=make_bound_root,
+                    ),
+                    mock.patch.object(
+                        self.runner,
+                        "capture_executable",
+                        side_effect=ValueError("injected construction failure"),
+                    ),
+                    mock.patch.object(
+                        self.runner.os,
+                        "unlink",
+                        side_effect=transient_unlink,
+                    ),
+                    mock.patch.object(
+                        self.runner.os,
+                        "rmdir",
+                        side_effect=transient_rmdir,
+                    ),
+                ):
+                    try:
+                        self.runner._bound_executable_copy(snapshot)
+                    except Exception as error:  # pragma: no cover - asserted below
+                        escaped = error
+
+                self.assertEqual(1, len(created_roots))
+                bound_root = created_roots[0]
+                bound_path = bound_root / "codex"
+                bound_path_existed = bound_path.exists()
+                bound_root_existed = bound_root.exists()
+                if bound_path_existed:
+                    real_unlink(bound_path)
+                if bound_root.exists():
+                    real_rmdir(bound_root)
+
+                self.assertIsInstance(escaped, ValueError)
+                self.assertIn("injected construction failure", str(escaped))
+                self.assertEqual(1, fault_calls)
+                self.assertFalse(bound_path_existed)
+                self.assertFalse(bound_root_existed)
+
     def test_host_blocks_exact_prerequisites_without_fallback(self) -> None:
         fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
         blockers = {
