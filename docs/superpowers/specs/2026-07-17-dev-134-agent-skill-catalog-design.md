@@ -12,6 +12,21 @@ Governing amendments: Linear comments
 
 Current merged input: `6134d4f40ab802b9f292e2b631177561f2b5e25d`
 
+## DEV-136 option-2 supersession
+
+> **Bounded supersession (DEV-136):** The approved DEV-136 option-2 decision
+> amends the production capability topology to **five workflows plus one non-positive router**,
+> `route-apple-foundation-models-handoff`. The five workflows retain
+> **positive-only workflow ownership**; the **router-owned non-positive branches**
+> are `no_activation`, domain `clarification_required`, and missing-approved-contract
+> `clarification_required`. Historical evidence remains truthful: **fixture prompts/outcomes are unchanged**,
+> and the DEV-134 prototype still does not prove host capability. **Codex-only current proof**
+> remains in scope, while Claude proof is owner-deferred. The binding design amendment path is
+> [`docs/superpowers/specs/2026-07-18-dev-136-preselection-router-design.md`](2026-07-18-dev-136-preselection-router-design.md).
+> Statements below that describe exactly five production capabilities or a
+> conceptual-only router remain historical except where this bounded note
+> supersedes them.
+
 ## Purpose and authority
 
 This specification is the authoritative DEV-134 catalog for the five Agent
