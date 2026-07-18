@@ -527,6 +527,44 @@ first. Do not replace the tracked baseline evidence unless all 25 rows are valid
 the evidence validator passes. Record the pinned upstream source, both repair SHAs,
 and the fresh host result in DEV-136, DEV-139, and DEV-141.
 
+## Task 7B: Release the completed case copy before the independent post-check
+
+**Files:**
+
+- Modify: `tests/test_skill_cases.py`
+- Modify: `tests/e2e/codex_skill_forward_tests.py`
+
+### Step 1: Write and commit the failing cleanup-order tests
+
+Extend the host lifecycle tests with an instrumented bound-copy factory and post-case
+prerequisite checker. Require the case's verified execution copy and private directory
+to exist for the complete child-process call, but to be absent before the post-case
+checker starts. Also prove that process failures, post-check failures, early returns,
+and final cleanup do not leave the copy or directory behind.
+
+Run the focused lifecycle tests and require the new ordering assertion to fail against
+the current runner because it retains the execution copy through the post-check.
+Commit only `tests/test_skill_cases.py` as the RED boundary.
+
+### Step 2: Move cleanup to the closed-process boundary
+
+In `run_host`, unlink the per-case bound executable and remove its private directory
+immediately after `process_runner` returns or raises, before calling the independent
+post-capture prerequisite checker. Keep the existing `finally` cleanup idempotent as
+defense in depth. Do not alter snapshot identity, digest comparison, prerequisite
+classification, evidence status derivation, raw-response cleanup, or retry behavior.
+
+Run the focused lifecycle tests, all `CodexForwardRunnerContractTests`, and the full
+`tests.test_skill_cases` module. Commit only
+`tests/e2e/codex_skill_forward_tests.py` as the GREEN boundary.
+
+### Step 3: Verify storage and retry the matrix
+
+Remove only DEV-136-owned stale temporary artifacts, confirm enough space for one
+248 MB verified executable copy, and rerun Task 8's exact 25-case host command into a
+new temporary evidence path. A remaining `OSError 28` is an explicit host blocker;
+do not delete unrelated user data or reinterpret it as pass.
+
 ## Task 8: Full verification before completion
 
 Invoke `superpowers:verification-before-completion` and run fresh commands.
