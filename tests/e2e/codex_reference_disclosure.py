@@ -747,8 +747,18 @@ def is_command_argv_array(value: list[object]) -> bool:
     )
 
 
+def has_direct_reference_path_owner(value: dict[str, Any]) -> bool:
+    return any(
+        isinstance(value.get(key), str)
+        and is_reference_path_token(value[key])
+        for key in ("path", "file_path")
+    )
+
+
 def reference_scalar_presence(value: object) -> tuple[bool, bool]:
     if isinstance(value, dict):
+        if has_direct_reference_path_owner(value):
+            return True, False
         nested_values = value.values()
     elif isinstance(value, list):
         nested_values = value
@@ -770,15 +780,27 @@ def has_mixed_reference_scalars(value: list[object]) -> bool:
     return has_reference and has_non_reference
 
 
-def is_structured_command_mapping(value: dict[str, Any]) -> bool:
-    has_argument_sibling = "args" in value or "argv" in value
-    reaches_reference = reference_scalar_presence(value)[0]
-    return "executable" in value and has_argument_sibling and reaches_reference
+def has_structural_reference_siblings(value: dict[str, Any]) -> bool:
+    if has_direct_reference_path_owner(value):
+        return False
+    has_non_reference_scalar = any(
+        not isinstance(nested, (dict, list))
+        and not (
+            isinstance(nested, str) and is_reference_path_token(nested)
+        )
+        for nested in value.values()
+    )
+    has_nested_reference = any(
+        isinstance(nested, (dict, list))
+        and reference_scalar_presence(nested)[0]
+        for nested in value.values()
+    )
+    return has_non_reference_scalar and has_nested_reference
 
 
 def contains_structured_command(value: object) -> bool:
     if isinstance(value, dict):
-        if is_structured_command_mapping(value):
+        if has_structural_reference_siblings(value):
             return True
         for key, nested in value.items():
             if key in {"command", "argv"} or (
@@ -861,7 +883,7 @@ def mapping_reference_reads(
         return observed, read_count
     if not isinstance(value, dict):
         return observed, read_count
-    if is_structured_command_mapping(value):
+    if has_structural_reference_siblings(value):
         raise ProbeFailure("invalid_tool_event", task_id)
     local_base = declared_working_directory(value, base, task_id)
     for key, nested in value.items():
