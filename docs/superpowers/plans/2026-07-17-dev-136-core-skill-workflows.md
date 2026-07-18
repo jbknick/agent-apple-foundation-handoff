@@ -1216,6 +1216,101 @@ copy, and disposable worktree cleanup after every case. Require all six rows to
 pass before starting the full 25-case matrix. Any new mismatch returns to a
 recorded RED/GREEN diagnosis; never weaken the contract or cherry-pick a pass.
 
+## Task 7L: Close the result fence immediately after line 21
+
+**Files:**
+
+- Modify: `tests/test_skill_contract.py`
+- Modify: `plugins/apple-foundation-models-handoff/skills/design-apple-foundation-models-handoff/SKILL.md`
+- Modify: `plugins/apple-foundation-models-handoff/skills/implement-apple-foundation-models-handoff/SKILL.md`
+- Modify: `plugins/apple-foundation-models-handoff/skills/review-apple-foundation-models-handoff/SKILL.md`
+- Modify: `plugins/apple-foundation-models-handoff/skills/debug-apple-foundation-models-handoff/SKILL.md`
+- Modify: `plugins/apple-foundation-models-handoff/skills/validate-apple-foundation-models-handoff/SKILL.md`
+- Modify: `tests/e2e/codex_skill_forward_tests.py`
+
+The reviewed Task 7K correction made review, validate, and design consultation
+pass. A bounded three-case diagnostic proved debug and implement now satisfy the
+exact activation, selected-skill, router, architecture marker, schema, 17 child
+names/order, version labels, and heading contracts. They fail only because they
+add 16 and 6 continuation/detail lines inside the fence. The no-activation row
+is a separate activation-contract decision and is outside this correction.
+
+### Step 1: Add the line-21 terminator RED
+
+Change the final `POSITIVE_RESULT_LINES` value to:
+
+```text
+  limitations[]: <one-line limitations and blockers summary; close the fence immediately after this line>
+```
+
+Add one exact `OUTPUT_SERIALIZATION_SENTENCES` requirement: close the result
+fence immediately after that 21st line, and put every explanation, bullet,
+subfield, example, and detail only under the required headings after the fence.
+The existing exact-template, ownership, and mutation oracles must make the five
+production skills fail while the synthetic fixture remains self-consistent.
+Do not change the approved host fixture, scorer, rubric, router values, headings,
+or evidence schema.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v \
+  tests.test_skill_contract.SkillContractTests.test_each_skill_has_the_ordered_scoped_executable_contract \
+  tests.test_skill_contract.SkillContractTests.test_each_skill_owns_deterministic_response_serialization \
+  tests.test_skill_contract.SkillContractMutationTests.test_deterministic_output_and_outer_harness_mutations_are_rejected \
+  tests.test_skill_contract.SkillContractMutationTests.test_positive_result_rejects_every_exact_shape_mutation
+git diff --check
+```
+
+Expected RED: five stale final-template failures plus five missing terminator-rule
+failures, with both synthetic mutation selectors green. Commit only
+`tests/test_skill_contract.py` as
+`test(DEV-136): expose envelope continuation lines`.
+
+### Step 2: Correct the five canonical skill templates
+
+Update the final `limitations[]` line and add the exact terminator sentence once
+under each skill's `Output Contract`. Preserve every other field, activation
+rule, heading, workflow invariant, and Apple claim. Do not add negative-routing
+behavior and do not edit generated Codex artifacts directly.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v \
+  tests.test_skill_contract.SkillContractTests.test_each_skill_has_the_ordered_scoped_executable_contract \
+  tests.test_skill_contract.SkillContractTests.test_each_skill_owns_deterministic_response_serialization \
+  tests.test_skill_contract.SkillContractMutationTests.test_deterministic_output_and_outer_harness_mutations_are_rejected \
+  tests.test_skill_contract.SkillContractMutationTests.test_positive_result_rejects_every_exact_shape_mutation
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_skill_contract -v
+git diff --check
+```
+
+Commit only the five canonical skill files as
+`fix(DEV-136): terminate result envelopes at line 21`.
+
+### Step 3: Refresh exact payload binding
+
+Compute all five corrected raw-file SHA-256 values and update only the matching
+`SKILL_PAYLOAD_SHA256` constants. Keep stale-cache rejection and regular-file,
+no-symlink topology checks unchanged.
+
+```bash
+shasum -a 256 plugins/apple-foundation-models-handoff/skills/*/SKILL.md
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_skill_cases -v
+python3 -m py_compile tests/e2e/codex_skill_forward_tests.py
+python3 scripts/sync_generated_artifacts.py --check
+git diff --check
+```
+
+Commit only the five constants as
+`test(DEV-136): bind terminated envelope payloads`.
+
+### Step 4: Review and retry only the two positive failures
+
+Obtain independent RED provenance, specification, payload, and scorer review.
+After approval, run fresh debug and implement cases at Codex 0.144.5 with
+`-m gpt-5.6-sol`. Require both to pass every applicable assertion and verify all
+private output, captured-binary, disposable-worktree, and source-cleanup gates.
+Do not rerun the full 25 until the separate no-activation contract is resolved
+and its affected proof is green.
+
 ## Task 8: Full verification before completion
 
 Invoke `superpowers:verification-before-completion` and run fresh commands.
