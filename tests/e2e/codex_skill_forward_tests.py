@@ -778,22 +778,50 @@ def _open_directory_no_symlinks(path: Path | str) -> int:
         | getattr(os, "O_NOFOLLOW", 0)
         | getattr(os, "O_CLOEXEC", 0)
     )
-    descriptor = os.open(absolute.anchor, flags)
+    descriptor = -1
+    next_descriptor = -1
+    failure: Exception | None = None
+    finalization_error: ExecutableDescriptorFinalizationError | None = None
     try:
+        descriptor = os.open(absolute.anchor, flags)
         for part in absolute.parts[1:]:
             next_descriptor = os.open(part, flags, dir_fd=descriptor)
+            if not stat.S_ISDIR(os.fstat(next_descriptor).st_mode):
+                raise ValueError("path component must be a directory")
+            descriptor_to_close = descriptor
+            descriptor = -1
             try:
-                if not stat.S_ISDIR(os.fstat(next_descriptor).st_mode):
-                    raise ValueError("path component must be a directory")
-            except Exception:
-                os.close(next_descriptor)
-                raise
-            os.close(descriptor)
+                os.close(descriptor_to_close)
+            except OSError as error:
+                raise ExecutableDescriptorFinalizationError(error) from error
             descriptor = next_descriptor
-        return descriptor
-    except Exception:
-        os.close(descriptor)
-        raise
+            next_descriptor = -1
+    except Exception as error:
+        failure = error
+        if isinstance(error, ExecutableDescriptorFinalizationError):
+            finalization_error = error
+
+    if failure is None:
+        result = descriptor
+        descriptor = -1
+        return result
+
+    descriptors = (next_descriptor, descriptor)
+    next_descriptor = -1
+    descriptor = -1
+    for owned_descriptor in descriptors:
+        if owned_descriptor < 0:
+            continue
+        try:
+            os.close(owned_descriptor)
+        except OSError as error:
+            if finalization_error is None:
+                finalization_error = ExecutableDescriptorFinalizationError(
+                    error
+                )
+    if finalization_error is not None:
+        raise finalization_error from failure
+    raise failure
 
 
 def _read_regular_file_no_symlinks(path: Path | str) -> bytes:
@@ -838,9 +866,13 @@ def _read_regular_file_no_symlinks(path: Path | str) -> bytes:
 
 def _open_verified_executable(executable: str) -> tuple[Path, int, str]:
     path = _absolute_lexical_path(executable)
-    parent_descriptor = _open_directory_no_symlinks(path.parent)
+    parent_descriptor = -1
     descriptor = -1
+    digest_value: str | None = None
+    failure: Exception | None = None
+    finalization_error: ExecutableDescriptorFinalizationError | None = None
     try:
+        parent_descriptor = _open_directory_no_symlinks(path.parent)
         before = os.stat(path.name, dir_fd=parent_descriptor, follow_symlinks=False)
         if not stat.S_ISREG(before.st_mode):
             raise ExecutableCaptureError("nonregular_binary")
@@ -871,13 +903,45 @@ def _open_verified_executable(executable: str) -> tuple[Path, int, str]:
         ):
             raise ExecutableCaptureError("nonregular_binary")
         os.lseek(descriptor, 0, os.SEEK_SET)
-        return path, descriptor, digest.hexdigest()
-    except Exception:
-        if descriptor >= 0:
-            os.close(descriptor)
-        raise
-    finally:
-        os.close(parent_descriptor)
+        digest_value = digest.hexdigest()
+    except Exception as error:
+        failure = error
+        if isinstance(error, ExecutableDescriptorFinalizationError):
+            finalization_error = error
+
+    if failure is None:
+        parent_to_close = parent_descriptor
+        parent_descriptor = -1
+        try:
+            os.close(parent_to_close)
+        except OSError as error:
+            finalization_error = ExecutableDescriptorFinalizationError(error)
+
+    if failure is None and finalization_error is None:
+        result_descriptor = descriptor
+        descriptor = -1
+        if digest_value is None:
+            raise AssertionError("verified executable digest was not captured")
+        return path, result_descriptor, digest_value
+
+    descriptors = (descriptor, parent_descriptor)
+    descriptor = -1
+    parent_descriptor = -1
+    for owned_descriptor in descriptors:
+        if owned_descriptor < 0:
+            continue
+        try:
+            os.close(owned_descriptor)
+        except OSError as error:
+            if finalization_error is None:
+                finalization_error = ExecutableDescriptorFinalizationError(
+                    error
+                )
+    if finalization_error is not None:
+        raise finalization_error from failure
+    if failure is not None:
+        raise failure
+    raise AssertionError("verified executable finalization state is invalid")
 
 
 def capture_executable(executable: str) -> dict[str, str]:
@@ -999,6 +1063,8 @@ def _bound_executable_copy(snapshot: dict[str, Any]) -> tuple[str, Path, Path]:
         source_path, source_descriptor, source_digest = _open_verified_executable(
             expected_path
         )
+    except ExecutableDescriptorFinalizationError as error:
+        raise BoundExecutableCopyFinalizationError(error) from error
     except (FileNotFoundError, ExecutableCaptureError) as error:
         raise BoundExecutableCopyDriftError(
             error, "not_applicable"
@@ -2164,6 +2230,27 @@ def run_host(
 
         try:
             execution_path, bound_path, bound_root = _bound_executable_copy(pre)
+        except BoundExecutableCopyUnavailableError as error:
+            cleanup["boundExecutableCopy"] = error.cleanup
+            evidence = _evidence(
+                "host", fixture, fixture_bytes, rows,
+                capture=_snapshot_capture(first_snapshot), cleanup=cleanup,
+                snapshot=first_snapshot,
+                blocker=error.reason, forced_status="blocked",
+            )
+            return BLOCKED, evidence
+        except (
+            BoundExecutableCopyDriftError,
+            BoundExecutableCopyFinalizationError,
+        ) as error:
+            cleanup["boundExecutableCopy"] = error.cleanup
+            evidence = _evidence(
+                "host", fixture, fixture_bytes, rows,
+                capture=_snapshot_capture(first_snapshot), cleanup=cleanup,
+                snapshot=first_snapshot,
+                blocker=error.reason, forced_status="fail",
+            )
+            return FAIL, evidence
         except (OSError, ValueError):
             cleanup["boundExecutableCopy"] = "fail"
             evidence = _evidence(
@@ -2902,6 +2989,15 @@ def default_prerequisite_checker(
             "discovery": "blocked", "installation": "blocked",
             "captureError": error.reason,
             "preflightBoundCopyCleanup": "not_applicable",
+        }
+    except ExecutableDescriptorFinalizationError:
+        return {
+            **capture,
+            "resolvedExecutable": None, "executableSha256": None, "version": None,
+            "authenticated": False, "modelAvailable": False, "pluginAvailable": False,
+            "discovery": "blocked", "installation": "blocked",
+            "captureError": "bound_copy_cleanup_failed",
+            "preflightBoundCopyCleanup": "fail",
         }
     except (OSError, ValueError):
         return {
