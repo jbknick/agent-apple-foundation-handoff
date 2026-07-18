@@ -661,9 +661,7 @@ def command_reference_reads(
             raise ProbeFailure("bulk_reference_content_read", task_id)
         return observed, 0
     if executable in COMMAND_PREFIX_WRAPPERS:
-        if reference_relevant or reference_context:
-            raise ProbeFailure("ambiguous_reference_read", task_id)
-        return observed, 0
+        raise ProbeFailure("ambiguous_reference_read", task_id)
     has_control, has_command_substitution = shell_syntax_flags(effective_command)
     has_xargs = executable == "xargs"
     if has_xargs:
