@@ -920,6 +920,27 @@ Commit only the five canonical skills as
 `fix(DEV-136): complete result template assignments` and request independent
 contract review.
 
+### Step 3: Refresh the five cryptographic payload bindings
+
+The canonical edit must make the existing five `SKILL_PAYLOAD_SHA256` values
+fail. Treat those exact prerequisite failures as RED; do not weaken or remove
+payload binding. From the committed canonical `SKILL.md` bytes, recompute each
+SHA-256 and update only the five constants in
+`tests/e2e/codex_skill_forward_tests.py`. Verify every constant against a fresh
+hash calculation and keep the runner commit separate from the skill commit.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_skill_contract -v
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_skill_cases -v
+python3 scripts/sync_generated_artifacts.py --check
+python3 -m py_compile tests/e2e/codex_skill_forward_tests.py
+git diff --check
+```
+
+Expected: contract 21/21 and skill cases 96/96 pass; generation and compile are
+clean. Commit only the runner as
+`fix(DEV-136): refresh bound skill payloads`.
+
 ## Task 7H: Isolate every mutating Codex host case
 
 **Files:**
