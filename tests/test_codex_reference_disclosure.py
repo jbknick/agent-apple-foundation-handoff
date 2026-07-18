@@ -228,6 +228,69 @@ class ReferenceToolPayloadTests(unittest.TestCase):
                     raised.exception.reason,
                 )
 
+    def test_nested_split_command_containers_fail_closed(self) -> None:
+        compact = f'["sort",{{"path":"{OWNER}"}}]'
+        rejected = {
+            "non-reference then nested reference": ["sort", [OWNER]],
+            "nested reference then non-reference": [[OWNER], "sort"],
+            "non-reference then path mapping": ["sort", {"path": OWNER}],
+            "compact JSON": compact,
+            "deep nested": {
+                "a": {"b": ["sort", {"c": [OWNER]}]}
+            },
+            "executable and args siblings": {
+                "executable": "sort",
+                "args": [OWNER],
+            },
+            "executable and argv siblings": {
+                "executable": "sort",
+                "argv": [OWNER],
+            },
+        }
+
+        for surface, arguments in rejected.items():
+            with self.subTest(surface=surface):
+                with self.assertRaises(probe.ProbeFailure) as raised:
+                    probe.mapping_reference_reads(
+                        arguments,
+                        probe.ROOT,
+                        TASK_ID,
+                    )
+
+                self.assertEqual(
+                    "invalid_tool_event",
+                    raised.exception.reason,
+                )
+
+    def test_ordinary_nested_metadata_and_paths_remain_supported(self) -> None:
+        other_owner = (
+            f"{probe.REFERENCE_ROOT_RELATIVE}/architecture-and-state.md"
+        )
+        metadata = probe.mapping_reference_reads(
+            {
+                "metadata": {
+                    "groups": [["synthetic"], {"labels": ["control"]}]
+                }
+            },
+            probe.ROOT,
+            TASK_ID,
+        )
+        paths = probe.mapping_reference_reads(
+            {
+                "metadata": {
+                    "paths": [[OWNER], {"path": other_owner}]
+                }
+            },
+            probe.ROOT,
+            TASK_ID,
+        )
+
+        self.assertEqual((set(), 0), metadata)
+        self.assertEqual(
+            ({OWNER.rsplit("/", 1)[-1], "architecture-and-state.md"}, 2),
+            paths,
+        )
+
     def test_ordinary_metadata_and_path_lists_remain_supported(self) -> None:
         other_owner = (
             f"{probe.REFERENCE_ROOT_RELATIVE}/architecture-and-state.md"
