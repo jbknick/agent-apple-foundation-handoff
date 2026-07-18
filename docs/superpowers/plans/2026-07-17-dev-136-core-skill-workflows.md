@@ -633,6 +633,67 @@ Remove only DEV-136-owned stale temporary artifacts, confirm enough space for on
 new temporary evidence path. A remaining `OSError 28` is an explicit host blocker;
 do not delete unrelated user data or reinterpret it as pass.
 
+## Task 7D: Repair the pinned web-search lifecycle boundary
+
+**Files:**
+
+- Modify: `tests/test_skill_cases.py`
+- Modify: `tests/e2e/codex_skill_forward_tests.py`
+- Verify only: pinned OpenAI `rust-v0.144.5` source at commit
+  `87db9bc18ba5bc82c1cb4e4381b44f693ee35623`
+
+### Step 1: Capture the official lifecycle as RED
+
+The post-cleanup host retry reached Codex case 1, then failed closed as
+`event_stream_invalid`. Pinned official test
+`web_search_start_and_completion_reuse_item_id` proves that Codex 0.144.5 emits a
+web-search start with an empty query and `other` action, then reuses the outer item
+ID while filling the real query/action on completion. Add a regression with that
+exact start/completion transition and negative controls for:
+
+- nonempty start query;
+- any start action other than the closed `{\"type\": \"other\"}` object;
+- mismatched outer IDs;
+- unpaired completion;
+- duplicate keys other than the already approved two `id` fields;
+- malformed or open completion actions.
+
+Run the exact selector and prove it fails only because query/action are currently
+classified as immutable. Commit the RED tests separately.
+
+### Step 2: Implement the narrow lifecycle rule
+
+Remove query/action from cross-event immutable identity checks for web searches.
+Instead, require the exact official placeholder state on `item.started`, validate
+both records with the existing closed schema/type checks, and retain outer-ID pairing
+through completion. Do not change the generic strict JSON loader, the narrow duplicate
+`id` decoder, any other item lifecycle, or scoring behavior.
+
+Run:
+
+```bash
+python3 -m unittest \
+  tests.test_skill_cases.CodexForwardRunnerContractTests.test_codex_01445_web_search_lifecycle_matches_official_output \
+  tests.test_skill_cases.CodexForwardRunnerContractTests.test_codex_jsonl_item_lifecycle_is_fail_closed \
+  tests.test_skill_cases.CodexForwardRunnerContractTests.test_codex_01445_web_search_duplicate_id_is_narrowly_normalized \
+  -v
+python3 -m unittest tests.test_skill_cases -v
+python3 -m unittest discover -s tests -p 'test_*.py' -v
+bats tests/plugin_skeleton.bats
+python3 scripts/sync_generated_artifacts.py --check
+git diff --check
+```
+
+Commit the GREEN runner separately and obtain independent parser review before any
+new authenticated host run.
+
+### Step 3: Retry normalized host evidence
+
+Rerun the exact 25-case command into a new temporary evidence path. Inspect only the
+normalized result, keep the tracked RED baseline unchanged unless all 25 cases pass,
+and record any new fail-closed boundary in DEV-136 plus DEV-139/DEV-141 before further
+changes. Raw prompts, responses, and tool events remain transient and uncommitted.
+
 ## Task 8: Full verification before completion
 
 Invoke `superpowers:verification-before-completion` and run fresh commands.
