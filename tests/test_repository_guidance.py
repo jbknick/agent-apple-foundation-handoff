@@ -45,17 +45,20 @@ STALE_WORKFLOW_CLAIMS = (
     "must not be advertised as active",
     "DEV-136 will create",
     "future `skills/**` and `references/**`",
+    "pending/future `references/**`",
+    "DEV-137 integration blocker",
 )
 WORKFLOW_GUIDANCE_CONTRACTS = (
     "The five production workflows are implemented",
-    "`skills/**` are current plugin-local canonical inputs; pending/future "
-    "`references/**` also belong below that plugin root",
+    "`skills/**` and `references/**` are current plugin-local canonical inputs",
+    "DEV-137 references are integrated and link-resolved",
     "DEV-136 host evidence is Codex-only",
     "Claude execution and cross-host comparison are `blocked/owner-deferred`",
+    "Behavioral capability claims require fresh exact-model DEV-136 forward "
+    "evidence",
+    "Structural integration alone is not a pass",
     "Discovery, file presence, and installation are structural prerequisites and "
     "cannot prove behavioral or capability activation",
-    "known Codex probe failures and the DEV-137 integration blocker mean this "
-    "repository does not claim that all behavioral evidence passes",
 )
 SKILL_OWNED_SECTION_HEADINGS = (
     "Routing and Inspection",
@@ -653,6 +656,14 @@ class RepositoryGuidanceTests(unittest.TestCase):
             mutation = valid.replace(contract, "", 1)
             with self.subTest(contract=contract), self.assertRaises(AssertionError):
                 assert_workflow_guidance_contract(self, mutation)
+
+    def test_guidance_oracle_rejects_stale_integration_claims(self):
+        valid = " ".join((*WORKFLOW_SKILLS, *WORKFLOW_GUIDANCE_CONTRACTS))
+
+        assert_workflow_guidance_contract(self, valid)
+        for claim in STALE_WORKFLOW_CLAIMS:
+            with self.subTest(claim=claim), self.assertRaises(AssertionError):
+                assert_workflow_guidance_contract(self, f"{valid} {claim}")
 
     def test_guidance_does_not_duplicate_skill_owned_contract_sections(self):
         for path in (CANONICAL, GENERATED):
