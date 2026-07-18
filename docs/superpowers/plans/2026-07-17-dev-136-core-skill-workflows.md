@@ -798,6 +798,22 @@ Capture only normalized structural/hash evidence; do not retain raw responses or
 events. A remaining failure returns to RED/GREEN diagnosis. Only after all affected
 boundaries pass, rerun all 25 cases into a new temporary evidence path.
 
+### Step 5: Reject empty completed spawn identities
+
+Independent review of the combined GREEN found that the completed `spawn_agent`
+association accepts `receiver_thread_ids=[""]` with an identically keyed
+`agents_states` map. Add a tests-only negative mutation proving empty receiver IDs
+and empty state-map keys fail closed while a nonempty official lifecycle still
+passes. Then require every completed receiver identity and every associated state key
+to be a nonempty string before checking uniqueness and exact key-set association.
+
+Commit the RED test and GREEN parser separately. Rerun the supported lifecycle,
+every collab transition negative, the complete skill-case suite, repository suite,
+Bats, generation sync, compile, and diff checks. The partial host run from the
+pre-repair head is non-evidence and must be discarded; restart affected host
+boundaries and the full 25-case matrix only from the corrected, independently
+approved head.
+
 ## Task 8: Full verification before completion
 
 Invoke `superpowers:verification-before-completion` and run fresh commands.
