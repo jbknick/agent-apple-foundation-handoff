@@ -142,6 +142,55 @@ class ReferenceCommandGrammarTests(unittest.TestCase):
 
 
 class ReferenceToolPayloadTests(unittest.TestCase):
+    def test_explicit_paths_ownership_remains_supported(self) -> None:
+        controls = {
+            "direct": {"label": "selected", "paths": [OWNER]},
+            "nested passive metadata": {
+                "metadata": {"label": "selected", "paths": [OWNER]}
+            },
+        }
+        expected = ({OWNER.rsplit("/", 1)[-1]}, 1)
+
+        for surface, arguments in controls.items():
+            with self.subTest(surface=surface):
+                try:
+                    observed = probe.mapping_reference_reads(
+                        arguments,
+                        probe.ROOT,
+                        TASK_ID,
+                    )
+                except probe.ProbeFailure as failure:
+                    self.fail(
+                        f"valid explicit paths record rejected: {failure.reason}"
+                    )
+
+                self.assertEqual(expected, observed)
+
+    def test_unowned_split_reference_branches_fail_closed(self) -> None:
+        compact = f'{{"program":["sort"],"args":["{OWNER}"]}}'
+        rejected = {
+            "list siblings": {"program": ["sort"], "args": [OWNER]},
+            "split nested mappings": {
+                "left": {"program": ["sort"]},
+                "right": {"args": [OWNER]},
+            },
+            "compact JSON": compact,
+        }
+
+        for surface, arguments in rejected.items():
+            with self.subTest(surface=surface):
+                with self.assertRaises(probe.ProbeFailure) as raised:
+                    probe.mapping_reference_reads(
+                        arguments,
+                        probe.ROOT,
+                        TASK_ID,
+                    )
+
+                self.assertEqual(
+                    "invalid_tool_event",
+                    raised.exception.reason,
+                )
+
     def test_command_like_structured_payloads_are_not_inferred_as_reads(self) -> None:
         rejected = {
             "unknown argv list": {"argv": ["cat", OWNER]},
