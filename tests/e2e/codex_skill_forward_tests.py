@@ -1163,7 +1163,9 @@ def _validate_codex_item(item: Any, event_type: str) -> dict[str, Any]:
         raise ValueError("Codex JSONL item type is unknown")
     if event_type not in CODEX_JSONL_ITEM_EVENT_TYPES[item_type]:
         raise ValueError("Codex JSONL item lifecycle is invalid")
-    _require_string(item.get("id"), "item id")
+    item_id = _require_string(item.get("id"), "item id")
+    if not item_id.strip():
+        raise ValueError("item id must be a nonblank string")
 
     if item_type in {"agent_message", "reasoning"}:
         _require_closed_object(item, {"id", "type", "text"}, item_type)
@@ -1343,6 +1345,7 @@ def _validate_codex_item(item: Any, event_type: str) -> dict[str, Any]:
 def _codex_jsonl_events(stdout: str) -> list[dict[str, Any]]:
     parsed: list[dict[str, Any]] = []
     terminal_seen = False
+    seen_item_ids: set[str] = set()
     open_items: dict[str, dict[str, Any]] = {}
     open_web_search_inner_ids: dict[str, str] = {}
     top_level_error_seen = False
@@ -1406,6 +1409,9 @@ def _codex_jsonl_events(stdout: str) -> list[dict[str, Any]]:
             item = _validate_codex_item(value["item"], event_type)
             item_id = item["id"]
             if event_type == "item.started":
+                if item_id in seen_item_ids:
+                    raise ValueError("Codex JSONL item identity is reused")
+                seen_item_ids.add(item_id)
                 if item_id in open_items:
                     raise ValueError("Codex JSONL item started more than once")
                 if item["type"] == "web_search":
@@ -1425,10 +1431,15 @@ def _codex_jsonl_events(stdout: str) -> list[dict[str, Any]]:
                     raise ValueError("Codex JSONL item type does not emit updates")
             else:
                 opened = open_items.get(item_id)
-                if item["type"] in CODEX_JSONL_PAIRED_ITEM_TYPES and (
+                paired = item["type"] in CODEX_JSONL_PAIRED_ITEM_TYPES
+                if paired and (
                     opened is None or opened["type"] != item["type"]
                 ):
                     raise ValueError("Codex JSONL item completion is unpaired")
+                if not paired:
+                    if item_id in seen_item_ids:
+                        raise ValueError("Codex JSONL item identity is reused")
+                    seen_item_ids.add(item_id)
                 if item["type"] == "web_search":
                     opened_inner_id = opened[CODEX_JSONL_WEB_SEARCH_INNER_ID]
                     completed_inner_id = item[CODEX_JSONL_WEB_SEARCH_INNER_ID]
