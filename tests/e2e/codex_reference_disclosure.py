@@ -782,24 +782,51 @@ def has_mixed_reference_scalars(value: list[object]) -> bool:
     return has_reference and has_non_reference
 
 
-def contains_reference_path_scalar(value: object) -> bool:
+def structural_scalar_presence(value: object) -> tuple[bool, bool]:
     if isinstance(value, dict):
-        return any(contains_reference_path_scalar(nested) for nested in value.values())
-    if isinstance(value, list):
-        return any(contains_reference_path_scalar(nested) for nested in value)
-    return isinstance(value, str) and is_reference_path_token(value)
-
-
-def contains_program_container(value: object) -> bool:
-    if isinstance(value, dict):
-        return any(
-            (key == "program" and isinstance(nested, (dict, list)))
-            or contains_program_container(nested)
+        if has_direct_reference_path_owner(value):
+            return True, False
+        if "paths" in value and reference_scalar_presence(value["paths"])[0]:
+            return True, False
+        nested_values = (
+            nested
             for key, nested in value.items()
+            if key not in {"cwd", "workdir"}
         )
-    if isinstance(value, list):
-        return any(contains_program_container(nested) for nested in value)
-    return False
+    elif isinstance(value, list):
+        nested_values = iter(value)
+    else:
+        is_reference = isinstance(value, str) and is_reference_path_token(value)
+        return is_reference, not is_reference
+
+    has_reference = False
+    has_non_reference = False
+    for nested in nested_values:
+        nested_reference, nested_non_reference = structural_scalar_presence(nested)
+        has_reference = has_reference or nested_reference
+        has_non_reference = has_non_reference or nested_non_reference
+    return has_reference, has_non_reference
+
+
+def has_ambiguous_structural_siblings(value: dict[str, Any]) -> bool:
+    presences = [
+        structural_scalar_presence(nested)
+        for key, nested in value.items()
+        if key not in {"cwd", "workdir"}
+    ]
+    reference_children = {
+        index for index, (has_reference, _) in enumerate(presences) if has_reference
+    }
+    non_reference_children = {
+        index
+        for index, (_, has_non_reference) in enumerate(presences)
+        if has_non_reference
+    }
+    return any(
+        reference_index != non_reference_index
+        for reference_index in reference_children
+        for non_reference_index in non_reference_children
+    )
 
 
 def contains_structured_command(value: object) -> bool:
@@ -827,7 +854,6 @@ def validate_passive_path_metadata(value: object, task_id: str) -> None:
             "input",
             "path",
             "paths",
-            "program",
         }:
             raise ProbeFailure("invalid_tool_event", task_id)
         for nested in value.values():
@@ -916,6 +942,38 @@ def data_path_collection_reads(
     return observed, read_count
 
 
+def direct_data_path_owner_reads(
+    value: dict[str, Any],
+    base: Path,
+    task_id: str,
+    access_sequence: list[str] | None = None,
+) -> tuple[set[str], int] | None:
+    record = {
+        key: nested
+        for key, nested in value.items()
+        if key not in {"cwd", "workdir"}
+    }
+    if "path" in value or "file_path" in value:
+        return data_path_member_reads(
+            record,
+            base,
+            task_id,
+            access_sequence,
+        )
+    if "paths" not in value:
+        return None
+    validate_passive_path_metadata(
+        {key: nested for key, nested in record.items() if key != "paths"},
+        task_id,
+    )
+    return data_path_collection_reads(
+        value["paths"],
+        base,
+        task_id,
+        access_sequence,
+    )
+
+
 def is_syntactic_command_input(value: str, task_id: str) -> bool:
     _, tokens = parsed_shell_command(value, task_id)
     if not tokens:
@@ -997,9 +1055,17 @@ def mapping_reference_reads(
         return observed, read_count
     if not isinstance(value, dict):
         return observed, read_count
-    if contains_program_container(value) and contains_reference_path_scalar(value):
-        raise ProbeFailure("invalid_tool_event", task_id)
     local_base = declared_working_directory(value, base, task_id)
+    direct_owner_reads = direct_data_path_owner_reads(
+        value,
+        local_base,
+        task_id,
+        access_sequence,
+    )
+    if direct_owner_reads is not None:
+        return direct_owner_reads
+    if has_ambiguous_structural_siblings(value):
+        raise ProbeFailure("invalid_tool_event", task_id)
     for key, nested in value.items():
         if key in {"cwd", "workdir"}:
             continue
