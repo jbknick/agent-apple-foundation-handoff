@@ -674,7 +674,8 @@ Run:
 ```bash
 python3 -m unittest \
   tests.test_skill_cases.CodexForwardRunnerContractTests.test_codex_01445_web_search_lifecycle_matches_official_output \
-  tests.test_skill_cases.CodexForwardRunnerContractTests.test_codex_jsonl_item_lifecycle_is_fail_closed \
+  tests.test_skill_cases.CodexForwardRunnerContractTests.test_codex_01445_jsonl_schemas_and_command_lifecycle_are_exact \
+  tests.test_skill_cases.CodexForwardRunnerContractTests.test_codex_01445_noncommand_item_lifecycles_and_statuses_are_exact \
   tests.test_skill_cases.CodexForwardRunnerContractTests.test_codex_01445_web_search_duplicate_id_is_narrowly_normalized \
   -v
 python3 -m unittest tests.test_skill_cases -v
