@@ -582,6 +582,30 @@ Repeat focused, forward-runner, full skill-case, synthetic fault, compile, and d
 checks, followed by a fresh independent review. The first Step 2 GREEN is not approved
 evidence by itself.
 
+### Step 2B: Make cleanup ownership-safe under descriptor and path replacement
+
+Add test-only RED coverage for review-discovered adversarial cases:
+
+- a close call that takes effect, reports an error, and is followed by immediate
+  reuse of the same descriptor number must never cause a second close;
+- after direct truncate failure, replacement of the output pathname by a hardlink to
+  another inode must not truncate or unlink the replacement;
+- direct truncate plus path-open failure must still zero the original private bytes
+  through the owned output handle; and
+- bound-copy construction failure combined with transient unlink or rmdir failure must
+  leave neither the copy nor its directory.
+
+Then transfer the `mkstemp` descriptor into a single owned unbuffered binary file
+object, close that owner exactly once, and remove numeric close retry/probing. Capture
+the original regular-file `(device, inode)` once and never replace it; every no-follow
+path fallback must match that identity before touching the path. If truncate fails,
+overwrite the original length with zero bytes through the owned handle, flush, and
+fsync. Apply retried path cleanup inside `_bound_executable_copy` construction-failure
+handling. Preserve all Step 2A status, ordering, privacy, sink, and no-retry semantics.
+
+Commit RED tests and GREEN runner separately. Require another clean independent fault
+review before Step 3; neither earlier GREEN is final evidence by itself.
+
 ### Step 3: Verify storage and retry the matrix
 
 Remove only DEV-136-owned stale temporary artifacts, confirm enough space for one
