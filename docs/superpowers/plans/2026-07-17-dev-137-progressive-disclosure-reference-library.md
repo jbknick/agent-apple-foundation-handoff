@@ -1262,3 +1262,99 @@ DEV-137 reference range remains independently reviewable from DEV-138 below and
 DEV-136 above. The combined-tip evidence commit records only normalized
 metadata/hashes and does not absorb DEV-136 production skill content into the
 DEV-137 reference commits.
+
+### Task 8: Repair final-review fail-open command parsing
+
+**Files:**
+- Modify: `tests/test_codex_reference_disclosure.py`
+- Modify: `tests/e2e/codex_reference_disclosure.py`
+- Verify: `tests/test_reference_library.py`
+- Verify: `tests/e2e/codex_workflow_progressive_disclosure.py`
+- Verify: `docs/research/evidence/dev-137-reference-library-e2e.md`
+
+**Decision:** Preserve the closed-world two-item proof: one command item owns
+directory discovery and a second, distinct command item owns one targeted
+reference read. Reject any item that attempts to encode both phases, any
+indirect command envelope that hides an additional executable or bulk path,
+and any structured command representation outside the pinned string grammar.
+Normalize malformed and duplicate-key JSON tool payloads to `ProbeFailure`
+without leaking parser implementation exceptions.
+
+- [ ] **Step 1: Add focused RED regressions**
+
+Add tests that reproduce all independently reviewed defects:
+
+1. A single MCP/tool item containing nested discovery and targeted-read
+   commands must fail even if its flattened access labels appear ordered.
+2. `env rg Apple .`, `cat *.md` from the reference directory, and nested
+   structured command arrays such as `{"command":["rg","needle",owner,"."]}`
+   must fail closed.
+3. Malformed JSON and duplicate-key JSON must raise `ProbeFailure` with the
+   stable `invalid_tool_event` reason, never `NameError` or raw `ValueError`.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v \
+  tests.test_codex_reference_disclosure.ReferenceAccessSequenceTests \
+  tests.test_codex_reference_disclosure.ReferenceCommandGrammarTests \
+  tests.test_codex_reference_disclosure.ReferenceToolPayloadTests
+git diff --check
+```
+
+Expected RED: only the new supported-oracle assertions fail against the current
+parser; existing rejection tests remain green. Commit only the test file as
+`test(DEV-137): close reference parser review gaps`.
+
+- [ ] **Step 2: Implement the narrow GREEN parser repair**
+
+In `tests/e2e/codex_reference_disclosure.py`, retain access observations per
+top-level tool item rather than appending phase labels from recursively nested
+values. Validate exactly one pinned command string per relevant item; reject
+structured command arrays and indirect executable prefixes before path/read
+classification. Treat wildcard directory reads and reference-root search
+targets as bulk access. Catch the duplicate-key hook's actual exception type
+alongside JSON decoding errors and rethrow only `ProbeFailure`.
+
+Do not broaden executable support, weaken exact command-item lifecycle checks,
+or modify fixtures/evidence to obtain a pass.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v \
+  tests.test_codex_reference_disclosure.ReferenceAccessSequenceTests \
+  tests.test_codex_reference_disclosure.ReferenceCommandGrammarTests \
+  tests.test_codex_reference_disclosure.ReferenceToolPayloadTests
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v \
+  tests.test_codex_reference_disclosure
+python3 -m py_compile tests/e2e/codex_reference_disclosure.py
+git diff --check
+```
+
+Expected GREEN: all focused and complete parser tests pass. Commit only the
+parser file as `fix(DEV-137): fail closed on ambiguous reference access`.
+
+- [ ] **Step 3: Verify the complete DEV-137 boundary and Codex host row**
+
+Run the existing Task 7 offline, source, compile/interface, privacy, generated
+artifact, Bats, and repository gates. Then rerun the exact pinned Codex-only
+progressive-disclosure host command from the evidence document at the repaired
+head. Do not run Claude Code in this phase. Preserve raw evidence outside the
+repository and record only normalized hashes/results.
+
+```bash
+python3 scripts/sync_generated_artifacts.py --check
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+  -s tests -p 'test_*.py' -v
+bats tests/plugin_skeleton.bats
+git diff --check
+```
+
+Expected: every repository gate passes; the Codex row proves two distinct
+tool-item invocations in discovery-then-targeted-read order, or records an
+explicit blocker/failure. Obtain a fresh independent review of the two repair
+commits before restoring DEV-137 to Done.
+
+**Repair commit boundaries:**
+
+1. `test(DEV-137): close reference parser review gaps`
+2. `fix(DEV-137): fail closed on ambiguous reference access`
+3. `docs(DEV-137): record repaired Codex disclosure evidence` only after a
+   real host pass; never create this commit for blocked or failing evidence.
