@@ -775,8 +775,9 @@ def _bound_executable_copy(snapshot: dict[str, Any]) -> tuple[str, Path, Path]:
                     raise OSError("bound executable copy did not make progress")
                 remaining = remaining[written:]
         os.fsync(bound_descriptor)
-        os.close(bound_descriptor)
+        descriptor_to_close = bound_descriptor
         bound_descriptor = -1
+        os.close(descriptor_to_close)
         captured_copy = capture_executable(str(bound_path))
         if captured_copy["executableSha256"] != expected_digest:
             raise ValueError("bound executable copy digest mismatch")
@@ -934,9 +935,8 @@ def _cleanup_private_output(
         )
     zeroized = truncated or path_zeroized
 
-    unlinked = False
+    unlinked = output_path is None
     parent_descriptor = -1
-    path_matches = False
     if output_path is not None:
         try:
             parent_descriptor = _open_directory_no_symlinks(output_path.parent)
@@ -950,6 +950,9 @@ def _cleanup_private_output(
                 and stat.S_ISREG(before.st_mode)
                 and expected_identity == (before.st_dev, before.st_ino)
             )
+            if path_matches:
+                os.unlink(output_path.name, dir_fd=parent_descriptor)
+                unlinked = True
         except FileNotFoundError:
             unlinked = True
         except (OSError, ValueError):
@@ -961,20 +964,21 @@ def _cleanup_private_output(
             owner.close()
         except (OSError, ValueError):
             closed = False
-    if output_path is None:
-        return zeroized and closed
-
-    try:
-        if path_matches:
-            os.unlink(output_path.name, dir_fd=parent_descriptor)
-            unlinked = True
-    except FileNotFoundError:
-        unlinked = True
-    except (OSError, ValueError):
-        pass
-    finally:
-        if parent_descriptor >= 0 and not _close_descriptor(parent_descriptor):
+    if output_path is not None and unlinked:
+        try:
+            os.stat(
+                output_path.name,
+                dir_fd=parent_descriptor,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            pass
+        except (OSError, ValueError):
             unlinked = False
+        else:
+            unlinked = False
+    if parent_descriptor >= 0 and not _close_descriptor(parent_descriptor):
+        unlinked = False
     return zeroized and closed and unlinked
 
 
@@ -1505,10 +1509,11 @@ def run_host(
                 if not stat.S_ISREG(opened.st_mode):
                     raise ValueError("private output must be a regular file")
                 output_identity = (opened.st_dev, opened.st_ino)
-                output_owner = os.fdopen(
-                    output_descriptor, "r+b", buffering=0
-                )
+                descriptor_to_transfer = output_descriptor
                 output_descriptor = -1
+                output_owner = os.fdopen(
+                    descriptor_to_transfer, "r+b", buffering=0
+                )
             except (OSError, ValueError):
                 if output_descriptor >= 0:
                     allocation_descriptor_closed = _close_descriptor(
