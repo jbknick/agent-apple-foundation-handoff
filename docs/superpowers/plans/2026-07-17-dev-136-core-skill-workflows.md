@@ -552,11 +552,35 @@ In `run_host`, unlink the per-case bound executable and remove its private direc
 immediately after `process_runner` returns or raises, before calling the independent
 post-capture prerequisite checker. Keep the existing `finally` cleanup idempotent as
 defense in depth. Do not alter snapshot identity, digest comparison, prerequisite
-classification, evidence status derivation, raw-response cleanup, or retry behavior.
+classification, evidence status derivation, or retry behavior.
 
 Run the focused lifecycle tests, all `CodexForwardRunnerContractTests`, and the full
 `tests.test_skill_cases` module. Commit only
 `tests/e2e/codex_skill_forward_tests.py` as the GREEN boundary.
+
+### Step 2A: Close the review-discovered failure-atomicity gaps
+
+Independent review must inject and reproduce all of these faults without a model:
+
+- output-temp descriptor close/allocation failure;
+- bound-copy unlink/rmdir failure while output allocation fails; and
+- raw-output unlink failure after private response bytes exist.
+
+Commit test-only RED coverage proving that none of these paths may leak a descriptor,
+bound executable, private directory, or raw response, and none may escape a traceback.
+
+Then retain the secure `mkstemp` descriptor through the child lifetime and put output
+allocation inside the same per-case cleanup envelope. Final cleanup must zeroize the
+output inode before close/unlink, use a no-follow path fallback when descriptor
+zeroization is unavailable, and retry idempotent bound cleanup on every exit. An
+unresolved bound cleanup fault returns normalized
+`fail/post_capture_prerequisite_drift`; an unresolved private-output cleanup fault
+returns normalized fail. Preserve the Step 2 ordering and commit only the runner as a
+follow-up GREEN boundary.
+
+Repeat focused, forward-runner, full skill-case, synthetic fault, compile, and diff
+checks, followed by a fresh independent review. The first Step 2 GREEN is not approved
+evidence by itself.
 
 ### Step 3: Verify storage and retry the matrix
 
