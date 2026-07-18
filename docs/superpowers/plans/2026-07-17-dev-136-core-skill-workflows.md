@@ -606,6 +606,26 @@ handling. Preserve all Step 2A status, ordering, privacy, sink, and no-retry sem
 Commit RED tests and GREEN runner separately. Require another clean independent fault
 review before Step 3; neither earlier GREEN is final evidence by itself.
 
+### Step 2C: Order ownership transfer and pathname removal safely
+
+Add test-only RED coverage for the final review findings:
+
+- an output-owner constructor that consumes/closes the descriptor, reuses its number,
+  and then raises must not let the caller close the replacement descriptor;
+- a replacement pathname installed during the owner's single close must remain present
+  and unmodified, and the case must normalize to fail; and
+- a bound-copy close that takes effect, reuses its number, and raises must not be
+  followed by a second close in final cleanup.
+
+Then move each numeric descriptor to its unowned sentinel before calling `os.fdopen`
+or the explicit bound-copy `os.close`. Zeroize and identity-check the original output,
+unlink that verified original path while the owner is still open, close the owner once,
+and afterward only verify pathname absence. Never unlink a post-close replacement.
+Preserve every prior cleanup, identity, blocker, sink, and no-retry rule.
+
+Commit RED tests and GREEN runner separately, run all prior focused cases and full
+suites, and obtain clean independent approval before Step 3.
+
 ### Step 3: Verify storage and retry the matrix
 
 Remove only DEV-136-owned stale temporary artifacts, confirm enough space for one
