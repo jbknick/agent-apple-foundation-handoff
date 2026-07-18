@@ -193,7 +193,6 @@ CODEX_JSONL_IMMUTABLE_IDENTITY_FIELDS = {
     "collab_tool_call": (
         "tool", "sender_thread_id", "receiver_thread_ids", "prompt",
     ),
-    "web_search": ("query", "action"),
 }
 
 TRUSTED_SYSTEM_PATH_ALIASES = {
@@ -1271,6 +1270,10 @@ def _validate_codex_item(item: Any, event_type: str) -> dict[str, Any]:
         _require_closed_object(item, {"id", "type", "query", "action"}, "web search")
         _require_string(item["query"], "web search query", nonempty=False)
         _validate_web_search_action(item["action"])
+        if event_type == "item.started" and (
+            item["query"] != "" or item["action"] != {"type": "other"}
+        ):
+            raise ValueError("web search start state is malformed")
     elif item_type == "todo_list":
         _require_closed_object(item, {"id", "type", "items"}, "todo list")
         if type(item["items"]) is not list:
