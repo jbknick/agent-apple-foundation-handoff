@@ -1645,6 +1645,11 @@ class CodexPluginLoadContractTests(unittest.TestCase):
         ".claude-plugin/plugin.json",
         ".codex-plugin/plugin.json",
         "metadata/codex-interface.json",
+        "references/apple-api-availability.md",
+        "references/architecture-and-state.md",
+        "references/evaluation-and-observability.md",
+        "references/orchestration-patterns.md",
+        "references/security-context-and-recovery.md",
         "skills/design-apple-foundation-models-handoff/SKILL.md",
         "skills/implement-apple-foundation-models-handoff/SKILL.md",
         "skills/review-apple-foundation-models-handoff/SKILL.md",
@@ -1655,6 +1660,7 @@ class CodexPluginLoadContractTests(unittest.TestCase):
         ".claude-plugin",
         ".codex-plugin",
         "metadata",
+        "references",
         "skills",
         "skills/design-apple-foundation-models-handoff",
         "skills/implement-apple-foundation-models-handoff",
@@ -1781,7 +1787,9 @@ class CodexPluginLoadContractTests(unittest.TestCase):
             ):
                 return module.probe(str(executable), executable, executable)
 
-    def test_plugin_load_accepts_exact_eight_file_directory_closure(self) -> None:
+    def test_plugin_load_accepts_exact_combined_approved_package_closure(
+        self,
+    ) -> None:
         module = self.probe_module
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
