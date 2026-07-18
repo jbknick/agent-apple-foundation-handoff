@@ -1292,7 +1292,10 @@ Add tests that reproduce all independently reviewed defects:
 3. Structured `argv`, structured `input`, and JSON-string command envelopes
    under otherwise unknown mapping keys must fail before recursive path
    inference in both strict and reusable non-strict parser paths.
-4. Malformed JSON and duplicate-key JSON must raise `ProbeFailure` with the
+4. Bare and JSON-encoded command-like argv arrays under direct arguments,
+   compact `input`, and unknown nested keys must fail before scalar recursion;
+   ordinary metadata/path lists must remain valid controls.
+5. Malformed JSON and duplicate-key JSON must raise `ProbeFailure` with the
    stable `invalid_tool_event` reason, never `NameError` or raw `ValueError`.
 
 ```bash
@@ -1313,7 +1316,8 @@ In `tests/e2e/codex_reference_disclosure.py`, retain access observations per
 top-level tool item rather than appending phase labels from recursively nested
 values. Validate exactly one pinned command string per relevant item; reject
 structured command arrays, command-like `argv`/`input` containers, JSON-string
-command envelopes, and indirect executable prefixes before path/read
+object or array command envelopes, bare command-like arrays at any nesting
+level, and indirect executable prefixes before path/read
 classification in strict and non-strict modes. Treat wildcard directory reads and reference-root search
 targets as bulk access. Catch the duplicate-key hook's actual exception type
 alongside JSON decoding errors and rethrow only `ProbeFailure`.
