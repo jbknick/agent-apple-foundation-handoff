@@ -52,6 +52,7 @@ EARLY_STOP_REASONS = {
     "source_worktree_drift",
 }
 PRE_RESPONSE_REASONS = {
+    "bound_copy_unavailable",
     "fixture_contract_invalid",
     "missing_binary",
     "nonregular_binary",
@@ -523,6 +524,9 @@ def _evidence_prerequisite_statuses(
         values["binary"] = "pass" if has_identity else "not_applicable"
         values["version"] = "blocked"
         return values
+    if blocker == "bound_copy_unavailable":
+        values["binary"] = "pass" if has_identity else "blocked"
+        return values
 
     values["binary"] = "pass" if has_identity else "blocked"
     values["version"] = "pass"
@@ -852,8 +856,10 @@ def _precondition_blocker(snapshot: dict[str, Any]) -> str | None:
         _validate_capture(capture)
     except (KeyError, ValueError):
         return "post_capture_prerequisite_drift"
+    if snapshot.get("captureError") == "bound_copy_failure":
+        return "bound_copy_unavailable"
     if snapshot.get("captureError") in {
-        "bound_copy_failure", "bound_copy_cleanup_failed",
+        "bound_copy_identity_drift", "bound_copy_cleanup_failed",
     }:
         return "post_capture_prerequisite_drift"
     if snapshot.get("captureError") in {
@@ -2806,7 +2812,7 @@ def default_prerequisite_checker(
     captured_executable = captured["resolvedExecutable"]
     try:
         execution_path, bound_path, bound_root = _bound_executable_copy(captured)
-    except (OSError, ValueError):
+    except (OSError, ValueError) as error:
         return {
             **capture,
             **captured,
@@ -2816,8 +2822,12 @@ def default_prerequisite_checker(
             "pluginAvailable": False,
             "discovery": "blocked",
             "installation": "blocked",
-            "captureError": "bound_copy_failure",
-            "preflightBoundCopyCleanup": "fail",
+            "captureError": (
+                "bound_copy_failure"
+                if isinstance(error, OSError)
+                else "bound_copy_identity_drift"
+            ),
+            "preflightBoundCopyCleanup": "not_applicable",
         }
     bound_digest = capture_executable(str(bound_path))["executableSha256"]
     capture["boundExecutableCopySha256"] = bound_digest
