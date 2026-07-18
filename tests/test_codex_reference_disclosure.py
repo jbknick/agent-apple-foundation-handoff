@@ -168,6 +168,49 @@ class ReferenceToolPayloadTests(unittest.TestCase):
                     raised.exception.reason,
                 )
 
+    def test_argv_arrays_are_not_inferred_as_targeted_reads(self) -> None:
+        compact_argv = f'["cat","{OWNER}"]'
+        rejected = {
+            "direct arguments": ["cat", OWNER],
+            "JSON-encoded arguments": compact_argv,
+            "unknown metadata list": {
+                "metadata": {"values": ["cat", OWNER]}
+            },
+            "unknown metadata JSON string": {
+                "metadata": {"values": compact_argv}
+            },
+            "compact input JSON array": {"input": compact_argv},
+        }
+
+        for surface, arguments in rejected.items():
+            with self.subTest(surface=surface):
+                with self.assertRaises(probe.ProbeFailure) as raised:
+                    probe.mapping_reference_reads(
+                        arguments,
+                        probe.ROOT,
+                        TASK_ID,
+                    )
+
+                self.assertEqual(
+                    "invalid_tool_event",
+                    raised.exception.reason,
+                )
+
+    def test_ordinary_metadata_and_path_lists_remain_supported(self) -> None:
+        metadata = probe.mapping_reference_reads(
+            {"metadata": ["synthetic", "control"]},
+            probe.ROOT,
+            TASK_ID,
+        )
+        paths = probe.mapping_reference_reads(
+            {"paths": [OWNER]},
+            probe.ROOT,
+            TASK_ID,
+        )
+
+        self.assertEqual((set(), 0), metadata)
+        self.assertEqual(({OWNER.rsplit("/", 1)[-1]}, 1), paths)
+
     def test_malformed_json_is_normalized(self) -> None:
         arguments = f'{{"path":"{OWNER}"'
 
