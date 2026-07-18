@@ -782,16 +782,8 @@ def _bound_executable_copy(snapshot: dict[str, Any]) -> tuple[str, Path, Path]:
             raise ValueError("bound executable copy digest mismatch")
         return expected_path, bound_path, bound_root
     except Exception:
-        if bound_path is not None:
-            try:
-                bound_path.unlink()
-            except FileNotFoundError:
-                pass
-        if bound_root is not None:
-            try:
-                bound_root.rmdir()
-            except OSError:
-                pass
+        if bound_path is not None and bound_root is not None:
+            _retry_bound_executable_cleanup(bound_path, bound_root)
         raise
     finally:
         if bound_descriptor >= 0:
@@ -829,24 +821,19 @@ def _retry_bound_executable_cleanup(bound_path: Path, bound_root: Path) -> bool:
 
 
 def _close_descriptor(descriptor: int) -> bool:
-    for _attempt in range(2):
-        try:
-            os.close(descriptor)
-            return True
-        except OSError:
-            try:
-                os.fstat(descriptor)
-            except OSError:
-                return True
-    return False
+    try:
+        os.close(descriptor)
+        return True
+    except OSError:
+        return False
 
 
 def _zeroize_output_path_no_symlinks(
     output_path: Path,
-) -> tuple[bool, tuple[int, int] | None]:
+    expected_identity: tuple[int, int],
+) -> bool:
     parent_descriptor = -1
     descriptor = -1
-    identity: tuple[int, int] | None = None
     zeroized = False
     try:
         parent_descriptor = _open_directory_no_symlinks(output_path.parent)
@@ -855,8 +842,11 @@ def _zeroize_output_path_no_symlinks(
             dir_fd=parent_descriptor,
             follow_symlinks=False,
         )
-        if not stat.S_ISREG(before.st_mode):
-            return False, None
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or (before.st_dev, before.st_ino) != expected_identity
+        ):
+            return False
         descriptor = os.open(
             output_path.name,
             os.O_WRONLY
@@ -865,12 +855,11 @@ def _zeroize_output_path_no_symlinks(
             dir_fd=parent_descriptor,
         )
         opened = os.fstat(descriptor)
-        identity = (opened.st_dev, opened.st_ino)
         if (
             not stat.S_ISREG(opened.st_mode)
-            or identity != (before.st_dev, before.st_ino)
+            or (opened.st_dev, opened.st_ino) != expected_identity
         ):
-            return False, identity
+            return False
         os.ftruncate(descriptor, 0)
         os.fsync(descriptor)
         zeroized = True
@@ -881,50 +870,104 @@ def _zeroize_output_path_no_symlinks(
             zeroized = False
         if parent_descriptor >= 0 and not _close_descriptor(parent_descriptor):
             zeroized = False
-    return zeroized, identity
+    return zeroized
 
 
-def _cleanup_private_output(descriptor: int, output_path: Path | None) -> bool:
-    if descriptor < 0 and output_path is None:
+def _zeroize_owned_output(
+    owner: Any,
+    expected_identity: tuple[int, int],
+) -> bool:
+    try:
+        descriptor = owner.fileno()
+        opened = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or (opened.st_dev, opened.st_ino) != expected_identity
+        ):
+            return False
+        original_size = opened.st_size
+        truncated = True
+        try:
+            owner.truncate(0)
+        except (OSError, ValueError):
+            truncated = False
+            owner.seek(0)
+            remaining = original_size
+            zeroes = bytes(1024 * 1024)
+            while remaining:
+                written = owner.write(zeroes[: min(remaining, len(zeroes))])
+                if type(written) is not int or written <= 0:
+                    return False
+                remaining -= written
+        owner.flush()
+        os.fsync(descriptor)
+        after = os.fstat(descriptor)
+        sanitized = (
+            stat.S_ISREG(after.st_mode)
+            and (after.st_dev, after.st_ino) == expected_identity
+        )
+        return sanitized and truncated
+    except (OSError, ValueError):
+        return False
+
+
+def _cleanup_private_output(
+    owner: Any | None,
+    output_path: Path | None,
+    expected_identity: tuple[int, int] | None,
+) -> bool:
+    if owner is None and output_path is None:
         return True
 
-    identity: tuple[int, int] | None = None
-    zeroized = False
-    if descriptor >= 0:
-        try:
-            opened = os.fstat(descriptor)
-            if stat.S_ISREG(opened.st_mode):
-                identity = (opened.st_dev, opened.st_ino)
-                os.ftruncate(descriptor, 0)
-                os.fsync(descriptor)
-                zeroized = True
-        except OSError:
-            pass
+    truncated = False
+    if owner is not None and expected_identity is not None:
+        truncated = _zeroize_owned_output(owner, expected_identity)
 
-    if not zeroized and output_path is not None:
-        zeroized, identity = _zeroize_output_path_no_symlinks(output_path)
-
-    closed = descriptor < 0 or _close_descriptor(descriptor)
-    if output_path is None:
-        return zeroized and closed
+    path_zeroized = False
+    if (
+        not truncated
+        and output_path is not None
+        and expected_identity is not None
+    ):
+        path_zeroized = _zeroize_output_path_no_symlinks(
+            output_path, expected_identity
+        )
+    zeroized = truncated or path_zeroized
 
     unlinked = False
     parent_descriptor = -1
+    path_matches = False
+    if output_path is not None:
+        try:
+            parent_descriptor = _open_directory_no_symlinks(output_path.parent)
+            before = os.stat(
+                output_path.name,
+                dir_fd=parent_descriptor,
+                follow_symlinks=False,
+            )
+            path_matches = (
+                expected_identity is not None
+                and stat.S_ISREG(before.st_mode)
+                and expected_identity == (before.st_dev, before.st_ino)
+            )
+        except FileNotFoundError:
+            unlinked = True
+        except (OSError, ValueError):
+            pass
+
+    closed = True
+    if owner is not None:
+        try:
+            owner.close()
+        except (OSError, ValueError):
+            closed = False
+    if output_path is None:
+        return zeroized and closed
+
     try:
-        parent_descriptor = _open_directory_no_symlinks(output_path.parent)
-        before = os.stat(
-            output_path.name,
-            dir_fd=parent_descriptor,
-            follow_symlinks=False,
-        )
-        if (
-            identity is None
-            or not stat.S_ISREG(before.st_mode)
-            or identity != (before.st_dev, before.st_ino)
-        ):
-            return False
-        os.unlink(output_path.name, dir_fd=parent_descriptor)
-        unlinked = True
+        if path_matches:
+            os.unlink(output_path.name, dir_fd=parent_descriptor)
+            unlinked = True
     except FileNotFoundError:
         unlinked = True
     except (OSError, ValueError):
@@ -935,14 +978,21 @@ def _cleanup_private_output(descriptor: int, output_path: Path | None) -> bool:
     return zeroized and closed and unlinked
 
 
-def _read_output_descriptor(descriptor: int) -> bytes:
+def _read_output_owner(
+    owner: Any,
+    expected_identity: tuple[int, int],
+) -> bytes:
+    descriptor = owner.fileno()
     opened = os.fstat(descriptor)
-    if not stat.S_ISREG(opened.st_mode):
+    if (
+        not stat.S_ISREG(opened.st_mode)
+        or (opened.st_dev, opened.st_ino) != expected_identity
+    ):
         raise ValueError("private output must be a regular file")
-    os.lseek(descriptor, 0, os.SEEK_SET)
+    owner.seek(0)
     chunks: list[bytes] = []
     while True:
-        chunk = os.read(descriptor, 1024 * 1024)
+        chunk = owner.read(1024 * 1024)
         if not chunk:
             break
         chunks.append(chunk)
@@ -1432,7 +1482,10 @@ def run_host(
             )
             return FAIL, evidence
 
-        descriptor = -1
+        output_descriptor = -1
+        output_owner: Any | None = None
+        output_identity: tuple[int, int] | None = None
+        allocation_descriptor_closed = True
         output_path: Path | None = None
         completed: subprocess.CompletedProcess[str] | None = None
         process_error = False
@@ -1444,11 +1497,24 @@ def run_host(
         bound_boundary_clean = True
         try:
             try:
-                descriptor, output_name = tempfile.mkstemp(
+                output_descriptor, output_name = tempfile.mkstemp(
                     prefix="dev136-codex-", suffix=".txt"
                 )
                 output_path = Path(output_name)
-            except OSError:
+                opened = os.fstat(output_descriptor)
+                if not stat.S_ISREG(opened.st_mode):
+                    raise ValueError("private output must be a regular file")
+                output_identity = (opened.st_dev, opened.st_ino)
+                output_owner = os.fdopen(
+                    output_descriptor, "r+b", buffering=0
+                )
+                output_descriptor = -1
+            except (OSError, ValueError):
+                if output_descriptor >= 0:
+                    allocation_descriptor_closed = _close_descriptor(
+                        output_descriptor
+                    )
+                    output_descriptor = -1
                 case_code = FAIL
                 case_blocker = "process_failed"
                 case_status = "fail"
@@ -1514,7 +1580,11 @@ def run_host(
                         case_status = "fail"
                     else:
                         try:
-                            response = _read_output_descriptor(descriptor)
+                            if output_owner is None or output_identity is None:
+                                raise ValueError("private output owner is unavailable")
+                            response = _read_output_owner(
+                                output_owner, output_identity
+                            )
                             events = _tool_events(completed.stdout)
                         except (OSError, ValueError):
                             case_code = FAIL
@@ -1536,7 +1606,10 @@ def run_host(
                                 case_blocker = "scoring_failed"
                                 case_status = "fail"
         finally:
-            output_clean = _cleanup_private_output(descriptor, output_path)
+            output_clean = _cleanup_private_output(
+                output_owner, output_path, output_identity
+            )
+            output_clean = output_clean and allocation_descriptor_closed
             bound_final_clean = _retry_bound_executable_cleanup(
                 bound_path, bound_root
             )
