@@ -25,7 +25,8 @@ BLOCKED = 2
 EXPECTED_MODEL = "gpt-5.6-sol"
 EXPECTED_CODEX_VERSION = "0.144.5"
 
-ROOT = Path(__file__).resolve().parents[2]
+SOURCE_ROOT = Path(__file__).resolve().parents[2]
+ROOT = SOURCE_ROOT
 CANONICAL_FIXTURE = ROOT / "tests/fixtures/dev-136-codex-skill-cases.json"
 OFFICIAL_FIXTURE_SHA256 = (
     "de255f68d724c3b3fdb610d2d9b2ce9f131d7e52ea1cd76cfa02ec7bdfed85f1"
@@ -63,14 +64,32 @@ PRE_RESPONSE_REASONS = {
 }
 EVIDENCE_KEYS = {
     "schemaVersion", "sourceIssue", "evidenceKind", "mode", "status",
-    "model", "codexVersion", "fixtureSha256", "host", "privacy",
+    "model", "codexVersion", "captureCommit", "fixtureSha256",
+    "skillPayloadSha256", "plugin", "host", "cleanup", "privacy",
     "summary", "cases",
 }
 HOST_KEYS = {
     "name", "version", "model", "modelSelection", "sessionMode",
-    "resolvedExecutableSha256", "prerequisites", "blockerReason",
-    "claudeInvoked",
+    "resolvedExecutableSha256", "boundExecutableCopySha256",
+    "prerequisites", "blockerReason", "claudePolicy", "claudeInvoked",
 }
+HOST_KEY_ORDER = (
+    "name", "version", "model", "modelSelection", "sessionMode",
+    "resolvedExecutableSha256", "boundExecutableCopySha256",
+    "prerequisites", "blockerReason", "claudePolicy", "claudeInvoked",
+)
+CAPTURE_KEYS = (
+    "captureCommit", "skillPayloadSha256", "pluginSelector",
+    "sourceManifestSha256", "installedManifestSha256",
+    "boundExecutableCopySha256",
+)
+PLUGIN_KEYS = (
+    "selector", "sourceManifestSha256", "installedManifestSha256",
+)
+CLEANUP_KEYS = (
+    "privateOutput", "boundExecutableCopy", "hostWorktreeRegistration",
+    "hostWorktreeDirectory", "sourceWorktree",
+)
 PREREQUISITE_KEYS = {
     "binary", "version", "authentication", "model", "pluginActivation",
     "discovery", "installation",
@@ -105,6 +124,7 @@ FORBIDDEN_KEYS = {
     "transcript",
 }
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+COMMIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 ABSOLUTE_PATH_RE = re.compile(
     r"(?<![A-Za-z0-9_.-])/(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+"
 )
@@ -226,9 +246,20 @@ class ExecutableCaptureError(ValueError):
 
 
 class HostCaseIsolationError(OSError):
-    def __init__(self, reason: str) -> None:
+    def __init__(
+        self, reason: str, cleanup: dict[str, str] | None = None
+    ) -> None:
         super().__init__(reason)
         self.reason = reason
+        self.cleanup = (
+            {
+                "hostWorktreeRegistration": "not_applicable",
+                "hostWorktreeDirectory": "not_applicable",
+                "sourceWorktree": "not_applicable",
+            }
+            if cleanup is None
+            else copy.deepcopy(cleanup)
+        )
 
 
 def _sha256(data: bytes) -> str:
@@ -341,6 +372,54 @@ def _validate_hash(value: Any, label: str, *, nullable: bool = False) -> None:
         return
     if type(value) is not str or SHA256_RE.fullmatch(value) is None:
         raise ValueError(f"{label} must be a lowercase SHA-256")
+
+
+def _validate_capture(capture: dict[str, Any]) -> None:
+    if type(capture) is not dict or tuple(capture) != CAPTURE_KEYS:
+        raise ValueError("capture schema is not closed and ordered")
+    if (
+        type(capture["captureCommit"]) is not str
+        or COMMIT_SHA_RE.fullmatch(capture["captureCommit"]) is None
+    ):
+        raise ValueError("capture commit must be a full lowercase SHA")
+    payloads = capture["skillPayloadSha256"]
+    if type(payloads) is not dict or tuple(payloads) != ALL_CAPABILITIES:
+        raise ValueError("skill payload capture is not closed and ordered")
+    for skill, digest in payloads.items():
+        _validate_hash(digest, f"skillPayloadSha256.{skill}")
+    if capture["pluginSelector"] != PLUGIN_SELECTOR:
+        raise ValueError("plugin selector capture mismatch")
+    _validate_hash(capture["sourceManifestSha256"], "sourceManifestSha256")
+    _validate_hash(
+        capture["installedManifestSha256"],
+        "installedManifestSha256",
+        nullable=True,
+    )
+    _validate_hash(
+        capture["boundExecutableCopySha256"],
+        "boundExecutableCopySha256",
+        nullable=True,
+    )
+
+
+def _evidence_plugin(capture: dict[str, Any]) -> dict[str, Any]:
+    _validate_capture(capture)
+    return {
+        "selector": capture["pluginSelector"],
+        "sourceManifestSha256": capture["sourceManifestSha256"],
+        "installedManifestSha256": capture["installedManifestSha256"],
+    }
+
+
+def _cleanup_outcomes(**overrides: str) -> dict[str, str]:
+    outcomes = {key: "not_applicable" for key in CLEANUP_KEYS}
+    outcomes.update(overrides)
+    if tuple(outcomes) != CLEANUP_KEYS or any(
+        type(value) is not str or value not in STATUSES
+        for value in outcomes.values()
+    ):
+        raise ValueError("cleanup outcome schema is not closed")
+    return outcomes
 
 
 def _validate_observation(observation: dict[str, Any]) -> None:
@@ -472,11 +551,13 @@ def _evidence_prerequisite_statuses(
 
 def _host_metadata(
     mode: str,
+    capture: dict[str, Any],
     snapshot: dict[str, Any] | None = None,
     blocker: str | None = None,
     *,
     activation_proven: bool = False,
 ) -> dict[str, Any]:
+    _validate_capture(capture)
     executable_sha256 = None if snapshot is None else snapshot.get("executableSha256")
     return {
         "name": "codex",
@@ -485,6 +566,7 @@ def _host_metadata(
         "modelSelection": "explicit_cli_argument",
         "sessionMode": "fresh_ephemeral" if mode == "host" else "not_applicable",
         "resolvedExecutableSha256": executable_sha256,
+        "boundExecutableCopySha256": capture["boundExecutableCopySha256"],
         "prerequisites": _evidence_prerequisite_statuses(
             mode,
             blocker,
@@ -492,6 +574,7 @@ def _host_metadata(
             activation_proven=activation_proven,
         ),
         "blockerReason": blocker,
+        "claudePolicy": "owner_deferred",
         "claudeInvoked": False,
     }
 
@@ -514,10 +597,19 @@ def _evidence(
     fixture_bytes: bytes,
     rows: list[dict[str, Any]],
     *,
+    capture: dict[str, Any],
+    cleanup: dict[str, str] | None = None,
     snapshot: dict[str, Any] | None = None,
     blocker: str | None = None,
     forced_status: str | None = None,
 ) -> dict[str, Any]:
+    _validate_capture(capture)
+    cleanup = _cleanup_outcomes() if cleanup is None else copy.deepcopy(cleanup)
+    if tuple(cleanup) != CLEANUP_KEYS or any(
+        type(value) is not str or value not in STATUSES
+        for value in cleanup.values()
+    ):
+        raise ValueError("cleanup outcome schema is not closed")
     status = forced_status or _derived_status([row["verdict"] for row in rows])
     activation_proven = (
         mode == "host"
@@ -534,10 +626,14 @@ def _evidence(
         "status": status,
         "model": EXPECTED_MODEL,
         "codexVersion": EXPECTED_CODEX_VERSION,
+        "captureCommit": capture["captureCommit"],
         "fixtureSha256": _sha256(fixture_bytes),
+        "skillPayloadSha256": copy.deepcopy(capture["skillPayloadSha256"]),
+        "plugin": _evidence_plugin(capture),
         "host": _host_metadata(
-            mode, snapshot, blocker, activation_proven=activation_proven
+            mode, capture, snapshot, blocker, activation_proven=activation_proven
         ),
+        "cleanup": cleanup,
         "privacy": copy.deepcopy(PRIVACY),
         "summary": _summary(fixture, rows),
         "cases": rows,
@@ -577,6 +673,7 @@ def run_offline(
     fixture: dict[str, Any],
     scorer_outputs: dict[str, dict[str, Any]],
     *,
+    capture: dict[str, Any],
     fixture_bytes: bytes,
 ) -> tuple[int, dict[str, Any]]:
     try:
@@ -589,7 +686,9 @@ def run_offline(
         observation = scorer_outputs[case["id"]]
         _validate_observation(observation)
         rows.append(_row(fixture, case, ordinal, observation))
-    evidence = _evidence("offline", fixture, fixture_bytes, rows)
+    evidence = _evidence(
+        "offline", fixture, fixture_bytes, rows, capture=capture
+    )
     return _exit_for(evidence), evidence
 
 
@@ -748,12 +847,35 @@ def capture_executable(executable: str) -> dict[str, str]:
 
 
 def _precondition_blocker(snapshot: dict[str, Any]) -> str | None:
+    try:
+        capture = _snapshot_capture(snapshot)
+        _validate_capture(capture)
+    except (KeyError, ValueError):
+        return "post_capture_prerequisite_drift"
+    if snapshot.get("captureError") in {
+        "bound_copy_failure", "bound_copy_cleanup_failed",
+    }:
+        return "post_capture_prerequisite_drift"
     if snapshot.get("captureError") in {
         "nonregular_binary", "nonexecutable_binary",
     }:
         return snapshot["captureError"]
     if not snapshot.get("resolvedExecutable") or not snapshot.get("executableSha256"):
         return "missing_binary"
+    if (
+        capture["boundExecutableCopySha256"] is not None
+        and capture["boundExecutableCopySha256"] != snapshot.get("executableSha256")
+    ):
+        return "post_capture_prerequisite_drift"
+    if (
+        snapshot.get("pluginAvailable") is True
+        and (
+            capture["skillPayloadSha256"] != SKILL_PAYLOAD_SHA256
+            or capture["installedManifestSha256"]
+            != capture["sourceManifestSha256"]
+        )
+    ):
+        return "post_capture_prerequisite_drift"
     if snapshot.get("version") != EXPECTED_CODEX_VERSION:
         return "version_mismatch"
     if snapshot.get("authenticated") is not True:
@@ -765,13 +887,37 @@ def _precondition_blocker(snapshot: dict[str, Any]) -> str | None:
     return None
 
 
+def _snapshot_capture(snapshot: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: copy.deepcopy(snapshot[key])
+        for key in CAPTURE_KEYS
+    }
+
+
 def _snapshot_identity(snapshot: dict[str, Any]) -> tuple[Any, ...]:
-    return tuple(
+    ordinary = tuple(
         snapshot.get(key)
         for key in (
             "resolvedExecutable", "executableSha256", "version", "authenticated",
             "modelAvailable", "pluginAvailable", "discovery", "installation",
         )
+    )
+    try:
+        capture = _snapshot_capture(snapshot)
+    except KeyError:
+        return (*ordinary, None)
+    payload_identity = tuple(capture["skillPayloadSha256"].items()) if type(
+        capture["skillPayloadSha256"]
+    ) is dict else capture["skillPayloadSha256"]
+    return (
+        *ordinary,
+        capture["captureCommit"],
+        payload_identity,
+        capture["pluginSelector"],
+        capture["sourceManifestSha256"],
+        capture["installedManifestSha256"],
+        capture["boundExecutableCopySha256"],
+        snapshot.get("preflightBoundCopyCleanup"),
     )
 
 
@@ -1647,13 +1793,13 @@ def _cleanup_incomplete_host_case_worktree(
     parent: Path,
     worktree: Path,
     source_status: bytes,
-) -> str:
+) -> tuple[str, dict[str, str]]:
     try:
         owned_state_exists = worktree.exists() or _worktree_is_registered(worktree)
     except Exception:
         owned_state_exists = True
     if owned_state_exists:
-        cleanup_ok, source_drift = _cleanup_host_case_worktree(
+        cleanup, source_drift = _cleanup_host_case_worktree(
             {
                 "parent": parent,
                 "path": worktree,
@@ -1661,35 +1807,51 @@ def _cleanup_incomplete_host_case_worktree(
             }
         )
     else:
-        cleanup_ok = True
+        cleanup = {
+            "hostWorktreeRegistration": "pass",
+            "hostWorktreeDirectory": "pass",
+            "sourceWorktree": "pass",
+        }
         try:
             parent.rmdir()
         except FileNotFoundError:
             pass
         except OSError:
-            cleanup_ok = False
+            cleanup["hostWorktreeDirectory"] = "fail"
             try:
                 shutil.rmtree(parent, ignore_errors=True)
             except Exception:
                 pass
         if parent.exists() or worktree.exists():
-            cleanup_ok = False
+            cleanup["hostWorktreeDirectory"] = "fail"
         try:
             source_drift = _source_status_snapshot() != source_status
         except Exception:
-            cleanup_ok = False
+            cleanup["sourceWorktree"] = "fail"
             source_drift = False
-    if not cleanup_ok:
-        return "host_case_cleanup_failed"
+        else:
+            cleanup["sourceWorktree"] = "fail" if source_drift else "pass"
+    if "fail" in (
+        cleanup["hostWorktreeRegistration"],
+        cleanup["hostWorktreeDirectory"],
+    ):
+        return "host_case_cleanup_failed", cleanup
     if source_drift:
-        return "source_worktree_drift"
-    return "host_case_setup_failed"
+        return "source_worktree_drift", cleanup
+    if cleanup["sourceWorktree"] == "fail":
+        return "host_case_cleanup_failed", cleanup
+    return "host_case_setup_failed", cleanup
 
 
 def _create_host_case_worktree() -> dict[str, Any]:
     parent: Path | None = None
     worktree: Path | None = None
     source_status: bytes | None = None
+    cleanup = {
+        "hostWorktreeRegistration": "not_applicable",
+        "hostWorktreeDirectory": "not_applicable",
+        "sourceWorktree": "not_applicable",
+    }
     try:
         source_status = _source_status_snapshot()
         source_head = _git_stdout(
@@ -1734,7 +1896,7 @@ def _create_host_case_worktree() -> dict[str, Any]:
             and worktree is not None
             and source_status is not None
         ):
-            reason = _cleanup_incomplete_host_case_worktree(
+            reason, cleanup = _cleanup_incomplete_host_case_worktree(
                 parent, worktree, source_status
             )
         elif parent is not None:
@@ -1748,18 +1910,38 @@ def _create_host_case_worktree() -> dict[str, Any]:
                     shutil.rmtree(parent, ignore_errors=True)
                 except Exception:
                     pass
-        raise HostCaseIsolationError(reason) from error
+            cleanup["hostWorktreeDirectory"] = (
+                "fail" if parent.exists() else "pass"
+            )
+            if source_status is not None:
+                try:
+                    source_drift = _source_status_snapshot() != source_status
+                except Exception:
+                    cleanup["sourceWorktree"] = "fail"
+                else:
+                    cleanup["sourceWorktree"] = (
+                        "fail" if source_drift else "pass"
+                    )
+        raise HostCaseIsolationError(reason, cleanup) from error
 
 
 def _cleanup_host_case_worktree(
     owner: dict[str, Any],
-) -> tuple[bool, bool]:
+) -> tuple[dict[str, str], bool]:
     parent = owner["parent"]
     worktree = owner["path"]
     source_status = owner["sourceStatus"]
     if not isinstance(parent, Path) or not isinstance(worktree, Path):
-        return False, False
-    cleanup_ok = True
+        return {
+            "hostWorktreeRegistration": "fail",
+            "hostWorktreeDirectory": "fail",
+            "sourceWorktree": "fail",
+        }, False
+    cleanup = {
+        "hostWorktreeRegistration": "pass",
+        "hostWorktreeDirectory": "pass",
+        "sourceWorktree": "pass",
+    }
     try:
         _run_git(
             _source_git_command(
@@ -1770,7 +1952,7 @@ def _cleanup_host_case_worktree(
             check=True,
         )
     except Exception:
-        cleanup_ok = False
+        cleanup["hostWorktreeDirectory"] = "fail"
         try:
             shutil.rmtree(worktree, ignore_errors=True)
         except Exception:
@@ -1783,37 +1965,41 @@ def _cleanup_host_case_worktree(
             check=True,
         )
     except Exception:
-        cleanup_ok = False
+        cleanup["hostWorktreeRegistration"] = "fail"
     try:
         registrations = _git_stdout(
             _source_git_command("worktree", "list", "--porcelain", "-z")
         )
         if str(worktree).encode("utf-8") in registrations:
-            cleanup_ok = False
+            cleanup["hostWorktreeRegistration"] = "fail"
     except Exception:
-        cleanup_ok = False
+        cleanup["hostWorktreeRegistration"] = "fail"
     if worktree.exists():
-        cleanup_ok = False
         try:
             shutil.rmtree(worktree, ignore_errors=True)
         except Exception:
             pass
+    if worktree.exists():
+        cleanup["hostWorktreeDirectory"] = "fail"
     try:
         parent.rmdir()
     except FileNotFoundError:
         pass
     except OSError:
-        cleanup_ok = False
         try:
             shutil.rmtree(parent, ignore_errors=True)
         except Exception:
             pass
+    if parent.exists():
+        cleanup["hostWorktreeDirectory"] = "fail"
     try:
         source_drift = _source_status_snapshot() != source_status
     except Exception:
-        cleanup_ok = False
+        cleanup["sourceWorktree"] = "fail"
         source_drift = False
-    return cleanup_ok, source_drift
+    else:
+        cleanup["sourceWorktree"] = "fail" if source_drift else "pass"
+    return cleanup, source_drift
 
 
 def run_host(
@@ -1833,31 +2019,48 @@ def run_host(
         return FAIL, {"status": "fail", "reason": "fixture_contract_invalid"}
     rows: list[dict[str, Any]] = []
     first_snapshot: dict[str, Any] | None = None
+    cleanup = _cleanup_outcomes()
     for ordinal, case in enumerate(fixture["cases"], 1):
         pre = prerequisite_checker(executable, EXPECTED_MODEL, EXPECTED_CODEX_VERSION)
         if type(pre) is not dict:
             raise ValueError("prerequisite checker returned invalid snapshot")
         if first_snapshot is None:
             first_snapshot = copy.deepcopy(pre)
+            capture = _snapshot_capture(first_snapshot)
+            if capture["boundExecutableCopySha256"] is not None:
+                cleanup["boundExecutableCopy"] = "pass"
         elif _snapshot_identity(pre) != _snapshot_identity(first_snapshot):
             evidence = _evidence(
-                "host", fixture, fixture_bytes, rows, snapshot=first_snapshot,
+                "host", fixture, fixture_bytes, rows,
+                capture=_snapshot_capture(first_snapshot), cleanup=cleanup,
+                snapshot=first_snapshot,
                 blocker="post_capture_prerequisite_drift", forced_status="fail",
             )
             return FAIL, evidence
         blocker = _precondition_blocker(pre)
         if blocker is not None:
-            evidence = _evidence(
-                "host", fixture, fixture_bytes, rows, snapshot=first_snapshot,
-                blocker=blocker, forced_status="blocked",
+            forced_status = (
+                "fail" if blocker == "post_capture_prerequisite_drift"
+                else "blocked"
             )
-            return BLOCKED, evidence
+            evidence = _evidence(
+                "host", fixture, fixture_bytes, rows,
+                capture=_snapshot_capture(first_snapshot), cleanup=cleanup,
+                snapshot=first_snapshot, blocker=blocker,
+                forced_status=forced_status,
+            )
+            return (
+                FAIL if forced_status == "fail" else BLOCKED
+            ), evidence
 
         try:
             execution_path, bound_path, bound_root = _bound_executable_copy(pre)
         except (OSError, ValueError):
+            cleanup["boundExecutableCopy"] = "fail"
             evidence = _evidence(
-                "host", fixture, fixture_bytes, rows, snapshot=first_snapshot,
+                "host", fixture, fixture_bytes, rows,
+                capture=_snapshot_capture(first_snapshot), cleanup=cleanup,
+                snapshot=first_snapshot,
                 blocker="post_capture_prerequisite_drift", forced_status="fail",
             )
             return FAIL, evidence
@@ -1876,14 +2079,29 @@ def run_host(
                 if isinstance(error, HostCaseIsolationError)
                 else "host_case_setup_failed"
             )
+            worktree_cleanup = (
+                error.cleanup
+                if isinstance(error, HostCaseIsolationError)
+                else {
+                    "hostWorktreeRegistration": "not_applicable",
+                    "hostWorktreeDirectory": "not_applicable",
+                    "sourceWorktree": "not_applicable",
+                }
+            )
             if worktree_reason == "host_case_cleanup_failed":
                 setup_reason = worktree_reason
             elif not bound_cleanup_clean:
                 setup_reason = "post_capture_prerequisite_drift"
             else:
                 setup_reason = worktree_reason
+            cleanup["boundExecutableCopy"] = (
+                "pass" if bound_cleanup_clean else "fail"
+            )
+            cleanup.update(worktree_cleanup)
             evidence = _evidence(
-                "host", fixture, fixture_bytes, rows, snapshot=first_snapshot,
+                "host", fixture, fixture_bytes, rows,
+                capture=_snapshot_capture(first_snapshot), cleanup=cleanup,
+                snapshot=first_snapshot,
                 blocker=setup_reason, forced_status="fail",
             )
             return FAIL, evidence
@@ -1901,7 +2119,11 @@ def run_host(
         pending_host_result: dict[str, Any] | None = None
         pending_observation: dict[str, Any] | None = None
         bound_boundary_clean = True
-        worktree_cleanup_clean = True
+        worktree_cleanup = {
+            "hostWorktreeRegistration": "not_applicable",
+            "hostWorktreeDirectory": "not_applicable",
+            "sourceWorktree": "not_applicable",
+        }
         source_worktree_drift = False
         try:
             try:
@@ -2024,15 +2246,26 @@ def run_host(
                 bound_path, bound_root
             )
             (
-                worktree_cleanup_clean,
+                worktree_cleanup,
                 source_worktree_drift,
             ) = _cleanup_host_case_worktree(worktree_owner)
 
-        if not worktree_cleanup_clean:
+        cleanup["privateOutput"] = "pass" if output_clean else "fail"
+        cleanup["boundExecutableCopy"] = (
+            "pass"
+            if bound_boundary_clean and bound_final_clean
+            else "fail"
+        )
+        cleanup.update(worktree_cleanup)
+
+        if "fail" in (
+            worktree_cleanup["hostWorktreeRegistration"],
+            worktree_cleanup["hostWorktreeDirectory"],
+        ):
             case_code = FAIL
             case_blocker = "host_case_cleanup_failed"
             case_status = "fail"
-        elif source_worktree_drift:
+        elif source_worktree_drift or worktree_cleanup["sourceWorktree"] == "fail":
             case_code = FAIL
             case_blocker = "source_worktree_drift"
             case_status = "fail"
@@ -2047,14 +2280,18 @@ def run_host(
 
         if case_code is not None:
             evidence = _evidence(
-                "host", fixture, fixture_bytes, rows, snapshot=first_snapshot,
+                "host", fixture, fixture_bytes, rows,
+                capture=_snapshot_capture(first_snapshot), cleanup=cleanup,
+                snapshot=first_snapshot,
                 blocker=case_blocker, forced_status=case_status,
             )
             return case_code, evidence
 
         if pending_host_result is None or pending_observation is None:
             evidence = _evidence(
-                "host", fixture, fixture_bytes, rows, snapshot=first_snapshot,
+                "host", fixture, fixture_bytes, rows,
+                capture=_snapshot_capture(first_snapshot), cleanup=cleanup,
+                snapshot=first_snapshot,
                 blocker="process_failed", forced_status="fail",
             )
             return FAIL, evidence
@@ -2068,7 +2305,13 @@ def run_host(
             )
         )
 
-    evidence = _evidence("host", fixture, fixture_bytes, rows, snapshot=first_snapshot)
+    if first_snapshot is None:
+        raise ValueError("host fixture must contain at least one case")
+    evidence = _evidence(
+        "host", fixture, fixture_bytes, rows,
+        capture=_snapshot_capture(first_snapshot), cleanup=cleanup,
+        snapshot=first_snapshot,
+    )
     return _exit_for(evidence), evidence
 
 
@@ -2102,14 +2345,29 @@ def _validate_evidence(
     scorer_outputs: dict[str, dict[str, Any]],
     host_results: list[dict[str, Any]] | None,
     executable_sha256: str | None,
+    capture: dict[str, Any],
 ) -> None:
     _validate_fixture(fixture, fixture_bytes)
+    _validate_capture(capture)
     if type(evidence) is not dict or set(evidence) != EVIDENCE_KEYS:
         raise ValueError("evidence schema is not closed")
+    if (
+        type(evidence["skillPayloadSha256"]) is not dict
+        or tuple(evidence["skillPayloadSha256"]) != ALL_CAPABILITIES
+    ):
+        raise ValueError("evidence skill payload binding is not ordered")
+    if (
+        type(evidence["plugin"]) is not dict
+        or tuple(evidence["plugin"]) != PLUGIN_KEYS
+    ):
+        raise ValueError("evidence plugin binding is not ordered")
     expected_scalars = {
         "schemaVersion": "1.0", "sourceIssue": "DEV-136",
         "evidenceKind": "codex_skill_forward_test", "model": EXPECTED_MODEL,
         "codexVersion": EXPECTED_CODEX_VERSION, "fixtureSha256": _sha256(fixture_bytes),
+        "captureCommit": capture["captureCommit"],
+        "skillPayloadSha256": capture["skillPayloadSha256"],
+        "plugin": _evidence_plugin(capture),
         "privacy": PRIVACY,
     }
     for key, expected in expected_scalars.items():
@@ -2118,7 +2376,7 @@ def _validate_evidence(
     if evidence["mode"] not in {"offline", "host"} or evidence["status"] not in STATUSES:
         raise ValueError("evidence mode or status is invalid")
     host = evidence["host"]
-    if type(host) is not dict or set(host) != HOST_KEYS:
+    if type(host) is not dict or tuple(host) != HOST_KEY_ORDER:
         raise ValueError("host schema is not closed")
     if host["name"] != "codex" or host["version"] != EXPECTED_CODEX_VERSION:
         raise ValueError("host identity mismatch")
@@ -2129,6 +2387,18 @@ def _validate_evidence(
     if host["resolvedExecutableSha256"] != executable_sha256:
         raise ValueError("host executable binding mismatch")
     _validate_hash(executable_sha256, "resolvedExecutableSha256", nullable=True)
+    if (
+        host["boundExecutableCopySha256"]
+        != capture["boundExecutableCopySha256"]
+    ):
+        raise ValueError("bound executable copy binding mismatch")
+    if (
+        host["boundExecutableCopySha256"] is not None
+        and host["boundExecutableCopySha256"] != executable_sha256
+    ):
+        raise ValueError("bound executable copy does not match captured binary")
+    if host["claudePolicy"] != "owner_deferred":
+        raise ValueError("Claude policy binding mismatch")
     if host["claudeInvoked"] is not False:
         raise ValueError("Claude invocation is forbidden")
     if host["blockerReason"] is not None and host["blockerReason"] not in EARLY_STOP_REASONS | PRE_RESPONSE_REASONS:
@@ -2138,6 +2408,32 @@ def _validate_evidence(
         raise ValueError("prerequisite schema is not closed")
     if any(type(value) is not str or value not in STATUSES for value in prerequisites.values()):
         raise ValueError("prerequisite status is invalid")
+
+    cleanup = evidence["cleanup"]
+    if type(cleanup) is not dict or tuple(cleanup) != CLEANUP_KEYS:
+        raise ValueError("cleanup schema is not closed and ordered")
+    if any(
+        type(value) is not str or value not in STATUSES
+        for value in cleanup.values()
+    ):
+        raise ValueError("cleanup status is invalid")
+    if evidence["mode"] == "offline" and cleanup != _cleanup_outcomes():
+        raise ValueError("offline cleanup must be not_applicable")
+    if evidence["mode"] == "offline" and (
+        capture["installedManifestSha256"] is not None
+        or capture["boundExecutableCopySha256"] is not None
+    ):
+        raise ValueError("offline evidence cannot claim host package capture")
+    if (
+        evidence["mode"] == "host"
+        and evidence["status"] == "pass"
+        and cleanup != _cleanup_outcomes(
+        **{key: "pass" for key in CLEANUP_KEYS}
+        )
+    ):
+        raise ValueError("passing host evidence requires clean outcomes")
+    if "fail" in cleanup.values() and evidence["status"] != "fail":
+        raise ValueError("cleanup failure must fail evidence")
 
     rows = evidence["cases"]
     if type(rows) is not list or len(rows) > len(fixture["cases"]):
@@ -2232,7 +2528,7 @@ def _atomic_write_evidence(
     destination = Path(path)
     if not destination.is_absolute():
         destination = destination.absolute()
-    data = (json.dumps(evidence, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    data = (json.dumps(evidence, indent=2) + "\n").encode("utf-8")
     parent_descriptor = _open_destination_parent(destination)
     temporary_name = f".{destination.name}.{secrets.token_hex(16)}.tmp"
     descriptor = -1
@@ -2280,11 +2576,12 @@ def write_evidence(
     scorer_outputs: dict[str, dict[str, Any]],
     host_results: list[dict[str, Any]] | None = None,
     executable_sha256: str | None = None,
+    capture: dict[str, Any],
     fault_hook: Callable[[str], None] | None = None,
 ) -> None:
     _validate_evidence(
         evidence, fixture, fixture_bytes, scorer_outputs, host_results,
-        executable_sha256,
+        executable_sha256, capture,
     )
     _atomic_write_evidence(path, evidence, fault_hook=fault_hook)
 
@@ -2311,7 +2608,7 @@ def _probe(
         return None
 
 
-def _plugin_skill_payloads_are_exact(plugin_root: Path) -> bool:
+def _capture_skill_payload_sha256(plugin_root: Path) -> dict[str, str]:
     skills_root = plugin_root / "skills"
     skills_descriptor = -1
     try:
@@ -2320,13 +2617,14 @@ def _plugin_skill_payloads_are_exact(plugin_root: Path) -> bool:
         if set(names) != set(SKILL_PAYLOAD_SHA256) or len(names) != len(
             SKILL_PAYLOAD_SHA256
         ):
-            return False
-        for skill, expected_digest in SKILL_PAYLOAD_SHA256.items():
+            raise ValueError("plugin skill topology mismatch")
+        captured: dict[str, str] = {}
+        for skill in ALL_CAPABILITIES:
             metadata = os.stat(
                 skill, dir_fd=skills_descriptor, follow_symlinks=False
             )
             if not stat.S_ISDIR(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
-                return False
+                raise ValueError("plugin skill directory is not regular")
             skill_descriptor = os.open(
                 skill,
                 os.O_RDONLY
@@ -2337,7 +2635,7 @@ def _plugin_skill_payloads_are_exact(plugin_root: Path) -> bool:
             )
             try:
                 if os.listdir(skill_descriptor) != ["SKILL.md"]:
-                    return False
+                    raise ValueError("plugin skill payload is not closed")
                 payload_metadata = os.stat(
                     "SKILL.md", dir_fd=skill_descriptor, follow_symlinks=False
                 )
@@ -2345,34 +2643,68 @@ def _plugin_skill_payloads_are_exact(plugin_root: Path) -> bool:
                     not stat.S_ISREG(payload_metadata.st_mode)
                     or stat.S_ISLNK(payload_metadata.st_mode)
                 ):
-                    return False
+                    raise ValueError("plugin skill payload is not regular")
             finally:
                 os.close(skill_descriptor)
             payload = _read_regular_file_no_symlinks(
                 skills_root / skill / "SKILL.md"
             )
-            if _sha256(payload) != expected_digest:
-                return False
-        return True
-    except (OSError, ValueError):
-        return False
+            captured[skill] = _sha256(payload)
+        return captured
     finally:
         if skills_descriptor >= 0:
             os.close(skills_descriptor)
 
 
-def _plugin_is_installed_enabled_with_capabilities(stdout: str) -> bool:
+def _plugin_skill_payloads_are_exact(plugin_root: Path) -> bool:
+    try:
+        return _capture_skill_payload_sha256(plugin_root) == SKILL_PAYLOAD_SHA256
+    except (OSError, ValueError):
+        return False
+
+
+def capture_source_provenance() -> dict[str, Any]:
+    plugin_root = SOURCE_ROOT / "plugins" / PLUGIN_ID
+    commit_process = subprocess.Popen(
+        [
+            "git", "-C", str(SOURCE_ROOT), "rev-parse", "--verify",
+            "HEAD^{commit}",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    commit_stdout, _ = commit_process.communicate()
+    if commit_process.returncode != 0:
+        raise OSError("source commit capture failed")
+    commit = commit_stdout.decode("ascii").strip()
+    capture = {
+        "captureCommit": commit,
+        "skillPayloadSha256": _capture_skill_payload_sha256(plugin_root),
+        "pluginSelector": PLUGIN_SELECTOR,
+        "sourceManifestSha256": _sha256(
+            _read_regular_file_no_symlinks(
+                plugin_root / ".codex-plugin/plugin.json"
+            )
+        ),
+        "installedManifestSha256": None,
+        "boundExecutableCopySha256": None,
+    }
+    _validate_capture(capture)
+    return capture
+
+
+def _plugin_installation_capture(stdout: str) -> tuple[bool, str | None]:
     try:
         listing = _strict_json_loads(stdout)
     except (json.JSONDecodeError, ValueError):
-        return False
+        return False, None
     if (
         type(listing) is not dict
         or set(listing) != {"installed", "available"}
         or type(listing.get("installed")) is not list
         or type(listing.get("available")) is not list
     ):
-        return False
+        return False, None
     plugin_root = _absolute_lexical_path(ROOT / "plugins" / PLUGIN_ID)
     expected_fields = {
         "pluginId": PLUGIN_SELECTOR,
@@ -2410,51 +2742,73 @@ def _plugin_is_installed_enabled_with_capabilities(stdout: str) -> bool:
         or set(installed_targets[0]) != PLUGIN_ENTRY_KEYS
         or installed_targets[0] != expected_fields
     ):
-        return False
+        return False, None
     manifest_path = plugin_root / ".codex-plugin/plugin.json"
     try:
-        manifest = _strict_json_loads(
-            _read_regular_file_no_symlinks(manifest_path)
-        )
+        manifest_bytes = _read_regular_file_no_symlinks(manifest_path)
+        manifest = _strict_json_loads(manifest_bytes)
     except (OSError, ValueError, json.JSONDecodeError):
-        return False
+        return False, None
     interface = manifest.get("interface") if type(manifest) is dict else None
     capabilities = interface.get("capabilities") if type(interface) is dict else None
-    return (
+    valid = (
         manifest.get("name") == PLUGIN_ID
         and capabilities == list(ALL_CAPABILITIES)
         and _plugin_skill_payloads_are_exact(plugin_root)
     )
+    return valid, _sha256(manifest_bytes) if valid else None
 
 
-def default_prerequisite_checker(executable: str, model: str, version: str) -> dict[str, Any]:
+def _plugin_is_installed_enabled_with_capabilities(stdout: str) -> bool:
+    available, _ = _plugin_installation_capture(stdout)
+    return available
+
+
+def default_prerequisite_checker(
+    executable: str,
+    model: str,
+    version: str,
+    *,
+    source_capture: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    capture = copy.deepcopy(
+        capture_source_provenance() if source_capture is None else source_capture
+    )
+    _validate_capture(capture)
     try:
         captured = capture_executable(executable)
     except FileNotFoundError:
         return {
+            **capture,
             "resolvedExecutable": None, "executableSha256": None, "version": None,
             "authenticated": False, "modelAvailable": False, "pluginAvailable": False,
             "discovery": "blocked", "installation": "blocked",
+            "preflightBoundCopyCleanup": "not_applicable",
         }
     except ExecutableCaptureError as error:
         return {
+            **capture,
             "resolvedExecutable": None, "executableSha256": None, "version": None,
             "authenticated": False, "modelAvailable": False, "pluginAvailable": False,
             "discovery": "blocked", "installation": "blocked",
             "captureError": error.reason,
+            "preflightBoundCopyCleanup": "not_applicable",
         }
     except (OSError, ValueError):
         return {
+            **capture,
             "resolvedExecutable": None, "executableSha256": None, "version": None,
             "authenticated": False, "modelAvailable": False, "pluginAvailable": False,
             "discovery": "blocked", "installation": "blocked",
             "captureError": "nonregular_binary",
+            "preflightBoundCopyCleanup": "not_applicable",
         }
     captured_executable = captured["resolvedExecutable"]
     try:
         execution_path, bound_path, bound_root = _bound_executable_copy(captured)
     except (OSError, ValueError):
         return {
+            **capture,
             **captured,
             "version": None,
             "authenticated": False,
@@ -2462,8 +2816,12 @@ def default_prerequisite_checker(executable: str, model: str, version: str) -> d
             "pluginAvailable": False,
             "discovery": "blocked",
             "installation": "blocked",
-            "captureError": "nonregular_binary",
+            "captureError": "bound_copy_failure",
+            "preflightBoundCopyCleanup": "fail",
         }
+    bound_digest = capture_executable(str(bound_path))["executableSha256"]
+    capture["boundExecutableCopySha256"] = bound_digest
+    bound_cleanup_clean = False
     try:
         override = str(bound_path)
         version_probe = _probe(
@@ -2495,18 +2853,36 @@ def default_prerequisite_checker(executable: str, model: str, version: str) -> d
             plugin_probe is not None
             and plugin_probe.returncode == 0
             and plugin_probe.stderr == ""
-            and _plugin_is_installed_enabled_with_capabilities(plugin_probe.stdout)
+            and _plugin_is_installed_enabled_with_capabilities(
+                plugin_probe.stdout
+            )
         )
+        installed_manifest_sha256 = None
+        if plugin_available:
+            plugin_available, installed_manifest_sha256 = (
+                _plugin_installation_capture(plugin_probe.stdout)
+            )
+        capture["installedManifestSha256"] = installed_manifest_sha256
     finally:
-        try:
-            bound_path.unlink()
-        except FileNotFoundError:
-            pass
-        try:
-            bound_root.rmdir()
-        except FileNotFoundError:
-            pass
+        bound_cleanup_clean = _retry_bound_executable_cleanup(
+            bound_path, bound_root
+        )
+    if not bound_cleanup_clean:
+        return {
+            **capture,
+            **captured,
+            "version": observed_version,
+            "authenticated": authenticated,
+            "modelAvailable": None,
+            "pluginAvailable": plugin_available,
+            "discovery": "pass" if plugin_available else "blocked",
+            "installation": "pass" if plugin_available else "blocked",
+            "captureError": "bound_copy_cleanup_failed",
+            "preflightBoundCopyCleanup": "fail",
+        }
+    _validate_capture(capture)
     return {
+        **capture,
         **captured,
         "version": observed_version,
         "authenticated": authenticated,
@@ -2516,6 +2892,7 @@ def default_prerequisite_checker(executable: str, model: str, version: str) -> d
         "pluginAvailable": plugin_available,
         "discovery": "pass" if plugin_available else "blocked",
         "installation": "pass" if plugin_available else "blocked",
+        "preflightBoundCopyCleanup": "pass",
     }
 
 
@@ -2728,15 +3105,28 @@ def _blocked_cli_evidence(
     fixture: dict[str, Any],
     fixture_bytes: bytes,
     reason: str,
+    capture: dict[str, Any],
     snapshot: dict[str, Any] | None = None,
+    *,
+    forced_status: str = "blocked",
 ) -> dict[str, Any]:
+    cleanup = _cleanup_outcomes()
+    if capture["boundExecutableCopySha256"] is not None:
+        cleanup["boundExecutableCopy"] = (
+            "fail"
+            if snapshot is not None
+            and snapshot.get("preflightBoundCopyCleanup") == "fail"
+            else "pass"
+        )
     return _evidence(
-        mode, fixture, fixture_bytes, [], snapshot=snapshot, blocker=reason,
-        forced_status="blocked",
+        mode, fixture, fixture_bytes, [], capture=capture, cleanup=cleanup,
+        snapshot=snapshot, blocker=reason, forced_status=forced_status,
     )
 
 
-def _invalid_fixture_evidence(mode: str, fixture_bytes: bytes) -> dict[str, Any]:
+def _invalid_fixture_evidence(
+    mode: str, fixture_bytes: bytes, capture: dict[str, Any]
+) -> dict[str, Any]:
     return {
         "schemaVersion": "1.0",
         "sourceIssue": "DEV-136",
@@ -2745,8 +3135,14 @@ def _invalid_fixture_evidence(mode: str, fixture_bytes: bytes) -> dict[str, Any]
         "status": "fail",
         "model": EXPECTED_MODEL,
         "codexVersion": EXPECTED_CODEX_VERSION,
+        "captureCommit": capture["captureCommit"],
         "fixtureSha256": _sha256(fixture_bytes),
-        "host": _host_metadata(mode, blocker="fixture_contract_invalid"),
+        "skillPayloadSha256": copy.deepcopy(capture["skillPayloadSha256"]),
+        "plugin": _evidence_plugin(capture),
+        "host": _host_metadata(
+            mode, capture, blocker="fixture_contract_invalid"
+        ),
+        "cleanup": _cleanup_outcomes(),
         "privacy": copy.deepcopy(PRIVACY),
         "summary": {
             "fixtureCaseCount": 0,
@@ -2776,7 +3172,7 @@ def _existing_evidence_is_stale_success(path: Path) -> bool:
 
 
 def _write_invalid_fixture_evidence_if_safe(
-    path: Path, mode: str, fixture_bytes: bytes
+    path: Path, mode: str, fixture_bytes: bytes, capture: dict[str, Any]
 ) -> None:
     destination = path if path.is_absolute() else path.absolute()
     try:
@@ -2786,7 +3182,7 @@ def _write_invalid_fixture_evidence_if_safe(
     else:
         should_write = _existing_evidence_is_stale_success(destination)
     if should_write:
-        evidence = _invalid_fixture_evidence(mode, fixture_bytes)
+        evidence = _invalid_fixture_evidence(mode, fixture_bytes, capture)
         _validate_private_evidence(evidence)
         _atomic_write_evidence(destination, evidence)
 
@@ -2802,6 +3198,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--evidence", type=Path, required=True)
     args = parser.parse_args(argv)
 
+    try:
+        source_capture = capture_source_provenance()
+    except (OSError, UnicodeDecodeError, ValueError):
+        sys.stderr.write("source_capture_failed\n")
+        return FAIL
     fixture_bytes = b""
     try:
         fixture_bytes = args.cases.read_bytes()
@@ -2813,7 +3214,7 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
         try:
             _write_invalid_fixture_evidence_if_safe(
-                args.evidence, args.mode, fixture_bytes
+                args.evidence, args.mode, fixture_bytes, source_capture
             )
         except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
             pass
@@ -2821,10 +3222,12 @@ def main(argv: list[str] | None = None) -> int:
         return FAIL
     if args.model != EXPECTED_MODEL or args.codex_version != EXPECTED_CODEX_VERSION:
         reason = "model_mismatch" if args.model != EXPECTED_MODEL else "version_mismatch"
-        evidence = _blocked_cli_evidence(args.mode, fixture, fixture_bytes, reason)
+        evidence = _blocked_cli_evidence(
+            args.mode, fixture, fixture_bytes, reason, source_capture
+        )
         write_evidence(
             args.evidence, evidence, fixture=fixture, fixture_bytes=fixture_bytes,
-            scorer_outputs={}, executable_sha256=None,
+            scorer_outputs={}, executable_sha256=None, capture=source_capture,
         )
         return BLOCKED
 
@@ -2836,35 +3239,52 @@ def main(argv: list[str] | None = None) -> int:
             _validate_scorer_outputs(fixture, scorer_outputs)
         except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
             evidence = _evidence(
-                "offline", fixture, fixture_bytes, [], blocker="scoring_failed",
+                "offline", fixture, fixture_bytes, [], capture=source_capture,
+                blocker="scoring_failed",
                 forced_status="fail",
             )
             try:
                 write_evidence(
                     args.evidence, evidence, fixture=fixture,
                     fixture_bytes=fixture_bytes, scorer_outputs={},
+                    capture=source_capture,
                 )
             except (OSError, ValueError):
                 pass
             sys.stderr.write("scorer_outputs_invalid\n")
             return FAIL
-        code, evidence = run_offline(fixture, scorer_outputs, fixture_bytes=fixture_bytes)
+        code, evidence = run_offline(
+            fixture, scorer_outputs, fixture_bytes=fixture_bytes,
+            capture=source_capture,
+        )
         write_evidence(
             args.evidence, evidence, fixture=fixture, fixture_bytes=fixture_bytes,
-            scorer_outputs=scorer_outputs,
+            scorer_outputs=scorer_outputs, capture=source_capture,
         )
         return code
 
     executable = os.environ.get("CODEX_BIN", "codex")
-    initial = default_prerequisite_checker(executable, EXPECTED_MODEL, EXPECTED_CODEX_VERSION)
+    initial = default_prerequisite_checker(
+        executable, EXPECTED_MODEL, EXPECTED_CODEX_VERSION,
+        source_capture=source_capture,
+    )
     blocker = _precondition_blocker(initial)
     if blocker is not None:
-        evidence = _blocked_cli_evidence("host", fixture, fixture_bytes, blocker, initial)
+        initial_capture = _snapshot_capture(initial)
+        forced_status = (
+            "fail" if blocker == "post_capture_prerequisite_drift"
+            else "blocked"
+        )
+        evidence = _blocked_cli_evidence(
+            "host", fixture, fixture_bytes, blocker, initial_capture, initial,
+            forced_status=forced_status,
+        )
         write_evidence(
             args.evidence, evidence, fixture=fixture, fixture_bytes=fixture_bytes,
             scorer_outputs={}, executable_sha256=initial.get("executableSha256"),
+            capture=initial_capture,
         )
-        return BLOCKED
+        return FAIL if forced_status == "fail" else BLOCKED
     snapshots = [initial]
 
     def checker(binary: str, model: str, version: str) -> dict[str, Any]:
@@ -2883,6 +3303,7 @@ def main(argv: list[str] | None = None) -> int:
         args.evidence, evidence, fixture=fixture, fixture_bytes=fixture_bytes,
         scorer_outputs=scorer_outputs, host_results=host_results,
         executable_sha256=initial["executableSha256"],
+        capture=_snapshot_capture(initial),
     )
     return code
 
