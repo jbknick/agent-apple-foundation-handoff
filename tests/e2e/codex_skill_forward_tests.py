@@ -176,7 +176,7 @@ CODEX_JSONL_ITEM_EVENT_TYPES = {
     "agent_message": {"item.completed"},
     "reasoning": {"item.completed"},
     "command_execution": {"item.started", "item.completed"},
-    "file_change": {"item.completed"},
+    "file_change": {"item.started", "item.completed"},
     "mcp_tool_call": {"item.started", "item.completed"},
     "collab_tool_call": {"item.started", "item.completed"},
     "web_search": {"item.started", "item.completed"},
@@ -184,11 +184,12 @@ CODEX_JSONL_ITEM_EVENT_TYPES = {
     "error": {"item.completed"},
 }
 CODEX_JSONL_PAIRED_ITEM_TYPES = {
-    "command_execution", "mcp_tool_call", "collab_tool_call", "web_search",
-    "todo_list",
+    "command_execution", "file_change", "mcp_tool_call", "collab_tool_call",
+    "web_search", "todo_list",
 }
 CODEX_JSONL_IMMUTABLE_IDENTITY_FIELDS = {
     "command_execution": ("command",),
+    "file_change": ("changes",),
     "mcp_tool_call": ("server", "tool", "arguments"),
     "collab_tool_call": (
         "tool", "sender_thread_id", "receiver_thread_ids", "prompt",
@@ -1206,8 +1207,12 @@ def _validate_codex_item(item: Any, event_type: str) -> dict[str, Any]:
                 raise ValueError("command completion state is malformed")
     elif item_type == "file_change":
         _require_closed_object(item, {"id", "type", "changes", "status"}, "file change")
-        if item["status"] not in {"completed", "failed"}:
+        if item["status"] not in {"in_progress", "completed", "failed"}:
             raise ValueError("file change status is malformed")
+        if event_type == "item.started" and item["status"] != "in_progress":
+            raise ValueError("file change start state is malformed")
+        if event_type == "item.completed" and item["status"] == "in_progress":
+            raise ValueError("file change completion state is malformed")
         if type(item["changes"]) is not list:
             raise ValueError("file changes are malformed")
         for change in item["changes"]:
