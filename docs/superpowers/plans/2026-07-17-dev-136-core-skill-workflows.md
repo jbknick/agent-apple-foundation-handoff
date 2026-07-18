@@ -1043,6 +1043,71 @@ after every run and that no disposable worktree remains registered. Do not run
 Claude Code. Any new mismatch returns to recorded RED/GREEN diagnosis; it is
 not repaired by weakening a rubric.
 
+## Task 7J: Close partial-setup and bound-cleanup precedence gaps
+
+**Files:**
+
+- Modify: `tests/test_skill_cases.py`
+- Modify: `tests/e2e/codex_skill_forward_tests.py`
+
+Independent cleanup/security review of Task 7H reproduced two P1 gaps. A
+post-`worktree add` verification failure can swallow remove/prune failures and
+leave a stale registration, while persistent bound-executable cleanup failure
+during worktree setup is currently masked as `host_case_setup_failed`.
+
+### Step 1: Add cleanup-precedence RED
+
+Add focused synthetic tests that:
+
+- make `worktree add` succeed, fail post-add verification, then fail force
+  removal and prune; require `host_case_cleanup_failed`, prove the stale
+  registration is observable before test cleanup, and exclude paths,
+  registrations, status bytes, and exception details from evidence;
+- make worktree setup fail while `_remove_bound_executable_copy` persistently
+  refuses both cleanup attempts; require `post_capture_prerequisite_drift` to
+  override `host_case_setup_failed`, prove exactly two attempts against the
+  captured bound path/root, and prove no process, scorer, or later case runs;
+- retain positive controls where partial setup cleanup is fully verified and
+  therefore remains `host_case_setup_failed`, and where transient bound cleanup
+  succeeds on retry without residue.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v \
+  tests.test_skill_cases.CodexForwardRunnerContractTests.test_host_partial_setup_cleanup_failures_take_precedence \
+  tests.test_skill_cases.CodexForwardRunnerContractTests.test_host_setup_failure_preserves_bound_cleanup_precedence
+git diff --check
+```
+
+Expected RED: only the new precedence/residue assertions fail. Commit only the
+test file as `test(DEV-136): expose setup cleanup precedence gaps`.
+
+### Step 2: Implement verified partial-setup cleanup
+
+Replace post-add best-effort cleanup with a closed, verified setup-owner path.
+After any setup exception, inspect path and worktree registration state. When
+partial ownership exists, force-remove, prune, verify path and registration
+absence, and compare the authoritative status snapshot. Return only normalized
+reasons. Use precedence `host_case_cleanup_failed`, then bound-copy
+`post_capture_prerequisite_drift`, then `source_worktree_drift`, then
+`host_case_setup_failed`. Do not clean or revert authoritative drift.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v \
+  tests.test_skill_cases.CodexForwardRunnerContractTests.test_host_partial_setup_cleanup_failures_take_precedence \
+  tests.test_skill_cases.CodexForwardRunnerContractTests.test_host_setup_failure_preserves_bound_cleanup_precedence \
+  tests.test_skill_cases.CodexForwardRunnerContractTests.test_host_cases_use_disposable_worktrees \
+  tests.test_skill_cases.CodexForwardRunnerContractTests.test_host_worktree_cleanup_failures_fail_closed
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_skill_cases -v
+python3 -m py_compile tests/e2e/codex_skill_forward_tests.py
+git diff --check
+```
+
+Commit only the runner as `fix(DEV-136): close setup cleanup precedence gaps`.
+Obtain a fresh independent cleanup/security review before any authenticated
+Codex case. A persistent injected cleanup refusal is proven by attempts and
+fail-closed normalization; the test owns removal of its deliberately retained
+artifacts.
+
 ## Task 8: Full verification before completion
 
 Invoke `superpowers:verification-before-completion` and run fresh commands.
