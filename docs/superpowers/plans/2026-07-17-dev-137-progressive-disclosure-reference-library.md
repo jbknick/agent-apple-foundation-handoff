@@ -1206,10 +1206,10 @@ and after integration every route/noninvention mismatch is fail.
 rg -n '/Users/|/home/|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|api[_-]?key|access[_-]?token|\.trace|\.xcresult|TODO|TBD|coming soon' \
   plugins/apple-foundation-models-handoff/references \
   tests/test_reference_library.py tests/e2e/codex_reference_disclosure.py \
-  tests/e2e/codex_workflow_progressive_disclosure.py \
+  tests/test_codex_reference_disclosure.py \
   docs/research/evidence/dev-137-reference-library-e2e.md
 
-git diff --name-only bdbfd335e32eba3efee32f2aac08bd3c2a100368..HEAD
+git diff --name-only e84554ee2a71c81bce08ea1c250c40dd13fe4ef0..HEAD
 ```
 
 Expected: privacy/placeholder scan has no unsafe hit. Scope contains only the
