@@ -1299,7 +1299,11 @@ Add tests that reproduce all independently reviewed defects:
    fail regardless of token order or whether the leading token names a known
    executable; all-reference path lists and lists without reference paths remain
    valid controls.
-6. Malformed JSON and duplicate-key JSON must raise `ProbeFailure` with the
+6. The mixed-array decision must aggregate scalar leaves across nested list/dict
+   children, and explicit `executable` plus `args`/`argv` sibling command shapes
+   that reach a reference path must fail; ordinary mapping metadata/path controls
+   remain valid.
+7. Malformed JSON and duplicate-key JSON must raise `ProbeFailure` with the
    stable `invalid_tool_event` reason, never `NameError` or raw `ValueError`.
 
 ```bash
@@ -1322,7 +1326,9 @@ values. Validate exactly one pinned command string per relevant item; reject
 structured command arrays, command-like `argv`/`input` containers, JSON-string
 object or array command envelopes, bare command-like arrays at any nesting
 level, mixed reference/non-reference scalar arrays independent of order or
-executable recognition, and indirect executable prefixes before path/read
+executable recognition (including scalar leaves inside nested children), explicit
+`executable` plus `args`/`argv` sibling command containers that reach references,
+and indirect executable prefixes before path/read
 classification in strict and non-strict modes. Treat wildcard directory reads and reference-root search
 targets as bulk access. Catch the duplicate-key hook's actual exception type
 alongside JSON decoding errors and rethrow only `ProbeFailure`.
