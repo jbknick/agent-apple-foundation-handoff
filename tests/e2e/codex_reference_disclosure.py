@@ -780,28 +780,8 @@ def has_mixed_reference_scalars(value: list[object]) -> bool:
     return has_reference and has_non_reference
 
 
-def has_structural_reference_siblings(value: dict[str, Any]) -> bool:
-    if has_direct_reference_path_owner(value):
-        return False
-    has_non_reference_scalar = any(
-        not isinstance(nested, (dict, list))
-        and not (
-            isinstance(nested, str) and is_reference_path_token(nested)
-        )
-        for nested in value.values()
-    )
-    has_nested_reference = any(
-        isinstance(nested, (dict, list))
-        and reference_scalar_presence(nested)[0]
-        for nested in value.values()
-    )
-    return has_non_reference_scalar and has_nested_reference
-
-
 def contains_structured_command(value: object) -> bool:
     if isinstance(value, dict):
-        if has_structural_reference_siblings(value):
-            return True
         for key, nested in value.items():
             if key in {"command", "argv"} or (
                 key == "input" and not isinstance(nested, str)
@@ -823,6 +803,7 @@ def mapping_reference_reads(
     access_sequence: list[str] | None = None,
     *,
     allow_serialized_command: bool = False,
+    allow_reference_value: bool = True,
 ) -> tuple[set[str], int]:
     observed: set[str] = set()
     read_count = 0
@@ -844,12 +825,18 @@ def mapping_reference_reads(
                 ):
                     raise ProbeFailure("invalid_tool_event", task_id)
                 nested_observed, nested_count = mapping_reference_reads(
-                    decoded, base, task_id, access_sequence
+                    decoded,
+                    base,
+                    task_id,
+                    access_sequence,
+                    allow_reference_value=allow_reference_value,
                 )
                 observed.update(nested_observed)
                 read_count += nested_count
             return observed, read_count
         if is_reference_path_token(value):
+            if not allow_reference_value:
+                raise ProbeFailure("invalid_tool_event", task_id)
             if not any(character.isspace() for character in value) and not any(
                 operator in value for operator in ("|", ";", "&", ">", "<")
             ):
@@ -872,19 +859,26 @@ def mapping_reference_reads(
                 read_count += nested_count
         return observed, read_count
     if isinstance(value, list):
-        if has_mixed_reference_scalars(value) or is_command_argv_array(value):
+        has_reference = reference_scalar_presence(value)[0]
+        if (
+            has_mixed_reference_scalars(value)
+            or (has_reference and not allow_reference_value)
+            or is_command_argv_array(value)
+        ):
             raise ProbeFailure("invalid_tool_event", task_id)
         for nested in value:
             nested_observed, nested_count = mapping_reference_reads(
-                nested, base, task_id, access_sequence
+                nested,
+                base,
+                task_id,
+                access_sequence,
+                allow_reference_value=allow_reference_value,
             )
             observed.update(nested_observed)
             read_count += nested_count
         return observed, read_count
     if not isinstance(value, dict):
         return observed, read_count
-    if has_structural_reference_siblings(value):
-        raise ProbeFailure("invalid_tool_event", task_id)
     local_base = declared_working_directory(value, base, task_id)
     for key, nested in value.items():
         if key in {"cwd", "workdir"}:
@@ -903,6 +897,16 @@ def mapping_reference_reads(
                 read_count += 1
                 if access_sequence is not None:
                     access_sequence.append(REFERENCE_CONTENT_ACCESS)
+        elif key == "paths":
+            nested_observed, nested_count = mapping_reference_reads(
+                nested,
+                local_base,
+                task_id,
+                access_sequence,
+                allow_reference_value=True,
+            )
+            observed.update(nested_observed)
+            read_count += nested_count
         elif key == "command":
             if not isinstance(nested, str):
                 raise ProbeFailure("invalid_tool_event", task_id)
@@ -931,6 +935,7 @@ def mapping_reference_reads(
                 task_id,
                 access_sequence,
                 allow_serialized_command=key == "arguments",
+                allow_reference_value=False,
             )
             observed.update(nested_observed)
             read_count += nested_count
