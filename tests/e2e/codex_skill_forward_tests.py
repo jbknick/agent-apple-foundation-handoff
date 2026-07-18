@@ -289,6 +289,14 @@ class BoundExecutableCopyDriftError(ValueError):
         self.cleanup = cleanup
 
 
+class BoundExecutableCopyFinalizationError(OSError):
+    def __init__(self, error: OSError) -> None:
+        super().__init__(*error.args)
+        self.reason = "post_capture_prerequisite_drift"
+        self.capture_error = "bound_copy_cleanup_failed"
+        self.cleanup = "fail"
+
+
 def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -993,6 +1001,8 @@ def _bound_executable_copy(snapshot: dict[str, Any]) -> tuple[str, Path, Path]:
     bound_path: Path | None = None
     bound_descriptor = -1
     root_descriptor = -1
+    failure: Exception | None = None
+    finalization_error: OSError | None = None
     try:
         if str(source_path) != expected_path or source_digest != expected_digest:
             raise ValueError("captured executable identity drifted")
@@ -1022,50 +1032,57 @@ def _bound_executable_copy(snapshot: dict[str, Any]) -> tuple[str, Path, Path]:
         os.fsync(bound_descriptor)
         descriptor_to_close = bound_descriptor
         bound_descriptor = -1
-        os.close(descriptor_to_close)
+        try:
+            os.close(descriptor_to_close)
+        except OSError as error:
+            finalization_error = error
+            raise
         captured_copy = capture_executable(str(bound_path))
         if captured_copy["executableSha256"] != expected_digest:
             raise ValueError("bound executable copy digest mismatch")
-        return expected_path, bound_path, bound_root
     except Exception as error:
-        if bound_descriptor >= 0:
-            descriptor_to_close = bound_descriptor
-            bound_descriptor = -1
-            try:
-                os.close(descriptor_to_close)
-            except OSError:
-                pass
-        if root_descriptor >= 0:
-            descriptor_to_close = root_descriptor
-            root_descriptor = -1
-            try:
-                os.close(descriptor_to_close)
-            except OSError:
-                pass
-        cleanup = "not_applicable"
-        if bound_path is not None and bound_root is not None:
-            cleanup = (
-                "pass"
-                if _retry_bound_executable_cleanup(bound_path, bound_root)
-                else "fail"
-            )
-        if cleanup == "fail" or isinstance(error, ValueError):
-            raise BoundExecutableCopyDriftError(
-                error,
-                cleanup,
-                cleanup_failed=cleanup == "fail",
-            ) from error
-        if isinstance(error, OSError):
-            raise BoundExecutableCopyUnavailableError(
-                error, cleanup
-            ) from error
-        raise
-    finally:
-        if bound_descriptor >= 0:
-            os.close(bound_descriptor)
-        if root_descriptor >= 0:
-            os.close(root_descriptor)
-        os.close(source_descriptor)
+        failure = error
+
+    descriptors = (bound_descriptor, root_descriptor, source_descriptor)
+    bound_descriptor = -1
+    root_descriptor = -1
+    source_descriptor = -1
+    for descriptor in descriptors:
+        if descriptor < 0:
+            continue
+        try:
+            os.close(descriptor)
+        except OSError as error:
+            if finalization_error is None:
+                finalization_error = error
+            if failure is None:
+                failure = error
+
+    if failure is None:
+        return expected_path, bound_path, bound_root
+
+    cleanup = "not_applicable"
+    if bound_path is not None and bound_root is not None:
+        cleanup = (
+            "pass"
+            if _retry_bound_executable_cleanup(bound_path, bound_root)
+            else "fail"
+        )
+    if finalization_error is not None:
+        raise BoundExecutableCopyFinalizationError(
+            finalization_error
+        ) from failure
+    if cleanup == "fail" or isinstance(failure, ValueError):
+        raise BoundExecutableCopyDriftError(
+            failure,
+            cleanup,
+            cleanup_failed=cleanup == "fail",
+        ) from failure
+    if isinstance(failure, OSError):
+        raise BoundExecutableCopyUnavailableError(
+            failure, cleanup
+        ) from failure
+    raise failure
 
 
 def _remove_bound_executable_copy(bound_path: Path, bound_root: Path) -> bool:
@@ -2889,6 +2906,7 @@ def default_prerequisite_checker(
     except (
         BoundExecutableCopyUnavailableError,
         BoundExecutableCopyDriftError,
+        BoundExecutableCopyFinalizationError,
     ) as error:
         return {
             **capture,
@@ -2919,54 +2937,89 @@ def default_prerequisite_checker(
             ),
             "preflightBoundCopyCleanup": "not_applicable",
         }
-    bound_digest = capture_executable(str(bound_path))["executableSha256"]
-    capture["boundExecutableCopySha256"] = bound_digest
     bound_cleanup_clean = False
+    recapture_failed = False
+    observed_version = None
+    authenticated = False
+    plugin_available = False
+    installed_manifest_sha256 = None
     try:
-        override = str(bound_path)
-        version_probe = _probe(
-            [execution_path, "--version"], executable_override=override
-        )
-        expected_version_line = f"codex-cli {EXPECTED_CODEX_VERSION}"
-        observed_version = None
-        if (
-            version_probe is not None
-            and version_probe.returncode == 0
-            and version_probe.stderr == ""
-            and version_probe.stdout == f"{expected_version_line}\n"
-        ):
-            observed_version = EXPECTED_CODEX_VERSION
-        login_probe = _probe(
-            [execution_path, "login", "status"], executable_override=override
-        )
-        authenticated = (
-            login_probe is not None
-            and login_probe.returncode == 0
-            and login_probe.stdout == ""
-            and login_probe.stderr == "Logged in using ChatGPT\n"
-        )
-        plugin_probe = _probe(
-            [execution_path, "plugin", "list", "--json"],
-            executable_override=override,
-        )
-        plugin_available = (
-            plugin_probe is not None
-            and plugin_probe.returncode == 0
-            and plugin_probe.stderr == ""
-            and _plugin_is_installed_enabled_with_capabilities(
-                plugin_probe.stdout
+        try:
+            recaptured = capture_executable(str(bound_path))
+            if (
+                recaptured["resolvedExecutable"] != str(bound_path)
+                or recaptured["executableSha256"]
+                != captured["executableSha256"]
+            ):
+                raise ValueError("bound executable copy identity drifted")
+        except (KeyError, OSError, TypeError, ValueError):
+            recapture_failed = True
+        else:
+            capture["boundExecutableCopySha256"] = recaptured[
+                "executableSha256"
+            ]
+            override = str(bound_path)
+            version_probe = _probe(
+                [execution_path, "--version"], executable_override=override
             )
-        )
-        installed_manifest_sha256 = None
-        if plugin_available:
-            plugin_available, installed_manifest_sha256 = (
-                _plugin_installation_capture(plugin_probe.stdout)
+            expected_version_line = f"codex-cli {EXPECTED_CODEX_VERSION}"
+            if (
+                version_probe is not None
+                and version_probe.returncode == 0
+                and version_probe.stderr == ""
+                and version_probe.stdout == f"{expected_version_line}\n"
+            ):
+                observed_version = EXPECTED_CODEX_VERSION
+            login_probe = _probe(
+                [execution_path, "login", "status"],
+                executable_override=override,
             )
-        capture["installedManifestSha256"] = installed_manifest_sha256
+            authenticated = (
+                login_probe is not None
+                and login_probe.returncode == 0
+                and login_probe.stdout == ""
+                and login_probe.stderr == "Logged in using ChatGPT\n"
+            )
+            plugin_probe = _probe(
+                [execution_path, "plugin", "list", "--json"],
+                executable_override=override,
+            )
+            plugin_available = (
+                plugin_probe is not None
+                and plugin_probe.returncode == 0
+                and plugin_probe.stderr == ""
+                and _plugin_is_installed_enabled_with_capabilities(
+                    plugin_probe.stdout
+                )
+            )
+            if plugin_available:
+                plugin_available, installed_manifest_sha256 = (
+                    _plugin_installation_capture(plugin_probe.stdout)
+                )
+            capture["installedManifestSha256"] = installed_manifest_sha256
     finally:
         bound_cleanup_clean = _retry_bound_executable_cleanup(
             bound_path, bound_root
         )
+    if recapture_failed:
+        return {
+            **capture,
+            **captured,
+            "version": None,
+            "authenticated": False,
+            "modelAvailable": False,
+            "pluginAvailable": False,
+            "discovery": "blocked",
+            "installation": "blocked",
+            "captureError": (
+                "bound_copy_identity_drift"
+                if bound_cleanup_clean
+                else "bound_copy_cleanup_failed"
+            ),
+            "preflightBoundCopyCleanup": (
+                "pass" if bound_cleanup_clean else "fail"
+            ),
+        }
     if not bound_cleanup_clean:
         return {
             **capture,
