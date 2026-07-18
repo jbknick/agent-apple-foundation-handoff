@@ -2697,6 +2697,109 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
         self.assertNotIn("injected raw-output unlink", json.dumps(evidence))
         self.assertTrue(output_path_exists or retained == b"")
 
+    def test_output_owner_construction_failure_does_not_close_reused_descriptor(
+        self,
+    ) -> None:
+        fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
+        outputs = _forward_outputs(fixture)
+        escaped: Exception | None = None
+        outcome = None
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bound_root = root / "bound"
+            bound_root.mkdir()
+            bound_path = bound_root / "codex"
+            bound_path.write_bytes(b"verified executable sentinel")
+            bound_path.chmod(0o700)
+            replacement_path = root / "replacement"
+            replacement_path.write_bytes(b"replacement descriptor must remain open")
+            allocated: dict[str, int | Path] = {}
+            real_fdopen = os.fdopen
+            real_mkstemp = tempfile.mkstemp
+            real_open = os.open
+            real_close = os.close
+            fdopen_calls = 0
+            reused_descriptor = -1
+
+            def bound_copy(_: dict) -> tuple[str, Path, Path]:
+                return str(TEST_EXECUTABLE_PATH), bound_path, bound_root
+
+            def allocate_output(*args, **kwargs) -> tuple[int, str]:
+                descriptor, name = real_mkstemp(*args, dir=root, **kwargs)
+                allocated.update(descriptor=descriptor, path=Path(name))
+                return descriptor, name
+
+            def consume_close_reuse_and_raise(
+                descriptor: int,
+                *args,
+                **kwargs,
+            ):
+                nonlocal fdopen_calls, reused_descriptor
+                fdopen_calls += 1
+                owner = real_fdopen(descriptor, *args, **kwargs)
+                owner.close()
+                replacement_descriptor = real_open(replacement_path, os.O_RDONLY)
+                if replacement_descriptor != descriptor:
+                    os.dup2(replacement_descriptor, descriptor)
+                    real_close(replacement_descriptor)
+                reused_descriptor = descriptor
+                raise OSError("injected fdopen consume-and-raise failure")
+
+            with (
+                mock.patch.object(
+                    self.runner,
+                    "_bound_executable_copy",
+                    side_effect=bound_copy,
+                ),
+                mock.patch.object(
+                    self.runner.tempfile,
+                    "mkstemp",
+                    side_effect=allocate_output,
+                ),
+                mock.patch.object(
+                    self.runner.os,
+                    "fdopen",
+                    side_effect=consume_close_reuse_and_raise,
+                ),
+            ):
+                try:
+                    outcome = _run_host(
+                        self.runner,
+                        fixture,
+                        str(TEST_EXECUTABLE_PATH),
+                        _FakeHostProcess(),
+                        _FakePrerequisiteChecker(_passing_prerequisites()),
+                        _FakeScorer(outputs),
+                    )
+                except Exception as error:  # pragma: no cover - assertion captures it
+                    escaped = error
+
+            replacement_descriptor_open = False
+            if reused_descriptor >= 0:
+                try:
+                    os.fstat(reused_descriptor)
+                    replacement_descriptor_open = True
+                except OSError:
+                    pass
+                if replacement_descriptor_open:
+                    real_close(reused_descriptor)
+            output_path = Path(allocated["path"])
+            output_path.unlink(missing_ok=True)
+            bound_path.unlink(missing_ok=True)
+            if bound_root.exists():
+                bound_root.rmdir()
+
+        self.assertIsNone(escaped)
+        self.assertIsNotNone(outcome)
+        code, evidence = outcome
+        self.assertEqual(1, fdopen_calls)
+        self.assertTrue(replacement_descriptor_open)
+        self.assertEqual(self.runner.FAIL, code)
+        self.assertEqual("fail", evidence["status"])
+        self.assertEqual("process_failed", evidence["host"]["blockerReason"])
+        self.assertNotIn("consume-and-raise", json.dumps(evidence))
+
     def test_close_after_effect_does_not_close_reused_descriptor(self) -> None:
         fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
         outputs = _forward_outputs(fixture)
@@ -2804,6 +2907,108 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
         self.assertEqual("fail", evidence["status"])
         self.assertEqual("process_failed", evidence["host"]["blockerReason"])
         self.assertNotIn("close-after-effect", json.dumps(evidence))
+
+    def test_output_owner_close_replacement_path_survives_and_normalizes(
+        self,
+    ) -> None:
+        fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
+        outputs = _forward_outputs(fixture)
+        raw = b"synthetic private response"
+        victim_bytes = b"replacement pathname must remain unchanged"
+        process = _FakeHostProcess(responses=[raw])
+        escaped: Exception | None = None
+        outcome = None
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bound_root = root / "bound"
+            bound_root.mkdir()
+            bound_path = bound_root / "codex"
+            bound_path.write_bytes(b"verified executable sentinel")
+            bound_path.chmod(0o700)
+            victim_path = root / "victim"
+            victim_path.write_bytes(victim_bytes)
+            allocated: dict[str, Path] = {}
+            real_fdopen = os.fdopen
+            real_mkstemp = tempfile.mkstemp
+            real_unlink = os.unlink
+            close_calls = 0
+
+            def bound_copy(_: dict) -> tuple[str, Path, Path]:
+                return str(TEST_EXECUTABLE_PATH), bound_path, bound_root
+
+            def allocate_output(*args, **kwargs) -> tuple[int, str]:
+                descriptor, name = real_mkstemp(*args, dir=root, **kwargs)
+                allocated["path"] = Path(name)
+                return descriptor, name
+
+            class ReplacePathOnCloseOwner:
+                def __init__(self, descriptor: int, *args, **kwargs) -> None:
+                    self._file = real_fdopen(descriptor, *args, **kwargs)
+
+                def __getattr__(self, name: str):
+                    return getattr(self._file, name)
+
+                def close(self) -> None:
+                    nonlocal close_calls
+                    close_calls += 1
+                    self._file.close()
+                    output_path = allocated["path"]
+                    try:
+                        real_unlink(output_path)
+                    except FileNotFoundError:
+                        pass
+                    os.link(victim_path, output_path)
+
+            with (
+                mock.patch.object(
+                    self.runner,
+                    "_bound_executable_copy",
+                    side_effect=bound_copy,
+                ),
+                mock.patch.object(
+                    self.runner.tempfile,
+                    "mkstemp",
+                    side_effect=allocate_output,
+                ),
+                mock.patch.object(
+                    self.runner.os,
+                    "fdopen",
+                    side_effect=ReplacePathOnCloseOwner,
+                ),
+            ):
+                try:
+                    outcome = _run_host(
+                        self.runner,
+                        fixture,
+                        str(TEST_EXECUTABLE_PATH),
+                        process,
+                        _FakePrerequisiteChecker(_passing_prerequisites()),
+                        _FakeScorer(outputs),
+                    )
+                except Exception as error:  # pragma: no cover - assertion captures it
+                    escaped = error
+
+            output_path = allocated["path"]
+            replacement_exists = output_path.exists()
+            replacement_bytes = output_path.read_bytes() if replacement_exists else b""
+            victim_retained = victim_path.read_bytes()
+            if replacement_exists:
+                real_unlink(output_path)
+            bound_path.unlink(missing_ok=True)
+            if bound_root.exists():
+                bound_root.rmdir()
+
+        self.assertIsNone(escaped)
+        self.assertIsNotNone(outcome)
+        code, evidence = outcome
+        self.assertEqual(1, close_calls)
+        self.assertTrue(replacement_exists)
+        self.assertEqual(victim_bytes, replacement_bytes)
+        self.assertEqual(victim_bytes, victim_retained)
+        self.assertEqual(self.runner.FAIL, code)
+        self.assertEqual("fail", evidence["status"])
+        self.assertEqual("process_failed", evidence["host"]["blockerReason"])
 
     def test_hardlink_path_replacement_does_not_touch_victim(self) -> None:
         fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
@@ -3153,6 +3358,130 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                 self.assertEqual(1, fault_calls)
                 self.assertFalse(bound_path_existed)
                 self.assertFalse(bound_root_existed)
+
+    def test_bound_copy_close_after_effect_does_not_close_reused_descriptor(
+        self,
+    ) -> None:
+        source_bytes = b"small verified executable"
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_path = root / "source-codex"
+            source_path.write_bytes(source_bytes)
+            source_path.chmod(0o700)
+            replacement_path = root / "replacement"
+            replacement_path.write_bytes(b"replacement descriptor must remain open")
+            expected_digest = hashlib.sha256(source_bytes).hexdigest()
+            source_descriptor = os.open(source_path, os.O_RDONLY)
+            real_mkdtemp = tempfile.mkdtemp
+            real_open = os.open
+            real_close = os.close
+            created_roots: list[Path] = []
+            bound_descriptor = -1
+            reused_descriptor = -1
+            bound_close_calls = 0
+
+            def make_bound_root(*args, **kwargs) -> str:
+                kwargs["dir"] = root
+                created = Path(real_mkdtemp(*args, **kwargs))
+                created_roots.append(created)
+                return str(created)
+
+            def observe_bound_open(path, flags, *args, **kwargs) -> int:
+                nonlocal bound_descriptor
+                descriptor = real_open(path, flags, *args, **kwargs)
+                if Path(path).name == "codex" and kwargs.get("dir_fd") is not None:
+                    bound_descriptor = descriptor
+                return descriptor
+
+            def close_after_effect(descriptor: int) -> None:
+                nonlocal bound_close_calls, reused_descriptor
+                if descriptor == bound_descriptor:
+                    bound_close_calls += 1
+                    if bound_close_calls == 1:
+                        real_close(descriptor)
+                        replacement_descriptor = real_open(
+                            replacement_path,
+                            os.O_RDONLY,
+                        )
+                        if replacement_descriptor != descriptor:
+                            os.dup2(replacement_descriptor, descriptor)
+                            real_close(replacement_descriptor)
+                        reused_descriptor = descriptor
+                        raise OSError("injected bound close-after-effect failure")
+                real_close(descriptor)
+
+            escaped: Exception | None = None
+            with (
+                mock.patch.object(
+                    self.runner,
+                    "_open_verified_executable",
+                    return_value=(
+                        source_path,
+                        source_descriptor,
+                        expected_digest,
+                    ),
+                ),
+                mock.patch.object(
+                    self.runner.tempfile,
+                    "mkdtemp",
+                    side_effect=make_bound_root,
+                ),
+                mock.patch.object(
+                    self.runner.os,
+                    "open",
+                    side_effect=observe_bound_open,
+                ),
+                mock.patch.object(
+                    self.runner.os,
+                    "close",
+                    side_effect=close_after_effect,
+                ),
+            ):
+                try:
+                    self.runner._bound_executable_copy(
+                        {
+                            "resolvedExecutable": str(source_path),
+                            "executableSha256": expected_digest,
+                        }
+                    )
+                except Exception as error:  # pragma: no cover - asserted below
+                    escaped = error
+
+            replacement_descriptor_open = False
+            if reused_descriptor >= 0:
+                try:
+                    os.fstat(reused_descriptor)
+                    replacement_descriptor_open = True
+                except OSError:
+                    pass
+                if replacement_descriptor_open:
+                    real_close(reused_descriptor)
+            try:
+                os.fstat(source_descriptor)
+                source_descriptor_open = True
+            except OSError:
+                source_descriptor_open = False
+            if source_descriptor_open:
+                real_close(source_descriptor)
+
+            self.assertEqual(1, len(created_roots))
+            bound_root = created_roots[0]
+            bound_path = bound_root / "codex"
+            bound_path_existed = bound_path.exists()
+            bound_root_existed = bound_root.exists()
+            if bound_path_existed:
+                bound_path.unlink()
+            if bound_root.exists():
+                bound_root.rmdir()
+
+        self.assertIsInstance(escaped, OSError)
+        self.assertIn("injected bound close-after-effect", str(escaped))
+        self.assertEqual(1, bound_close_calls)
+        self.assertTrue(replacement_descriptor_open)
+        self.assertFalse(source_descriptor_open)
+        self.assertFalse(bound_path_existed)
+        self.assertFalse(bound_root_existed)
 
     def test_host_blocks_exact_prerequisites_without_fallback(self) -> None:
         fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
