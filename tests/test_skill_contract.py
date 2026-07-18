@@ -110,6 +110,26 @@ RESULT_FIELDS = (
     "limitations",
 )
 
+ARCHITECTURE_RESULT_FIELDS = (
+    "architectureSchemaVersion",
+    "stateVersion",
+    "policyVersion",
+    "workflow",
+    "scope",
+    "pattern",
+    "source",
+    "destination",
+    "finalResponseOwner",
+    "apiAvailability[]",
+    "stateModel",
+    "trustBoundaries[]",
+    "contextPolicy",
+    "toolAndEffectPolicy",
+    "failurePolicy",
+    "verification[]",
+    "limitations[]",
+)
+
 POSITIVE_RESULT_LINES = (
     "activationStatus = activated",
     "selectedSkill = {skill}",
@@ -118,21 +138,21 @@ POSITIVE_RESULT_LINES = (
     '  architectureSchemaVersion: "1.0"',
     "  stateVersion: <independent state schema version>",
     "  policyVersion: <independent policy version>",
-    "  workflow",
-    "  scope",
+    "  workflow: <selected workflow>",
+    "  scope: <bounded artifact and operation scope>",
     "  pattern = baton_pass | isolated_consultation | deterministic_routing | "
     "transcript_transfer",
     "  source = { profile, provider }",
     "  destination = { profile, provider }",
-    "  finalResponseOwner",
+    "  finalResponseOwner: <stable final-response owner>",
     "  apiAvailability[] = { surface, versionLabel, compileStatus, source }",
-    "  stateModel",
-    "  trustBoundaries[]",
-    "  contextPolicy",
-    "  toolAndEffectPolicy",
-    "  failurePolicy",
+    "  stateModel: <versioned reducer state and lifecycle>",
+    "  trustBoundaries[]: <classified trust boundaries>",
+    "  contextPolicy: <minimum-context transfer policy>",
+    "  toolAndEffectPolicy: <tool, confirmation, and effect authority policy>",
+    "  failurePolicy: <fail-closed recovery and fallback policy>",
     "  verification[] = { id, layer, status, evidence }",
-    "  limitations[]",
+    "  limitations[]: <limitations and blockers>",
 )
 
 COMMON_SECTIONS = (
@@ -1229,6 +1249,51 @@ class SkillContractTests(unittest.TestCase):
                     self, self.require_skill_text(skill), skill
                 )
 
+    def test_positive_result_template_is_parseable(self) -> None:
+        assignment = re.compile(
+            r"\s{2}([A-Za-z][A-Za-z0-9]*(?:\[\])?)\s*(?:=|:)\s*(.+)"
+        )
+        for skill in SKILLS:
+            with self.subTest(skill=skill):
+                text = self.require_skill_text(skill)
+                sections = parse_markdown_sections(text)
+                output = semantic_section(self, sections, "output", "contract")
+                templates = re.findall(
+                    r"```text\n(.*?)\n```",
+                    output.direct_body,
+                    flags=re.DOTALL,
+                )
+                self.assertEqual(
+                    1,
+                    len(templates),
+                    f"{skill}: expected one fenced positive result template",
+                )
+
+                lines = templates[0].splitlines()
+                preamble = positive_result_lines(skill)[:4]
+                self.assertEqual(preamble, tuple(lines[:4]))
+                children = lines[4:]
+                self.assertEqual(len(ARCHITECTURE_RESULT_FIELDS), len(children))
+
+                parsed: list[tuple[str, str]] = []
+                incomplete: list[str] = []
+                for raw_line in children:
+                    match = assignment.fullmatch(raw_line)
+                    if match is None or not match.group(2).strip():
+                        incomplete.append(raw_line.strip())
+                        continue
+                    parsed.append((match.group(1), match.group(2).strip()))
+                self.assertEqual(
+                    [],
+                    incomplete,
+                    f"{skill}: architectureResult children must be indented "
+                    "nonempty assignments",
+                )
+                self.assertEqual(
+                    ARCHITECTURE_RESULT_FIELDS,
+                    tuple(name for name, _ in parsed),
+                )
+
     def test_each_skill_owns_deterministic_response_serialization(self) -> None:
         for skill in SKILLS:
             text = self.require_skill_text(skill)
@@ -1606,6 +1671,7 @@ class SkillContractMutationTests(unittest.TestCase):
         )
         schema = '  architectureSchemaVersion: "1.0"\n'
         state_version = "  stateVersion: <independent state schema version>\n"
+        limitations = f"{POSITIVE_RESULT_LINES[-1]}\n"
         mutations = {
             "wrong fence language": fixture.replace(
                 "## Output Contract\n```text\n",
@@ -1613,8 +1679,8 @@ class SkillContractMutationTests(unittest.TestCase):
                 1,
             ),
             "extra line": fixture.replace(
-                "  limitations[]\n```",
-                "  limitations[]\n  extraField\n```",
+                f"{limitations}```",
+                f"{limitations}  extraField\n```",
                 1,
             ),
             "outer reorder": fixture.replace(
@@ -1648,7 +1714,7 @@ class SkillContractMutationTests(unittest.TestCase):
                 state_version + state_version,
                 1,
             ),
-            "nested omission": fixture.replace("  limitations[]\n", "", 1),
+            "nested omission": fixture.replace(limitations, "", 1),
         }
 
         for name, candidate in mutations.items():
