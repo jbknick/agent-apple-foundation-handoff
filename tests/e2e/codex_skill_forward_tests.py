@@ -263,6 +263,32 @@ class HostCaseIsolationError(OSError):
         )
 
 
+class BoundExecutableCopyUnavailableError(OSError):
+    def __init__(self, error: OSError, cleanup: str) -> None:
+        super().__init__(*error.args)
+        self.reason = "bound_copy_unavailable"
+        self.capture_error = "bound_copy_failure"
+        self.cleanup = cleanup
+
+
+class BoundExecutableCopyDriftError(ValueError):
+    def __init__(
+        self,
+        error: Exception,
+        cleanup: str,
+        *,
+        cleanup_failed: bool = False,
+    ) -> None:
+        super().__init__(str(error))
+        self.reason = "post_capture_prerequisite_drift"
+        self.capture_error = (
+            "bound_copy_cleanup_failed"
+            if cleanup_failed
+            else "bound_copy_identity_drift"
+        )
+        self.cleanup = cleanup
+
+
 def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -945,10 +971,24 @@ def _capture_matches_snapshot(snapshot: dict[str, Any]) -> bool:
 
 
 def _bound_executable_copy(snapshot: dict[str, Any]) -> tuple[str, Path, Path]:
-    expected_path, expected_digest = _snapshot_executable_identity(snapshot)
-    source_path, source_descriptor, source_digest = _open_verified_executable(
-        expected_path
-    )
+    try:
+        expected_path, expected_digest = _snapshot_executable_identity(snapshot)
+    except ValueError as error:
+        raise BoundExecutableCopyDriftError(
+            error, "not_applicable"
+        ) from error
+    try:
+        source_path, source_descriptor, source_digest = _open_verified_executable(
+            expected_path
+        )
+    except (FileNotFoundError, ExecutableCaptureError) as error:
+        raise BoundExecutableCopyDriftError(
+            error, "not_applicable"
+        ) from error
+    except OSError as error:
+        raise BoundExecutableCopyUnavailableError(
+            error, "not_applicable"
+        ) from error
     bound_root: Path | None = None
     bound_path: Path | None = None
     bound_descriptor = -1
@@ -987,9 +1027,38 @@ def _bound_executable_copy(snapshot: dict[str, Any]) -> tuple[str, Path, Path]:
         if captured_copy["executableSha256"] != expected_digest:
             raise ValueError("bound executable copy digest mismatch")
         return expected_path, bound_path, bound_root
-    except Exception:
+    except Exception as error:
+        if bound_descriptor >= 0:
+            descriptor_to_close = bound_descriptor
+            bound_descriptor = -1
+            try:
+                os.close(descriptor_to_close)
+            except OSError:
+                pass
+        if root_descriptor >= 0:
+            descriptor_to_close = root_descriptor
+            root_descriptor = -1
+            try:
+                os.close(descriptor_to_close)
+            except OSError:
+                pass
+        cleanup = "not_applicable"
         if bound_path is not None and bound_root is not None:
-            _retry_bound_executable_cleanup(bound_path, bound_root)
+            cleanup = (
+                "pass"
+                if _retry_bound_executable_cleanup(bound_path, bound_root)
+                else "fail"
+            )
+        if cleanup == "fail" or isinstance(error, ValueError):
+            raise BoundExecutableCopyDriftError(
+                error,
+                cleanup,
+                cleanup_failed=cleanup == "fail",
+            ) from error
+        if isinstance(error, OSError):
+            raise BoundExecutableCopyUnavailableError(
+                error, cleanup
+            ) from error
         raise
     finally:
         if bound_descriptor >= 0:
@@ -2033,7 +2102,12 @@ def run_host(
         if first_snapshot is None:
             first_snapshot = copy.deepcopy(pre)
             capture = _snapshot_capture(first_snapshot)
-            if capture["boundExecutableCopySha256"] is not None:
+            preflight_cleanup = first_snapshot.get(
+                "preflightBoundCopyCleanup"
+            )
+            if preflight_cleanup in {"pass", "fail"}:
+                cleanup["boundExecutableCopy"] = preflight_cleanup
+            elif capture["boundExecutableCopySha256"] is not None:
                 cleanup["boundExecutableCopy"] = "pass"
         elif _snapshot_identity(pre) != _snapshot_identity(first_snapshot):
             evidence = _evidence(
@@ -2812,6 +2886,22 @@ def default_prerequisite_checker(
     captured_executable = captured["resolvedExecutable"]
     try:
         execution_path, bound_path, bound_root = _bound_executable_copy(captured)
+    except (
+        BoundExecutableCopyUnavailableError,
+        BoundExecutableCopyDriftError,
+    ) as error:
+        return {
+            **capture,
+            **captured,
+            "version": None,
+            "authenticated": False,
+            "modelAvailable": False,
+            "pluginAvailable": False,
+            "discovery": "blocked",
+            "installation": "blocked",
+            "captureError": error.capture_error,
+            "preflightBoundCopyCleanup": error.cleanup,
+        }
     except (OSError, ValueError) as error:
         return {
             **capture,
@@ -3121,7 +3211,12 @@ def _blocked_cli_evidence(
     forced_status: str = "blocked",
 ) -> dict[str, Any]:
     cleanup = _cleanup_outcomes()
-    if capture["boundExecutableCopySha256"] is not None:
+    preflight_cleanup = (
+        None if snapshot is None else snapshot.get("preflightBoundCopyCleanup")
+    )
+    if preflight_cleanup in {"pass", "fail"}:
+        cleanup["boundExecutableCopy"] = preflight_cleanup
+    elif capture["boundExecutableCopySha256"] is not None:
         cleanup["boundExecutableCopy"] = (
             "fail"
             if snapshot is not None
