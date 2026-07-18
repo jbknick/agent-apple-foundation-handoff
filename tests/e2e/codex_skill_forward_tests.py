@@ -818,6 +818,142 @@ def _remove_bound_executable_copy(bound_path: Path, bound_root: Path) -> bool:
     return removed
 
 
+def _retry_bound_executable_cleanup(bound_path: Path, bound_root: Path) -> bool:
+    for _attempt in range(2):
+        try:
+            if _remove_bound_executable_copy(bound_path, bound_root):
+                return True
+        except Exception:
+            pass
+    return False
+
+
+def _close_descriptor(descriptor: int) -> bool:
+    for _attempt in range(2):
+        try:
+            os.close(descriptor)
+            return True
+        except OSError:
+            try:
+                os.fstat(descriptor)
+            except OSError:
+                return True
+    return False
+
+
+def _zeroize_output_path_no_symlinks(
+    output_path: Path,
+) -> tuple[bool, tuple[int, int] | None]:
+    parent_descriptor = -1
+    descriptor = -1
+    identity: tuple[int, int] | None = None
+    zeroized = False
+    try:
+        parent_descriptor = _open_directory_no_symlinks(output_path.parent)
+        before = os.stat(
+            output_path.name,
+            dir_fd=parent_descriptor,
+            follow_symlinks=False,
+        )
+        if not stat.S_ISREG(before.st_mode):
+            return False, None
+        descriptor = os.open(
+            output_path.name,
+            os.O_WRONLY
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_CLOEXEC", 0),
+            dir_fd=parent_descriptor,
+        )
+        opened = os.fstat(descriptor)
+        identity = (opened.st_dev, opened.st_ino)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or identity != (before.st_dev, before.st_ino)
+        ):
+            return False, identity
+        os.ftruncate(descriptor, 0)
+        os.fsync(descriptor)
+        zeroized = True
+    except (OSError, ValueError):
+        pass
+    finally:
+        if descriptor >= 0 and not _close_descriptor(descriptor):
+            zeroized = False
+        if parent_descriptor >= 0 and not _close_descriptor(parent_descriptor):
+            zeroized = False
+    return zeroized, identity
+
+
+def _cleanup_private_output(descriptor: int, output_path: Path | None) -> bool:
+    if descriptor < 0 and output_path is None:
+        return True
+
+    identity: tuple[int, int] | None = None
+    zeroized = False
+    if descriptor >= 0:
+        try:
+            opened = os.fstat(descriptor)
+            if stat.S_ISREG(opened.st_mode):
+                identity = (opened.st_dev, opened.st_ino)
+                os.ftruncate(descriptor, 0)
+                os.fsync(descriptor)
+                zeroized = True
+        except OSError:
+            pass
+
+    if not zeroized and output_path is not None:
+        zeroized, identity = _zeroize_output_path_no_symlinks(output_path)
+
+    closed = descriptor < 0 or _close_descriptor(descriptor)
+    if output_path is None:
+        return zeroized and closed
+
+    unlinked = False
+    parent_descriptor = -1
+    try:
+        parent_descriptor = _open_directory_no_symlinks(output_path.parent)
+        before = os.stat(
+            output_path.name,
+            dir_fd=parent_descriptor,
+            follow_symlinks=False,
+        )
+        if (
+            identity is None
+            or not stat.S_ISREG(before.st_mode)
+            or identity != (before.st_dev, before.st_ino)
+        ):
+            return False
+        os.unlink(output_path.name, dir_fd=parent_descriptor)
+        unlinked = True
+    except FileNotFoundError:
+        unlinked = True
+    except (OSError, ValueError):
+        pass
+    finally:
+        if parent_descriptor >= 0 and not _close_descriptor(parent_descriptor):
+            unlinked = False
+    return zeroized and closed and unlinked
+
+
+def _read_output_descriptor(descriptor: int) -> bytes:
+    opened = os.fstat(descriptor)
+    if not stat.S_ISREG(opened.st_mode):
+        raise ValueError("private output must be a regular file")
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    chunks: list[bytes] = []
+    while True:
+        chunk = os.read(descriptor, 1024 * 1024)
+        if not chunk:
+            break
+        chunks.append(chunk)
+    after = os.fstat(descriptor)
+    if (opened.st_dev, opened.st_ino, opened.st_size, opened.st_mtime_ns) != (
+        after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns
+    ):
+        raise ValueError("private output changed while being read")
+    return b"".join(chunks)
+
+
 def _json_object_without_duplicates(
     pairs: list[tuple[str, Any]],
 ) -> dict[str, Any]:
@@ -1296,112 +1432,146 @@ def run_host(
             )
             return FAIL, evidence
 
+        descriptor = -1
+        output_path: Path | None = None
+        completed: subprocess.CompletedProcess[str] | None = None
+        process_error = False
+        case_code: int | None = None
+        case_blocker: str | None = None
+        case_status: str | None = None
+        pending_host_result: dict[str, Any] | None = None
+        pending_observation: dict[str, Any] | None = None
+        bound_boundary_clean = True
         try:
-            descriptor, output_name = tempfile.mkstemp(
-                prefix="dev136-codex-", suffix=".txt"
+            try:
+                descriptor, output_name = tempfile.mkstemp(
+                    prefix="dev136-codex-", suffix=".txt"
+                )
+                output_path = Path(output_name)
+            except OSError:
+                case_code = FAIL
+                case_blocker = "process_failed"
+                case_status = "fail"
+            else:
+                command = [
+                    execution_path, "exec", "--ephemeral", "--json", "-m",
+                    EXPECTED_MODEL, "--output-last-message", str(output_path), "-",
+                ]
+                try:
+                    completed = process_runner(
+                        command,
+                        input=case["prompt"],
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                        executable=str(bound_path),
+                    )
+                except Exception:
+                    process_error = True
+
+                bound_boundary_clean = _retry_bound_executable_cleanup(
+                    bound_path, bound_root
+                )
+                if not bound_boundary_clean:
+                    case_code = FAIL
+                    case_blocker = "post_capture_prerequisite_drift"
+                    case_status = "fail"
+                else:
+                    try:
+                        post = prerequisite_checker(
+                            execution_path, EXPECTED_MODEL, EXPECTED_CODEX_VERSION
+                        )
+                    except Exception:
+                        post = {}
+                    try:
+                        identity_stable = _capture_matches_snapshot(first_snapshot)
+                    except (OSError, ValueError):
+                        identity_stable = False
+                    if (
+                        not identity_stable
+                        or _snapshot_identity(pre) != _snapshot_identity(first_snapshot)
+                        or _snapshot_identity(post)
+                        != _snapshot_identity(first_snapshot)
+                    ):
+                        case_code = FAIL
+                        case_blocker = "post_capture_prerequisite_drift"
+                        case_status = "fail"
+                    elif (
+                        completed is not None
+                        and completed.returncode != 0
+                        and _is_model_unavailable(completed)
+                    ):
+                        case_code = BLOCKED
+                        case_blocker = "model_unavailable"
+                        case_status = "blocked"
+                    elif (
+                        process_error
+                        or completed is None
+                        or completed.returncode != 0
+                    ):
+                        case_code = FAIL
+                        case_blocker = "process_failed"
+                        case_status = "fail"
+                    else:
+                        try:
+                            response = _read_output_descriptor(descriptor)
+                            events = _tool_events(completed.stdout)
+                        except (OSError, ValueError):
+                            case_code = FAIL
+                            case_blocker = "event_stream_invalid"
+                            case_status = "fail"
+                        else:
+                            pending_host_result = {
+                                "codexExitCode": completed.returncode,
+                                "responseSha256": _sha256(response),
+                                "responseBytes": len(response),
+                                "toolEventCount": len(events),
+                            }
+                            try:
+                                pending_observation = scorer(case, response, events)
+                                _validate_observation(pending_observation)
+                            except Exception:
+                                pending_observation = None
+                                case_code = FAIL
+                                case_blocker = "scoring_failed"
+                                case_status = "fail"
+        finally:
+            output_clean = _cleanup_private_output(descriptor, output_path)
+            bound_final_clean = _retry_bound_executable_cleanup(
+                bound_path, bound_root
             )
-            os.close(descriptor)
-            output_path = Path(output_name)
-        except OSError:
-            _remove_bound_executable_copy(bound_path, bound_root)
+
+        if not bound_boundary_clean or not bound_final_clean:
+            case_code = FAIL
+            case_blocker = "post_capture_prerequisite_drift"
+            case_status = "fail"
+        elif case_blocker != "post_capture_prerequisite_drift" and not output_clean:
+            case_code = FAIL
+            case_blocker = "process_failed"
+            case_status = "fail"
+
+        if case_code is not None:
+            evidence = _evidence(
+                "host", fixture, fixture_bytes, rows, snapshot=first_snapshot,
+                blocker=case_blocker, forced_status=case_status,
+            )
+            return case_code, evidence
+
+        if pending_host_result is None or pending_observation is None:
             evidence = _evidence(
                 "host", fixture, fixture_bytes, rows, snapshot=first_snapshot,
                 blocker="process_failed", forced_status="fail",
             )
             return FAIL, evidence
-        completed: subprocess.CompletedProcess[str] | None = None
-        process_error = False
-        try:
-            command = [
-                execution_path, "exec", "--ephemeral", "--json", "-m", EXPECTED_MODEL,
-                "--output-last-message", str(output_path), "-",
-            ]
-            try:
-                completed = process_runner(
-                    command,
-                    input=case["prompt"],
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                    executable=str(bound_path),
-                )
-            except Exception:
-                process_error = True
-
-            if not _remove_bound_executable_copy(bound_path, bound_root):
-                evidence = _evidence(
-                    "host", fixture, fixture_bytes, rows, snapshot=first_snapshot,
-                    blocker="post_capture_prerequisite_drift", forced_status="fail",
-                )
-                return FAIL, evidence
-
-            try:
-                post = prerequisite_checker(
-                    execution_path, EXPECTED_MODEL, EXPECTED_CODEX_VERSION
-                )
-            except Exception:
-                post = {}
-            try:
-                identity_stable = _capture_matches_snapshot(first_snapshot)
-            except (OSError, ValueError):
-                identity_stable = False
-            if (
-                not identity_stable
-                or _snapshot_identity(pre) != _snapshot_identity(first_snapshot)
-                or _snapshot_identity(post) != _snapshot_identity(first_snapshot)
-            ):
-                evidence = _evidence(
-                    "host", fixture, fixture_bytes, rows, snapshot=first_snapshot,
-                    blocker="post_capture_prerequisite_drift", forced_status="fail",
-                )
-                return FAIL, evidence
-            if completed is not None and completed.returncode != 0 and _is_model_unavailable(completed):
-                evidence = _evidence(
-                    "host", fixture, fixture_bytes, rows, snapshot=first_snapshot,
-                    blocker="model_unavailable", forced_status="blocked",
-                )
-                return BLOCKED, evidence
-            if process_error or completed is None or completed.returncode != 0:
-                evidence = _evidence(
-                    "host", fixture, fixture_bytes, rows, snapshot=first_snapshot,
-                    blocker="process_failed", forced_status="fail",
-                )
-                return FAIL, evidence
-            try:
-                response = output_path.read_bytes()
-                events = _tool_events(completed.stdout)
-            except (OSError, ValueError):
-                evidence = _evidence(
-                    "host", fixture, fixture_bytes, rows, snapshot=first_snapshot,
-                    blocker="event_stream_invalid", forced_status="fail",
-                )
-                return FAIL, evidence
-            host_result = {
-                "codexExitCode": completed.returncode,
-                "responseSha256": _sha256(response),
-                "responseBytes": len(response),
-                "toolEventCount": len(events),
-            }
-            if host_results_sink is not None:
-                host_results_sink.append(copy.deepcopy(host_result))
-            try:
-                observation = scorer(case, response, events)
-                _validate_observation(observation)
-            except Exception:
-                evidence = _evidence(
-                    "host", fixture, fixture_bytes, rows, snapshot=first_snapshot,
-                    blocker="scoring_failed", forced_status="fail",
-                )
-                return FAIL, evidence
-            if scorer_outputs_sink is not None:
-                scorer_outputs_sink[case["id"]] = copy.deepcopy(observation)
-            rows.append(_row(fixture, case, ordinal, observation, host_result))
-        finally:
-            try:
-                output_path.unlink()
-            except FileNotFoundError:
-                pass
-            _remove_bound_executable_copy(bound_path, bound_root)
+        if host_results_sink is not None:
+            host_results_sink.append(copy.deepcopy(pending_host_result))
+        if scorer_outputs_sink is not None:
+            scorer_outputs_sink[case["id"]] = copy.deepcopy(pending_observation)
+        rows.append(
+            _row(
+                fixture, case, ordinal, pending_observation, pending_host_result
+            )
+        )
 
     evidence = _evidence("host", fixture, fixture_bytes, rows, snapshot=first_snapshot)
     return _exit_for(evidence), evidence
