@@ -10,6 +10,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import stat
 import subprocess
 import sys
@@ -42,9 +43,12 @@ ASSERTIONS = (
 STATUSES = {"pass", "fail", "blocked", "not_applicable"}
 EARLY_STOP_REASONS = {
     "event_stream_invalid",
+    "host_case_cleanup_failed",
+    "host_case_setup_failed",
     "post_capture_prerequisite_drift",
     "process_failed",
     "scoring_failed",
+    "source_worktree_drift",
 }
 PRE_RESPONSE_REASONS = {
     "fixture_contract_invalid",
@@ -1547,6 +1551,187 @@ def _is_model_unavailable(completed: subprocess.CompletedProcess[str]) -> bool:
     return False
 
 
+def _run_git(
+    command: list[str], **kwargs: Any
+) -> subprocess.CompletedProcess[Any]:
+    return subprocess.run(command, **kwargs)
+
+
+def _git_stdout(command: list[str], *, check: bool = True) -> bytes:
+    completed = _run_git(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=check,
+    )
+    output = completed.stdout
+    if isinstance(output, bytes):
+        return output
+    if isinstance(output, str):
+        return output.encode("utf-8", errors="surrogateescape")
+    raise OSError("git command returned an invalid stdout payload")
+
+
+def _source_git_command(*arguments: str) -> list[str]:
+    return ["git", "-C", str(ROOT), *arguments]
+
+
+def _source_status_snapshot() -> bytes:
+    return _git_stdout(
+        _source_git_command(
+            "status",
+            "--porcelain=v2",
+            "--branch",
+            "-z",
+            "--untracked-files=all",
+        )
+    )
+
+
+def _best_effort_worktree_cleanup(parent: Path, worktree: Path) -> None:
+    try:
+        _run_git(
+            _source_git_command(
+                "worktree", "remove", "--force", str(worktree)
+            ),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+    except Exception:
+        pass
+    try:
+        shutil.rmtree(worktree, ignore_errors=True)
+    except Exception:
+        pass
+    try:
+        _run_git(
+            _source_git_command("worktree", "prune", "--expire=now"),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+    except Exception:
+        pass
+    try:
+        shutil.rmtree(parent, ignore_errors=True)
+    except Exception:
+        pass
+
+
+def _create_host_case_worktree() -> dict[str, Any]:
+    parent: Path | None = None
+    worktree: Path | None = None
+    try:
+        source_status = _source_status_snapshot()
+        source_head = _git_stdout(
+            _source_git_command("rev-parse", "--verify", "HEAD^{commit}")
+        ).decode("ascii").strip()
+        if re.fullmatch(r"[0-9a-f]{40}", source_head) is None:
+            raise OSError("source HEAD is invalid")
+        parent = Path(tempfile.mkdtemp(prefix="dev136-host-case-"))
+        worktree = parent / "checkout"
+        _run_git(
+            _source_git_command(
+                "worktree", "add", "--detach", str(worktree), source_head
+            ),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        captured_head = _git_stdout(
+            ["git", "-C", str(worktree), "rev-parse", "HEAD"]
+        ).decode("ascii").strip()
+        symbolic = _run_git(
+            ["git", "-C", str(worktree), "symbolic-ref", "--quiet", "HEAD"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if (
+            captured_head != source_head
+            or symbolic.returncode == 0
+            or not worktree.is_dir()
+        ):
+            raise OSError("disposable worktree verification failed")
+        return {
+            "parent": parent,
+            "path": worktree,
+            "sourceStatus": source_status,
+        }
+    except Exception:
+        if parent is not None and worktree is not None:
+            _best_effort_worktree_cleanup(parent, worktree)
+        elif parent is not None:
+            shutil.rmtree(parent, ignore_errors=True)
+        raise
+
+
+def _cleanup_host_case_worktree(
+    owner: dict[str, Any],
+) -> tuple[bool, bool]:
+    parent = owner["parent"]
+    worktree = owner["path"]
+    source_status = owner["sourceStatus"]
+    if not isinstance(parent, Path) or not isinstance(worktree, Path):
+        return False, False
+    cleanup_ok = True
+    try:
+        _run_git(
+            _source_git_command(
+                "worktree", "remove", "--force", str(worktree)
+            ),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+    except Exception:
+        cleanup_ok = False
+        try:
+            shutil.rmtree(worktree, ignore_errors=True)
+        except Exception:
+            pass
+    try:
+        _run_git(
+            _source_git_command("worktree", "prune", "--expire=now"),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+    except Exception:
+        cleanup_ok = False
+    try:
+        registrations = _git_stdout(
+            _source_git_command("worktree", "list", "--porcelain", "-z")
+        )
+        if str(worktree).encode("utf-8") in registrations:
+            cleanup_ok = False
+    except Exception:
+        cleanup_ok = False
+    if worktree.exists():
+        cleanup_ok = False
+        try:
+            shutil.rmtree(worktree, ignore_errors=True)
+        except Exception:
+            pass
+    try:
+        parent.rmdir()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        cleanup_ok = False
+        try:
+            shutil.rmtree(parent, ignore_errors=True)
+        except Exception:
+            pass
+    try:
+        source_drift = _source_status_snapshot() != source_status
+    except Exception:
+        cleanup_ok = False
+        source_drift = False
+    return cleanup_ok, source_drift
+
+
 def run_host(
     fixture: dict[str, Any],
     executable: str,
@@ -1593,6 +1778,16 @@ def run_host(
             )
             return FAIL, evidence
 
+        try:
+            worktree_owner = _create_host_case_worktree()
+        except Exception:
+            _retry_bound_executable_cleanup(bound_path, bound_root)
+            evidence = _evidence(
+                "host", fixture, fixture_bytes, rows, snapshot=first_snapshot,
+                blocker="host_case_setup_failed", forced_status="fail",
+            )
+            return FAIL, evidence
+
         output_descriptor = -1
         output_owner: Any | None = None
         output_identity: tuple[int, int] | None = None
@@ -1606,6 +1801,8 @@ def run_host(
         pending_host_result: dict[str, Any] | None = None
         pending_observation: dict[str, Any] | None = None
         bound_boundary_clean = True
+        worktree_cleanup_clean = True
+        source_worktree_drift = False
         try:
             try:
                 output_descriptor, output_name = tempfile.mkstemp(
@@ -1643,6 +1840,7 @@ def run_host(
                         text=True,
                         check=False,
                         executable=str(bound_path),
+                        cwd=str(worktree_owner["path"]),
                     )
                 except Exception:
                     process_error = True
@@ -1725,8 +1923,20 @@ def run_host(
             bound_final_clean = _retry_bound_executable_cleanup(
                 bound_path, bound_root
             )
+            (
+                worktree_cleanup_clean,
+                source_worktree_drift,
+            ) = _cleanup_host_case_worktree(worktree_owner)
 
-        if not bound_boundary_clean or not bound_final_clean:
+        if not worktree_cleanup_clean:
+            case_code = FAIL
+            case_blocker = "host_case_cleanup_failed"
+            case_status = "fail"
+        elif source_worktree_drift:
+            case_code = FAIL
+            case_blocker = "source_worktree_drift"
+            case_status = "fail"
+        elif not bound_boundary_clean or not bound_final_clean:
             case_code = FAIL
             case_blocker = "post_capture_prerequisite_drift"
             case_status = "fail"
