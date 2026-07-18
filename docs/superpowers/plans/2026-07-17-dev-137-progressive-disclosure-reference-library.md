@@ -1488,6 +1488,12 @@ rejected as bulk at the observed boundary. Keep positive controls for one clean
 path string, one direct record with metadata, nested passive `paths`, and a
 top-level all-reference list.
 
+Add a separate RED for the legitimate pinned command-string path: direct
+`command` and syntactic-command `input` values containing the same owner operand
+twice must retain occurrence count two and fail as
+`bulk_reference_content_read`; the corresponding single-owner commands remain
+positive controls.
+
 ```bash
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v \
   tests.test_codex_reference_disclosure.ReferenceToolPayloadTests
@@ -1506,7 +1512,9 @@ record, preserves per-member occurrence count, and never dispatches command
 parsing. Require `paths` to be a list and use the same parser for the permitted
 top-level all-reference list. Reject bare top-level scalar reference values and
 bare path values under `input`; retain the existing pinned command-string branch
-for syntactic command input. Preserve path canonicalization, direct record
+for syntactic command input. Make `command_reference_reads` return the number of
+validated targeted path operands rather than `int(bool(observed))`, keeping the
+observed-name set independently deduplicated. Preserve path canonicalization, direct record
 metadata, mixed arrays, JSON strictness, lifecycle pairing, access sequence, and
 bulk gates.
 
@@ -1537,4 +1545,5 @@ results.
 
 1. `docs(DEV-137): make path collections data only`
 2. `test(DEV-137): make path collections data only`
-3. `fix(DEV-137): make path collections data only`
+3. `test(DEV-137): count duplicate command operands`
+4. `fix(DEV-137): make path collections data only`
