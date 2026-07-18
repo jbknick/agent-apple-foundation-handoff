@@ -218,6 +218,21 @@ def _compact_sha256(value: Any) -> str:
     )
 
 
+def _json_type_exact_equal(left: Any, right: Any) -> bool:
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, dict):
+        return left.keys() == right.keys() and all(
+            _json_type_exact_equal(left[key], right[key]) for key in left
+        )
+    if isinstance(left, list):
+        return len(left) == len(right) and all(
+            _json_type_exact_equal(left_value, right_value)
+            for left_value, right_value in zip(left, right)
+        )
+    return left == right
+
+
 def _fixture_contract() -> dict[str, Any]:
     raw = CANONICAL_FIXTURE.read_bytes()
     if _sha256(raw) != OFFICIAL_FIXTURE_SHA256:
@@ -1070,7 +1085,10 @@ def _codex_jsonl_events(stdout: str) -> list[dict[str, Any]]:
                 immutable_fields = CODEX_JSONL_IMMUTABLE_IDENTITY_FIELDS.get(
                     item["type"], ()
                 )
-                if any(opened[field] != item[field] for field in immutable_fields):
+                if any(
+                    not _json_type_exact_equal(opened[field], item[field])
+                    for field in immutable_fields
+                ):
                     raise ValueError("Codex JSONL item identity is mismatched")
                 if opened is not None:
                     if opened["type"] != item["type"]:
@@ -1810,7 +1828,7 @@ def _positive_envelope(
 def _usable_version(value: str | None) -> bool:
     if value is None:
         return False
-    normalized = value.strip().strip('"\'‘’“”').strip().lower()
+    normalized = re.sub(r'^[\s"\'‘’“”]+|[\s"\'‘’“”]+$', "", value).lower()
     normalized = re.sub(r"[-_\s]+", "_", normalized)
     return bool(normalized) and normalized not in {
         "unknown", "n/a", "none", "null", "tbd", "placeholder",
