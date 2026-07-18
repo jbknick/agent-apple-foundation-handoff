@@ -62,7 +62,7 @@ question = <one bounded question>
 ```text
 activationStatus = activated
 selectedSkill = validate-apple-foundation-models-handoff
-routerInput = { domain, requestedOperation, artifactState, evidenceState }
+routerInput = { domain = <domain>, requestedOperation = <requestedOperation>, artifactState = <artifactState>, evidenceState = <evidenceState> }
 architectureResult
   architectureSchemaVersion: "1.0"
   stateVersion: <independent state schema version>
@@ -91,13 +91,17 @@ answer. Serialize `selectedSkill` as the literal assignment
 populated `routerInput` values on exactly one physical line, with `architectureResult`
 on the immediately following line. Emit exactly one response-level fenced `text`
 block, reserve it for the result envelope, and emit no additional fenced `text`
-blocks. After the envelope, render only the exact required headings, each exactly once
-and in the listed order. Populate every nested field, including the architecture
-result wrapper and verification; do not replace that shape with YAML, JSON, or prose
-alone. Use only the four pattern enum values shown above. Render source and destination
-as objects containing profile and provider. Report real independent state and policy
-version labels; when a version cannot be established, report an explicit blocker
-rather than a prose placeholder.
+blocks. Every activated response emits exactly the 21 shown nonblank result-envelope
+lines in order with placeholders replaced inline and no added lines. Never wrap,
+pretty-print, or expand `routerInput` or any `architectureResult` child across physical
+lines, keeping each on its single template line. After the envelope, render only the
+exact required headings, each exactly once and in the listed order. Replace every
+inline placeholder in the shown shape, including architecture result and verification
+values; do not replace that shape with YAML, JSON, or prose alone. Use only the four
+pattern enum values shown above. Render source and destination as objects containing
+profile and provider. Report real independent state and policy version labels; when a
+version cannot be established, report an explicit blocker rather than a prose
+placeholder.
 
 Pin the artifact or commit identity, required gate catalog, oracles, commands, hosts,
 evidence policy, and release boundary. State every unavailable prerequisite.

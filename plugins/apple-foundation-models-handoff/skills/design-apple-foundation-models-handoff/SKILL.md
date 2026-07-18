@@ -62,7 +62,7 @@ question = <one bounded question>
 ```text
 activationStatus = activated
 selectedSkill = design-apple-foundation-models-handoff
-routerInput = { domain, requestedOperation, artifactState, evidenceState }
+routerInput = { domain = <domain>, requestedOperation = <requestedOperation>, artifactState = <artifactState>, evidenceState = <evidenceState> }
 architectureResult
   architectureSchemaVersion: "1.0"
   stateVersion: <independent state schema version>
@@ -90,9 +90,12 @@ Serialize `selectedSkill` as the literal assignment
 `routerInput` values on exactly one physical line, with `architectureResult` on the
 immediately following line. Emit exactly one response-level fenced `text` block,
 reserve it for the result envelope, and emit no additional fenced `text` blocks.
-After the envelope, render only the exact required headings, each exactly once and in
-the listed order. Populate every nested field; do not replace that shape with YAML or
-JSON.
+Every activated response emits exactly the 21 shown nonblank result-envelope lines in
+order with placeholders replaced inline and no added lines. Never wrap, pretty-print,
+or expand `routerInput` or any `architectureResult` child across physical lines,
+keeping each on its single template line. After the envelope, render only the exact
+required headings, each exactly once and in the listed order. Replace every inline
+placeholder in the shown shape; do not replace that shape with YAML or JSON.
 
 State the activation reason, design boundary, inspected artifacts, assumptions, and
 unavailable prerequisites. Keep adjacent Apple concepts outside the scope.
