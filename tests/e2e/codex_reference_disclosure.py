@@ -747,21 +747,39 @@ def is_command_argv_array(value: list[object]) -> bool:
     )
 
 
-def has_mixed_reference_scalars(value: list[object]) -> bool:
+def reference_scalar_presence(value: object) -> tuple[bool, bool]:
+    if isinstance(value, dict):
+        nested_values = value.values()
+    elif isinstance(value, list):
+        nested_values = value
+    else:
+        is_reference = isinstance(value, str) and is_reference_path_token(value)
+        return is_reference, not is_reference
+
     has_reference = False
     has_non_reference = False
-    for nested in value:
-        if isinstance(nested, (dict, list)):
-            continue
-        if isinstance(nested, str) and is_reference_path_token(nested):
-            has_reference = True
-        else:
-            has_non_reference = True
+    for nested in nested_values:
+        nested_reference, nested_non_reference = reference_scalar_presence(nested)
+        has_reference = has_reference or nested_reference
+        has_non_reference = has_non_reference or nested_non_reference
+    return has_reference, has_non_reference
+
+
+def has_mixed_reference_scalars(value: list[object]) -> bool:
+    has_reference, has_non_reference = reference_scalar_presence(value)
     return has_reference and has_non_reference
+
+
+def is_structured_command_mapping(value: dict[str, Any]) -> bool:
+    has_argument_sibling = "args" in value or "argv" in value
+    reaches_reference = reference_scalar_presence(value)[0]
+    return "executable" in value and has_argument_sibling and reaches_reference
 
 
 def contains_structured_command(value: object) -> bool:
     if isinstance(value, dict):
+        if is_structured_command_mapping(value):
+            return True
         for key, nested in value.items():
             if key in {"command", "argv"} or (
                 key == "input" and not isinstance(nested, str)
@@ -843,6 +861,8 @@ def mapping_reference_reads(
         return observed, read_count
     if not isinstance(value, dict):
         return observed, read_count
+    if is_structured_command_mapping(value):
+        raise ProbeFailure("invalid_tool_event", task_id)
     local_base = declared_working_directory(value, base, task_id)
     for key, nested in value.items():
         if key in {"cwd", "workdir"}:
