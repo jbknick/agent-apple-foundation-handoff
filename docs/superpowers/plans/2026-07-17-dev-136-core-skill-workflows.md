@@ -695,6 +695,27 @@ normalized result, keep the tracked RED baseline unchanged unless all 25 cases p
 and record any new fail-closed boundary in DEV-136 plus DEV-139/DEV-141 before further
 changes. Raw prompts, responses, and tool events remain transient and uncommitted.
 
+### Step 4: Close the reviewed inner-identity gap
+
+Independent review of the first GREEN found that the duplicate raw/inner web-search
+ID was validated and discarded. Add RED regressions proving rejection of:
+
+- start `item_0/search-1` followed by completion `item_0/search-2`;
+- two simultaneously open outer IDs that both claim `search-1`;
+- any scorer-visible normalized tool event that exposes parser bookkeeping.
+
+Retain the inner ID only as private parser metadata. Require the same outer-to-inner
+association across the pair and a unique open owner for every inner ID. Strip the
+private metadata from copied completed tool events before returning them to scoring;
+never mutate the validated lifecycle state in place. Single-ID synthetic controls must
+receive deterministic internal identity without changing their public shape. Preserve
+the exact duplicate-key allowlist, official mutable query/action transition, start
+placeholder validation, and every other item lifecycle.
+
+Commit the new RED tests and GREEN parser separately. Rerun all Task 7D selectors,
+`tests.test_skill_cases`, the full repository suite, Bats, generation sync, compile,
+and diff checks, then obtain a new independent approval before Step 3's next host run.
+
 ## Task 8: Full verification before completion
 
 Invoke `superpowers:verification-before-completion` and run fresh commands.
