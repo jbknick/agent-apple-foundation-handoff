@@ -5960,6 +5960,142 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.runner._codex_jsonl_events(stream(events))
 
+    def test_codex_01445_spawn_agent_assigns_receiver_on_completion(self) -> None:
+        def collab_item(
+            receiver_thread_ids: list[str],
+            agents_states: dict,
+            status: str,
+        ) -> dict:
+            return {
+                "id": "item_0",
+                "type": "collab_tool_call",
+                "tool": "spawn_agent",
+                "sender_thread_id": "thread-parent",
+                "receiver_thread_ids": receiver_thread_ids,
+                "prompt": "draft a plan",
+                "agents_states": agents_states,
+                "status": status,
+            }
+
+        records = (
+            {"type": "thread.started", "thread_id": "thread-parent"},
+            {"type": "turn.started"},
+            {
+                "type": "item.started",
+                "item": collab_item([], {}, "in_progress"),
+            },
+            {
+                "type": "item.completed",
+                "item": collab_item(
+                    ["thread-child"],
+                    {
+                        "thread-child": {
+                            "status": "running",
+                            "message": None,
+                        }
+                    },
+                    "completed",
+                ),
+            },
+            {"type": "turn.completed", "usage": _codex_usage()},
+        )
+        parsed = self.runner._codex_jsonl_events(
+            "\n".join(json.dumps(record, sort_keys=True) for record in records)
+        )
+        self.assertEqual("turn.completed", parsed[-1]["type"])
+
+    def test_collab_receiver_and_agent_state_transitions_fail_closed(self) -> None:
+        def collab_item(
+            *,
+            tool: str = "spawn_agent",
+            receiver_thread_ids: list[str],
+            agents_states: dict,
+            status: str,
+        ) -> dict:
+            return {
+                "id": "item_0",
+                "type": "collab_tool_call",
+                "tool": tool,
+                "sender_thread_id": "thread-parent",
+                "receiver_thread_ids": receiver_thread_ids,
+                "prompt": "draft a plan",
+                "agents_states": agents_states,
+                "status": status,
+            }
+
+        def stream(started: dict, completed: dict) -> str:
+            records = (
+                {"type": "thread.started", "thread_id": "thread-parent"},
+                {"type": "turn.started"},
+                {"type": "item.started", "item": started},
+                {"type": "item.completed", "item": completed},
+                {"type": "turn.completed", "usage": _codex_usage()},
+            )
+            return "\n".join(
+                json.dumps(record, sort_keys=True) for record in records
+            )
+
+        child_state = {
+            "thread-child": {"status": "running", "message": None}
+        }
+        canonical_start = collab_item(
+            receiver_thread_ids=[], agents_states={}, status="in_progress"
+        )
+        canonical_completion = collab_item(
+            receiver_thread_ids=["thread-child"],
+            agents_states=child_state,
+            status="completed",
+        )
+        invalid_transitions = {
+            "spawn_start_has_receiver": (
+                collab_item(
+                    receiver_thread_ids=["thread-preassigned"],
+                    agents_states={},
+                    status="in_progress",
+                ),
+                canonical_completion,
+            ),
+            "spawn_start_has_agent_state": (
+                collab_item(
+                    receiver_thread_ids=[],
+                    agents_states=child_state,
+                    status="in_progress",
+                ),
+                canonical_completion,
+            ),
+            "spawn_completion_receiver_state_mismatch": (
+                canonical_start,
+                collab_item(
+                    receiver_thread_ids=["thread-child"],
+                    agents_states={
+                        "thread-other": {
+                            "status": "running",
+                            "message": None,
+                        }
+                    },
+                    status="completed",
+                ),
+            ),
+            "nonspawn_receiver_mutation": (
+                collab_item(
+                    tool="send_input",
+                    receiver_thread_ids=["thread-child"],
+                    agents_states={},
+                    status="in_progress",
+                ),
+                collab_item(
+                    tool="send_input",
+                    receiver_thread_ids=["thread-other"],
+                    agents_states={},
+                    status="completed",
+                ),
+            ),
+        }
+        for name, (started, completed) in invalid_transitions.items():
+            with self.subTest(invalid_transition=name):
+                with self.assertRaises(ValueError):
+                    self.runner._codex_jsonl_events(stream(started, completed))
+
     def test_paired_noncommand_items_preserve_immutable_identity_fields(self) -> None:
         def item_event(event_type: str, item: dict) -> dict:
             return {"type": event_type, "item": copy.deepcopy(item)}
