@@ -1284,10 +1284,10 @@ def _validate_codex_item(item: Any, event_type: str) -> dict[str, Any]:
             if event_type == "item.completed":
                 if item["status"] == "completed":
                     if any(
-                        type(receiver) is not str or not receiver
+                        type(receiver) is not str or not receiver.strip()
                         for receiver in receivers
                     ) or any(
-                        type(thread_id) is not str or not thread_id
+                        type(thread_id) is not str or not thread_id.strip()
                         for thread_id in agent_states
                     ):
                         raise ValueError(
