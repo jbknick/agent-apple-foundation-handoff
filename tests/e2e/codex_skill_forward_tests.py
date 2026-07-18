@@ -194,6 +194,7 @@ CODEX_JSONL_IMMUTABLE_IDENTITY_FIELDS = {
         "tool", "sender_thread_id", "receiver_thread_ids", "prompt",
     ),
 }
+CODEX_JSONL_WEB_SEARCH_INNER_ID = "_codex_web_search_inner_id"
 
 TRUSTED_SYSTEM_PATH_ALIASES = {
     Path("/var"): Path("/private/var"),
@@ -1053,7 +1054,15 @@ def _codex_jsonl_item(value: Any, event_type: Any) -> Any:
     keys = [key for key, _child in value]
     duplicate_keys = {key for key in keys if keys.count(key) > 1}
     if not duplicate_keys:
-        return _codex_json_value_without_duplicates(value)
+        decoded = _codex_json_value_without_duplicates(value)
+        if type(decoded) is dict and decoded.get("type") == "web_search":
+            if CODEX_JSONL_WEB_SEARCH_INNER_ID in decoded:
+                raise ValueError("unsupported Codex JSONL web search metadata")
+            decoded = {
+                **decoded,
+                CODEX_JSONL_WEB_SEARCH_INNER_ID: decoded.get("id"),
+            }
+        return decoded
     if (
         event_type not in {"item.started", "item.completed"}
         or duplicate_keys != {"id"}
@@ -1078,6 +1087,7 @@ def _codex_jsonl_item(value: Any, event_type: Any) -> Any:
         "type": "web_search",
         "query": _codex_json_value_without_duplicates(fields["query"][0]),
         "action": _codex_json_value_without_duplicates(fields["action"][0]),
+        CODEX_JSONL_WEB_SEARCH_INNER_ID: second_id,
     }
 
 
@@ -1267,7 +1277,18 @@ def _validate_codex_item(item: Any, event_type: str) -> dict[str, Any]:
         if event_type == "item.completed" and item["status"] == "in_progress":
             raise ValueError("collab tool completion state is malformed")
     elif item_type == "web_search":
-        _require_closed_object(item, {"id", "type", "query", "action"}, "web search")
+        _require_closed_object(
+            item,
+            {
+                "id", "type", "query", "action",
+                CODEX_JSONL_WEB_SEARCH_INNER_ID,
+            },
+            "web search",
+        )
+        _require_string(
+            item[CODEX_JSONL_WEB_SEARCH_INNER_ID],
+            "web search inner id",
+        )
         _require_string(item["query"], "web search query", nonempty=False)
         _validate_web_search_action(item["action"])
         if event_type == "item.started" and (
@@ -1290,6 +1311,7 @@ def _codex_jsonl_events(stdout: str) -> list[dict[str, Any]]:
     parsed: list[dict[str, Any]] = []
     terminal_seen = False
     open_items: dict[str, dict[str, Any]] = {}
+    open_web_search_inner_ids: dict[str, str] = {}
     top_level_error_seen = False
     lines = stdout.splitlines()
     if not lines:
@@ -1353,6 +1375,14 @@ def _codex_jsonl_events(stdout: str) -> list[dict[str, Any]]:
             if event_type == "item.started":
                 if item_id in open_items:
                     raise ValueError("Codex JSONL item started more than once")
+                if item["type"] == "web_search":
+                    inner_id = item[CODEX_JSONL_WEB_SEARCH_INNER_ID]
+                    inner_owner = open_web_search_inner_ids.get(inner_id)
+                    if inner_owner is not None and inner_owner != item_id:
+                        raise ValueError(
+                            "Codex JSONL web search identity is reused"
+                        )
+                    open_web_search_inner_ids[inner_id] = item_id
                 open_items[item_id] = copy.deepcopy(item)
             elif event_type == "item.updated":
                 opened = open_items.get(item_id)
@@ -1366,6 +1396,17 @@ def _codex_jsonl_events(stdout: str) -> list[dict[str, Any]]:
                     opened is None or opened["type"] != item["type"]
                 ):
                     raise ValueError("Codex JSONL item completion is unpaired")
+                if item["type"] == "web_search":
+                    opened_inner_id = opened[CODEX_JSONL_WEB_SEARCH_INNER_ID]
+                    completed_inner_id = item[CODEX_JSONL_WEB_SEARCH_INNER_ID]
+                    if (
+                        completed_inner_id != opened_inner_id
+                        or open_web_search_inner_ids.get(completed_inner_id)
+                        != item_id
+                    ):
+                        raise ValueError(
+                            "Codex JSONL web search identity is mismatched"
+                        )
                 immutable_fields = CODEX_JSONL_IMMUTABLE_IDENTITY_FIELDS.get(
                     item["type"], ()
                 )
@@ -1378,6 +1419,10 @@ def _codex_jsonl_events(stdout: str) -> list[dict[str, Any]]:
                     if opened["type"] != item["type"]:
                         raise ValueError("Codex JSONL item type changed")
                     del open_items[item_id]
+                    if item["type"] == "web_search":
+                        del open_web_search_inner_ids[
+                            item[CODEX_JSONL_WEB_SEARCH_INNER_ID]
+                        ]
         if event_type in {"turn.completed", "turn.failed"}:
             if open_items:
                 raise ValueError("Codex JSONL stream has unterminated items")
@@ -1394,12 +1439,18 @@ def _tool_events(stdout: str) -> list[dict[str, Any]]:
     parsed = _codex_jsonl_events(stdout)
     if parsed[-1]["type"] != "turn.completed":
         raise ValueError("successful Codex JSONL stream did not complete")
-    return [
-        event
-        for event in parsed
-        if event["type"] == "item.completed"
-        and event["item"]["type"] in CODEX_JSONL_TOOL_ITEM_TYPES
-    ]
+    tool_events: list[dict[str, Any]] = []
+    for event in parsed:
+        if (
+            event["type"] != "item.completed"
+            or event["item"]["type"] not in CODEX_JSONL_TOOL_ITEM_TYPES
+        ):
+            continue
+        scorer_event = copy.deepcopy(event)
+        if scorer_event["item"]["type"] == "web_search":
+            del scorer_event["item"][CODEX_JSONL_WEB_SEARCH_INNER_ID]
+        tool_events.append(scorer_event)
+    return tool_events
 
 
 def _is_model_unavailable(completed: subprocess.CompletedProcess[str]) -> bool:
