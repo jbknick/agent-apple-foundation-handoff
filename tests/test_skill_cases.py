@@ -227,8 +227,8 @@ BASELINE_ROW_KEYS = {
     "observedFailureClasses",
 }
 
-INITIAL_CAPTURE_HEAD = "fbe50c1852778f72ec30ffe4c60614d2b4a9c206"
-REVIEW_RECAPTURE_HEAD = "9b2c3990af8d56dfb57775fc6e7f7994f581a04f"
+INITIAL_CAPTURE_HEAD = "e2a0fb7edfc649be1c95aef2ebfd9fedd38dc87f"
+REVIEW_RECAPTURE_HEAD = "fbbec6fa30c02ffba2e604e5e21cacf71de73b4e"
 
 APPROVED_LIMITATIONS = (
     "The five responses were scored only as no-skill RED controls and are not capability evidence.",
