@@ -70,20 +70,20 @@ architectureResult
   architectureSchemaVersion: "1.0"
   stateVersion: <independent state schema version>
   policyVersion: <independent policy version>
-  workflow
-  scope
+  workflow: <selected workflow>
+  scope: <bounded artifact and operation scope>
   pattern = baton_pass | isolated_consultation | deterministic_routing | transcript_transfer
   source = { profile, provider }
   destination = { profile, provider }
-  finalResponseOwner
+  finalResponseOwner: <stable final-response owner>
   apiAvailability[] = { surface, versionLabel, compileStatus, source }
-  stateModel
-  trustBoundaries[]
-  contextPolicy
-  toolAndEffectPolicy
-  failurePolicy
+  stateModel: <versioned reducer state and lifecycle>
+  trustBoundaries[]: <classified trust boundaries>
+  contextPolicy: <minimum-context transfer policy>
+  toolAndEffectPolicy: <tool, confirmation, and effect authority policy>
+  failurePolicy: <fail-closed recovery and fallback policy>
   verification[] = { id, layer, status, evidence }
-  limitations[]
+  limitations[]: <limitations and blockers>
 ```
 
 ### Activation and Scope
