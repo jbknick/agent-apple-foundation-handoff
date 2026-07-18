@@ -40,13 +40,15 @@ GENERATED_OUTPUTS = (
         ".codex-plugin/plugin.json"
     ),
 )
-SKILLS = (
+WORKFLOW_SKILLS = (
     "design-apple-foundation-models-handoff",
     "implement-apple-foundation-models-handoff",
     "review-apple-foundation-models-handoff",
     "debug-apple-foundation-models-handoff",
     "validate-apple-foundation-models-handoff",
 )
+ROUTER_SKILL = "route-apple-foundation-models-handoff"
+ALL_CAPABILITIES = (*WORKFLOW_SKILLS, ROUTER_SKILL)
 PLUGIN_DESCRIPTION = (
     "Design, implement, review, debug, and validate Apple Foundation Models "
     "handoff architectures."
@@ -210,7 +212,9 @@ class GeneratedArtifactTests(unittest.TestCase):
 
         self.assertEqual("0.1.0", rendered["version"])
         self.assertEqual(PLUGIN_DESCRIPTION, rendered["description"])
-        self.assertEqual(list(SKILLS), rendered["interface"]["capabilities"])
+        self.assertEqual(
+            list(ALL_CAPABILITIES), rendered["interface"]["capabilities"]
+        )
         self.assertEqual([DEFAULT_PROMPT], rendered["interface"]["defaultPrompt"])
         self.assertEqual("./skills/", rendered.get("skills"))
         self.assertEqual(
@@ -757,9 +761,14 @@ class GeneratedArtifactTests(unittest.TestCase):
     def test_capability_boundary_mutations_are_rejected(self):
         mutations = (
             ("missing", None),
-            ("reordered", list(reversed(SKILLS))),
-            ("duplicate", [*SKILLS[:-1], SKILLS[-2]]),
-            ("sixth", [*SKILLS, "extra-apple-foundation-models-handoff"]),
+            ("reordered", list(reversed(ALL_CAPABILITIES))),
+            ("missing router", list(WORKFLOW_SKILLS)),
+            ("duplicate router", [*ALL_CAPABILITIES, ROUTER_SKILL]),
+            (
+                "seventh",
+                [*ALL_CAPABILITIES, "extra-apple-foundation-models-handoff"],
+            ),
+            ("substituted router", [*WORKFLOW_SKILLS, "wrong-router"]),
         )
         for name, replacement in mutations:
             with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
@@ -831,7 +840,7 @@ class GeneratedArtifactTests(unittest.TestCase):
             isolated_root = temporary_root / "repository"
             isolated_root.mkdir()
             self._copy_canonical_inputs(isolated_root)
-            skill_directory = isolated_root / SKILLS_ROOT / SKILLS[0]
+            skill_directory = isolated_root / SKILLS_ROOT / ALL_CAPABILITIES[0]
             external = temporary_root / "external-skill"
             original = temporary_root / "original-skill"
             shutil.copytree(skill_directory, external)
@@ -871,7 +880,9 @@ class GeneratedArtifactTests(unittest.TestCase):
             isolated_root = temporary_root / "repository"
             isolated_root.mkdir()
             self._copy_canonical_inputs(isolated_root)
-            skill_file = isolated_root / SKILLS_ROOT / SKILLS[0] / "SKILL.md"
+            skill_file = (
+                isolated_root / SKILLS_ROOT / ALL_CAPABILITIES[0] / "SKILL.md"
+            )
             external = temporary_root / "external-SKILL.md"
             original = temporary_root / "original-SKILL.md"
             shutil.copyfile(skill_file, external)
@@ -900,16 +911,16 @@ class GeneratedArtifactTests(unittest.TestCase):
 
     def test_skill_component_mutations_are_rejected(self):
         def mutate_first_skill(root: Path, mutate) -> None:
-            skill = root / SKILLS_ROOT / SKILLS[0] / "SKILL.md"
+            skill = root / SKILLS_ROOT / ALL_CAPABILITIES[0] / "SKILL.md"
             original = skill.read_text(encoding="utf-8")
             mutated = mutate(original)
             self.assertNotEqual(original, mutated)
             skill.write_text(mutated, encoding="utf-8")
 
         def remove_skill(root: Path) -> None:
-            shutil.rmtree(root / SKILLS_ROOT / SKILLS[0])
+            shutil.rmtree(root / SKILLS_ROOT / ALL_CAPABILITIES[0])
 
-        def add_sixth_skill(root: Path) -> None:
+        def add_seventh_skill(root: Path) -> None:
             extra = (
                 root
                 / "plugins/apple-foundation-models-handoff/skills/extra-workflow"
@@ -924,7 +935,7 @@ class GeneratedArtifactTests(unittest.TestCase):
             mutate_first_skill(
                 root,
                 lambda text: text.replace(
-                    f"name: {SKILLS[0]}", "name: wrong-skill", 1
+                    f"name: {ALL_CAPABILITIES[0]}", "name: wrong-skill", 1
                 ),
             )
 
@@ -932,8 +943,9 @@ class GeneratedArtifactTests(unittest.TestCase):
             mutate_first_skill(
                 root,
                 lambda text: text.replace(
-                    f"name: {SKILLS[0]}\n",
-                    f"name: {SKILLS[0]}\nname: {SKILLS[0]}\n",
+                    f"name: {ALL_CAPABILITIES[0]}\n",
+                    f"name: {ALL_CAPABILITIES[0]}\n"
+                    f"name: {ALL_CAPABILITIES[0]}\n",
                     1,
                 ),
             )
@@ -951,8 +963,8 @@ class GeneratedArtifactTests(unittest.TestCase):
             mutate_first_skill(
                 root,
                 lambda text: text.replace(
-                    f"name: {SKILLS[0]}\n",
-                    f"name: {SKILLS[0]}\nunexpected: value\n",
+                    f"name: {ALL_CAPABILITIES[0]}\n",
+                    f"name: {ALL_CAPABILITIES[0]}\nunexpected: value\n",
                     1,
                 ),
             )
@@ -971,7 +983,7 @@ class GeneratedArtifactTests(unittest.TestCase):
 
         for name, mutate in (
             ("missing skill", remove_skill),
-            ("sixth skill", add_sixth_skill),
+            ("seventh skill", add_seventh_skill),
             ("capability name mismatch", mismatch_frontmatter),
             ("duplicate name", duplicate_name),
             ("duplicate description", duplicate_description),
@@ -993,7 +1005,7 @@ class GeneratedArtifactTests(unittest.TestCase):
                 )
 
     def test_invalid_skill_descriptions_are_rejected(self):
-        capability = SKILLS[0]
+        capability = ALL_CAPABILITIES[0]
         skill = ROOT / SKILLS_ROOT / capability / "SKILL.md"
         approved_line = next(
             line
@@ -1001,7 +1013,7 @@ class GeneratedArtifactTests(unittest.TestCase):
             if line.startswith("description: ")
         )
         approved = approved_line.removeprefix("description: ")
-        other_skill = ROOT / SKILLS_ROOT / SKILLS[1] / "SKILL.md"
+        other_skill = ROOT / SKILLS_ROOT / ALL_CAPABILITIES[1] / "SKILL.md"
         other_description = next(
             line.removeprefix("description: ")
             for line in other_skill.read_text(encoding="utf-8").splitlines()
@@ -1042,13 +1054,18 @@ class GeneratedArtifactTests(unittest.TestCase):
                 )
 
     def test_exact_capabilities_and_skill_component_are_accepted(self):
+        self.assertEqual(WORKFLOW_SKILLS, sync.WORKFLOW_SKILLS)
+        self.assertEqual(ROUTER_SKILL, sync.ROUTER_SKILL)
+        self.assertEqual(ALL_CAPABILITIES, sync.ALL_CAPABILITIES)
         with tempfile.TemporaryDirectory() as directory:
             isolated_root = Path(directory)
             self._copy_canonical_inputs(isolated_root)
             inputs = sync.load_canonical_inputs(isolated_root)
 
             self.assertEqual("./skills/", inputs.shared_manifest.get("skills"))
-            self.assertEqual(list(SKILLS), inputs.codex_interface["capabilities"])
+            self.assertEqual(
+                list(ALL_CAPABILITIES), inputs.codex_interface["capabilities"]
+            )
 
     def test_canonical_mutations_are_rejected_without_absolute_paths(self):
         mutations = (

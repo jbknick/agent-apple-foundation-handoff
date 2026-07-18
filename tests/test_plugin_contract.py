@@ -33,29 +33,31 @@ PLUGIN_DESCRIPTION = (
     "Design, implement, review, debug, and validate Apple Foundation Models "
     "handoff architectures."
 )
-SHORT_DESCRIPTION = "Design and verify Apple Foundation Models handoff workflows."
+SHORT_DESCRIPTION = "Five workflows plus one non-positive router."
 LONG_DESCRIPTION = (
-    "Five focused workflows for designing, implementing, reviewing, debugging, "
-    "and validating Apple Foundation Models handoff architectures with explicit "
-    "Apple API availability, state, trust, recovery, and evidence boundaries."
+    "Five workflows plus one non-positive router for Apple Foundation Models "
+    "handoff requests, with explicit Apple API availability, state, trust, "
+    "recovery, and evidence boundaries."
 )
 DEFAULT_PROMPT = (
     "Design an Apple Foundation Models baton pass from a research profile to a "
     "review profile that owns the final answer."
 )
-SKILLS = (
+WORKFLOW_SKILLS = (
     "design-apple-foundation-models-handoff",
     "implement-apple-foundation-models-handoff",
     "review-apple-foundation-models-handoff",
     "debug-apple-foundation-models-handoff",
     "validate-apple-foundation-models-handoff",
 )
+ROUTER_SKILL = "route-apple-foundation-models-handoff"
+ALL_CAPABILITIES = (*WORKFLOW_SKILLS, ROUTER_SKILL)
 ALLOWED_PACKAGE_FILES = {
     ".claude-plugin/plugin.json",
     ".codex-plugin/plugin.json",
     "metadata/codex-interface.json",
     *REFERENCE_FILES,
-    *(f"skills/{skill}/SKILL.md" for skill in SKILLS),
+    *(f"skills/{skill}/SKILL.md" for skill in ALL_CAPABILITIES),
 }
 ALLOWED_PACKAGE_ENTRIES = {
     ".claude-plugin": "directory",
@@ -69,7 +71,7 @@ ALLOWED_PACKAGE_ENTRIES = {
     "skills": "directory",
     **{
         entry: entry_type
-        for skill in SKILLS
+        for skill in ALL_CAPABILITIES
         for entry, entry_type in (
             (f"skills/{skill}", "directory"),
             (f"skills/{skill}/SKILL.md", "file"),
@@ -259,13 +261,13 @@ class PluginContractTests(unittest.TestCase):
         self.assertEqual("./skills/", manifest.get("skills"))
         skills_root = ROOT / "plugins" / PLUGIN_ID / manifest["skills"]
         self.assertEqual(
-            sorted(SKILLS),
+            sorted(ALL_CAPABILITIES),
             sorted(path.name for path in skills_root.iterdir() if path.is_dir()),
         )
         for field in ("hooks", "mcpServers", "apps", "commands", "agents"):
             self.assertNotIn(field, manifest)
 
-    def test_codex_interface_advertises_the_exact_ordered_workflow_capabilities(self):
+    def test_codex_interface_advertises_five_workflows_plus_one_router(self):
         interface = load_json(
             "plugins/apple-foundation-models-handoff/metadata/codex-interface.json"
         )
@@ -273,7 +275,10 @@ class PluginContractTests(unittest.TestCase):
         self.assertEqual(SHORT_DESCRIPTION, interface["shortDescription"])
         self.assertEqual(LONG_DESCRIPTION, interface["longDescription"])
         self.assertEqual("Developer Tools", interface["category"])
-        self.assertEqual(list(SKILLS), interface["capabilities"])
+        self.assertEqual(list(ALL_CAPABILITIES), interface["capabilities"])
+        self.assertEqual(list(WORKFLOW_SKILLS), interface["capabilities"][:-1])
+        self.assertEqual(ROUTER_SKILL, interface["capabilities"][-1])
+        self.assertIn("Five workflows plus one non-positive router", LONG_DESCRIPTION)
         self.assertEqual([DEFAULT_PROMPT], interface["defaultPrompt"])
         self.assertEqual(116, len(DEFAULT_PROMPT))
         self.assertLessEqual(len(DEFAULT_PROMPT), 128)
@@ -288,8 +293,10 @@ class PluginContractTests(unittest.TestCase):
         )
         skills_root = ROOT / "plugins" / PLUGIN_ID / "skills"
 
-        self.assertEqual(list(SKILLS), interface["capabilities"])
-        self.assertEqual(set(SKILLS), {path.name for path in skills_root.iterdir()})
+        self.assertEqual(list(ALL_CAPABILITIES), interface["capabilities"])
+        self.assertEqual(
+            set(ALL_CAPABILITIES), {path.name for path in skills_root.iterdir()}
+        )
         for capability in interface["capabilities"]:
             with self.subTest(capability=capability):
                 skill_file = skills_root / capability / "SKILL.md"
@@ -393,7 +400,7 @@ class PluginContractTests(unittest.TestCase):
             {"const": "Developer Tools"}, interface_properties["category"]
         )
         self.assertEqual(
-            {"const": list(SKILLS)}, interface_properties["capabilities"]
+            {"const": list(ALL_CAPABILITIES)}, interface_properties["capabilities"]
         )
         self.assertEqual(
             {"type": "string", "pattern": "^https://"},
@@ -475,17 +482,30 @@ class PluginContractTests(unittest.TestCase):
 
         interface_boundary_mutations = (
             ("empty capabilities", ("capabilities",), []),
-            ("reordered capabilities", ("capabilities",), list(reversed(SKILLS))),
-            ("incomplete capabilities", ("capabilities",), list(SKILLS[:-1])),
+            (
+                "reordered capabilities",
+                ("capabilities",),
+                list(reversed(ALL_CAPABILITIES)),
+            ),
+            (
+                "missing router capability",
+                ("capabilities",),
+                list(WORKFLOW_SKILLS),
+            ),
             (
                 "duplicated capability",
                 ("capabilities",),
-                [*SKILLS[:-1], SKILLS[-2]],
+                [*ALL_CAPABILITIES, ROUTER_SKILL],
             ),
             (
-                "sixth capability",
+                "seventh capability",
                 ("capabilities",),
-                [*SKILLS, "extra-apple-foundation-models-handoff"],
+                [*ALL_CAPABILITIES, "extra-apple-foundation-models-handoff"],
+            ),
+            (
+                "substituted router",
+                ("capabilities",),
+                [*WORKFLOW_SKILLS, "wrong-router"],
             ),
             ("empty presentation string", ("displayName",), ""),
             ("missing prompt", ("defaultPrompt",), []),
@@ -515,7 +535,7 @@ class PluginContractTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     sync._validate_codex_marketplace(mutated, shared_manifest)
 
-    def test_plugin_package_contains_only_approved_references_and_workflow_skills(self):
+    def test_plugin_package_contains_only_references_workflows_and_router(self):
         plugin_root = ROOT / "plugins" / PLUGIN_ID
         assert_plugin_package_contract(self, plugin_root)
 
@@ -548,10 +568,10 @@ class PluginContractTests(unittest.TestCase):
             "hooks/hooks.json",
             "mcp/server.json",
             "package.json",
-            f"skills/{SKILLS[0]}/SKILL-copy.md",
-            f"skills/{SKILLS[0]}/output-contract.json",
-            f"skills/{SKILLS[0]}/agents/openai.yaml",
-            f"skills/{SKILLS[0]}/references/copied.md",
+            f"skills/{WORKFLOW_SKILLS[0]}/SKILL-copy.md",
+            f"skills/{WORKFLOW_SKILLS[0]}/output-contract.json",
+            f"skills/{WORKFLOW_SKILLS[0]}/agents/openai.yaml",
+            f"skills/{WORKFLOW_SKILLS[0]}/references/copied.md",
         )
         for relative_path in forbidden_paths:
             with (

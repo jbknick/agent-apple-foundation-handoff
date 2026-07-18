@@ -40,6 +40,8 @@ WORKFLOW_SKILLS = (
     "debug-apple-foundation-models-handoff",
     "validate-apple-foundation-models-handoff",
 )
+ROUTER_SKILL = "route-apple-foundation-models-handoff"
+ALL_CAPABILITIES = (*WORKFLOW_SKILLS, ROUTER_SKILL)
 STALE_WORKFLOW_CLAIMS = (
     "remain unimplemented",
     "must not be advertised as active",
@@ -50,6 +52,8 @@ STALE_WORKFLOW_CLAIMS = (
 )
 WORKFLOW_GUIDANCE_CONTRACTS = (
     "The five production workflows are implemented",
+    "five workflows plus one non-positive router",
+    ROUTER_SKILL,
     "`skills/**` and `references/**` are current plugin-local canonical inputs",
     "DEV-137 references are integrated and link-resolved",
     "DEV-136 host evidence is Codex-only",
@@ -144,6 +148,18 @@ def assert_workflow_guidance_contract(
             skill in normalized_text,
             f"missing workflow: {skill}",
         )
+    test_case.assertIn(ROUTER_SKILL, normalized_text, "missing non-positive router")
+    test_case.assertIn(
+        "five workflows plus one non-positive router",
+        normalized_text,
+        "guidance must distinguish the five workflows from the router",
+    )
+    test_case.assertNotRegex(
+        normalized_text,
+        r"(?:six|6)(?:th)? (?:production )?workflows?|"
+        r"route-apple-foundation-models-handoff[^.]{0,80}(?:is|as) (?:a )?workflow",
+        "guidance must not call the router a workflow",
+    )
     for claim in STALE_WORKFLOW_CLAIMS:
         test_case.assertFalse(
             claim in normalized_text,
@@ -662,6 +678,17 @@ class RepositoryGuidanceTests(unittest.TestCase):
 
         assert_workflow_guidance_contract(self, valid)
         for claim in STALE_WORKFLOW_CLAIMS:
+            with self.subTest(claim=claim), self.assertRaises(AssertionError):
+                assert_workflow_guidance_contract(self, f"{valid} {claim}")
+
+    def test_guidance_oracle_rejects_router_as_workflow(self):
+        valid = " ".join((*WORKFLOW_SKILLS, *WORKFLOW_GUIDANCE_CONTRACTS))
+        assert_workflow_guidance_contract(self, valid)
+
+        for claim in (
+            "six production workflows",
+            f"{ROUTER_SKILL} is a workflow",
+        ):
             with self.subTest(claim=claim), self.assertRaises(AssertionError):
                 assert_workflow_guidance_contract(self, f"{valid} {claim}")
 

@@ -37,6 +37,7 @@ EXPECTED_CACHE_FILES = {
     "skills/review-apple-foundation-models-handoff/SKILL.md",
     "skills/debug-apple-foundation-models-handoff/SKILL.md",
     "skills/validate-apple-foundation-models-handoff/SKILL.md",
+    "skills/route-apple-foundation-models-handoff/SKILL.md",
 }
 EXPECTED_CACHE_DIRECTORIES = {
     ".claude-plugin",
@@ -49,6 +50,7 @@ EXPECTED_CACHE_DIRECTORIES = {
     "skills/review-apple-foundation-models-handoff",
     "skills/debug-apple-foundation-models-handoff",
     "skills/validate-apple-foundation-models-handoff",
+    "skills/route-apple-foundation-models-handoff",
 }
 EXPECTED_CAPABILITIES = [
     "design-apple-foundation-models-handoff",
@@ -56,6 +58,7 @@ EXPECTED_CAPABILITIES = [
     "review-apple-foundation-models-handoff",
     "debug-apple-foundation-models-handoff",
     "validate-apple-foundation-models-handoff",
+    "route-apple-foundation-models-handoff",
 ]
 
 EVIDENCE_ID = "E-CODEX-LOAD-001"
