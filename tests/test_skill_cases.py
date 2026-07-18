@@ -6004,6 +6004,42 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
         )
         self.assertEqual("turn.completed", parsed[-1]["type"])
 
+    def test_spawn_completion_rejects_empty_receiver_and_state_identity(self) -> None:
+        started = {
+            "id": "item_0",
+            "type": "collab_tool_call",
+            "tool": "spawn_agent",
+            "sender_thread_id": "thread-parent",
+            "receiver_thread_ids": [],
+            "prompt": "draft a plan",
+            "agents_states": {},
+            "status": "in_progress",
+        }
+        completed = copy.deepcopy(started)
+        completed.update(
+            {
+                "receiver_thread_ids": [""],
+                "agents_states": {
+                    "": {"status": "running", "message": None}
+                },
+                "status": "completed",
+            }
+        )
+        records = (
+            {"type": "thread.started", "thread_id": "thread-parent"},
+            {"type": "turn.started"},
+            {"type": "item.started", "item": started},
+            {"type": "item.completed", "item": completed},
+            {"type": "turn.completed", "usage": _codex_usage()},
+        )
+
+        with self.assertRaises(ValueError):
+            self.runner._codex_jsonl_events(
+                "\n".join(
+                    json.dumps(record, sort_keys=True) for record in records
+                )
+            )
+
     def test_collab_receiver_and_agent_state_transitions_fail_closed(self) -> None:
         def collab_item(
             *,
