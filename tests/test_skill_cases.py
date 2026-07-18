@@ -6131,6 +6131,170 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                 if created_roots:
                     real_cleanup(created_roots[0] / "codex", created_roots[0])
 
+    def _assert_bound_copy_capture_descriptor_uncertainty(
+        self,
+        *,
+        stage: str,
+        close_after_effect: bool,
+    ) -> None:
+        private_message = (
+            "PRIVATE capture descriptor uncertainty at "
+            "/private/host/bound-recapture"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_path = root / "source-codex"
+            source_path.write_bytes(b"small verified executable")
+            source_path.chmod(0o700)
+            replacement_path = root / "replacement"
+            replacement_bytes = b"replacement descriptor must remain open"
+            replacement_path.write_bytes(replacement_bytes)
+            real_mkdtemp = tempfile.mkdtemp
+            real_verified_open = self.runner._open_verified_executable
+            real_open = os.open
+            real_close = os.close
+            real_cleanup = self.runner._remove_bound_executable_copy
+            created_roots: list[Path] = []
+            bound_capture_count = 0
+            target_descriptor = -1
+            target_close_attempts = 0
+            replacement_descriptor = -1
+
+            def make_bound_root(*args, **kwargs) -> str:
+                kwargs["dir"] = root
+                created = Path(real_mkdtemp(*args, **kwargs))
+                created_roots.append(created)
+                return str(created)
+
+            def observe_verified_open(path: str):
+                nonlocal bound_capture_count, target_descriptor
+                opened = real_verified_open(path)
+                candidate = Path(path)
+                if (
+                    candidate.name == "codex"
+                    and candidate.parent.name.startswith("dev136-codex-bound-")
+                ):
+                    bound_capture_count += 1
+                    target_ordinal = 1 if stage == "helper" else 2
+                    if bound_capture_count == target_ordinal:
+                        target_descriptor = opened[1]
+                return opened
+
+            def uncertain_close(descriptor: int) -> None:
+                nonlocal target_close_attempts, replacement_descriptor
+                if descriptor == target_descriptor:
+                    target_close_attempts += 1
+                    if target_close_attempts == 1:
+                        if close_after_effect:
+                            real_close(descriptor)
+                            replacement = real_open(
+                                replacement_path,
+                                os.O_RDONLY,
+                            )
+                            if replacement != descriptor:
+                                os.dup2(replacement, descriptor)
+                                real_close(replacement)
+                            replacement_descriptor = descriptor
+                        raise OSError(private_message)
+                real_close(descriptor)
+
+            probes = mock.Mock(
+                side_effect=AssertionError(
+                    "prerequisite probes must not run after descriptor uncertainty"
+                )
+            )
+            try:
+                with (
+                    mock.patch.object(
+                        self.runner.tempfile,
+                        "mkdtemp",
+                        side_effect=make_bound_root,
+                    ),
+                    mock.patch.object(
+                        self.runner,
+                        "_open_verified_executable",
+                        side_effect=observe_verified_open,
+                    ),
+                    mock.patch.object(
+                        self.runner.os,
+                        "close",
+                        side_effect=uncertain_close,
+                    ),
+                    mock.patch.object(
+                        self.runner,
+                        "_probe",
+                        side_effect=probes,
+                    ),
+                ):
+                    snapshot = self.runner.default_prerequisite_checker(
+                        str(source_path),
+                        "gpt-5.6-sol",
+                        "0.144.5",
+                        source_capture=expected_source_capture(),
+                    )
+
+                self.assertEqual(1, len(created_roots))
+                bound_root = created_roots[0]
+                bound_path = bound_root / "codex"
+                self.assertEqual(
+                    1 if stage == "helper" else 2,
+                    bound_capture_count,
+                )
+                self.assertEqual(1, target_close_attempts)
+                self.assertEqual(0, probes.call_count)
+                self.assertGreaterEqual(target_descriptor, 0)
+                os.fstat(target_descriptor)
+                if close_after_effect:
+                    self.assertEqual(
+                        target_descriptor, replacement_descriptor
+                    )
+                    os.lseek(replacement_descriptor, 0, os.SEEK_SET)
+                    self.assertEqual(
+                        replacement_bytes,
+                        os.read(replacement_descriptor, len(replacement_bytes)),
+                    )
+                else:
+                    self.assertEqual(-1, replacement_descriptor)
+                self.assertFalse(bound_path.exists())
+                self.assertFalse(bound_root.exists())
+                self._assert_pre_response_bound_copy_stop(
+                    snapshot,
+                    expected_capture_error="bound_copy_cleanup_failed",
+                    expected_cleanup="fail",
+                    expected_code=self.runner.FAIL,
+                    expected_status="fail",
+                    expected_reason="post_capture_prerequisite_drift",
+                    private_needles=(private_message, str(root)),
+                )
+            finally:
+                if target_descriptor >= 0:
+                    try:
+                        real_close(target_descriptor)
+                    except OSError:
+                        pass
+                if created_roots:
+                    real_cleanup(created_roots[0] / "codex", created_roots[0])
+
+    def test_helper_bound_copy_capture_close_uncertainty_fails_closed(
+        self,
+    ) -> None:
+        for close_after_effect in (False, True):
+            with self.subTest(close_after_effect=close_after_effect):
+                self._assert_bound_copy_capture_descriptor_uncertainty(
+                    stage="helper",
+                    close_after_effect=close_after_effect,
+                )
+
+    def test_caller_bound_copy_recapture_close_uncertainty_fails_closed(
+        self,
+    ) -> None:
+        for close_after_effect in (False, True):
+            with self.subTest(close_after_effect=close_after_effect):
+                self._assert_bound_copy_capture_descriptor_uncertainty(
+                    stage="caller",
+                    close_after_effect=close_after_effect,
+                )
+
     def test_unavailable_pre_response_bound_copy_is_blocked_without_attempt(
         self,
     ) -> None:
