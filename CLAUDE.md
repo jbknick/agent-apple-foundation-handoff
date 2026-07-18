@@ -32,6 +32,7 @@ Never edit `AGENTS.md` directly; update `CLAUDE.md`, then use `scripts/sync_gene
   `plugins/apple-foundation-models-handoff/.claude-plugin/plugin.json` and
   `plugins/apple-foundation-models-handoff/metadata/codex-interface.json`.
   `skills/**` and `references/**` are current plugin-local canonical inputs.
+  DEV-137 references are integrated and link-resolved.
 - `AGENTS.md`, `.agents/plugins/marketplace.json`, and
   `plugins/apple-foundation-models-handoff/.codex-plugin/plugin.json` are generated,
   non-editable outputs of the shared synchronization entry point.
@@ -59,8 +60,9 @@ Never edit `AGENTS.md` directly; update `CLAUDE.md`, then use `scripts/sync_gene
   marketplace registration, plugin install/add, and then a fresh task. `codex --plugin-dir` is not an approved
   workflow for Codex `0.144.5`.
 - DEV-135 provides metadata for structural discovery and installation. DEV-136 host evidence is Codex-only.
-  Claude execution and cross-host comparison are `blocked/owner-deferred`; known Codex probe failures and the
-  DEV-137 integration blocker mean this repository does not claim that all behavioral evidence passes.
+  Claude execution and cross-host comparison are `blocked/owner-deferred`.
+  Behavioral capability claims require fresh exact-model DEV-136 forward evidence.
+  Structural integration alone is not a pass.
 - Normalize repository location as `<repo>` and executable identity as `<host-path>`; never commit their literal
   resolutions or raw `PATH`. Never commit other private absolute paths. Initial absence, non-executability, or version mismatch is `blocked`.
 - Before host operations, a missing or non-runnable executable, unavailable or malformed version, or approved-baseline
