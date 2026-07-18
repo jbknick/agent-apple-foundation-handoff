@@ -869,6 +869,34 @@ git diff --check
 Commit only the runner as `fix(DEV-136): parse file change lifecycle`, then
 obtain independent parser review before another host matrix.
 
+### Step 3: Close reviewed outer-item identity gaps
+
+Independent review must add tests-only negatives for empty, spaces-only,
+tabs-only, and representative Unicode-whitespace item IDs, plus sequential
+reuse of one outer ID after its first terminal item. Exercise a paired
+`file_change`, another paired tool item, and a completion-only message/error
+control so uniqueness is parser-wide. Keep a valid exact raw start/completion
+identity positive.
+
+Require `item.id` to be a string whose `strip()` value is nonempty, but never
+trim or normalize it for pairing. Track stream-private seen outer IDs: a start
+claims an unseen ID, its matching completion may use that exact open ID once,
+and every completion-only item claims an unseen ID. After terminal completion,
+the ID remains spent for the rest of the stream. Preserve all inner web-search,
+collab, status, schema, immutable-field, turn, and cleanup rules.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v \
+  tests.test_skill_cases.CodexForwardRunnerContractTests.test_codex_item_ids_are_nonblank_and_stream_unique
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_skill_cases -v
+python3 -m py_compile tests/e2e/codex_skill_forward_tests.py
+git diff --check
+```
+
+Commit RED only as `test(DEV-136): reject invalid outer item identities`, then
+GREEN runner only as `fix(DEV-136): enforce outer item identity`. Obtain a new
+independent review before any host retry.
+
 ## Task 7G: Make every result-envelope field syntactically complete
 
 **Files:**
