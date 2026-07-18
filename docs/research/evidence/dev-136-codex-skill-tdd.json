@@ -6,6 +6,16 @@
   "initialRepositoryHeadAtCapture": "8e78fc1e17b60ec432c9409b99b4d6f9b3eaeffa",
   "caseContract": "tests/fixtures/dev-136-codex-skill-cases.json",
   "fixtureSha256": "6c5bd8dafb1b75990e88ec288de18282c00b99151f33a7566253395c4ef93dcb",
+  "supersession": {
+    "status": "superseded",
+    "scope": "expectedSkillOwner_field_amendment_only",
+    "originalFixtureSha256": "6c5bd8dafb1b75990e88ec288de18282c00b99151f33a7566253395c4ef93dcb",
+    "canonicalFixtureSha256": "de255f68d724c3b3fdb610d2d9b2ce9f131d7e52ea1cd76cfa02ec7bdfed85f1",
+    "capabilityEvidence": {
+      "path": "docs/research/evidence/dev-136-codex-skill-host.json",
+      "role": "new_codex_host_capability_proof"
+    }
+  },
   "host": {
     "name": "codex",
     "version": "0.144.5",

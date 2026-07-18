@@ -28,7 +28,7 @@ EXPECTED_CODEX_VERSION = "0.144.5"
 ROOT = Path(__file__).resolve().parents[2]
 CANONICAL_FIXTURE = ROOT / "tests/fixtures/dev-136-codex-skill-cases.json"
 OFFICIAL_FIXTURE_SHA256 = (
-    "6c5bd8dafb1b75990e88ec288de18282c00b99151f33a7566253395c4ef93dcb"
+    "de255f68d724c3b3fdb610d2d9b2ce9f131d7e52ea1cd76cfa02ec7bdfed85f1"
 )
 
 ASSERTIONS = (
@@ -80,7 +80,7 @@ SUMMARY_KEYS = {
     "blockedCount", "notApplicableCount",
 }
 ROW_KEYS = {
-    "caseId", "skillUnderTest", "sessionOrdinal", "promptSha256",
+    "caseId", "skillUnderTest", "expectedSkillOwner", "sessionOrdinal", "promptSha256",
     "rubricContractSha256", "codexExitCode", "responseSha256",
     "responseBytes", "toolEventCount", "verdict", "assertions",
 }
@@ -121,6 +121,15 @@ COMMON_SECTIONS = (
     "Tools Effects and Confirmation", "Failure Recovery and Fallback",
     "Verification and Evidence", "Limitations",
 )
+WORKFLOW_SKILLS = (
+    "design-apple-foundation-models-handoff",
+    "implement-apple-foundation-models-handoff",
+    "review-apple-foundation-models-handoff",
+    "debug-apple-foundation-models-handoff",
+    "validate-apple-foundation-models-handoff",
+)
+ROUTER_SKILL = "route-apple-foundation-models-handoff"
+ALL_CAPABILITIES = (*WORKFLOW_SKILLS, ROUTER_SKILL)
 WORKFLOW_SECTIONS = {
     "design-apple-foundation-models-handoff": (
         "Alternatives", "Decision Rationale", "Proposed Components",
@@ -149,19 +158,22 @@ PLUGIN_ENTRY_KEYS = {
 }
 SKILL_PAYLOAD_SHA256 = {
     "design-apple-foundation-models-handoff": (
-        "e83bb6336e6d6aed93894c5f20f403a69230c6c2b2e4c6ba34becb403fe0b837"
+        "88eea0be3699a54fd1f00fc2d2c1f08eac12884abd5b726aacc8f9b04dd8d15b"
     ),
     "implement-apple-foundation-models-handoff": (
-        "28bbbc1e04305273b9efde4c51adee3f7ab35e034c60a50e4d0d23338c68d4fa"
+        "878185233c2b865d8dafc8aafc3a6b89467ba04dba5c160a41610236470d18f7"
     ),
     "review-apple-foundation-models-handoff": (
-        "977b2ee66eebab951251668ac3a554480fe09bb78674e033168515f154068eff"
+        "d81c49301d4b1f93ca0950af20e03269e6abd2bc918ce2de1d46c2cd447b4599"
     ),
     "debug-apple-foundation-models-handoff": (
-        "c725ba07ee02df9f82f2f560afb055307a4fe156849dace415c4052075eb2f74"
+        "da38d298318c87c4a59c0f7e53810fc520c96b2b3780bab683f544963e7d0262"
     ),
     "validate-apple-foundation-models-handoff": (
-        "63d5a75517b5f2fdfb5e8e90f0f1ead5fd968b2a344e5e112ddaf610cb07258a"
+        "196c032c290f762f051aaa697a145a61bfe2e35b23f4d9f1de72a9adb1da43c9"
+    ),
+    "route-apple-foundation-models-handoff": (
+        "f482ae6a1b0605033a7908368ed4a28922ed222952367742403364ac2f2d84a8"
     ),
 }
 CODEX_JSONL_EVENT_TYPES = {
@@ -261,10 +273,9 @@ def _validate_fixture(fixture: dict[str, Any], fixture_bytes: bytes) -> None:
         decoded = _strict_json_loads(fixture_bytes)
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError("fixture bytes are not valid JSON") from error
-    if decoded != fixture:
-        raise ValueError("fixture bytes do not encode the supplied fixture")
-
     official = _fixture_contract()
+    if decoded != fixture and decoded != official:
+        raise ValueError("fixture bytes do not bind the supplied fixture")
     if set(fixture) != set(official):
         raise ValueError("fixture schema is not closed")
     for key, expected in official.items():
@@ -288,6 +299,36 @@ def _validate_fixture(fixture: dict[str, Any], fixture_bytes: bytes) -> None:
         positions.append(official_positions[case_id])
     if positions != sorted(set(positions)):
         raise ValueError("fixture cases are duplicated or out of approved order")
+
+
+def select_cases(
+    fixture: dict[str, Any], case_ids: list[str]
+) -> dict[str, Any]:
+    """Return the full fixture or a canonical-order approved subset."""
+    if type(fixture) is not dict or type(case_ids) is not list:
+        raise ValueError("fixture and case ID list are required")
+    if any(type(case_id) is not str or not case_id for case_id in case_ids):
+        raise ValueError("case IDs must be nonempty strings")
+    if len(case_ids) != len(set(case_ids)):
+        raise ValueError("duplicate case ID selector")
+
+    cases = fixture.get("cases")
+    if type(cases) is not list:
+        raise ValueError("fixture case collection is malformed")
+    approved_ids = {
+        case.get("id") for case in cases if type(case) is dict
+    }
+    if any(case_id not in approved_ids for case_id in case_ids):
+        raise ValueError("unknown case ID selector")
+
+    selected = copy.deepcopy(fixture)
+    if case_ids:
+        requested = set(case_ids)
+        selected["cases"] = [
+            case for case in selected["cases"] if case["id"] in requested
+        ]
+        selected["caseCount"] = len(selected["cases"])
+    return selected
 
 
 def _validate_nonnegative_int(value: Any, label: str) -> None:
@@ -515,6 +556,7 @@ def _row(
     return {
         "caseId": case["id"],
         "skillUnderTest": case["skillUnderTest"],
+        "expectedSkillOwner": case["expectedSkillOwner"],
         "sessionOrdinal": ordinal,
         "promptSha256": _sha256(case["prompt"].encode("utf-8")),
         "rubricContractSha256": _rubric_hash(fixture, case),
@@ -2380,7 +2422,7 @@ def _plugin_is_installed_enabled_with_capabilities(stdout: str) -> bool:
     capabilities = interface.get("capabilities") if type(interface) is dict else None
     return (
         manifest.get("name") == PLUGIN_ID
-        and capabilities == list(WORKFLOW_SECTIONS)
+        and capabilities == list(ALL_CAPABILITIES)
         and _plugin_skill_payloads_are_exact(plugin_root)
     )
 
@@ -2605,7 +2647,7 @@ def live_score(
     text = response.decode("utf-8", errors="replace")
     assertions = {name: "not_applicable" for name in ASSERTIONS}
     expected_activation = case["expectedActivation"]
-    selected_skill = case["skillUnderTest"]
+    selected_skill = case["expectedSkillOwner"]
     fenced = _text_fence(text)
     if expected_activation in {"no_activation", "clarification_required"}:
         before, block, after = fenced if fenced is not None else ("x", "", "x")
@@ -2755,6 +2797,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--model", required=True)
     parser.add_argument("--codex-version", required=True)
     parser.add_argument("--cases", type=Path, required=True)
+    parser.add_argument("--case-id", action="append", default=[])
     parser.add_argument("--scorer-outputs", type=Path)
     parser.add_argument("--evidence", type=Path, required=True)
     args = parser.parse_args(argv)
@@ -2764,6 +2807,9 @@ def main(argv: list[str] | None = None) -> int:
         fixture_bytes = args.cases.read_bytes()
         fixture = _strict_json_loads(fixture_bytes)
         _validate_fixture(fixture, fixture_bytes)
+        if fixture != _fixture_contract():
+            raise ValueError("CLI requires the full canonical fixture")
+        fixture = select_cases(fixture, args.case_id)
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
         try:
             _write_invalid_fixture_evidence_if_safe(
