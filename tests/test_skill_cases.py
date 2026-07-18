@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -467,6 +468,75 @@ def deterministic_fixture_bytes(fixture: dict) -> bytes:
 
 def executable_bytes_sha256(path: Path = TEST_EXECUTABLE_PATH) -> str:
     return sha256_bytes(path.read_bytes())
+
+
+def _run_test_git(
+    root: Path,
+    *arguments: str,
+    check: bool = True,
+) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(
+        ["git", *arguments],
+        cwd=root,
+        check=check,
+        capture_output=True,
+    )
+
+
+def _initialize_test_git_repository(root: Path) -> str:
+    root.mkdir()
+    _run_test_git(root, "init", "--quiet")
+    (root / "source-context.txt").write_text(
+        "authoritative source context\n",
+        encoding="utf-8",
+    )
+    _run_test_git(root, "add", "source-context.txt")
+    _run_test_git(
+        root,
+        "-c",
+        "user.name=DEV-136 Isolation Test",
+        "-c",
+        "user.email=dev-136-isolation@example.invalid",
+        "commit",
+        "--quiet",
+        "-m",
+        "initial source context",
+    )
+    return _run_test_git(root, "rev-parse", "HEAD").stdout.decode().strip()
+
+
+def _test_git_status_snapshot(root: Path) -> bytes:
+    return _run_test_git(
+        root,
+        "status",
+        "--porcelain=v2",
+        "--branch",
+        "-z",
+        "--untracked-files=all",
+    ).stdout
+
+
+def _discard_test_worktrees(source: Path, paths: list[Path]) -> None:
+    for path in set(paths):
+        if path == source:
+            continue
+        _run_test_git(
+            source,
+            "worktree",
+            "remove",
+            "--force",
+            str(path),
+            check=False,
+        )
+        if path.exists():
+            shutil.rmtree(path)
+    _run_test_git(
+        source,
+        "worktree",
+        "prune",
+        "--expire=now",
+        check=False,
+    )
 
 
 def prompt_sha256(case: dict) -> str:
@@ -1956,7 +2026,11 @@ class _FakeHostProcess:
         self.results: list[dict] = []
         self.timeline = timeline if timeline is not None else []
 
-    def __call__(self, command: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
+    def __call__(
+        self,
+        command: list[str],
+        **kwargs,
+    ) -> subprocess.CompletedProcess[str]:
         index = len(self.commands)
         self.commands.append(list(command))
         self.inputs.append(kwargs["input"])
@@ -1977,6 +2051,93 @@ class _FakeHostProcess:
             }
         )
         return subprocess.CompletedProcess(command, returncode, jsonl, "")
+
+
+class _DisposableWorktreeProcess(_FakeHostProcess):
+    def __init__(
+        self,
+        source: Path,
+        *,
+        behavior: str = "success",
+        mutate_source: bool = False,
+    ) -> None:
+        super().__init__(returncodes=[7] if behavior == "nonzero" else None)
+        self.source = source
+        self.behavior = behavior
+        self.mutate_source = mutate_source
+        self.received_cwds: list[object | None] = []
+        self.execution_cwds: list[Path] = []
+        self.detached: list[bool] = []
+        self.heads: list[str] = []
+        self.context_available: list[bool] = []
+        self.prior_case_file_absent: list[bool] = []
+
+    def __call__(self, command: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
+        received_cwd = kwargs.get("cwd")
+        cwd = self.source if received_cwd is None else Path(received_cwd)
+        index = len(self.execution_cwds)
+        self.received_cwds.append(received_cwd)
+        self.execution_cwds.append(cwd)
+        self.detached.append(
+            _run_test_git(cwd, "symbolic-ref", "--quiet", "HEAD", check=False)
+            .returncode
+            != 0
+        )
+        self.heads.append(
+            _run_test_git(cwd, "rev-parse", "HEAD").stdout.decode().strip()
+        )
+        self.context_available.append((cwd / "source-context.txt").is_file())
+        self.prior_case_file_absent.append(
+            not (cwd / "generated-by-case-1.swift").exists()
+        )
+        (cwd / f"generated-by-case-{index + 1}.swift").write_text(
+            f"PRIVATE GENERATED CASE CONTENT {index + 1}\n",
+            encoding="utf-8",
+        )
+        if self.mutate_source:
+            (self.source / "source-context.txt").write_text(
+                "PRIVATE AUTHORITATIVE DRIFT MUST REMAIN\n",
+                encoding="utf-8",
+            )
+        if self.behavior == "exception":
+            raise OSError("injected process exception at /private/host/case")
+
+        completed = super().__call__(command, **kwargs)
+        if self.behavior == "event_stream_invalid":
+            return subprocess.CompletedProcess(
+                completed.args,
+                completed.returncode,
+                "PRIVATE INVALID EVENT STREAM /private/host/case\n",
+                completed.stderr,
+            )
+        return completed
+
+
+class _GitLifecycleFault:
+    def __init__(self, phase: str) -> None:
+        self.phase = phase
+        self.triggered = False
+        self.commands: list[list[str]] = []
+
+    def __call__(self, command: list[str], **kwargs):
+        arguments = list(command)
+        self.commands.append(arguments)
+        operation = None
+        if "worktree" in arguments:
+            index = arguments.index("worktree")
+            if index + 1 < len(arguments):
+                operation = arguments[index + 1]
+        expected_operation = {
+            "setup": "add",
+            "force_remove": "remove",
+            "registration_cleanup": "prune",
+        }[self.phase]
+        if operation == expected_operation:
+            self.triggered = True
+            raise OSError(
+                f"injected {self.phase} failure at /private/disposable/worktree"
+            )
+        return subprocess.run(command, **kwargs)
 
 
 class _FakeScorer:
@@ -2354,6 +2515,276 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
             host_results=process.results,
             executable_sha256=executable_bytes_sha256(),
         )
+
+    def test_host_cases_use_disposable_worktrees(self) -> None:
+        scenarios = {
+            "success": (self.runner.PASS, None, "success", False),
+            "nonzero": (self.runner.FAIL, "process_failed", "nonzero", False),
+            "process_exception": (
+                self.runner.FAIL,
+                "process_failed",
+                "exception",
+                False,
+            ),
+            "scoring_failure": (
+                self.runner.FAIL,
+                "scoring_failed",
+                "success",
+                True,
+            ),
+            "early_stop": (
+                self.runner.FAIL,
+                "event_stream_invalid",
+                "event_stream_invalid",
+                False,
+            ),
+        }
+        absolute_path = re.compile(
+            r"(?<![A-Za-z0-9_.-])/(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+"
+        )
+
+        for scenario, (
+            expected_code,
+            expected_reason,
+            behavior,
+            scorer_fails,
+        ) in scenarios.items():
+            with (
+                self.subTest(scenario=scenario),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                test_root = Path(directory)
+                source = test_root / "source"
+                source_head = _initialize_test_git_repository(source)
+                source_before = _test_git_status_snapshot(source)
+                case_ids = (
+                    (
+                        "DEV136-FWD-DESIGN-001",
+                        "DEV136-FWD-REVIEW-001",
+                    )
+                    if scenario == "success"
+                    else ("DEV136-FWD-DESIGN-001",)
+                )
+                fixture = _forward_fixture(*case_ids)
+                outputs = _forward_outputs(fixture)
+                process = _DisposableWorktreeProcess(source, behavior=behavior)
+                scorer = _FakeScorer(
+                    outputs,
+                    error=(
+                        RuntimeError(
+                            "PRIVATE SCORER FAILURE /private/disposable/worktree"
+                        )
+                        if scorer_fails
+                        else None
+                    ),
+                )
+
+                with mock.patch.object(self.runner, "ROOT", source):
+                    code, evidence = _run_host(
+                        self.runner,
+                        fixture,
+                        str(TEST_EXECUTABLE_PATH),
+                        process,
+                        _FakePrerequisiteChecker(_passing_prerequisites()),
+                        scorer,
+                    )
+
+                source_after = _test_git_status_snapshot(source)
+                registrations = _run_test_git(
+                    source,
+                    "worktree",
+                    "list",
+                    "--porcelain",
+                    "-z",
+                ).stdout
+                serialized = json.dumps(evidence, sort_keys=True)
+                expected_invocations = 2 if scenario == "success" else 1
+                violations = []
+                if code != expected_code:
+                    violations.append(f"exit:{code}")
+                if evidence["host"]["blockerReason"] != expected_reason:
+                    violations.append(
+                        f"reason:{evidence['host']['blockerReason']}"
+                    )
+                if len(process.execution_cwds) != expected_invocations:
+                    violations.append(
+                        f"invocations:{len(process.execution_cwds)}"
+                    )
+                if any(cwd is None for cwd in process.received_cwds):
+                    violations.append("cwd_not_supplied")
+                if len(set(process.execution_cwds)) != expected_invocations:
+                    violations.append("cwd_reused")
+                if any(cwd == source for cwd in process.execution_cwds):
+                    violations.append("source_used_as_cwd")
+                if not all(process.detached):
+                    violations.append("cwd_not_detached")
+                if process.heads != [source_head] * expected_invocations:
+                    violations.append("head_not_captured_source_head")
+                if not all(process.context_available):
+                    violations.append("repository_context_missing")
+                if not all(process.prior_case_file_absent):
+                    violations.append("generated_file_cross_case_leak")
+                if any(path.exists() for path in process.execution_cwds):
+                    violations.append("disposable_path_not_removed")
+                if any(
+                    str(path).encode() in registrations
+                    for path in process.execution_cwds
+                ):
+                    violations.append("disposable_registration_not_removed")
+                if source_after != source_before:
+                    violations.append("source_status_changed")
+                if list(source.glob("generated-by-case-*.swift")):
+                    violations.append("generated_file_reached_source")
+                private_needles = (
+                    str(test_root),
+                    str(source),
+                    "PRIVATE GENERATED CASE CONTENT",
+                    "PRIVATE INVALID EVENT STREAM",
+                    "PRIVATE SCORER FAILURE",
+                    "source-context.txt",
+                    "generated-by-case-1.swift",
+                    "branch.oid",
+                    "branch.head",
+                    source_before.decode(errors="replace"),
+                    source_after.decode(errors="replace"),
+                )
+                if any(
+                    needle and needle in serialized for needle in private_needles
+                ):
+                    violations.append("private_worktree_material_in_evidence")
+                if absolute_path.search(serialized):
+                    violations.append("absolute_path_in_evidence")
+
+                _discard_test_worktrees(source, process.execution_cwds)
+                self.assertEqual([], violations)
+
+    def test_host_worktree_cleanup_failures_fail_closed(self) -> None:
+        scenarios = {
+            "setup_failure": ("setup", "host_case_setup_failed", 0),
+            "force_remove_failure": (
+                "force_remove",
+                "host_case_cleanup_failed",
+                1,
+            ),
+            "registration_cleanup_failure": (
+                "registration_cleanup",
+                "host_case_cleanup_failed",
+                1,
+            ),
+            "source_status_drift": (None, "source_worktree_drift", 1),
+        }
+        absolute_path = re.compile(
+            r"(?<![A-Za-z0-9_.-])/(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+"
+        )
+
+        for scenario, (fault_phase, expected_reason, expected_invocations) in (
+            scenarios.items()
+        ):
+            with (
+                self.subTest(scenario=scenario),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                test_root = Path(directory)
+                source = test_root / "source"
+                _initialize_test_git_repository(source)
+                source_before = _test_git_status_snapshot(source)
+                fixture = _forward_fixture(
+                    "DEV136-FWD-DESIGN-001",
+                    "DEV136-FWD-REVIEW-001",
+                )
+                outputs = _forward_outputs(fixture)
+                process = _DisposableWorktreeProcess(
+                    source,
+                    mutate_source=scenario == "source_status_drift",
+                )
+                checker = _FakePrerequisiteChecker(_passing_prerequisites())
+                scorer = _FakeScorer(outputs)
+                fault = (
+                    None if fault_phase is None else _GitLifecycleFault(fault_phase)
+                )
+
+                with mock.patch.object(self.runner, "ROOT", source):
+                    if fault is None:
+                        code, evidence = _run_host(
+                            self.runner,
+                            fixture,
+                            str(TEST_EXECUTABLE_PATH),
+                            process,
+                            checker,
+                            scorer,
+                        )
+                    else:
+                        with mock.patch.object(
+                            self.runner,
+                            "_run_git",
+                            side_effect=fault,
+                            create=True,
+                        ):
+                            code, evidence = _run_host(
+                                self.runner,
+                                fixture,
+                                str(TEST_EXECUTABLE_PATH),
+                                process,
+                                checker,
+                                scorer,
+                            )
+
+                source_after = _test_git_status_snapshot(source)
+                serialized = json.dumps(evidence, sort_keys=True)
+                worktree_paths_remained = any(
+                    path != source and path.exists()
+                    for path in process.execution_cwds
+                )
+                violations = []
+                if code != self.runner.FAIL:
+                    violations.append(f"exit:{code}")
+                if evidence["status"] != "fail":
+                    violations.append(f"status:{evidence['status']}")
+                if evidence["host"]["blockerReason"] != expected_reason:
+                    violations.append(
+                        f"reason:{evidence['host']['blockerReason']}"
+                    )
+                if len(process.execution_cwds) != expected_invocations:
+                    violations.append(
+                        f"invocations:{len(process.execution_cwds)}"
+                    )
+                if fault is not None and not fault.triggered:
+                    violations.append(f"git_fault_not_triggered:{fault_phase}")
+                if scenario == "source_status_drift":
+                    if source_after == source_before:
+                        violations.append("source_drift_not_detectable")
+                    if (source / "source-context.txt").read_text(
+                        encoding="utf-8"
+                    ) != "PRIVATE AUTHORITATIVE DRIFT MUST REMAIN\n":
+                        violations.append("runner_reverted_authoritative_source")
+                    if len(process.execution_cwds) != 1:
+                        violations.append("runner_did_not_stop_after_source_drift")
+                    if worktree_paths_remained:
+                        violations.append("drift_path_not_cleaned")
+                elif source_after != source_before:
+                    violations.append("source_status_changed")
+                private_needles = (
+                    str(test_root),
+                    str(source),
+                    "PRIVATE GENERATED CASE CONTENT",
+                    "PRIVATE AUTHORITATIVE DRIFT MUST REMAIN",
+                    "PRIVATE INVALID EVENT STREAM",
+                    "source-context.txt",
+                    "generated-by-case-1.swift",
+                    "branch.oid",
+                    "branch.head",
+                    source_before.decode(errors="replace"),
+                    source_after.decode(errors="replace"),
+                )
+                if any(
+                    needle and needle in serialized for needle in private_needles
+                ):
+                    violations.append("private_worktree_material_in_evidence")
+                if absolute_path.search(serialized):
+                    violations.append("absolute_path_in_evidence")
+
+                _discard_test_worktrees(source, process.execution_cwds)
+                self.assertEqual([], violations)
 
     def test_bound_executable_lifecycle_closes_before_post_case_checker(self) -> None:
         fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
