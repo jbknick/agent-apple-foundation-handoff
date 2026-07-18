@@ -32,6 +32,33 @@ ROUTER_RED_BRANCHES = (
     ("clarification_required", "domain"),
     ("clarification_required", "approved_contract"),
 )
+ROUTER_RED_EXPECTED_VERDICTS = (
+    "fail",
+    "pass",
+    "fail",
+)
+ROUTER_RED_EXPECTED_FAILED_CHECKS = (
+    ("activation", "routing"),
+    (),
+    ("activation", "routing", "one_clarification"),
+)
+ROUTER_RED_EXPECTED_RESPONSE_METADATA = (
+    (
+        "08206f053c6bd875bbf663c3959780762ceb40116eb1df42075a28bb2a43e0e5",
+        2268,
+        7,
+    ),
+    (
+        "e97d6a23e17b45fc8fb5bb9cede3ea0df95316c61cd75117fd1a359a9d9368b4",
+        258,
+        1,
+    ),
+    (
+        "baaed5fc2166ca1dce8085eca432b0c531ca322792f0ee65a1382f832ba1253f",
+        303,
+        3,
+    ),
+)
 ROUTER_RED_EVIDENCE_PATH = (
     ROOT / "docs/research/evidence/dev-136-non-positive-router-red-baseline.json"
 )
@@ -419,6 +446,9 @@ OFFICIAL_FIXTURE_SHA256 = (
     "6c5bd8dafb1b75990e88ec288de18282c00b99151f33a7566253395c4ef93dcb"
 )
 ROUTER_RED_CAPTURE_COMMIT = "78a0fe9234e79d43a8c1bab130f3005416cf25a0"
+ROUTER_RED_EXECUTABLE_SHA256 = (
+    "bdcb530615d44fcc7b35d12fe00f30c3025c25fc22a21193591dcdb064304385"
+)
 ROUTER_RED_EVIDENCE_KEYS = {
     "schemaVersion",
     "sourceIssue",
@@ -1230,10 +1260,10 @@ class NonPositiveRouterRedBaselineTests(unittest.TestCase):
         self.assertEqual("1.0", evidence["schemaVersion"])
         self.assertEqual("DEV-136", evidence["sourceIssue"])
         self.assertEqual(
-            "non_positive_router_pre_router_red_baseline",
+            "non_positive_router_pre_router_mixed_baseline",
             evidence["evidenceKind"],
         )
-        self.assertEqual("fail", evidence["status"])
+        self.assertEqual("mixed", evidence["status"])
         self.assertEqual(ROUTER_RED_CAPTURE_COMMIT, evidence["captureCommit"])
         capture = subprocess.run(
             [
@@ -1265,9 +1295,7 @@ class NonPositiveRouterRedBaselineTests(unittest.TestCase):
                 "model": "gpt-5.6-sol",
                 "modelSelection": "explicit_cli_argument",
                 "sessionMode": "fresh_ephemeral",
-                "resolvedExecutableSha256": evidence["host"][
-                    "resolvedExecutableSha256"
-                ],
+                "resolvedExecutableSha256": ROUTER_RED_EXECUTABLE_SHA256,
                 "claudeInvoked": False,
             },
             evidence["host"],
@@ -1299,20 +1327,26 @@ class NonPositiveRouterRedBaselineTests(unittest.TestCase):
                     evidence["workflowPayloadSha256"][skill],
                 )
 
-    def test_rows_are_exact_three_branch_failing_baselines(self) -> None:
+    def test_rows_are_exact_three_branch_mixed_baselines(self) -> None:
         evidence = self.require_evidence()
         rows = evidence["rows"]
         self.assertEqual(ROUTER_RED_SUMMARY_KEYS, set(evidence["summary"]))
         self.assertEqual(len(ROUTER_RED_CASE_IDS), len(rows))
 
         fixture_by_id = {case["id"]: case for case in self.fixture["cases"]}
-        for row, case_id, branch in zip(
+        for row, case_id, branch, expected_verdict, failed_checks, response in zip(
             rows,
             ROUTER_RED_CASE_IDS,
             ROUTER_RED_BRANCHES,
+            ROUTER_RED_EXPECTED_VERDICTS,
+            ROUTER_RED_EXPECTED_FAILED_CHECKS,
+            ROUTER_RED_EXPECTED_RESPONSE_METADATA,
             strict=True,
         ):
             expected_activation, expected_clarification = branch
+            expected_response_sha256, expected_response_bytes, tool_event_count = (
+                response
+            )
             case = fixture_by_id[case_id]
             with self.subTest(case=case_id):
                 self.assertEqual(ROUTER_RED_ROW_KEYS, set(row))
@@ -1333,32 +1367,25 @@ class NonPositiveRouterRedBaselineTests(unittest.TestCase):
                     rubric_contract_sha256(self.fixture, case),
                     row["rubricContractSha256"],
                 )
-                self.assertIs(type(row["codexExitCode"]), int)
-                self.assertGreaterEqual(row["codexExitCode"], 0)
-                self.assertRegex(row["responseSha256"], SHA256_PATTERN)
-                self.assertIs(type(row["responseBytes"]), int)
-                self.assertGreater(row["responseBytes"], 0)
-                self.assertIs(type(row["toolEventCount"]), int)
-                self.assertGreaterEqual(row["toolEventCount"], 0)
-                self.assertEqual("fail", row["verdict"])
-                self.assertTrue(row["failedChecks"])
+                self.assertEqual(0, row["codexExitCode"])
+                self.assertEqual(expected_response_sha256, row["responseSha256"])
+                self.assertEqual(expected_response_bytes, row["responseBytes"])
+                self.assertEqual(tool_event_count, row["toolEventCount"])
+                self.assertEqual(expected_verdict, row["verdict"])
                 self.assertEqual(
-                    [
-                        check
-                        for check in FORWARD_ASSERTIONS
-                        if check in row["failedChecks"]
-                    ],
+                    list(failed_checks),
                     row["failedChecks"],
                 )
                 self.assertEqual(
                     [
                         ROUTER_RED_FAILURE_CLASS_BY_CHECK[check]
-                        for check in row["failedChecks"]
+                        for check in failed_checks
                     ],
                     row["failureClasses"],
                 )
 
         verdicts = [row["verdict"] for row in rows]
+        self.assertEqual(list(ROUTER_RED_EXPECTED_VERDICTS), verdicts)
         self.assertEqual(
             {
                 "caseCount": len(rows),
