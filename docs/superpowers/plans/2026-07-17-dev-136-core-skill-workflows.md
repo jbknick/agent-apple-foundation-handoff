@@ -716,6 +716,15 @@ Commit the new RED tests and GREEN parser separately. Rerun all Task 7D selector
 `tests.test_skill_cases`, the full repository suite, Bats, generation sync, compile,
 and diff checks, then obtain a new independent approval before Step 3's next host run.
 
+### Step 5: Remove vacuous immutable-field controls
+
+The identity review found two legacy web-search query/action mutation negatives that
+now pass only because their started item violates the exact empty-query/`other`
+placeholder rule. Replace them with positive assertions that begin from the valid
+placeholder and complete with populated query/action. Keep the inner-ID and other
+immutable-field negatives unchanged. Commit this as a tests-only repair, run the full
+Task 7D and repository validation commands, and obtain final independent approval.
+
 ## Task 8: Full verification before completion
 
 Invoke `superpowers:verification-before-completion` and run fresh commands.
