@@ -1615,13 +1615,8 @@ def _plugin_is_installed_enabled_with_capabilities(stdout: str) -> bool:
         type(listing) is not dict
         or set(listing) != {"installed", "available"}
         or type(listing.get("installed")) is not list
-        or listing.get("available") != []
+        or type(listing.get("available")) is not list
     ):
-        return False
-    if len(listing["installed"]) != 1:
-        return False
-    plugin = listing["installed"][0]
-    if type(plugin) is not dict or set(plugin) != PLUGIN_ENTRY_KEYS:
         return False
     plugin_root = _absolute_lexical_path(ROOT / "plugins" / PLUGIN_ID)
     expected_fields = {
@@ -1639,7 +1634,27 @@ def _plugin_is_installed_enabled_with_capabilities(stdout: str) -> bool:
         "installPolicy": "AVAILABLE",
         "authPolicy": "ON_INSTALL",
     }
-    if plugin != expected_fields:
+    def is_target_related(plugin: Any) -> bool:
+        return type(plugin) is dict and (
+            plugin.get("pluginId") == PLUGIN_SELECTOR
+            or (
+                plugin.get("name") == PLUGIN_ID
+                and plugin.get("marketplaceName") == MARKETPLACE_NAME
+            )
+        )
+
+    installed_targets = [
+        plugin for plugin in listing["installed"] if is_target_related(plugin)
+    ]
+    available_targets = [
+        plugin for plugin in listing["available"] if is_target_related(plugin)
+    ]
+    if (
+        len(installed_targets) != 1
+        or available_targets
+        or set(installed_targets[0]) != PLUGIN_ENTRY_KEYS
+        or installed_targets[0] != expected_fields
+    ):
         return False
     manifest_path = plugin_root / ".codex-plugin/plugin.json"
     try:
