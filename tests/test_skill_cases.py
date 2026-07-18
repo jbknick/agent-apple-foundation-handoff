@@ -5877,6 +5877,141 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.runner._codex_jsonl_events(stream(events))
 
+    def test_codex_item_ids_are_nonblank_and_stream_unique(self) -> None:
+        def item_event(event_type: str, item: dict) -> dict:
+            return {"type": event_type, "item": copy.deepcopy(item)}
+
+        def stream(events: list[dict]) -> str:
+            records = [
+                {"type": "thread.started", "thread_id": "thread_synthetic"},
+                {"type": "turn.started"},
+                *events,
+                {"type": "turn.completed", "usage": _codex_usage()},
+            ]
+            return "\n".join(
+                json.dumps(record, sort_keys=True) for record in records
+            )
+
+        def file_change(item_id: str, status: str) -> dict:
+            return {
+                "id": item_id,
+                "type": "file_change",
+                "changes": [{"path": "synthetic.txt", "kind": "update"}],
+                "status": status,
+            }
+
+        def mcp_tool(item_id: str, status: str) -> dict:
+            return {
+                "id": item_id,
+                "type": "mcp_tool_call",
+                "server": "synthetic",
+                "tool": "lookup",
+                "arguments": {},
+                "result": None,
+                "error": None,
+                "status": status,
+            }
+
+        def agent_message(item_id: str) -> dict:
+            return {
+                "id": item_id,
+                "type": "agent_message",
+                "text": "synthetic",
+            }
+
+        def error_item(item_id: str) -> dict:
+            return {
+                "id": item_id,
+                "type": "error",
+                "message": "synthetic",
+            }
+
+        def file_change_pair(item_id: str) -> list[dict]:
+            return [
+                item_event(
+                    "item.started",
+                    file_change(item_id, "in_progress"),
+                ),
+                item_event(
+                    "item.completed",
+                    file_change(item_id, "completed"),
+                ),
+            ]
+
+        def mcp_pair(item_id: str) -> list[dict]:
+            return [
+                item_event(
+                    "item.started",
+                    mcp_tool(item_id, "in_progress"),
+                ),
+                item_event(
+                    "item.completed",
+                    mcp_tool(item_id, "completed"),
+                ),
+            ]
+
+        invalid_identities = {
+            "empty": "",
+            "spaces": "   ",
+            "tabs": "\t\t",
+            "unicode_whitespace": "\u2003\u2003",
+        }
+        for identity_name, item_id in invalid_identities.items():
+            invalid_surfaces = {
+                "paired_file_change": file_change_pair(item_id),
+                "paired_mcp_tool": mcp_pair(item_id),
+                "completion_only_agent_message": [
+                    item_event("item.completed", agent_message(item_id))
+                ],
+                "completion_only_error": [
+                    item_event("item.completed", error_item(item_id))
+                ],
+            }
+            for surface, events in invalid_surfaces.items():
+                with self.subTest(
+                    invalid_identity=identity_name,
+                    surface=surface,
+                ):
+                    with self.assertRaises(ValueError):
+                        self.runner._codex_jsonl_events(stream(events))
+
+        reused_id = "reused_0"
+        sequential_reuse = {
+            "file_change_after_file_change": (
+                file_change_pair(reused_id) + file_change_pair(reused_id)
+            ),
+            "mcp_after_mcp": mcp_pair(reused_id) + mcp_pair(reused_id),
+            "mcp_after_file_change": (
+                file_change_pair(reused_id) + mcp_pair(reused_id)
+            ),
+            "agent_message_after_mcp": mcp_pair(reused_id)
+            + [item_event("item.completed", agent_message(reused_id))],
+            "error_after_agent_message": [
+                item_event("item.completed", agent_message(reused_id)),
+                item_event("item.completed", error_item(reused_id)),
+            ],
+            "file_change_after_error": [
+                item_event("item.completed", error_item(reused_id)),
+                *file_change_pair(reused_id),
+            ],
+        }
+        for surface, events in sequential_reuse.items():
+            with self.subTest(sequential_reuse=surface):
+                with self.assertRaises(ValueError):
+                    self.runner._codex_jsonl_events(stream(events))
+
+        exact_raw_id = " item_exact "
+        distinct_raw_id = exact_raw_id.strip()
+        exact_raw_pair_events = file_change_pair(exact_raw_id) + mcp_pair(
+            distinct_raw_id
+        )
+        parsed = self.runner._codex_jsonl_events(stream(exact_raw_pair_events))
+        self.assertEqual("turn.completed", parsed[-1]["type"])
+        self.assertEqual(
+            [exact_raw_id, exact_raw_id, distinct_raw_id, distinct_raw_id],
+            [event["item"]["id"] for event in parsed if "item" in event],
+        )
+
     def test_codex_01445_noncommand_item_lifecycles_and_statuses_are_exact(self) -> None:
         def item_event(event_type: str, item: dict) -> dict:
             return {"type": event_type, "item": copy.deepcopy(item)}
