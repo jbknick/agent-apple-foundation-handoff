@@ -6295,6 +6295,489 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                     close_after_effect=close_after_effect,
                 )
 
+    def test_per_case_bound_copy_preserves_structured_lifecycle_outcomes(
+        self,
+    ) -> None:
+        scenarios = {
+            "preownership_enospc": (
+                self.runner.BLOCKED,
+                "blocked",
+                "bound_copy_unavailable",
+                "not_applicable",
+                False,
+            ),
+            "cleaned_owned_enospc": (
+                self.runner.BLOCKED,
+                "blocked",
+                "bound_copy_unavailable",
+                "pass",
+                False,
+            ),
+            "source_identity_drift": (
+                self.runner.FAIL,
+                "fail",
+                "post_capture_prerequisite_drift",
+                "not_applicable",
+                False,
+            ),
+            "unresolved_cleanup": (
+                self.runner.FAIL,
+                "fail",
+                "post_capture_prerequisite_drift",
+                "fail",
+                True,
+            ),
+        }
+        private_message = (
+            "PRIVATE per-case copy lifecycle at /private/host/per-case-copy"
+        )
+
+        for scenario, (
+            expected_code,
+            expected_status,
+            expected_reason,
+            expected_cleanup,
+            expected_residue,
+        ) in scenarios.items():
+            with (
+                self.subTest(scenario=scenario),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                root = Path(directory)
+                source_path = root / "source-codex"
+                source_bytes = b"small verified per-case executable"
+                source_path.write_bytes(source_bytes)
+                source_path.chmod(0o700)
+                capture = expected_source_capture()
+                capture["installedManifestSha256"] = capture[
+                    "sourceManifestSha256"
+                ]
+                snapshot = {
+                    **capture,
+                    "resolvedExecutable": str(source_path),
+                    "executableSha256": hashlib.sha256(
+                        source_bytes
+                    ).hexdigest(),
+                    "version": "0.144.5",
+                    "authenticated": True,
+                    "modelAvailable": True,
+                    "pluginAvailable": True,
+                    "discovery": "pass",
+                    "installation": "pass",
+                }
+                if scenario == "source_identity_drift":
+                    source_path.write_bytes(b"changed after prerequisite capture")
+
+                real_mkdtemp = tempfile.mkdtemp
+                real_write = os.write
+                real_cleanup = self.runner._remove_bound_executable_copy
+                created_roots: list[Path] = []
+                cleanup_calls: list[tuple[Path, Path]] = []
+
+                def make_bound_root(*args, **kwargs) -> str:
+                    if scenario == "preownership_enospc":
+                        raise OSError(errno.ENOSPC, private_message)
+                    kwargs["dir"] = root
+                    created = Path(real_mkdtemp(*args, **kwargs))
+                    created_roots.append(created)
+                    return str(created)
+
+                def copy_write(descriptor, data) -> int:
+                    if scenario in {
+                        "cleaned_owned_enospc",
+                        "unresolved_cleanup",
+                    }:
+                        raise OSError(errno.ENOSPC, private_message)
+                    return real_write(descriptor, data)
+
+                def observed_cleanup(path: Path, bound_root: Path) -> bool:
+                    cleanup_calls.append((path, bound_root))
+                    if scenario == "unresolved_cleanup":
+                        return False
+                    return real_cleanup(path, bound_root)
+
+                fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
+                process = _FakeHostProcess()
+                scorer = _FakeScorer(_forward_outputs(fixture))
+                checker = _FakePrerequisiteChecker(snapshot)
+                try:
+                    with (
+                        mock.patch.object(
+                            self.runner.tempfile,
+                            "mkdtemp",
+                            side_effect=make_bound_root,
+                        ),
+                        mock.patch.object(
+                            self.runner.os,
+                            "write",
+                            side_effect=copy_write,
+                        ),
+                        mock.patch.object(
+                            self.runner,
+                            "_remove_bound_executable_copy",
+                            side_effect=observed_cleanup,
+                        ),
+                    ):
+                        code, evidence = _run_host(
+                            self.runner,
+                            fixture,
+                            str(source_path),
+                            process,
+                            checker,
+                            scorer,
+                        )
+
+                    self.assertEqual(expected_code, code)
+                    self.assertEqual(expected_status, evidence["status"])
+                    self.assertEqual(
+                        expected_reason, evidence["host"]["blockerReason"]
+                    )
+                    self.assertEqual(
+                        expected_cleanup,
+                        evidence["cleanup"]["boundExecutableCopy"],
+                    )
+                    self.assertIsNone(
+                        evidence["host"]["boundExecutableCopySha256"]
+                    )
+                    self.assertEqual([], evidence["cases"])
+                    self.assertEqual(0, evidence["summary"]["attemptedCount"])
+                    self.assertEqual([], process.commands)
+                    self.assertEqual([], scorer.calls)
+                    self.assertEqual(1, len(checker.calls))
+                    self.assertEqual(
+                        expected_residue,
+                        bool(created_roots and created_roots[0].exists()),
+                    )
+                    serialized = json.dumps(evidence, sort_keys=True)
+                    self.assertNotIn(private_message, serialized)
+                    self.assertNotIn(str(root), serialized)
+                    _assert_forward_evidence_schema(self, evidence)
+                finally:
+                    for bound_root in created_roots:
+                        real_cleanup(bound_root / "codex", bound_root)
+
+    def _assert_initial_capture_read_finalization_uncertainty(
+        self,
+        *,
+        close_after_effect: bool,
+    ) -> None:
+        private_message = (
+            "PRIVATE initial read finalization at /private/host/initial-capture"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_path = root / "source-codex"
+            source_path.write_bytes(b"small verified initial executable")
+            source_path.chmod(0o700)
+            replacement_path = root / "replacement"
+            replacement_bytes = b"replacement descriptor remains open"
+            replacement_path.write_bytes(replacement_bytes)
+            real_verified_open = self.runner._open_verified_executable
+            real_open = os.open
+            real_close = os.close
+            target_descriptor = -1
+            target_close_attempts = 0
+            replacement_descriptor = -1
+
+            def observe_initial_open(path: str):
+                nonlocal target_descriptor
+                opened = real_verified_open(path)
+                target_descriptor = opened[1]
+                return opened
+
+            def uncertain_close(descriptor: int) -> None:
+                nonlocal target_close_attempts, replacement_descriptor
+                if descriptor == target_descriptor:
+                    target_close_attempts += 1
+                    if target_close_attempts == 1:
+                        if close_after_effect:
+                            real_close(descriptor)
+                            replacement = real_open(
+                                replacement_path, os.O_RDONLY
+                            )
+                            if replacement != descriptor:
+                                os.dup2(replacement, descriptor)
+                                real_close(replacement)
+                            replacement_descriptor = descriptor
+                        raise OSError(private_message)
+                real_close(descriptor)
+
+            probes = mock.Mock(
+                side_effect=AssertionError(
+                    "prerequisite probes must not run after initial finalization"
+                )
+            )
+            try:
+                with (
+                    mock.patch.object(
+                        self.runner,
+                        "_open_verified_executable",
+                        side_effect=observe_initial_open,
+                    ),
+                    mock.patch.object(
+                        self.runner.os,
+                        "close",
+                        side_effect=uncertain_close,
+                    ),
+                    mock.patch.object(
+                        self.runner,
+                        "_probe",
+                        side_effect=probes,
+                    ),
+                ):
+                    snapshot = self.runner.default_prerequisite_checker(
+                        str(source_path),
+                        "gpt-5.6-sol",
+                        "0.144.5",
+                        source_capture=expected_source_capture(),
+                    )
+
+                self.assertEqual(1, target_close_attempts)
+                self.assertEqual(0, probes.call_count)
+                self.assertGreaterEqual(target_descriptor, 0)
+                os.fstat(target_descriptor)
+                if close_after_effect:
+                    self.assertEqual(target_descriptor, replacement_descriptor)
+                    os.lseek(replacement_descriptor, 0, os.SEEK_SET)
+                    self.assertEqual(
+                        replacement_bytes,
+                        os.read(replacement_descriptor, len(replacement_bytes)),
+                    )
+                self._assert_pre_response_bound_copy_stop(
+                    snapshot,
+                    expected_capture_error="bound_copy_cleanup_failed",
+                    expected_cleanup="fail",
+                    expected_code=self.runner.FAIL,
+                    expected_status="fail",
+                    expected_reason="post_capture_prerequisite_drift",
+                    private_needles=(private_message, str(root)),
+                )
+            finally:
+                if target_descriptor >= 0:
+                    try:
+                        real_close(target_descriptor)
+                    except OSError:
+                        pass
+
+    def test_initial_capture_read_finalization_uncertainty_fails_closed(
+        self,
+    ) -> None:
+        for close_after_effect in (False, True):
+            with self.subTest(close_after_effect=close_after_effect):
+                self._assert_initial_capture_read_finalization_uncertainty(
+                    close_after_effect=close_after_effect
+                )
+
+    def _assert_path_parent_finalization_uncertainty(
+        self,
+        *,
+        stage: str,
+        owner: str,
+        close_after_effect: bool,
+    ) -> None:
+        private_message = (
+            "PRIVATE path parent finalization at /private/host/path-parent"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_path = root / "source-codex"
+            source_path.write_bytes(b"small verified path-parent executable")
+            source_path.chmod(0o700)
+            replacement_path = root / "replacement"
+            replacement_bytes = b"replacement directory descriptor remains open"
+            replacement_path.write_bytes(replacement_bytes)
+            real_mkdtemp = tempfile.mkdtemp
+            real_verified_open = self.runner._open_verified_executable
+            real_open = os.open
+            real_close = os.close
+            real_cleanup = self.runner._remove_bound_executable_copy
+            created_roots: list[Path] = []
+            verified_open_count = 0
+            bound_capture_count = 0
+            target_active = False
+            target_parent_name = ""
+            target_descriptor = -1
+            target_close_attempts = 0
+            replacement_descriptor = -1
+            other_owned_descriptor = -1
+            other_close_attempts = 0
+
+            def make_bound_root(*args, **kwargs) -> str:
+                kwargs["dir"] = root
+                created = Path(real_mkdtemp(*args, **kwargs))
+                created_roots.append(created)
+                return str(created)
+
+            def observe_verified_open(path: str):
+                nonlocal verified_open_count, bound_capture_count
+                nonlocal target_active, target_parent_name
+                verified_open_count += 1
+                candidate = Path(path)
+                is_bound_capture = (
+                    candidate.name == "codex"
+                    and candidate.parent.name.startswith("dev136-codex-bound-")
+                )
+                if is_bound_capture:
+                    bound_capture_count += 1
+                selected = (
+                    stage == "initial" and verified_open_count == 1
+                ) or (
+                    stage == "helper"
+                    and is_bound_capture
+                    and bound_capture_count == 1
+                ) or (
+                    stage == "caller"
+                    and is_bound_capture
+                    and bound_capture_count == 2
+                )
+                if not selected:
+                    return real_verified_open(path)
+                target_active = True
+                target_parent_name = candidate.parent.name
+                try:
+                    return real_verified_open(path)
+                finally:
+                    target_active = False
+
+            def observe_open(path, flags, *args, **kwargs) -> int:
+                nonlocal target_descriptor, other_owned_descriptor
+                descriptor = real_open(path, flags, *args, **kwargs)
+                if not target_active:
+                    return descriptor
+                is_directory = bool(
+                    flags & getattr(os, "O_DIRECTORY", 0)
+                )
+                if owner == "path" and is_directory and target_descriptor < 0:
+                    target_descriptor = descriptor
+                elif (
+                    owner == "parent"
+                    and is_directory
+                    and os.fspath(path) == target_parent_name
+                ):
+                    target_descriptor = descriptor
+                elif target_descriptor >= 0:
+                    other_owned_descriptor = descriptor
+                return descriptor
+
+            def uncertain_close(descriptor: int) -> None:
+                nonlocal target_close_attempts, replacement_descriptor
+                nonlocal other_close_attempts
+                if descriptor == target_descriptor:
+                    target_close_attempts += 1
+                    if target_close_attempts == 1:
+                        if close_after_effect:
+                            real_close(descriptor)
+                            replacement = real_open(
+                                replacement_path, os.O_RDONLY
+                            )
+                            if replacement != descriptor:
+                                os.dup2(replacement, descriptor)
+                                real_close(replacement)
+                            replacement_descriptor = descriptor
+                        raise OSError(private_message)
+                if descriptor == other_owned_descriptor:
+                    other_close_attempts += 1
+                real_close(descriptor)
+
+            probes = mock.Mock(
+                side_effect=AssertionError(
+                    "prerequisite probes must not run after path finalization"
+                )
+            )
+            try:
+                with (
+                    mock.patch.object(
+                        self.runner.tempfile,
+                        "mkdtemp",
+                        side_effect=make_bound_root,
+                    ),
+                    mock.patch.object(
+                        self.runner,
+                        "_open_verified_executable",
+                        side_effect=observe_verified_open,
+                    ),
+                    mock.patch.object(
+                        self.runner.os,
+                        "open",
+                        side_effect=observe_open,
+                    ),
+                    mock.patch.object(
+                        self.runner.os,
+                        "close",
+                        side_effect=uncertain_close,
+                    ),
+                    mock.patch.object(
+                        self.runner,
+                        "_probe",
+                        side_effect=probes,
+                    ),
+                ):
+                    snapshot = self.runner.default_prerequisite_checker(
+                        str(source_path),
+                        "gpt-5.6-sol",
+                        "0.144.5",
+                        source_capture=expected_source_capture(),
+                    )
+
+                self.assertEqual(1, target_close_attempts)
+                self.assertEqual(1, other_close_attempts)
+                self.assertEqual(0, probes.call_count)
+                self.assertGreaterEqual(target_descriptor, 0)
+                os.fstat(target_descriptor)
+                if close_after_effect:
+                    self.assertEqual(target_descriptor, replacement_descriptor)
+                    os.lseek(replacement_descriptor, 0, os.SEEK_SET)
+                    self.assertEqual(
+                        replacement_bytes,
+                        os.read(replacement_descriptor, len(replacement_bytes)),
+                    )
+                if other_owned_descriptor >= 0:
+                    with self.assertRaises(OSError):
+                        os.fstat(other_owned_descriptor)
+                if stage == "initial":
+                    self.assertEqual([], created_roots)
+                else:
+                    self.assertEqual(1, len(created_roots))
+                    self.assertFalse((created_roots[0] / "codex").exists())
+                    self.assertFalse(created_roots[0].exists())
+                self._assert_pre_response_bound_copy_stop(
+                    snapshot,
+                    expected_capture_error="bound_copy_cleanup_failed",
+                    expected_cleanup="fail",
+                    expected_code=self.runner.FAIL,
+                    expected_status="fail",
+                    expected_reason="post_capture_prerequisite_drift",
+                    private_needles=(private_message, str(root)),
+                )
+            finally:
+                if target_descriptor >= 0:
+                    try:
+                        real_close(target_descriptor)
+                    except OSError:
+                        pass
+                if other_owned_descriptor >= 0:
+                    try:
+                        real_close(other_owned_descriptor)
+                    except OSError:
+                        pass
+                for bound_root in created_roots:
+                    real_cleanup(bound_root / "codex", bound_root)
+
+    def test_path_parent_finalization_uncertainty_fails_closed(self) -> None:
+        for stage in ("initial", "helper", "caller"):
+            for owner in ("path", "parent"):
+                for close_after_effect in (False, True):
+                    with self.subTest(
+                        stage=stage,
+                        owner=owner,
+                        close_after_effect=close_after_effect,
+                    ):
+                        self._assert_path_parent_finalization_uncertainty(
+                            stage=stage,
+                            owner=owner,
+                            close_after_effect=close_after_effect,
+                        )
+
     def test_unavailable_pre_response_bound_copy_is_blocked_without_attempt(
         self,
     ) -> None:
