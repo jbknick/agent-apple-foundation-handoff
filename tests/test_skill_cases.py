@@ -62,6 +62,31 @@ ROUTER_RED_EXPECTED_RESPONSE_METADATA = (
 ROUTER_RED_EVIDENCE_PATH = (
     ROOT / "docs/research/evidence/dev-136-non-positive-router-red-baseline.json"
 )
+ROUTER_AFFECTED_EVIDENCE_PATH = (
+    ROOT / "docs/research/evidence/dev-136-codex-router-affected.json"
+)
+FULL_HOST_EVIDENCE_PATH = (
+    ROOT / "docs/research/evidence/dev-136-codex-skill-host.json"
+)
+ROUTER_AFFECTED_CASE_IDS = (
+    "DEV136-FWD-DESIGN-001",
+    "DEV136-FWD-DESIGN-002",
+    "DEV136-FWD-DESIGN-003",
+    "DEV136-FWD-IMPLEMENT-001",
+    "DEV136-FWD-IMPLEMENT-002",
+    "DEV136-FWD-IMPLEMENT-003",
+    "DEV136-FWD-REVIEW-001",
+    "DEV136-FWD-REVIEW-002",
+    "DEV136-FWD-REVIEW-003",
+    "DEV136-FWD-DEBUG-001",
+    "DEV136-FWD-DEBUG-002",
+    "DEV136-FWD-DEBUG-003",
+    "DEV136-FWD-VALIDATE-001",
+    "DEV136-FWD-VALIDATE-002",
+    "DEV136-FWD-VALIDATE-003",
+)
+ROUTER_AFFECTED_CASE_COUNT = 15
+FULL_HOST_CASE_COUNT = 25
 
 WORKFLOW_SKILLS = (
     "design-apple-foundation-models-handoff",
@@ -1569,6 +1594,255 @@ class NonPositiveRouterRedBaselineTests(unittest.TestCase):
                 self.assertNotRegex(value, r"\b(?:sk|pk)-[A-Za-z0-9_-]{8,}")
 
         walk(evidence)
+
+
+class CodexRouterHostEvidenceTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.fixture = load_json(FIXTURE_PATH)
+        cls.runner = load_forward_runner()
+        cls.affected_evidence = (
+            load_json(ROUTER_AFFECTED_EVIDENCE_PATH)
+            if ROUTER_AFFECTED_EVIDENCE_PATH.is_file()
+            else None
+        )
+        cls.full_evidence = (
+            load_json(FULL_HOST_EVIDENCE_PATH)
+            if FULL_HOST_EVIDENCE_PATH.is_file()
+            else None
+        )
+
+    def require_affected_evidence(self) -> dict:
+        if self.affected_evidence is None:
+            self.skipTest("normalized affected Codex host evidence is not captured yet")
+        return self.affected_evidence
+
+    def require_full_evidence(self) -> dict:
+        if self.full_evidence is None:
+            self.skipTest("normalized complete Codex host evidence is not captured yet")
+        return self.full_evidence
+
+    def expected_capture_source_commit(self) -> str:
+        head = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        subject = subprocess.run(
+            ["git", "show", "-s", "--format=%s", head],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        if subject == "test(DEV-136): prove router and workflow activation":
+            return subprocess.run(
+                ["git", "rev-parse", f"{head}^"],
+                cwd=ROOT,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+        return head
+
+    def assert_exact_host_evidence(
+        self,
+        evidence: dict,
+        expected_case_ids: tuple[str, ...],
+    ) -> None:
+        _assert_forward_evidence_schema(self, evidence)
+        self.assertEqual("host", evidence["mode"])
+        self.assertEqual("pass", evidence["status"])
+        self.assertEqual(OFFICIAL_FIXTURE_SHA256, evidence["fixtureSha256"])
+        self.assertEqual(
+            {
+                "fixtureCaseCount": len(expected_case_ids),
+                "attemptedCount": len(expected_case_ids),
+                "passedCount": len(expected_case_ids),
+                "failedCount": 0,
+                "blockedCount": 0,
+                "notApplicableCount": 0,
+            },
+            evidence["summary"],
+        )
+        host = evidence["host"]
+        self.assertIsNone(host["blockerReason"])
+        self.assertEqual(
+            {key: "pass" for key in FORWARD_PREREQUISITE_KEYS},
+            host["prerequisites"],
+        )
+        self.assertRegex(host["resolvedExecutableSha256"], SHA256_PATTERN)
+        self.assertIs(host["claudeInvoked"], False)
+
+        fixture_by_id = {case["id"]: case for case in self.fixture["cases"]}
+        self.assertEqual(expected_case_ids, tuple(row["caseId"] for row in evidence["cases"]))
+        for ordinal, row in enumerate(evidence["cases"], 1):
+            case = fixture_by_id[row["caseId"]]
+            with self.subTest(case=row["caseId"]):
+                self.assertEqual(ordinal, row["sessionOrdinal"])
+                self.assertEqual(case["skillUnderTest"], row["skillUnderTest"])
+                self.assertEqual(
+                    case["expectedSkillOwner"], row["expectedSkillOwner"]
+                )
+                self.assertEqual(prompt_sha256(case), row["promptSha256"])
+                self.assertEqual(
+                    rubric_contract_sha256(self.fixture, case),
+                    row["rubricContractSha256"],
+                )
+                self.assertEqual(0, row["codexExitCode"])
+                self.assertRegex(row["responseSha256"], SHA256_PATTERN)
+                self.assertGreater(row["responseBytes"], 0)
+                self.assertGreaterEqual(row["toolEventCount"], 0)
+                self.assertEqual("pass", row["verdict"])
+                expected_assertions = {
+                    assertion: "not_applicable" for assertion in FORWARD_ASSERTIONS
+                }
+                expected_assertions["activation"] = "pass"
+                expected_assertions["routing"] = "pass"
+                if case["expectedActivation"] == "clarification_required":
+                    expected_assertions["one_clarification"] = "pass"
+                elif case["expectedActivation"] not in {
+                    "no_activation",
+                    "clarification_required",
+                }:
+                    expected_assertions["independent_version_labels"] = "pass"
+                    expected_assertions["common_sections"] = "pass"
+                    expected_assertions["workflow_sections"] = "pass"
+                    if (
+                        case["routerInput"]["requestedOperation"]
+                        == "compound_review_fix"
+                    ):
+                        expected_assertions["review_first_ordering"] = "pass"
+                self.assertEqual(
+                    expected_assertions,
+                    row["assertions"],
+                )
+
+    def test_affected_evidence_file_exists(self) -> None:
+        self.assertTrue(
+            ROUTER_AFFECTED_EVIDENCE_PATH.is_file(),
+            "DEV-136 RED: normalized 15-case affected host evidence is absent",
+        )
+
+    def test_full_evidence_file_exists(self) -> None:
+        self.assertTrue(
+            FULL_HOST_EVIDENCE_PATH.is_file(),
+            "DEV-136 RED: normalized 25-case complete host evidence is absent",
+        )
+
+    def test_affected_evidence_is_exact_15_case_green_gate(self) -> None:
+        evidence = self.require_affected_evidence()
+        self.assertEqual(ROUTER_AFFECTED_CASE_COUNT, len(ROUTER_AFFECTED_CASE_IDS))
+        self.assert_exact_host_evidence(evidence, ROUTER_AFFECTED_CASE_IDS)
+        owners = [row["expectedSkillOwner"] for row in evidence["cases"]]
+        self.assertEqual(10, owners.count(ROUTER_SKILL))
+        self.assertEqual(5, sum(owner in WORKFLOW_SKILLS for owner in owners))
+
+    def test_full_evidence_is_exact_25_case_green_matrix(self) -> None:
+        evidence = self.require_full_evidence()
+        expected_case_ids = tuple(case["id"] for case in self.fixture["cases"])
+        self.assertEqual(FULL_HOST_CASE_COUNT, len(expected_case_ids))
+        self.assert_exact_host_evidence(evidence, expected_case_ids)
+        owners = [row["expectedSkillOwner"] for row in evidence["cases"]]
+        self.assertEqual(10, owners.count(ROUTER_SKILL))
+        self.assertEqual(15, sum(owner in WORKFLOW_SKILLS for owner in owners))
+
+    def test_evidence_binds_exact_binary_fixture_and_six_payload_digests(self) -> None:
+        affected = self.require_affected_evidence()
+        full = self.require_full_evidence()
+        self.assertEqual(
+            affected["host"]["resolvedExecutableSha256"],
+            full["host"]["resolvedExecutableSha256"],
+        )
+        codex = shutil.which("codex")
+        self.assertIsNotNone(codex)
+        captured = self.runner.capture_executable(str(Path(codex).resolve()))
+        self.assertEqual(
+            captured["executableSha256"],
+            affected["host"]["resolvedExecutableSha256"],
+        )
+        self.assertEqual(OFFICIAL_FIXTURE_SHA256, self.runner.OFFICIAL_FIXTURE_SHA256)
+        self.assertEqual(APPROVED_SKILL_PAYLOAD_SHA256, self.runner.SKILL_PAYLOAD_SHA256)
+        plugin_root = ROOT / "plugins/apple-foundation-models-handoff"
+        self.assertTrue(self.runner._plugin_skill_payloads_are_exact(plugin_root))
+        for skill, expected_digest in APPROVED_SKILL_PAYLOAD_SHA256.items():
+            payload = plugin_root / "skills" / skill / "SKILL.md"
+            with self.subTest(skill=skill):
+                self.assertEqual(expected_digest, sha256_bytes(payload.read_bytes()))
+
+    def test_evidence_binds_exact_plugin_selector_source_and_capture_commit(self) -> None:
+        affected = self.require_affected_evidence()
+        full = self.require_full_evidence()
+        self.assertEqual(
+            "apple-foundation-models-handoff@agent-apple-foundation-handoff",
+            self.runner.PLUGIN_SELECTOR,
+        )
+        source_commit = self.expected_capture_source_commit()
+        self.assertRegex(source_commit, r"^[0-9a-f]{40}$")
+        fixture_at_source = subprocess.run(
+            ["git", "show", f"{source_commit}:{FIXTURE_PATH.relative_to(ROOT)}"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+        ).stdout
+        self.assertEqual(affected["fixtureSha256"], sha256_bytes(fixture_at_source))
+        self.assertEqual(full["fixtureSha256"], sha256_bytes(fixture_at_source))
+        for skill, expected_digest in APPROVED_SKILL_PAYLOAD_SHA256.items():
+            skill_path = (
+                Path("plugins/apple-foundation-models-handoff/skills")
+                / skill
+                / "SKILL.md"
+            )
+            payload_at_source = subprocess.run(
+                ["git", "show", f"{source_commit}:{skill_path}"],
+                cwd=ROOT,
+                check=True,
+                capture_output=True,
+            ).stdout
+            with self.subTest(skill=skill):
+                self.assertEqual(expected_digest, sha256_bytes(payload_at_source))
+
+    def test_evidence_declares_claude_not_invoked_under_owner_deferred_policy(self) -> None:
+        guidance = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        self.assertIn(
+            "Claude execution and cross-host comparison are `blocked/owner-deferred`.",
+            guidance,
+        )
+        for evidence in (
+            self.require_affected_evidence(),
+            self.require_full_evidence(),
+        ):
+            self.assertIs(evidence["host"]["claudeInvoked"], False)
+
+    def test_evidence_contains_no_raw_or_private_payloads(self) -> None:
+        def walk(value) -> None:
+            if isinstance(value, dict):
+                for key, child in value.items():
+                    self.assertNotIn(key, ROUTER_RED_FORBIDDEN_KEYS)
+                    walk(child)
+            elif isinstance(value, list):
+                for child in value:
+                    walk(child)
+            elif isinstance(value, str):
+                self.assertNotRegex(
+                    value,
+                    r"(?<![A-Za-z0-9_.-])/(?:[A-Za-z0-9._-]+/)*"
+                    r"[A-Za-z0-9._-]+",
+                )
+                self.assertNotRegex(value, r"[A-Za-z]:\\")
+                self.assertNotRegex(
+                    value.lower(), r"\bbearer\s+[a-z0-9._~+/-]{8,}"
+                )
+                self.assertNotRegex(value, r"\b(?:sk|pk)-[A-Za-z0-9_-]{8,}")
+
+        for evidence in (
+            self.require_affected_evidence(),
+            self.require_full_evidence(),
+        ):
+            self.assertEqual(FORWARD_PRIVACY, evidence["privacy"])
+            walk(evidence)
 
 
 class ContractMutationReproductionTests(unittest.TestCase):
