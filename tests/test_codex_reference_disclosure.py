@@ -344,6 +344,68 @@ class ReferenceToolPayloadTests(unittest.TestCase):
                     raised.exception.reason,
                 )
 
+    def test_duplicate_command_operands_preserve_count_and_are_bulk(
+        self,
+    ) -> None:
+        duplicate = f"cat {OWNER} {OWNER}"
+        commands = {
+            "direct command": {"command": duplicate},
+            "syntactic input command": {"input": duplicate},
+        }
+        expected = ({OWNER.rsplit("/", 1)[-1]}, 2)
+
+        for surface, arguments in commands.items():
+            with self.subTest(surface=surface, boundary="mapping"):
+                self.assertEqual(
+                    expected,
+                    probe.mapping_reference_reads(
+                        arguments,
+                        probe.ROOT,
+                        TASK_ID,
+                    ),
+                )
+
+            with self.subTest(surface=surface, boundary="observed"):
+                with self.assertRaises(probe.ProbeFailure) as raised:
+                    probe.observed_reference_reads(
+                        tool_events(arguments),
+                        TASK_ID,
+                    )
+
+                self.assertEqual(
+                    "bulk_reference_content_read",
+                    raised.exception.reason,
+                )
+
+    def test_single_owner_command_inputs_remain_supported(self) -> None:
+        command = f"cat {OWNER}"
+        controls = {
+            "direct command": {"command": command},
+            "syntactic input command": {"input": command},
+        }
+        expected_mapping = ({OWNER.rsplit("/", 1)[-1]}, 1)
+        expected_observed = {OWNER.rsplit("/", 1)[-1]}
+
+        for surface, arguments in controls.items():
+            with self.subTest(surface=surface, boundary="mapping"):
+                self.assertEqual(
+                    expected_mapping,
+                    probe.mapping_reference_reads(
+                        arguments,
+                        probe.ROOT,
+                        TASK_ID,
+                    ),
+                )
+
+            with self.subTest(surface=surface, boundary="observed"):
+                self.assertEqual(
+                    expected_observed,
+                    probe.observed_reference_reads(
+                        tool_events(arguments),
+                        TASK_ID,
+                    ),
+                )
+
     def test_command_like_structured_payloads_are_not_inferred_as_reads(self) -> None:
         rejected = {
             "unknown argv list": {"argv": ["cat", OWNER]},
