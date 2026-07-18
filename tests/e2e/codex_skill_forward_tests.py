@@ -213,6 +213,12 @@ class ExecutableCaptureError(ValueError):
         self.reason = reason
 
 
+class HostCaseIsolationError(OSError):
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
 def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -1588,40 +1594,60 @@ def _source_status_snapshot() -> bytes:
     )
 
 
-def _best_effort_worktree_cleanup(parent: Path, worktree: Path) -> None:
+def _worktree_is_registered(worktree: Path) -> bool:
+    registrations = _git_stdout(
+        _source_git_command("worktree", "list", "--porcelain", "-z")
+    )
+    return str(worktree).encode("utf-8") in registrations
+
+
+def _cleanup_incomplete_host_case_worktree(
+    parent: Path,
+    worktree: Path,
+    source_status: bytes,
+) -> str:
     try:
-        _run_git(
-            _source_git_command(
-                "worktree", "remove", "--force", str(worktree)
-            ),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
+        owned_state_exists = worktree.exists() or _worktree_is_registered(worktree)
+    except Exception:
+        owned_state_exists = True
+    if owned_state_exists:
+        cleanup_ok, source_drift = _cleanup_host_case_worktree(
+            {
+                "parent": parent,
+                "path": worktree,
+                "sourceStatus": source_status,
+            }
         )
-    except Exception:
-        pass
-    try:
-        shutil.rmtree(worktree, ignore_errors=True)
-    except Exception:
-        pass
-    try:
-        _run_git(
-            _source_git_command("worktree", "prune", "--expire=now"),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-        )
-    except Exception:
-        pass
-    try:
-        shutil.rmtree(parent, ignore_errors=True)
-    except Exception:
-        pass
+    else:
+        cleanup_ok = True
+        try:
+            parent.rmdir()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            cleanup_ok = False
+            try:
+                shutil.rmtree(parent, ignore_errors=True)
+            except Exception:
+                pass
+        if parent.exists() or worktree.exists():
+            cleanup_ok = False
+        try:
+            source_drift = _source_status_snapshot() != source_status
+        except Exception:
+            cleanup_ok = False
+            source_drift = False
+    if not cleanup_ok:
+        return "host_case_cleanup_failed"
+    if source_drift:
+        return "source_worktree_drift"
+    return "host_case_setup_failed"
 
 
 def _create_host_case_worktree() -> dict[str, Any]:
     parent: Path | None = None
     worktree: Path | None = None
+    source_status: bytes | None = None
     try:
         source_status = _source_status_snapshot()
         source_head = _git_stdout(
@@ -1659,12 +1685,28 @@ def _create_host_case_worktree() -> dict[str, Any]:
             "path": worktree,
             "sourceStatus": source_status,
         }
-    except Exception:
-        if parent is not None and worktree is not None:
-            _best_effort_worktree_cleanup(parent, worktree)
+    except Exception as error:
+        reason = "host_case_setup_failed"
+        if (
+            parent is not None
+            and worktree is not None
+            and source_status is not None
+        ):
+            reason = _cleanup_incomplete_host_case_worktree(
+                parent, worktree, source_status
+            )
         elif parent is not None:
-            shutil.rmtree(parent, ignore_errors=True)
-        raise
+            try:
+                parent.rmdir()
+            except FileNotFoundError:
+                pass
+            except OSError:
+                reason = "host_case_cleanup_failed"
+                try:
+                    shutil.rmtree(parent, ignore_errors=True)
+                except Exception:
+                    pass
+        raise HostCaseIsolationError(reason) from error
 
 
 def _cleanup_host_case_worktree(
@@ -1780,11 +1822,27 @@ def run_host(
 
         try:
             worktree_owner = _create_host_case_worktree()
-        except Exception:
-            _retry_bound_executable_cleanup(bound_path, bound_root)
+        except Exception as error:
+            try:
+                bound_cleanup_clean = _retry_bound_executable_cleanup(
+                    bound_path, bound_root
+                )
+            except Exception:
+                bound_cleanup_clean = False
+            worktree_reason = (
+                error.reason
+                if isinstance(error, HostCaseIsolationError)
+                else "host_case_setup_failed"
+            )
+            if worktree_reason == "host_case_cleanup_failed":
+                setup_reason = worktree_reason
+            elif not bound_cleanup_clean:
+                setup_reason = "post_capture_prerequisite_drift"
+            else:
+                setup_reason = worktree_reason
             evidence = _evidence(
                 "host", fixture, fixture_bytes, rows, snapshot=first_snapshot,
-                blocker="host_case_setup_failed", forced_status="fail",
+                blocker=setup_reason, forced_status="fail",
             )
             return FAIL, evidence
 
