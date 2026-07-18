@@ -4143,6 +4143,86 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                         )
                     )
 
+    def test_paired_mcp_arguments_require_recursively_type_exact_identity(self) -> None:
+        def item(arguments: dict, status: str) -> dict:
+            return {
+                "id": "mcp_0",
+                "type": "mcp_tool_call",
+                "server": "synthetic",
+                "tool": "lookup",
+                "arguments": arguments,
+                "result": None,
+                "error": None,
+                "status": status,
+            }
+
+        def stream(started_arguments: dict, completed_arguments: dict) -> str:
+            records = (
+                {"type": "thread.started", "thread_id": "thread_synthetic"},
+                {"type": "turn.started"},
+                {
+                    "type": "item.started",
+                    "item": item(started_arguments, "in_progress"),
+                },
+                {
+                    "type": "item.completed",
+                    "item": item(completed_arguments, "completed"),
+                },
+                {"type": "turn.completed", "usage": _codex_usage()},
+            )
+            return "\n".join(json.dumps(record) for record in records)
+
+        exact_nested = {
+            "object": {"boolean": True, "integer": 1, "float": 1.0},
+            "list": [False, 0, 0.0, {"null": None}],
+        }
+        controls = {
+            "exact_nested_type_and_value": (
+                exact_nested,
+                copy.deepcopy(exact_nested),
+            ),
+            "dictionary_insertion_order": (
+                {
+                    "object": {"boolean": True, "integer": 1, "float": 1.0},
+                    "list": [False, 0, 0.0],
+                },
+                {
+                    "list": [False, 0, 0.0],
+                    "object": {"float": 1.0, "integer": 1, "boolean": True},
+                },
+            ),
+        }
+        for name, (started_arguments, completed_arguments) in controls.items():
+            with self.subTest(type_exact_control=name):
+                parsed = self.runner._codex_jsonl_events(
+                    stream(started_arguments, completed_arguments)
+                )
+                self.assertEqual("turn.completed", parsed[-1]["type"])
+
+        type_mismatches = {
+            "top_level_true_vs_integer": ({"value": True}, {"value": 1}),
+            "top_level_false_vs_integer": ({"value": False}, {"value": 0}),
+            "top_level_integer_vs_float": ({"value": 1}, {"value": 1.0}),
+            "nested_true_vs_integer": (
+                {"outer": [{"value": True}]},
+                {"outer": [{"value": 1}]},
+            ),
+            "nested_false_vs_integer": (
+                {"outer": [{"value": False}]},
+                {"outer": [{"value": 0}]},
+            ),
+            "nested_integer_vs_float": (
+                {"outer": [{"value": 1}]},
+                {"outer": [{"value": 1.0}]},
+            ),
+        }
+        for name, (started_arguments, completed_arguments) in type_mismatches.items():
+            with self.subTest(type_identity_mismatch=name):
+                with self.assertRaises(ValueError):
+                    self.runner._codex_jsonl_events(
+                        stream(started_arguments, completed_arguments)
+                    )
+
     def test_nonstandard_json_constants_fail_closed_in_jsonl_and_parser_inputs(self) -> None:
         constants = {
             "NaN": float("nan"),
@@ -4489,6 +4569,71 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                         response_with_versions(
                             quoted_placeholder,
                             quoted_placeholder,
+                        ),
+                        [],
+                    )
+                    self.assertEqual(
+                        "fail",
+                        observation["assertions"][
+                            "independent_version_labels"
+                        ],
+                    )
+
+    def test_live_score_normalizes_nested_mixed_padded_version_boundaries(self) -> None:
+        case = _forward_fixture("DEV136-FWD-REVIEW-001")["cases"][0]
+
+        def response_with_versions(
+            state_version: str,
+            policy_version: str,
+        ) -> bytes:
+            response = _canonical_live_response(case).decode("utf-8")
+            response = response.replace(
+                'stateVersion: "state-v1"',
+                f"stateVersion: {state_version}",
+            )
+            response = response.replace(
+                'policyVersion: "policy-v1"',
+                f"policyVersion: {policy_version}",
+            )
+            return response.encode("utf-8")
+
+        boundary_layers = {
+            "reviewer_ascii_double_single": ("\" ' ", " ' \""),
+            "reviewer_typographic_double_single": ("“ ‘ ", " ’ ”"),
+            "ascii_double_typographic_single": ("\" ‘ ", " ’ \""),
+            "typographic_double_ascii_single": ("“ ' ", " ' ”"),
+            "ascii_single_typographic_double": ("' “ ", " ” '"),
+            "typographic_single_ascii_double": ("‘ \" ", " \" ’"),
+            "three_layer_mixed": ("“ ' ‘ ", " ’ ' ”"),
+        }
+        for name, (prefix, suffix) in boundary_layers.items():
+            with self.subTest(nested_boundary_control=name):
+                observation = self.runner.live_score(
+                    case,
+                    response_with_versions(
+                        f"{prefix}state-v2{suffix}",
+                        f"{prefix}policy-v3{suffix}",
+                    ),
+                    [],
+                )
+                self.assertEqual(
+                    "pass",
+                    observation["assertions"]["independent_version_labels"],
+                )
+
+            for placeholder in (
+                "not specified",
+                "unchanged existing version",
+            ):
+                with self.subTest(
+                    nested_boundary=name,
+                    version_placeholder=placeholder,
+                ):
+                    observation = self.runner.live_score(
+                        case,
+                        response_with_versions(
+                            f"{prefix}{placeholder}{suffix}",
+                            f"{prefix}{placeholder}{suffix}",
                         ),
                         [],
                     )
