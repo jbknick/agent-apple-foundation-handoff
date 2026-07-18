@@ -1,4 +1,5 @@
 import copy
+import errno
 import hashlib
 import importlib.util
 import inspect
@@ -5643,6 +5644,131 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                     evidence["host"]["resolvedExecutableSha256"],
                 )
                 _assert_forward_evidence_schema(self, evidence)
+
+    def test_unavailable_pre_response_bound_copy_is_blocked_without_attempt(
+        self,
+    ) -> None:
+        fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
+        process = _FakeHostProcess()
+        scorer = _FakeScorer(_forward_outputs(fixture))
+        captured = {
+            "resolvedExecutable": str(TEST_EXECUTABLE_PATH),
+            "executableSha256": executable_bytes_sha256(),
+        }
+
+        with (
+            mock.patch.object(
+                self.runner,
+                "capture_executable",
+                return_value=captured,
+            ),
+            mock.patch.object(
+                self.runner,
+                "_bound_executable_copy",
+                side_effect=OSError(
+                    errno.ENOSPC,
+                    "PRIVATE unavailable bound copy at /private/host/storage",
+                ),
+            ),
+        ):
+            snapshot = self.runner.default_prerequisite_checker(
+                str(TEST_EXECUTABLE_PATH),
+                "gpt-5.6-sol",
+                "0.144.5",
+                source_capture=expected_source_capture(),
+            )
+
+        checker = _FakePrerequisiteChecker(snapshot)
+        code, evidence = _run_host(
+            self.runner,
+            fixture,
+            str(TEST_EXECUTABLE_PATH),
+            process,
+            checker,
+            scorer,
+        )
+
+        self.assertEqual("bound_copy_failure", snapshot["captureError"])
+        self.assertEqual(
+            "not_applicable", snapshot["preflightBoundCopyCleanup"]
+        )
+        self.assertIsNone(snapshot["boundExecutableCopySha256"])
+        self.assertEqual(self.runner.BLOCKED, code)
+        self.assertEqual("blocked", evidence["status"])
+        self.assertEqual(
+            "bound_copy_unavailable", evidence["host"]["blockerReason"]
+        )
+        expected_prerequisites = {
+            key: "not_applicable" for key in FORWARD_PREREQUISITE_KEYS
+        }
+        expected_prerequisites["binary"] = "pass"
+        self.assertEqual(
+            expected_prerequisites, evidence["host"]["prerequisites"]
+        )
+        self.assertEqual([], evidence["cases"])
+        self.assertEqual(0, evidence["summary"]["attemptedCount"])
+        self.assertEqual([], process.commands)
+        self.assertEqual([], scorer.calls)
+        self.assertEqual(1, len(checker.calls))
+        self.assertEqual(
+            {key: "not_applicable" for key in FORWARD_CLEANUP_KEYS},
+            evidence["cleanup"],
+        )
+        self.assertNotIn("PRIVATE unavailable bound copy", json.dumps(evidence))
+
+    def test_pre_response_bound_copy_identity_drift_remains_fail(self) -> None:
+        fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
+        captured = {
+            "resolvedExecutable": str(TEST_EXECUTABLE_PATH),
+            "executableSha256": executable_bytes_sha256(),
+        }
+
+        with (
+            mock.patch.object(
+                self.runner,
+                "capture_executable",
+                return_value=captured,
+            ),
+            mock.patch.object(
+                self.runner,
+                "_bound_executable_copy",
+                side_effect=ValueError(
+                    "PRIVATE bound copy identity drift at /private/host/binary"
+                ),
+            ),
+        ):
+            snapshot = self.runner.default_prerequisite_checker(
+                str(TEST_EXECUTABLE_PATH),
+                "gpt-5.6-sol",
+                "0.144.5",
+                source_capture=expected_source_capture(),
+            )
+
+        process = _FakeHostProcess()
+        scorer = _FakeScorer(_forward_outputs(fixture))
+        code, evidence = _run_host(
+            self.runner,
+            fixture,
+            str(TEST_EXECUTABLE_PATH),
+            process,
+            _FakePrerequisiteChecker(snapshot),
+            scorer,
+        )
+
+        self.assertEqual(
+            "bound_copy_identity_drift", snapshot["captureError"]
+        )
+        self.assertEqual(self.runner.FAIL, code)
+        self.assertEqual("fail", evidence["status"])
+        self.assertEqual(
+            "post_capture_prerequisite_drift",
+            evidence["host"]["blockerReason"],
+        )
+        self.assertEqual([], evidence["cases"])
+        self.assertEqual(0, evidence["summary"]["attemptedCount"])
+        self.assertEqual([], process.commands)
+        self.assertEqual([], scorer.calls)
+        self.assertNotIn("PRIVATE bound copy identity", json.dumps(evidence))
 
     def test_post_capture_prerequisite_drift_fails_and_stops_without_retry(self) -> None:
         fixture = _forward_fixture(
