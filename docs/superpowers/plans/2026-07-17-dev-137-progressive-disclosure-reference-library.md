@@ -1383,3 +1383,78 @@ commits before restoring DEV-137 to Done.
 2. `fix(DEV-137): fail closed on ambiguous reference access`
 3. `docs(DEV-137): record repaired Codex disclosure evidence` only after a
    real host pass; never create this commit for blocked or failing evidence.
+
+### Task 9: Replace recursive alias inference with explicit path ownership
+
+**Files:**
+- Modify: `tests/test_codex_reference_disclosure.py`
+- Modify: `tests/e2e/codex_reference_disclosure.py`
+- Verify: `tests/test_reference_library.py`
+- Verify: `tests/e2e/codex_workflow_progressive_disclosure.py`
+
+**Decision:** The review at `5e087163ad01ba445aedebe77dcff820dfa48772`
+proved that scalar-sibling inference is both incomplete and too broad. Passive
+structured reference evidence is accepted only when the payload gives the
+path an explicit owner: a direct `path` or `file_path` record, an explicit
+`paths` collection (including one nested in passive metadata), or a top-level
+all-reference list. A reference-bearing mapping branch under any other key is
+invalid evidence, regardless of whether its siblings are scalars, lists, or
+mappings. This is a closed evidence grammar, not a command-alias allowlist.
+
+- [ ] **Step 1: Add exact RED regressions**
+
+Add positive controls for `{"label":"selected","paths":[owner]}` and its
+nested passive-metadata equivalent. Add negative cases for
+`{"program":["sort"],"args":[owner]}`, a split nested mapping containing the
+same shape, and compact JSON encoding of that shape. Assert the stable
+`invalid_tool_event` reason for every negative. Retain the existing standalone
+and list-wrapped `path`/`file_path`, all-reference-list, mixed-array, bulk-count,
+malformed-JSON, and duplicate-key controls.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v \
+  tests.test_codex_reference_disclosure.ReferenceToolPayloadTests
+git diff --check
+```
+
+Expected RED: the two explicit `paths` controls are falsely rejected and every
+recursive `program`/`args` container is falsely accepted at the current head;
+all prior controls remain green. Commit only the test file as
+`test(DEV-137): define explicit path ownership`.
+
+- [ ] **Step 2: Implement the closed ownership grammar**
+
+Replace `has_structural_reference_siblings` command-shape inference with an
+explicit owner-aware traversal. Keep top-level all-reference lists valid. When
+descending through a mapping, allow reference-bearing children only for
+`path`, `file_path`, or `paths`; recurse through non-reference passive metadata
+normally, but reject a reference-bearing child under every other key before it
+can be counted. Preserve direct path-record metadata and every strict lifecycle,
+bulk-read, command-string, JSON, and path-canonicalization guard.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v \
+  tests.test_codex_reference_disclosure.ReferenceToolPayloadTests
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v \
+  tests.test_codex_reference_disclosure
+python3 -m py_compile tests/e2e/codex_reference_disclosure.py
+git diff --check
+```
+
+Expected GREEN: focused and complete parser suites pass. Commit only the parser
+as `fix(DEV-137): require explicit path ownership`.
+
+- [ ] **Step 3: Independent review and complete verification**
+
+Independently replay every Task 8 and Task 9 RED case against its parent and
+GREEN against its head. Review recursive dict/list/serialized-JSON variants for
+both false passes and false positives. Only after approval, rerun the complete
+Task 7 offline/source/compile/interface/privacy/generated/Bats/repository gates
+and the exact pinned Codex-only progressive-disclosure host row. Do not run
+Claude Code. Do not push or restore DEV-137 to Done on a partial result.
+
+**Additional atomic boundaries:**
+
+1. `docs(DEV-137): require explicit path ownership`
+2. `test(DEV-137): define explicit path ownership`
+3. `fix(DEV-137): require explicit path ownership`
