@@ -19,8 +19,9 @@ workflow owners. Append one instruction-only
 two currently approved clarification branches. Canonical Claude metadata and
 Codex interface metadata remain authored inputs; the generator remains the only
 writer of `AGENTS.md` and Codex manifests. Add contractual fixture ownership,
-bind all six payloads, and prove the differential with pre-router RED evidence,
-a 15-case affected Codex gate, and the complete 25-case Codex matrix.
+bind all six payloads, and prove the differential with truthful pre-router
+mixed evidence, a 15-case affected Codex gate, and the complete 25-case Codex
+matrix.
 
 **Tech Stack:** Python 3 standard-library `unittest`, JSON/JSON Schema, Bats
 `1.13.0`, shell-based repository gates, Codex CLI `0.144.5`, Agent Skills
@@ -40,6 +41,11 @@ Markdown, and the repository's Python artifact generator.
 - The user approved option 2 in DEV-136. The durable approval is Linear comment
   `7edff944-75b6-4f4e-90d8-8d41d5854daa`; the propagated comments in DEV-132,
   DEV-134, DEV-135, and DEV-137 through DEV-141 are binding.
+- The Task 2 evidence amendment is approved in DEV-136 Linear comment
+  `799a3023-8d37-4962-ad33-b1b2a042a3ab`. Preserve the exact three canonical
+  rows as two differential RED failures plus one already-green domain
+  non-regression pass. Do not rerun to seek a different verdict or substitute
+  an unapproved row.
 - The exact ordered capability list is the existing five workflows followed by
   `route-apple-foundation-models-handoff`. The router is not a sixth workflow.
 - Preserve every existing workflow frontmatter description byte-for-byte. Use
@@ -234,7 +240,7 @@ git commit -m "docs(DEV-136): propagate router ownership contract"
 Commit boundary: decision corrections and supersession notes only. No tests,
 skill payload, metadata, fixture, runner, or generated output.
 
-### Task 2: Capture representative pre-router RED behavior
+### Task 2: Capture representative pre-router mixed behavior
 
 **Files:**
 
@@ -247,7 +253,9 @@ skill payload, metadata, fixture, runner, or generated output.
 - Consumes: the unchanged canonical 25-case fixture and current five-skill
   payload at the Task 1 reviewed head.
 - Produces: `NonPositiveRouterRedBaselineTests` plus one closed-schema,
-  normalized three-branch pre-router evidence document.
+  normalized three-branch pre-router mixed evidence document. The historical
+  class and file identifiers remain stable because the tests-only RED
+  checkpoint was already committed before the live result was known.
 
 - [ ] **Step 1: Add the RED evidence contract**
 
@@ -261,8 +269,12 @@ Add a closed-schema test class that requires exactly these representative rows:
 Require exact model/version, capture commit, prompt and rubric hashes, response
 hash/byte count, tool-event count, verdict, failed checks, failure classes,
 five-workflow payload digests, `productionRouterAvailable = false`, normalized
-privacy metadata, and `claudeInvoked = false`. Forbid raw prompt, response,
-reasoning, event, command, credential, and local-path fields.
+privacy metadata, and `claudeInvoked = false`. Require exact verdict order
+`fail`, `pass`, `fail`; the passing domain row has empty failed checks and
+failure classes, while both failing rows retain their exact failures. Require
+top-level `status = "mixed"` and
+`evidenceKind = "non_positive_router_pre_router_mixed_baseline"`. Forbid raw
+prompt, response, reasoning, event, command, credential, and local-path fields.
 
 Add these exact test constants and derive row checks from them:
 
@@ -276,6 +288,11 @@ ROUTER_RED_BRANCHES = (
     ("no_activation", None),
     ("clarification_required", "domain"),
     ("clarification_required", "approved_contract"),
+)
+ROUTER_RED_EXPECTED_VERDICTS = (
+    "fail",
+    "pass",
+    "fail",
 )
 ROUTER_RED_EVIDENCE_PATH = (
     ROOT / "docs/research/evidence/dev-136-non-positive-router-red-baseline.json"
@@ -303,6 +320,17 @@ git diff --cached --check
 git commit -m "test(DEV-136): require router RED baselines"
 ```
 
+This historical checkpoint is commit `d3f1ad5`. After the approved live
+capture returned a mixed result, add the exact verdict-order and mixed-status
+assertions in a new tests-only correction commit. Rerun the same focused test;
+it remains RED only because the normalized evidence file is absent.
+
+```bash
+git add tests/test_skill_cases.py
+git diff --cached --check
+git commit -m "test(DEV-136): accept truthful mixed router baseline"
+```
+
 - [ ] **Step 4: Run the three current-payload Codex probes**
 
 Use the existing runner with an approved-order temporary subset derived from
@@ -312,11 +340,12 @@ the test-only subset mechanically with `jq`; it is not an authored repository
 edit. Run exact Codex `0.144.5` and `gpt-5.6-sol`; do not inject skill text and
 do not invoke Claude.
 
-If a representative row unexpectedly passes, record that pass truthfully and
-run the other approved row of the same branch where one exists. Never alter a
-prompt, rubric, or scorer to manufacture RED. If no failing representative can
-be obtained, stop this task as `DONE_WITH_CONCERNS` for controller resolution;
-do not claim differential proof.
+The initial approved run is complete: `DEV136-FWD-DESIGN-002` and
+`DEV136-FWD-IMPLEMENT-003` failed, while `DEV136-FWD-DESIGN-003` passed. The
+approved fallback `DEV136-FWD-REVIEW-003` also passed and remains in the
+execution record rather than replacing a canonical row. Controller resolution
+approved the mixed evidence contract. Never alter a prompt, rubric, scorer, or
+verdict to manufacture RED, and do not rerun merely to seek a different result.
 
 ```bash
 codex --version
@@ -332,8 +361,8 @@ CODEX_BIN="$(command -v codex)" python3 \
   --evidence /tmp/dev-136-router-red-run.json
 ```
 
-The runner is expected to exit nonzero when the representative rows fail; the
-normalized failure evidence must still be complete, closed-schema, and clean.
+The original runner exited nonzero because two representative rows failed; its
+normalized mixed evidence must still be complete, closed-schema, and clean.
 
 Normalize only approved hashes, counts, failure classes, capture SHA, and
 privacy/host metadata into the repository evidence file using `apply_patch`.
@@ -345,7 +374,7 @@ rm -f /tmp/dev-136-router-red-cases.json /tmp/dev-136-router-red-run.json
 git status --short
 ```
 
-- [ ] **Step 5: Validate the normalized RED evidence**
+- [ ] **Step 5: Validate the normalized mixed evidence**
 
 ```bash
 python3 -m json.tool \
@@ -356,16 +385,17 @@ git diff --check
 git status --short
 ```
 
-- [ ] **Step 6: Commit normalized RED evidence**
+- [ ] **Step 6: Commit normalized mixed evidence**
 
 ```bash
 git add docs/research/evidence/dev-136-non-positive-router-red-baseline.json
 git diff --cached --check
-git commit -m "test(DEV-136): capture router RED baselines"
+git commit -m "test(DEV-136): capture mixed router baselines"
 ```
 
-Commit boundary: normalized pre-router evidence only. The test contract remains
-in its earlier tests-only commit.
+Commit boundary: normalized pre-router evidence only. Both the historical RED
+contract and its approved mixed-result correction remain in earlier tests-only
+commits.
 
 ### Task 3: Transfer non-positive ownership to the router skill
 
@@ -1086,15 +1116,17 @@ Expected boundaries, with review/fix commits inserted only when necessary:
    as `00c5056`.
 2. `docs(DEV-136): propagate router ownership contract`.
 3. `test(DEV-136): require router RED baselines`.
-4. `test(DEV-136): capture router RED baselines`.
-5. `test(DEV-136): specify non-positive router contract`.
-6. `feat(DEV-136): add non-positive router ownership`.
-7. `test(DEV-136): require six-capability packaging`.
-8. `feat(DEV-136): advertise and generate router capability`.
-9. `test(DEV-136): specify router-owned fixture cases`.
-10. `test(DEV-136): bind router fixture and payloads`.
-11. `test(DEV-136): require router host evidence`.
-12. `test(DEV-136): prove router and workflow activation`.
+4. `docs(DEV-136): accept mixed pre-router evidence`.
+5. `test(DEV-136): accept truthful mixed router baseline`.
+6. `test(DEV-136): capture mixed router baselines`.
+7. `test(DEV-136): specify non-positive router contract`.
+8. `feat(DEV-136): add non-positive router ownership`.
+9. `test(DEV-136): require six-capability packaging`.
+10. `feat(DEV-136): advertise and generate router capability`.
+11. `test(DEV-136): specify router-owned fixture cases`.
+12. `test(DEV-136): bind router fixture and payloads`.
+13. `test(DEV-136): require router host evidence`.
+14. `test(DEV-136): prove router and workflow activation`.
 
 Every task stops at its own independent review gate. A task is not complete
 until both spec compliance and code quality are approved.

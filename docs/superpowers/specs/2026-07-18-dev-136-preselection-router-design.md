@@ -212,10 +212,15 @@ field, and a refreshed fixture digest. `WORKFLOW_SECTIONS` remains a five-entry
 map and is never indexed for router-owned rows.
 
 Codex `0.144.5` has no native skill-selection event. Router ownership is proved
-differentially and behaviorally:
+differentially and behaviorally. The Task 1 payload capture produced two
+failing representatives and one already-green domain clarification, so the
+approved evidence amendment preserves that mixed result instead of
+manufacturing a third failure:
 
-1. preserve normalized pre-router failures for one rejection, one domain
-   clarification, and one approved-contract clarification;
+1. preserve normalized pre-router observations for one rejection, one domain
+   clarification, and one approved-contract clarification; treat the two
+   failing rows as differential RED and the passing domain row as a
+   non-regression baseline;
 2. bind the exact router payload digest and six-capability package topology;
 3. require all ten router-owned rows to pass after implementation; and
 4. rerun the five positive `-001` rows to prove the router does not steal
@@ -248,7 +253,8 @@ execution remains deferred by the user's explicit test-scope decision.
 
 Implementation follows test-first atomic boundaries:
 
-1. preserve normalized representative pre-router RED evidence;
+1. preserve normalized representative pre-router mixed evidence, with two
+   differential RED rows and one already-green domain non-regression row;
 2. add failing skill/topology/ownership tests and observe the intended RED;
 3. add the minimal router and make the five workflows positive-only;
 4. add failing canonical metadata/generation/package tests;
