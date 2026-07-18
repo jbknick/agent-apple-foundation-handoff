@@ -61,7 +61,7 @@ question = <one bounded question>
 
 ```text
 activationStatus = activated
-selectedSkill
+selectedSkill = debug-apple-foundation-models-handoff
 routerInput = { domain, requestedOperation, artifactState, evidenceState }
 architectureResult
   architectureSchemaVersion: "1.0"
@@ -86,14 +86,17 @@ architectureResult
 ### Activation and Scope
 
 Use the complete positive contract for every activated diagnosis, including a short
-answer. Begin with one fenced `text` result using the exact outer and nested field
-names, nesting, and order shown above. Populate all four router inputs and every
-nested field; do not replace that shape with YAML, JSON, or prose alone. Then render
-every common and debug-specific heading below verbatim and in order; do not rename,
-merge, or omit a heading. Use only the four pattern enum values shown above. Render
-source and destination as objects containing profile and provider. Report real
-independent state and policy version labels; use an explicit unknown with evidence
-when a version cannot be established, never a prose placeholder.
+answer. Serialize `selectedSkill` as the literal assignment
+`selectedSkill = debug-apple-foundation-models-handoff`. Serialize all four populated
+`routerInput` values on exactly one physical line, with `architectureResult` on the
+immediately following line. Emit exactly one response-level fenced `text` block,
+reserve it for the result envelope, and emit no additional fenced `text` blocks.
+After the envelope, render only the exact required headings, each exactly once and in
+the listed order. Populate every nested field; do not replace that shape with YAML,
+JSON, or prose alone. Use only the four pattern enum values shown above. Render source
+and destination as objects containing profile and provider. Report real independent
+state and policy version labels; use an explicit unknown with evidence when a version
+cannot be established, never a prose placeholder.
 
 State the observed divergence, expected contract, reproducible boundary, inspected
 artifact, available evidence, allowed correction scope, and unavailable prerequisites.
@@ -233,6 +236,10 @@ unsupported APIs. A missing SDK, host, toolchain, binary, hardware, or prerequis
 is blocked, never a pass. If a fixed reference target is absent, report
 `production_skills_not_integrated` as the blocked DEV-137 integration reason; do not
 create a substitute.
+
+Never invoke `codex exec`, `tests/e2e/codex_skill_forward_tests.py`, or a Claude/Codex
+host matrix from inside this skill. Existing normalized host evidence may be
+inspected, but missing outer-harness evidence is `blocked`.
 
 Non-positive results contain no architectureResult, workflow-specific sections,
 references, fabricated Apple claims, or host activation evidence.

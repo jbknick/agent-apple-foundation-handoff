@@ -64,7 +64,7 @@ question = <one bounded question>
 
 ```text
 activationStatus = activated
-selectedSkill
+selectedSkill = review-apple-foundation-models-handoff
 routerInput = { domain, requestedOperation, artifactState, evidenceState }
 architectureResult
   architectureSchemaVersion: "1.0"
@@ -88,13 +88,17 @@ architectureResult
 
 ### Activation and Scope
 
-Begin every positive response with one fenced `text` result using the exact outer and
-nested field names, nesting, and order shown above. Populate every field; do not
-replace that shape with YAML or JSON. Then render every common heading and **Findings**
-below verbatim and in order; do not rename, merge, or omit a heading. Use only the four
-pattern enum values shown above. Render source and destination as objects containing
-profile and provider. Report real independent state and policy version labels; when
-either is unavailable, record the blocker rather than a placeholder value.
+Serialize `selectedSkill` as the literal assignment
+`selectedSkill = review-apple-foundation-models-handoff`. Serialize all four populated
+`routerInput` values on exactly one physical line, with `architectureResult` on the
+immediately following line. Emit exactly one response-level fenced `text` block,
+reserve it for the result envelope, and emit no additional fenced `text` blocks.
+After the envelope, render only the exact required headings, each exactly once and in
+the listed order. Populate every nested field; do not replace that shape with YAML or
+JSON. Use only the four pattern enum values shown above. Render source and destination
+as objects containing profile and provider. Report real independent state and policy
+version labels; when either is unavailable, record the blocker rather than a
+placeholder value.
 
 Freeze the artifact and review boundary. State reconstructable intent, inspected
 paths, available evidence, claimed toolchain or host boundaries, and exclusions.
@@ -214,6 +218,10 @@ unsupported APIs. A missing SDK, host, toolchain, binary, hardware, or prerequis
 is blocked, never a pass. If a fixed reference target is absent, report
 `production_skills_not_integrated` as the blocked DEV-137 integration reason; do not
 create a substitute.
+
+Never invoke `codex exec`, `tests/e2e/codex_skill_forward_tests.py`, or a Claude/Codex
+host matrix from inside this skill. Existing normalized host evidence may be
+inspected, but missing outer-harness evidence is `blocked`.
 
 Non-positive results contain no architectureResult, workflow-specific sections,
 references, fabricated Apple claims, or host activation evidence.
