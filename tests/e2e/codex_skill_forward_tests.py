@@ -246,6 +246,11 @@ class ExecutableCaptureError(ValueError):
         self.reason = reason
 
 
+class ExecutableDescriptorFinalizationError(OSError):
+    def __init__(self, error: OSError) -> None:
+        super().__init__(*error.args)
+
+
 class HostCaseIsolationError(OSError):
     def __init__(
         self, reason: str, cleanup: dict[str, str] | None = None
@@ -877,7 +882,12 @@ def _open_verified_executable(executable: str) -> tuple[Path, int, str]:
 
 def capture_executable(executable: str) -> dict[str, str]:
     path, descriptor, digest = _open_verified_executable(executable)
-    os.close(descriptor)
+    descriptor_to_close = descriptor
+    descriptor = -1
+    try:
+        os.close(descriptor_to_close)
+    except OSError as error:
+        raise ExecutableDescriptorFinalizationError(error) from error
     return {
         "resolvedExecutable": str(path),
         "executableSha256": digest,
@@ -1042,6 +1052,8 @@ def _bound_executable_copy(snapshot: dict[str, Any]) -> tuple[str, Path, Path]:
             raise ValueError("bound executable copy digest mismatch")
     except Exception as error:
         failure = error
+        if isinstance(error, ExecutableDescriptorFinalizationError):
+            finalization_error = error
 
     descriptors = (bound_descriptor, root_descriptor, source_descriptor)
     bound_descriptor = -1
@@ -2939,6 +2951,7 @@ def default_prerequisite_checker(
         }
     bound_cleanup_clean = False
     recapture_failed = False
+    recapture_finalization_failed = False
     observed_version = None
     authenticated = False
     plugin_available = False
@@ -2952,6 +2965,9 @@ def default_prerequisite_checker(
                 != captured["executableSha256"]
             ):
                 raise ValueError("bound executable copy identity drifted")
+        except ExecutableDescriptorFinalizationError:
+            recapture_failed = True
+            recapture_finalization_failed = True
         except (KeyError, OSError, TypeError, ValueError):
             recapture_failed = True
         else:
@@ -3002,6 +3018,9 @@ def default_prerequisite_checker(
             bound_path, bound_root
         )
     if recapture_failed:
+        aggregate_cleanup_clean = (
+            bound_cleanup_clean and not recapture_finalization_failed
+        )
         return {
             **capture,
             **captured,
@@ -3013,11 +3032,11 @@ def default_prerequisite_checker(
             "installation": "blocked",
             "captureError": (
                 "bound_copy_identity_drift"
-                if bound_cleanup_clean
+                if aggregate_cleanup_clean
                 else "bound_copy_cleanup_failed"
             ),
             "preflightBoundCopyCleanup": (
-                "pass" if bound_cleanup_clean else "fail"
+                "pass" if aggregate_cleanup_clean else "fail"
             ),
         }
     if not bound_cleanup_clean:
