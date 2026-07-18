@@ -801,6 +801,23 @@ def _bound_executable_copy(snapshot: dict[str, Any]) -> tuple[str, Path, Path]:
         os.close(source_descriptor)
 
 
+def _remove_bound_executable_copy(bound_path: Path, bound_root: Path) -> bool:
+    removed = True
+    try:
+        bound_path.unlink()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        removed = False
+    try:
+        bound_root.rmdir()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        removed = False
+    return removed
+
+
 def _json_object_without_duplicates(
     pairs: list[tuple[str, Any]],
 ) -> dict[str, Any]:
@@ -1286,8 +1303,7 @@ def run_host(
             os.close(descriptor)
             output_path = Path(output_name)
         except OSError:
-            bound_path.unlink()
-            bound_root.rmdir()
+            _remove_bound_executable_copy(bound_path, bound_root)
             evidence = _evidence(
                 "host", fixture, fixture_bytes, rows, snapshot=first_snapshot,
                 blocker="process_failed", forced_status="fail",
@@ -1311,6 +1327,13 @@ def run_host(
                 )
             except Exception:
                 process_error = True
+
+            if not _remove_bound_executable_copy(bound_path, bound_root):
+                evidence = _evidence(
+                    "host", fixture, fixture_bytes, rows, snapshot=first_snapshot,
+                    blocker="post_capture_prerequisite_drift", forced_status="fail",
+                )
+                return FAIL, evidence
 
             try:
                 post = prerequisite_checker(
@@ -1378,14 +1401,7 @@ def run_host(
                 output_path.unlink()
             except FileNotFoundError:
                 pass
-            try:
-                bound_path.unlink()
-            except FileNotFoundError:
-                pass
-            try:
-                bound_root.rmdir()
-            except FileNotFoundError:
-                pass
+            _remove_bound_executable_copy(bound_path, bound_root)
 
     evidence = _evidence("host", fixture, fixture_bytes, rows, snapshot=first_snapshot)
     return _exit_for(evidence), evidence
