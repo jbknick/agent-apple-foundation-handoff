@@ -1,6 +1,7 @@
 import copy
 import hashlib
 import importlib.util
+import inspect
 import json
 import os
 import re
@@ -415,8 +416,12 @@ FORWARD_EVIDENCE_KEYS = {
     "status",
     "model",
     "codexVersion",
+    "captureCommit",
     "fixtureSha256",
+    "skillPayloadSha256",
+    "plugin",
     "host",
+    "cleanup",
     "privacy",
     "summary",
     "cases",
@@ -428,10 +433,24 @@ FORWARD_HOST_KEYS = {
     "modelSelection",
     "sessionMode",
     "resolvedExecutableSha256",
+    "boundExecutableCopySha256",
     "prerequisites",
     "blockerReason",
+    "claudePolicy",
     "claudeInvoked",
 }
+FORWARD_PLUGIN_KEYS = (
+    "selector",
+    "sourceManifestSha256",
+    "installedManifestSha256",
+)
+FORWARD_CLEANUP_KEYS = (
+    "privateOutput",
+    "boundExecutableCopy",
+    "hostWorktreeRegistration",
+    "hostWorktreeDirectory",
+    "sourceWorktree",
+)
 FORWARD_PREREQUISITE_KEYS = {
     "binary",
     "version",
@@ -484,6 +503,11 @@ FORBIDDEN_FORWARD_EVIDENCE_KEYS = {
     "transcript",
 }
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+PLUGIN_MANIFEST_PATH = (
+    ROOT
+    / "plugins/apple-foundation-models-handoff/.codex-plugin/plugin.json"
+)
 HISTORICAL_FIXTURE_SHA256 = (
     "6c5bd8dafb1b75990e88ec288de18282c00b99151f33a7566253395c4ef93dcb"
 )
@@ -650,6 +674,31 @@ def deterministic_fixture_bytes(fixture: dict) -> bytes:
 
 def executable_bytes_sha256(path: Path = TEST_EXECUTABLE_PATH) -> str:
     return sha256_bytes(path.read_bytes())
+
+
+def expected_source_capture() -> dict[str, object]:
+    commit = subprocess.run(
+        ["git", "rev-parse", "--verify", "HEAD^{commit}"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    return {
+        "captureCommit": commit,
+        "skillPayloadSha256": copy.deepcopy(APPROVED_SKILL_PAYLOAD_SHA256),
+        "pluginSelector": "apple-foundation-models-handoff@agent-apple-foundation-handoff",
+        "sourceManifestSha256": sha256_bytes(PLUGIN_MANIFEST_PATH.read_bytes()),
+        "installedManifestSha256": None,
+        "boundExecutableCopySha256": None,
+    }
+
+
+def expected_host_capture(executable: Path = TEST_EXECUTABLE_PATH) -> dict[str, object]:
+    capture = expected_source_capture()
+    capture["installedManifestSha256"] = capture["sourceManifestSha256"]
+    capture["boundExecutableCopySha256"] = executable_bytes_sha256(executable)
+    return capture
 
 
 def _run_test_git(
@@ -1622,31 +1671,6 @@ class CodexRouterHostEvidenceTests(unittest.TestCase):
             self.skipTest("normalized complete Codex host evidence is not captured yet")
         return self.full_evidence
 
-    def expected_capture_source_commit(self) -> str:
-        head = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=ROOT,
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-        subject = subprocess.run(
-            ["git", "show", "-s", "--format=%s", head],
-            cwd=ROOT,
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-        if subject == "test(DEV-136): prove router and workflow activation":
-            return subprocess.run(
-                ["git", "rev-parse", f"{head}^"],
-                cwd=ROOT,
-                check=True,
-                capture_output=True,
-                text=True,
-            ).stdout.strip()
-        return head
-
     def assert_exact_host_evidence(
         self,
         evidence: dict,
@@ -1655,7 +1679,27 @@ class CodexRouterHostEvidenceTests(unittest.TestCase):
         _assert_forward_evidence_schema(self, evidence)
         self.assertEqual("host", evidence["mode"])
         self.assertEqual("pass", evidence["status"])
+        self.assertRegex(evidence["captureCommit"], COMMIT_SHA_PATTERN)
         self.assertEqual(OFFICIAL_FIXTURE_SHA256, evidence["fixtureSha256"])
+        self.assertEqual(
+            APPROVED_SKILL_PAYLOAD_SHA256,
+            evidence["skillPayloadSha256"],
+        )
+        self.assertEqual(
+            "apple-foundation-models-handoff@agent-apple-foundation-handoff",
+            evidence["plugin"]["selector"],
+        )
+        self.assertRegex(
+            evidence["plugin"]["sourceManifestSha256"], SHA256_PATTERN
+        )
+        self.assertEqual(
+            evidence["plugin"]["sourceManifestSha256"],
+            evidence["plugin"]["installedManifestSha256"],
+        )
+        self.assertEqual(
+            {key: "pass" for key in FORWARD_CLEANUP_KEYS},
+            evidence["cleanup"],
+        )
         self.assertEqual(
             {
                 "fixtureCaseCount": len(expected_case_ids),
@@ -1674,6 +1718,11 @@ class CodexRouterHostEvidenceTests(unittest.TestCase):
             host["prerequisites"],
         )
         self.assertRegex(host["resolvedExecutableSha256"], SHA256_PATTERN)
+        self.assertEqual(
+            host["resolvedExecutableSha256"],
+            host["boundExecutableCopySha256"],
+        )
+        self.assertEqual("owner_deferred", host["claudePolicy"])
         self.assertIs(host["claudeInvoked"], False)
 
         fixture_by_id = {case["id"]: case for case in self.fixture["cases"]}
@@ -1756,53 +1805,66 @@ class CodexRouterHostEvidenceTests(unittest.TestCase):
             affected["host"]["resolvedExecutableSha256"],
             full["host"]["resolvedExecutableSha256"],
         )
-        codex = shutil.which("codex")
-        self.assertIsNotNone(codex)
-        captured = self.runner.capture_executable(str(Path(codex).resolve()))
         self.assertEqual(
-            captured["executableSha256"],
+            affected["host"]["boundExecutableCopySha256"],
             affected["host"]["resolvedExecutableSha256"],
         )
-        self.assertEqual(OFFICIAL_FIXTURE_SHA256, self.runner.OFFICIAL_FIXTURE_SHA256)
-        self.assertEqual(APPROVED_SKILL_PAYLOAD_SHA256, self.runner.SKILL_PAYLOAD_SHA256)
-        plugin_root = ROOT / "plugins/apple-foundation-models-handoff"
-        self.assertTrue(self.runner._plugin_skill_payloads_are_exact(plugin_root))
-        for skill, expected_digest in APPROVED_SKILL_PAYLOAD_SHA256.items():
-            payload = plugin_root / "skills" / skill / "SKILL.md"
-            with self.subTest(skill=skill):
-                self.assertEqual(expected_digest, sha256_bytes(payload.read_bytes()))
+        self.assertEqual(
+            full["host"]["boundExecutableCopySha256"],
+            full["host"]["resolvedExecutableSha256"],
+        )
+        self.assertEqual(
+            APPROVED_SKILL_PAYLOAD_SHA256,
+            affected["skillPayloadSha256"],
+        )
+        self.assertEqual(
+            APPROVED_SKILL_PAYLOAD_SHA256,
+            full["skillPayloadSha256"],
+        )
 
     def test_evidence_binds_exact_plugin_selector_source_and_capture_commit(self) -> None:
         affected = self.require_affected_evidence()
         full = self.require_full_evidence()
-        self.assertEqual(
-            "apple-foundation-models-handoff@agent-apple-foundation-handoff",
-            self.runner.PLUGIN_SELECTOR,
-        )
-        source_commit = self.expected_capture_source_commit()
-        self.assertRegex(source_commit, r"^[0-9a-f]{40}$")
-        fixture_at_source = subprocess.run(
-            ["git", "show", f"{source_commit}:{FIXTURE_PATH.relative_to(ROOT)}"],
-            cwd=ROOT,
-            check=True,
-            capture_output=True,
-        ).stdout
-        self.assertEqual(affected["fixtureSha256"], sha256_bytes(fixture_at_source))
-        self.assertEqual(full["fixtureSha256"], sha256_bytes(fixture_at_source))
-        for skill, expected_digest in APPROVED_SKILL_PAYLOAD_SHA256.items():
-            skill_path = (
-                Path("plugins/apple-foundation-models-handoff/skills")
-                / skill
-                / "SKILL.md"
-            )
-            payload_at_source = subprocess.run(
-                ["git", "show", f"{source_commit}:{skill_path}"],
+        for evidence in (affected, full):
+            source_commit = evidence["captureCommit"]
+            self.assertRegex(source_commit, COMMIT_SHA_PATTERN)
+            fixture_at_source = subprocess.run(
+                ["git", "show", f"{source_commit}:{FIXTURE_PATH.relative_to(ROOT)}"],
                 cwd=ROOT,
                 check=True,
                 capture_output=True,
             ).stdout
-            with self.subTest(skill=skill):
-                self.assertEqual(expected_digest, sha256_bytes(payload_at_source))
+            self.assertEqual(
+                evidence["fixtureSha256"], sha256_bytes(fixture_at_source)
+            )
+            manifest_at_source = subprocess.run(
+                [
+                    "git",
+                    "show",
+                    f"{source_commit}:{PLUGIN_MANIFEST_PATH.relative_to(ROOT)}",
+                ],
+                cwd=ROOT,
+                check=True,
+                capture_output=True,
+            ).stdout
+            self.assertEqual(
+                evidence["plugin"]["sourceManifestSha256"],
+                sha256_bytes(manifest_at_source),
+            )
+            for skill, expected_digest in evidence["skillPayloadSha256"].items():
+                skill_path = (
+                    Path("plugins/apple-foundation-models-handoff/skills")
+                    / skill
+                    / "SKILL.md"
+                )
+                payload_at_source = subprocess.run(
+                    ["git", "show", f"{source_commit}:{skill_path}"],
+                    cwd=ROOT,
+                    check=True,
+                    capture_output=True,
+                ).stdout
+                with self.subTest(commit=source_commit, skill=skill):
+                    self.assertEqual(expected_digest, sha256_bytes(payload_at_source))
 
     def test_evidence_declares_claude_not_invoked_under_owner_deferred_policy(self) -> None:
         guidance = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
@@ -1814,6 +1876,7 @@ class CodexRouterHostEvidenceTests(unittest.TestCase):
             self.require_affected_evidence(),
             self.require_full_evidence(),
         ):
+            self.assertEqual("owner_deferred", evidence["host"]["claudePolicy"])
             self.assertIs(evidence["host"]["claudeInvoked"], False)
 
     def test_evidence_contains_no_raw_or_private_payloads(self) -> None:
@@ -2129,15 +2192,16 @@ def _run_offline(
     scorer_outputs: dict[str, dict],
     fixture_bytes: bytes | None = None,
 ):
-    return runner.run_offline(
-        fixture,
-        scorer_outputs,
-        fixture_bytes=(
+    arguments = {
+        "fixture_bytes": (
             deterministic_fixture_bytes(fixture)
             if fixture_bytes is None
             else fixture_bytes
-        ),
-    )
+        )
+    }
+    if "capture" in inspect.signature(runner.run_offline).parameters:
+        arguments["capture"] = expected_source_capture()
+    return runner.run_offline(fixture, scorer_outputs, **arguments)
 
 
 def _run_host(
@@ -2165,7 +2229,9 @@ def _run_host(
 
 def _passing_prerequisites(executable: str | None = None) -> dict:
     path = Path(executable) if executable is not None else TEST_EXECUTABLE_PATH
+    capture = expected_host_capture(path)
     return {
+        **capture,
         "resolvedExecutable": str(path),
         "executableSha256": executable_bytes_sha256(path),
         "version": "0.144.5",
@@ -2337,7 +2403,21 @@ def _assert_forward_evidence_schema(
     test.assertIn(evidence["status"], FORWARD_STATUSES)
     test.assertEqual("gpt-5.6-sol", evidence["model"])
     test.assertEqual("0.144.5", evidence["codexVersion"])
+    test.assertRegex(evidence["captureCommit"], COMMIT_SHA_PATTERN)
     test.assertRegex(evidence["fixtureSha256"], SHA256_PATTERN)
+    test.assertEqual(ALL_CAPABILITIES, tuple(evidence["skillPayloadSha256"]))
+    for digest in evidence["skillPayloadSha256"].values():
+        test.assertRegex(digest, SHA256_PATTERN)
+
+    plugin = evidence["plugin"]
+    test.assertEqual(FORWARD_PLUGIN_KEYS, tuple(plugin))
+    test.assertEqual(
+        "apple-foundation-models-handoff@agent-apple-foundation-handoff",
+        plugin["selector"],
+    )
+    test.assertRegex(plugin["sourceManifestSha256"], SHA256_PATTERN)
+    if plugin["installedManifestSha256"] is not None:
+        test.assertRegex(plugin["installedManifestSha256"], SHA256_PATTERN)
 
     host = evidence["host"]
     test.assertEqual(FORWARD_HOST_KEYS, set(host))
@@ -2348,11 +2428,19 @@ def _assert_forward_evidence_schema(
     test.assertIn(host["sessionMode"], {"not_applicable", "fresh_ephemeral"})
     if host["resolvedExecutableSha256"] is not None:
         test.assertRegex(host["resolvedExecutableSha256"], SHA256_PATTERN)
+    if host["boundExecutableCopySha256"] is not None:
+        test.assertRegex(host["boundExecutableCopySha256"], SHA256_PATTERN)
+    test.assertEqual("owner_deferred", host["claudePolicy"])
     test.assertIsInstance(host["claudeInvoked"], bool)
     test.assertFalse(host["claudeInvoked"])
     test.assertTrue(host["blockerReason"] is None or isinstance(host["blockerReason"], str))
     test.assertEqual(FORWARD_PREREQUISITE_KEYS, set(host["prerequisites"]))
     for status in host["prerequisites"].values():
+        test.assertIn(status, FORWARD_STATUSES)
+
+    cleanup = evidence["cleanup"]
+    test.assertEqual(FORWARD_CLEANUP_KEYS, tuple(cleanup))
+    for status in cleanup.values():
         test.assertIn(status, FORWARD_STATUSES)
 
     test.assertEqual(FORWARD_PRIVACY, evidence["privacy"])
@@ -2441,6 +2529,38 @@ def _assert_forward_evidence_derivations(
     if fixture_bytes is None:
         fixture_bytes = deterministic_fixture_bytes(fixture)
     test.assertEqual(fixture_bytes_sha256(fixture_bytes), evidence["fixtureSha256"])
+    expected_capture = (
+        expected_source_capture()
+        if evidence["mode"] == "offline"
+        else expected_host_capture()
+    )
+    test.assertEqual(expected_capture["captureCommit"], evidence["captureCommit"])
+    test.assertEqual(
+        expected_capture["skillPayloadSha256"],
+        evidence["skillPayloadSha256"],
+    )
+    test.assertEqual(
+        {
+            "selector": expected_capture["pluginSelector"],
+            "sourceManifestSha256": expected_capture["sourceManifestSha256"],
+            "installedManifestSha256": expected_capture["installedManifestSha256"],
+        },
+        evidence["plugin"],
+    )
+    test.assertEqual(
+        expected_capture["boundExecutableCopySha256"],
+        evidence["host"]["boundExecutableCopySha256"],
+    )
+    if evidence["mode"] == "offline":
+        test.assertEqual(
+            {key: "not_applicable" for key in FORWARD_CLEANUP_KEYS},
+            evidence["cleanup"],
+        )
+    elif evidence["status"] == "pass":
+        test.assertEqual(
+            {key: "pass" for key in FORWARD_CLEANUP_KEYS},
+            evidence["cleanup"],
+        )
     rows = evidence["cases"]
     blocker_reason = evidence["host"]["blockerReason"]
     if evidence["mode"] == "offline" or blocker_reason is None:
@@ -2523,6 +2643,11 @@ def _write_bound_evidence(
         scorer_outputs=scorer_outputs,
         host_results=host_results,
         executable_sha256=executable_sha256,
+        capture=(
+            expected_source_capture()
+            if evidence["mode"] == "offline"
+            else expected_host_capture()
+        ),
         fault_hook=fault_hook,
     )
 
@@ -3056,6 +3181,262 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.runner = load_forward_runner()
         cls.fixture = load_json(FIXTURE_PATH)
+
+    def test_evidence_locally_binds_provenance_cleanup_and_claude_policy(
+        self,
+    ) -> None:
+        fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
+        outputs = _forward_outputs(fixture)
+        process = _FakeHostProcess()
+        code, evidence = _run_host(
+            self.runner,
+            fixture,
+            str(TEST_EXECUTABLE_PATH),
+            process,
+            _FakePrerequisiteChecker(_passing_prerequisites()),
+            _FakeScorer(outputs),
+        )
+
+        self.assertEqual(self.runner.PASS, code)
+        self.assertEqual(
+            {
+                "captureCommit",
+                "skillPayloadSha256",
+                "plugin",
+                "cleanup",
+            },
+            {
+                key
+                for key in evidence
+                if key in {
+                    "captureCommit",
+                    "skillPayloadSha256",
+                    "plugin",
+                    "cleanup",
+                }
+            },
+            "runner evidence must carry local provenance and cleanup facts",
+        )
+        expected = expected_host_capture()
+        self.assertEqual(expected["captureCommit"], evidence["captureCommit"])
+        self.assertEqual(
+            expected["skillPayloadSha256"], evidence["skillPayloadSha256"]
+        )
+        self.assertEqual(
+            {
+                "selector": expected["pluginSelector"],
+                "sourceManifestSha256": expected["sourceManifestSha256"],
+                "installedManifestSha256": expected["installedManifestSha256"],
+            },
+            evidence["plugin"],
+        )
+        self.assertEqual(
+            evidence["host"]["resolvedExecutableSha256"],
+            evidence["host"]["boundExecutableCopySha256"],
+        )
+        self.assertEqual(
+            {key: "pass" for key in FORWARD_CLEANUP_KEYS},
+            evidence["cleanup"],
+        )
+        self.assertEqual("owner_deferred", evidence["host"]["claudePolicy"])
+        self.assertIs(evidence["host"]["claudeInvoked"], False)
+
+    def test_provenance_cleanup_statuses_cover_offline_blocked_failed_and_pass(
+        self,
+    ) -> None:
+        fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
+        outputs = _forward_outputs(fixture)
+
+        _, offline = _run_offline(self.runner, fixture, outputs)
+        self.assertIn(
+            "plugin", offline, "offline evidence must carry local package facts"
+        )
+        self.assertIsNone(offline["plugin"]["installedManifestSha256"])
+        self.assertIsNone(offline["host"]["boundExecutableCopySha256"])
+        self.assertEqual(
+            {key: "not_applicable" for key in FORWARD_CLEANUP_KEYS},
+            offline["cleanup"],
+        )
+
+        blocked_snapshot = _passing_prerequisites()
+        blocked_snapshot.update(
+            {
+                "resolvedExecutable": None,
+                "executableSha256": None,
+                "installedManifestSha256": None,
+                "boundExecutableCopySha256": None,
+            }
+        )
+        blocked_code, blocked = _run_host(
+            self.runner,
+            fixture,
+            str(TEST_EXECUTABLE_PATH),
+            _FakeHostProcess(),
+            _FakePrerequisiteChecker(blocked_snapshot),
+            _FakeScorer(outputs),
+        )
+        self.assertEqual(self.runner.BLOCKED, blocked_code)
+        self.assertEqual(
+            {key: "not_applicable" for key in FORWARD_CLEANUP_KEYS},
+            blocked["cleanup"],
+        )
+
+        failed_code, failed = _run_host(
+            self.runner,
+            fixture,
+            str(TEST_EXECUTABLE_PATH),
+            _FakeHostProcess(returncodes=[7]),
+            _FakePrerequisiteChecker(_passing_prerequisites()),
+            _FakeScorer(outputs),
+        )
+        self.assertEqual(self.runner.FAIL, failed_code)
+        self.assertEqual(
+            {key: "pass" for key in FORWARD_CLEANUP_KEYS},
+            failed["cleanup"],
+        )
+
+        passed_code, passed = _run_host(
+            self.runner,
+            fixture,
+            str(TEST_EXECUTABLE_PATH),
+            _FakeHostProcess(),
+            _FakePrerequisiteChecker(_passing_prerequisites()),
+            _FakeScorer(outputs),
+        )
+        self.assertEqual(self.runner.PASS, passed_code)
+        self.assertEqual(
+            {key: "pass" for key in FORWARD_CLEANUP_KEYS},
+            passed["cleanup"],
+        )
+
+    def test_evidence_writer_rejects_provenance_cleanup_and_policy_mutations(
+        self,
+    ) -> None:
+        fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
+        outputs = _forward_outputs(fixture)
+        process = _FakeHostProcess()
+        _, evidence = _run_host(
+            self.runner,
+            fixture,
+            str(TEST_EXECUTABLE_PATH),
+            process,
+            _FakePrerequisiteChecker(_passing_prerequisites()),
+            _FakeScorer(outputs),
+        )
+        _assert_forward_evidence_schema(self, evidence)
+
+        def reorder(mapping: dict) -> dict:
+            return dict(reversed(tuple(mapping.items())))
+
+        mutations = {
+            "capture_missing": lambda value: value.pop("captureCommit"),
+            "capture_extra": lambda value: value.update(
+                {"captureCommitExtra": value["captureCommit"]}
+            ),
+            "capture_stale": lambda value: value.update(
+                {"captureCommit": "0" * 40}
+            ),
+            "capture_substituted": lambda value: value.update(
+                {"captureCommit": "1" * 40}
+            ),
+            "payload_missing": lambda value: value[
+                "skillPayloadSha256"
+            ].pop(ALL_CAPABILITIES[-1]),
+            "payload_extra": lambda value: value[
+                "skillPayloadSha256"
+            ].update({"unexpected-skill": "a" * 64}),
+            "payload_stale": lambda value: value[
+                "skillPayloadSha256"
+            ].update({ALL_CAPABILITIES[0]: "a" * 64}),
+            "payload_substituted": lambda value: value[
+                "skillPayloadSha256"
+            ].update(
+                {
+                    ALL_CAPABILITIES[0]: value["skillPayloadSha256"][
+                        ALL_CAPABILITIES[1]
+                    ]
+                }
+            ),
+            "payload_reordered": lambda value: value.update(
+                {"skillPayloadSha256": reorder(value["skillPayloadSha256"])}
+            ),
+            "plugin_missing": lambda value: value["plugin"].pop("selector"),
+            "plugin_extra": lambda value: value["plugin"].update(
+                {"path": "private"}
+            ),
+            "plugin_stale": lambda value: value["plugin"].update(
+                {"sourceManifestSha256": "b" * 64}
+            ),
+            "plugin_substituted": lambda value: value["plugin"].update(
+                {"installedManifestSha256": "c" * 64}
+            ),
+            "plugin_reordered": lambda value: value.update(
+                {"plugin": reorder(value["plugin"])}
+            ),
+            "bound_copy_missing": lambda value: value["host"].pop(
+                "boundExecutableCopySha256"
+            ),
+            "bound_copy_stale": lambda value: value["host"].update(
+                {"boundExecutableCopySha256": "d" * 64}
+            ),
+            "bound_copy_substituted": lambda value: value["host"].update(
+                {
+                    "boundExecutableCopySha256": value["plugin"][
+                        "sourceManifestSha256"
+                    ]
+                }
+            ),
+            "cleanup_missing": lambda value: value["cleanup"].pop(
+                "privateOutput"
+            ),
+            "cleanup_extra": lambda value: value["cleanup"].update(
+                {"temporaryDirectory": "pass"}
+            ),
+            "cleanup_stale": lambda value: value["cleanup"].update(
+                {"privateOutput": "fail"}
+            ),
+            "cleanup_substituted": lambda value: value["cleanup"].update(
+                {"boundExecutableCopy": "not_applicable"}
+            ),
+            "cleanup_reordered": lambda value: value.update(
+                {"cleanup": reorder(value["cleanup"])}
+            ),
+            "claude_policy_missing": lambda value: value["host"].pop(
+                "claudePolicy"
+            ),
+            "claude_policy_extra": lambda value: value["host"].update(
+                {"claudePolicySource": "private"}
+            ),
+            "claude_policy_stale": lambda value: value["host"].update(
+                {"claudePolicy": "invocation_allowed"}
+            ),
+            "claude_policy_substituted": lambda value: value["host"].update(
+                {"claudePolicy": False, "claudeInvoked": "owner_deferred"}
+            ),
+            "claude_policy_reordered": lambda value: value.update(
+                {"host": reorder(value["host"])}
+            ),
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "evidence.json"
+            path.write_text("old-evidence", encoding="utf-8")
+            for name, mutate in mutations.items():
+                with self.subTest(mutation=name):
+                    mutant = copy.deepcopy(evidence)
+                    mutate(mutant)
+                    with self.assertRaises(ValueError):
+                        _write_bound_evidence(
+                            self.runner,
+                            path,
+                            mutant,
+                            fixture,
+                            outputs,
+                            host_results=process.results,
+                            executable_sha256=executable_bytes_sha256(),
+                        )
+                    self.assertEqual(
+                        "old-evidence", path.read_text(encoding="utf-8")
+                    )
 
     def test_constants_and_host_command_semantics_are_exact(self) -> None:
         self.assertEqual(
