@@ -1269,7 +1269,7 @@ DEV-137 reference commits.
 - Modify: `tests/test_codex_reference_disclosure.py`
 - Modify: `tests/e2e/codex_reference_disclosure.py`
 - Verify: `tests/test_reference_library.py`
-- Verify: `tests/e2e/codex_workflow_progressive_disclosure.py`
+- Verify: `tests/test_codex_reference_disclosure.py`
 - Verify: `docs/research/evidence/dev-137-reference-library-e2e.md`
 
 **Decision:** Preserve the closed-world two-item proof: one command item owns
@@ -1458,3 +1458,83 @@ Claude Code. Do not push or restore DEV-137 to Done on a partial result.
 1. `docs(DEV-137): require explicit path ownership`
 2. `test(DEV-137): define explicit path ownership`
 3. `fix(DEV-137): require explicit path ownership`
+
+### Task 10: Make path collections data-only and occurrence-preserving
+
+**Files:**
+- Modify: `tests/test_codex_reference_disclosure.py`
+- Modify: `tests/e2e/codex_reference_disclosure.py`
+- Verify: `tests/test_reference_library.py`
+
+**Decision:** A bare top-level reference scalar is not passive reference
+evidence. `input` may use the pinned command-string grammar only when it is
+syntactically a command; a bare path in `input` is invalid. `paths` and a
+top-level all-reference list are data-only collections. Members are clean
+reference-path strings or explicit `path`/`file_path` records with passive
+metadata; command strings, command mappings, and other containers are invalid.
+Count every member occurrence before set deduplication so duplicate reads remain
+bulk. The nonexistent workflow test path is corrected to the real parser test;
+no speculative test module is created.
+
+- [ ] **Step 1: Add exact RED regressions**
+
+Add negatives for a bare top-level owner scalar, `{"input": owner}`, a
+top-level list containing `"cat OWNER"`, `{"paths":["cat OWNER OWNER"]}`,
+`{"paths":{"command":"cat OWNER"}}`, and list-wrapped command mappings under
+`paths`. Exercise these through both `mapping_reference_reads` and the paired
+`observed_reference_reads` boundary. Add a duplicate clean path string and a
+duplicate explicit path record; each must produce occurrence count two and be
+rejected as bulk at the observed boundary. Keep positive controls for one clean
+path string, one direct record with metadata, nested passive `paths`, and a
+top-level all-reference list.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v \
+  tests.test_codex_reference_disclosure.ReferenceToolPayloadTests
+git diff --check
+```
+
+Expected RED: only the new bare-owner/command-collection and duplicate-count
+assertions fail. Commit only the test as
+`test(DEV-137): make path collections data only`.
+
+- [ ] **Step 2: Implement the narrow data traversal**
+
+Add a dedicated data-path member parser rather than reusing the generic string
+or command parser. It validates a clean path token or an explicit closed path
+record, preserves per-member occurrence count, and never dispatches command
+parsing. Require `paths` to be a list and use the same parser for the permitted
+top-level all-reference list. Reject bare top-level scalar reference values and
+bare path values under `input`; retain the existing pinned command-string branch
+for syntactic command input. Preserve path canonicalization, direct record
+metadata, mixed arrays, JSON strictness, lifecycle pairing, access sequence, and
+bulk gates.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v \
+  tests.test_codex_reference_disclosure.ReferenceToolPayloadTests
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v \
+  tests.test_codex_reference_disclosure
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v \
+  tests.test_reference_library
+python3 -m py_compile tests/e2e/codex_reference_disclosure.py
+git diff --check
+```
+
+Expected GREEN: focused, complete parser, and reference-library suites pass.
+Commit only the parser as `fix(DEV-137): make path collections data only`.
+
+- [ ] **Step 3: Repeat independent adversarial review**
+
+Replay the Task 10 RED at its parent and review nested dict/list/serialized JSON
+variants, duplicate occurrence counting, data-only path records, command-input
+separation, bulk behavior, and privacy/scope. Only after approval, run the full
+Task 7 repository/source/compile/interface/generated/Bats/Codex-only gates. No
+Claude Code host invocation, push, or completion transition occurs on partial
+results.
+
+**Additional atomic boundaries:**
+
+1. `docs(DEV-137): make path collections data only`
+2. `test(DEV-137): make path collections data only`
+3. `fix(DEV-137): make path collections data only`
