@@ -650,6 +650,7 @@ def command_reference_reads(
     access_sequence: list[str] | None = None,
 ) -> tuple[set[str], int]:
     observed: set[str] = set()
+    read_count = 0
     effective_command, tokens = parsed_shell_command(command, task_id)
     if not tokens:
         return observed, 0
@@ -726,12 +727,13 @@ def command_reference_reads(
         )
         if name is not None:
             observed.add(name)
+            read_count += 1
     if access_sequence is not None:
         if directory_discovery and not observed:
             access_sequence.append(REFERENCE_DISCOVERY_ACCESS)
         elif observed:
             access_sequence.append(REFERENCE_CONTENT_ACCESS)
-    return observed, int(bool(observed))
+    return observed, read_count
 
 
 def is_command_argv_array(value: list[object]) -> bool:
@@ -780,6 +782,26 @@ def has_mixed_reference_scalars(value: list[object]) -> bool:
     return has_reference and has_non_reference
 
 
+def contains_reference_path_scalar(value: object) -> bool:
+    if isinstance(value, dict):
+        return any(contains_reference_path_scalar(nested) for nested in value.values())
+    if isinstance(value, list):
+        return any(contains_reference_path_scalar(nested) for nested in value)
+    return isinstance(value, str) and is_reference_path_token(value)
+
+
+def contains_program_container(value: object) -> bool:
+    if isinstance(value, dict):
+        return any(
+            (key == "program" and isinstance(nested, (dict, list)))
+            or contains_program_container(nested)
+            for key, nested in value.items()
+        )
+    if isinstance(value, list):
+        return any(contains_program_container(nested) for nested in value)
+    return False
+
+
 def contains_structured_command(value: object) -> bool:
     if isinstance(value, dict):
         for key, nested in value.items():
@@ -794,6 +816,118 @@ def contains_structured_command(value: object) -> bool:
             contains_structured_command(nested) for nested in value
         )
     return False
+
+
+def validate_passive_path_metadata(value: object, task_id: str) -> None:
+    if isinstance(value, dict):
+        if set(value) & {
+            "argv",
+            "command",
+            "file_path",
+            "input",
+            "path",
+            "paths",
+            "program",
+        }:
+            raise ProbeFailure("invalid_tool_event", task_id)
+        for nested in value.values():
+            validate_passive_path_metadata(nested, task_id)
+        return
+    if isinstance(value, list):
+        if is_command_argv_array(value):
+            raise ProbeFailure("invalid_tool_event", task_id)
+        for nested in value:
+            validate_passive_path_metadata(nested, task_id)
+        return
+    if isinstance(value, str) and is_reference_path_token(value):
+        raise ProbeFailure("invalid_tool_event", task_id)
+
+
+def data_path_member_reads(
+    value: object,
+    base: Path,
+    task_id: str,
+    access_sequence: list[str] | None = None,
+) -> tuple[set[str], int]:
+    if isinstance(value, list):
+        return data_path_collection_reads(
+            value,
+            base,
+            task_id,
+            access_sequence,
+        )
+
+    candidate: object
+    metadata: dict[str, Any] = {}
+    if isinstance(value, str):
+        candidate = value
+    elif isinstance(value, dict):
+        owner_keys = [key for key in ("path", "file_path") if key in value]
+        if len(owner_keys) != 1:
+            raise ProbeFailure("invalid_tool_event", task_id)
+        owner_key = owner_keys[0]
+        candidate = value[owner_key]
+        metadata = {key: nested for key, nested in value.items() if key != owner_key}
+    else:
+        raise ProbeFailure("invalid_tool_event", task_id)
+
+    if (
+        not isinstance(candidate, str)
+        or candidate != candidate.strip()
+        or candidate != candidate.strip("\"'(){}<>,")
+        or any(character.isspace() for character in candidate)
+        or any(operator in candidate for operator in ("|", ";", "&", ">", "<"))
+        or not is_reference_path_token(candidate)
+    ):
+        raise ProbeFailure("invalid_tool_event", task_id)
+    validate_passive_path_metadata(metadata, task_id)
+    name = validate_reference_candidate(
+        candidate,
+        base,
+        task_id,
+        directory_discovery=False,
+    )
+    if name is None:
+        raise ProbeFailure("invalid_tool_event", task_id)
+    if access_sequence is not None:
+        access_sequence.append(REFERENCE_CONTENT_ACCESS)
+    return {name}, 1
+
+
+def data_path_collection_reads(
+    value: object,
+    base: Path,
+    task_id: str,
+    access_sequence: list[str] | None = None,
+) -> tuple[set[str], int]:
+    if not isinstance(value, list):
+        raise ProbeFailure("invalid_tool_event", task_id)
+    observed: set[str] = set()
+    read_count = 0
+    for member in value:
+        member_observed, member_count = data_path_member_reads(
+            member,
+            base,
+            task_id,
+            access_sequence,
+        )
+        observed.update(member_observed)
+        read_count += member_count
+    return observed, read_count
+
+
+def is_syntactic_command_input(value: str, task_id: str) -> bool:
+    _, tokens = parsed_shell_command(value, task_id)
+    if not tokens:
+        return False
+    executable = Path(tokens[0]).name
+    return executable in (
+        DISCOVERY_COMMANDS
+        | CONTENT_COMMANDS
+        | SHELL_WRAPPERS
+        | COMMAND_PREFIX_WRAPPERS
+        | {"xargs"}
+    )
 
 
 def mapping_reference_reads(
@@ -835,36 +969,20 @@ def mapping_reference_reads(
                 read_count += nested_count
             return observed, read_count
         if is_reference_path_token(value):
-            if not allow_reference_value:
-                raise ProbeFailure("invalid_tool_event", task_id)
-            if not any(character.isspace() for character in value) and not any(
-                operator in value for operator in ("|", ";", "&", ">", "<")
-            ):
-                name = validate_reference_candidate(
-                    value,
-                    base,
-                    task_id,
-                    directory_discovery=False,
-                )
-                if name is not None:
-                    observed.add(name)
-                    read_count += 1
-                    if access_sequence is not None:
-                        access_sequence.append(REFERENCE_CONTENT_ACCESS)
-            else:
-                nested_observed, nested_count = command_reference_reads(
-                    value, task_id, base, access_sequence
-                )
-                observed.update(nested_observed)
-                read_count += nested_count
+            raise ProbeFailure("invalid_tool_event", task_id)
         return observed, read_count
     if isinstance(value, list):
         has_reference = reference_scalar_presence(value)[0]
-        if (
-            has_mixed_reference_scalars(value)
-            or (has_reference and not allow_reference_value)
-            or is_command_argv_array(value)
-        ):
+        if has_reference:
+            if not allow_reference_value:
+                raise ProbeFailure("invalid_tool_event", task_id)
+            return data_path_collection_reads(
+                value,
+                base,
+                task_id,
+                access_sequence,
+            )
+        if has_mixed_reference_scalars(value) or is_command_argv_array(value):
             raise ProbeFailure("invalid_tool_event", task_id)
         for nested in value:
             nested_observed, nested_count = mapping_reference_reads(
@@ -879,13 +997,17 @@ def mapping_reference_reads(
         return observed, read_count
     if not isinstance(value, dict):
         return observed, read_count
+    if contains_program_container(value) and contains_reference_path_scalar(value):
+        raise ProbeFailure("invalid_tool_event", task_id)
     local_base = declared_working_directory(value, base, task_id)
     for key, nested in value.items():
         if key in {"cwd", "workdir"}:
             continue
         if key == "argv":
             raise ProbeFailure("invalid_tool_event", task_id)
-        if key in {"path", "file_path"} and isinstance(nested, str):
+        if key in {"path", "file_path"}:
+            if not isinstance(nested, str):
+                raise ProbeFailure("invalid_tool_event", task_id)
             name = validate_reference_candidate(
                 nested,
                 local_base,
@@ -898,12 +1020,11 @@ def mapping_reference_reads(
                 if access_sequence is not None:
                     access_sequence.append(REFERENCE_CONTENT_ACCESS)
         elif key == "paths":
-            nested_observed, nested_count = mapping_reference_reads(
+            nested_observed, nested_count = data_path_collection_reads(
                 nested,
                 local_base,
                 task_id,
                 access_sequence,
-                allow_reference_value=True,
             )
             observed.update(nested_observed)
             read_count += nested_count
@@ -918,10 +1039,12 @@ def mapping_reference_reads(
         elif key == "input":
             if not isinstance(nested, str):
                 raise ProbeFailure("invalid_tool_event", task_id)
-            if any(character.isspace() for character in nested):
+            if is_syntactic_command_input(nested, task_id):
                 nested_observed, nested_count = command_reference_reads(
                     nested, task_id, local_base, access_sequence
                 )
+            elif is_reference_path_token(nested):
+                raise ProbeFailure("invalid_tool_event", task_id)
             else:
                 nested_observed, nested_count = mapping_reference_reads(
                     nested, local_base, task_id, access_sequence
