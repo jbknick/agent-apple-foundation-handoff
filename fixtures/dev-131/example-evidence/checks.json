@@ -1,0 +1,80 @@
+{
+  "schemaVersion": "1.0",
+  "status": "pass",
+  "acceptedWorkflows": ["minimal-route-owner", "recovery-aware-effect"],
+  "exactRejections": {
+    "transition-loop": ["D-TRANSITION-001"],
+    "transition-budget-exhausted": ["D-TRANSITION-001"],
+    "wrong-final-owner": ["D-OWNER-001"],
+    "missing-context-policy": ["D-CONTEXT-001"],
+    "unauthorized-tool": ["D-TOOL-001"],
+    "stale-grant": ["D-GRANT-001"],
+    "invalid-phase": ["D-PHASE-001"],
+    "retry-before-reconciliation": ["D-EFFECT-002"],
+    "unsafe-evidence-manifest": ["D-EVIDENCE-001"]
+  },
+  "optionalAppleEvaluationPassRate": {
+    "numerator": 0,
+    "denominator": 0,
+    "status": "not_applicable",
+    "value": null
+  },
+  "runtimeCostEvidence": {
+    "status": "blocked",
+    "reasonCodes": [
+      "live_apple_prerequisites_unavailable",
+      "provider_normalization_unavailable",
+      "provider_usage_telemetry_unavailable"
+    ],
+    "arms": {
+      "pluginOff": {
+        "providerInputTokens": null,
+        "providerCachedInputTokens": null,
+        "providerOutputTokens": null,
+        "providerReasoningTokens": null,
+        "parentTurns": null,
+        "appleAttempts": null,
+        "replacementRatio": null,
+        "declines": null,
+        "fallbackRate": null,
+        "latencyMilliseconds": null,
+        "correctness": null
+      },
+      "pluginOn": {
+        "providerInputTokens": null,
+        "providerCachedInputTokens": null,
+        "providerOutputTokens": null,
+        "providerReasoningTokens": null,
+        "parentTurns": null,
+        "appleAttempts": null,
+        "replacementRatio": null,
+        "declines": null,
+        "fallbackRate": null,
+        "latencyMilliseconds": null,
+        "correctness": null
+      }
+    },
+    "comparison": {
+      "baseline": "plugin-off",
+      "treatment": "plugin-on",
+      "pairingKey": "workflow/model/provider/toolchain/policy",
+      "providerNormalizationVersion": null,
+      "eligibleWorkflowCount": 0,
+      "medianTotalParentModelTokenReduction": null,
+      "correctnessRegressionCount": null,
+      "extraParentModelTurnCount": null
+    },
+    "releaseFloor": {
+      "minimumMedianTotalParentModelTokenReduction": 0.1,
+      "maximumCorrectnessRegressions": 0,
+      "maximumExtraParentModelTurns": 0
+    },
+    "nonEvidence": [
+      "activation",
+      "byte-counts",
+      "compile-checks",
+      "discovery",
+      "DEV-138-mocks"
+    ]
+  }
+}

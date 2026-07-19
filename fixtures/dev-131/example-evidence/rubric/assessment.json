@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "1.0",
+  "reviewerType": "human",
+  "stimulusSha256": "2bf08422c3be5b264b87626478cd46f65f35d384280305c46f1b92b26e2047fc",
+  "dimensions": [
+    {"id":"pattern_selection","score":4,"rationale":"The bounded relay pattern and application ownership are explicit.","anchor":"pattern selection"},
+    {"id":"apple_api_grounding_version_labeling","score":3,"rationale":"Foundation Models surfaces and the Xcode 27 boundary are labeled.","anchor":"Apple API grounding and version labeling"},
+    {"id":"security_policy_completeness","score":4,"rationale":"Actor, tool, revision, and authority gates are explicit.","anchor":"security-policy completeness"},
+    {"id":"context_minimization","score":4,"rationale":"Required and excluded context are narrowly named.","anchor":"context minimization"},
+    {"id":"failure_recovery_behavior","score":4,"rationale":"Replay and uncertain-commit recovery are explicit.","anchor":"failure and recovery behavior"},
+    {"id":"testability_observability","score":3,"rationale":"Stable checks and reproducible evidence are named.","anchor":"testability and observability"},
+    {"id":"limitation_honesty","score":4,"rationale":"Unproved host and Apple capabilities are named.","anchor":"limitation honesty"}
+  ],
+  "meanScore": 3.71,
+  "thresholds": {
+    "meanMinimum": 3.0,
+    "criticalMinimum": 3,
+    "criticalDimensions": ["security_policy_completeness","failure_recovery_behavior","limitation_honesty"]
+  },
+  "verdict": "pass"
+}

@@ -1,0 +1,141 @@
+{
+  "schemaVersion": "1.0",
+  "caseId": "unauthorized-tool",
+  "workflow": "minimal-route-owner",
+  "policy": {
+    "route": {
+      "requiredDestination": "review",
+      "allowedDestinations": [
+        "review"
+      ]
+    },
+    "finalOwner": "architect",
+    "allowedEdges": [
+      [
+        "stable",
+        "proposed"
+      ],
+      [
+        "proposed",
+        "complete"
+      ]
+    ],
+    "transitionBudget": 3,
+    "toolAllowlist": {
+      "architect": [
+        "read_reference"
+      ]
+    },
+    "toolBudget": 2,
+    "contextPolicy": {
+      "declared": true,
+      "required": [
+        "request",
+        "constraints"
+      ],
+      "forbidden": [
+        "private_user_data"
+      ]
+    },
+    "stateVersion": 7,
+    "policyVersion": 3,
+    "validPhaseEvents": {
+      "stable": [
+        "propose"
+      ],
+      "proposed": [
+        "approve"
+      ],
+      "executing": [
+        "execute"
+      ],
+      "recoveryRequired": [
+        "reconcile"
+      ],
+      "complete": [
+        "finalize"
+      ]
+    },
+    "allowedFallbacks": [
+      "return_to_owner"
+    ]
+  },
+  "result": {
+    "destination": "review",
+    "responses": [
+      {
+        "actor": "architect",
+        "final": true
+      }
+    ],
+    "transitions": [
+      {
+        "from": "stable",
+        "to": "proposed"
+      },
+      {
+        "from": "proposed",
+        "to": "complete"
+      }
+    ],
+    "toolCalls": [
+      {
+        "actor": "architect",
+        "tool": "shell"
+      }
+    ],
+    "context": {
+      "included": [
+        "request",
+        "constraints"
+      ],
+      "excluded": [
+        "private_user_data"
+      ]
+    },
+    "grant": {
+      "stateVersion": 7,
+      "policyVersion": 3
+    },
+    "events": [
+      {
+        "phase": "stable",
+        "event": "propose"
+      },
+      {
+        "phase": "proposed",
+        "event": "approve"
+      },
+      {
+        "phase": "complete",
+        "event": "finalize"
+      }
+    ],
+    "effects": [
+      {
+        "effectId": "effect-read-1",
+        "uncertainCommit": false,
+        "retryAttempted": false,
+        "observations": [
+          {"kind": "original", "effectId": "effect-read-1"},
+          {"kind": "replay", "effectId": "effect-read-1"}
+        ]
+      }
+    ],
+    "effectLedger": [
+      {"effectId": "effect-read-1"}
+    ],
+    "executorCommands": [
+      {"effectId": "effect-read-1", "sourceObservation": "original"}
+    ],
+    "fallback": "return_to_owner",
+    "evidence": {
+      "includedPaths": [
+        "summary.md"
+      ],
+      "redacted": true,
+      "hashesVerified": true,
+      "containsRawTrace": false
+    }
+  }
+}

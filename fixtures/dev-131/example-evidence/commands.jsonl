@@ -1,0 +1,3 @@
+{"command":"python3 -m unittest discover -s fixtures/dev-131/tests -p 'test_*.py' -v","cwd":"<repo>","exitCode":0,"outputClass":"normalized-summary"}
+{"command":"python3 fixtures/dev-131/proof_runner.py","cwd":"<repo>","exitCode":0,"outputClass":"machine-readable-json"}
+{"command":"python3 -m compileall -q fixtures/dev-131","cwd":"<repo>","exitCode":0,"outputClass":"empty-success"}

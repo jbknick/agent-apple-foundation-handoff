@@ -1,0 +1,40 @@
+# DEV-131 offline evaluation proof
+
+This fixture tree is a research proof for DEV-131, not the production harness
+owned by DEV-139. It uses only the Python standard library and synthetic data.
+It does not load a model, use a network, inspect credentials, require Apple
+Foundation Models, or claim that a plugin was activated in either host.
+
+The input cases contain normalized policy and result data. Expected statuses
+and exact violation IDs exist only in `index.json`; `evaluate_case` cannot read
+that oracle. The example evidence bundle is allowlisted and SHA-256 verified.
+Rubric validation proves record integrity and thresholds, while a human reviewer
+owns semantic scores.
+
+Effect fixtures require a stable ID, one ledger record, an original executor
+command, and a replay observation with no second command. An uncertain effect
+may retry only after a reconciliation observation explicitly reports
+`confirmed_absent`; `still_unknown` and `confirmed_committed` fail closed. This
+proves at-most-once execution plus bounded reconciliation for the synthetic
+record; it does not claim exactly-once delivery, external-effect rollback, or
+transcript-based undo. Context inclusion is the unique exact declared minimum
+and is disjoint from excluded fields. Case evidence paths must be drawn from
+the bundle allowlist.
+
+Run the complete proof with:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+  -s fixtures/dev-131/tests -p 'test_*.py' -v
+PYTHONDONTWRITEBYTECODE=1 python3 fixtures/dev-131/proof_runner.py
+```
+
+A missing optional host denominator is emitted as `not_applicable`. It is never
+converted to a perfect rate or an offline capability pass.
+
+`runtimeCostEvidence` is a separate, machine-validated plugin-off/plugin-on
+contract. Its two explicit arms contain the same exact metric fields. Every arm
+value and `comparison.providerNormalizationVersion` is `null` in the blocked
+example because no provider usage telemetry, versioned normalization, or paired
+live Apple run exists. Discovery, activation, byte counts, compile checks, and
+DEV-138 mocks cannot turn that row into a pass.

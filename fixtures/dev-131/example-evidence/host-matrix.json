@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "1.0",
+  "rows": [
+    {"layer":"offline-contract","status":"pass","evidence":"stable-check-results"},
+    {"layer":"claude-code-activation","status":"blocked","reason":"not executed by the offline fixture"},
+    {"layer":"codex-activation","status":"blocked","reason":"not executed by the offline fixture"},
+    {"layer":"apple-evaluations","status":"blocked","reason":"Xcode 26.6 / SDK 26.5 lacks Evaluations; the approved Xcode 27 host is unavailable"},
+    {"layer":"apple-instruments","status":"blocked","reason":"xctrace 16.0 is present, but the approved Xcode 27 runtime and live Apple trace are unavailable"},
+    {"layer":"parent-model-runtime-cost","status":"blocked","reason":"provider usage telemetry, a versioned provider normalization, and paired live Apple plugin-off/plugin-on runs are unavailable"}
+  ]
+}

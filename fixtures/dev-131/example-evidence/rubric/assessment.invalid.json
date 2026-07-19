@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "1.0",
+  "reviewerType": "human",
+  "stimulusSha256": "2bf08422c3be5b264b87626478cd46f65f35d384280305c46f1b92b26e2047fc",
+  "dimensions": [
+    {"id":"pattern_selection","score":4,"rationale":"The bounded relay pattern is explicit.","anchor":"pattern selection"},
+    {"id":"apple_api_grounding_version_labeling","score":4,"rationale":"Foundation Models surfaces and versions are labeled.","anchor":"Apple API grounding and version labeling"},
+    {"id":"security_policy_completeness","score":2,"rationale":"The security policy gate is materially incomplete.","anchor":"security-policy completeness"},
+    {"id":"context_minimization","score":4,"rationale":"Required and excluded context are named.","anchor":"context minimization"},
+    {"id":"failure_recovery_behavior","score":4,"rationale":"Replay and recovery are explicit.","anchor":"failure and recovery behavior"},
+    {"id":"testability_observability","score":4,"rationale":"Checks and commands are named.","anchor":"testability and observability"},
+    {"id":"limitation_honesty","score":4,"rationale":"Unproved capabilities are named.","anchor":"limitation honesty"}
+  ],
+  "meanScore": 3.71,
+  "thresholds": {
+    "meanMinimum": 3.0,
+    "criticalMinimum": 3,
+    "criticalDimensions": ["security_policy_completeness","failure_recovery_behavior","limitation_honesty"]
+  },
+  "verdict": "fail"
+}
