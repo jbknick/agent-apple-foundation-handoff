@@ -2,16 +2,21 @@
 
 ## Scope and claim boundary
 
-This record binds the Round 2 offline simplification proof to one source commit and
-retains older structural Codex and explicitly directed reference-selection
+This record binds the Round 3 acceptance correction to one source commit
+and retains older structural Codex and explicitly directed reference-selection
 outcomes as historical evidence only. It is not workflow-triggered activation,
 does not satisfy `E-CODEX-ACTIVATE-001` or
 `DEV137-CODEX-PROGRESSIVE-001`, and cannot complete DEV-137.
 
-- Final Round 2 source commit: `6391619163c8f1afed1c76fd5dd024e170b161c9`
-- Final Round 2 source tree: `78c118b036e3a2074b2c45612bbd7cfe9117b210`
+- Final Round 3 source commit: `78ed13d2571d2d4c10f12ef5c408a0ee227226b9`
+- Final Round 3 source tree: `371fc97859bffef4865d81024652733f45908d89`
 - Deterministic verification date: `2026-07-20`
-- Current live Codex/model/network run: not invoked
+- Current live Codex/model/Claude run: not invoked
+- Current official-source URL audit: pass,
+  `DEV137_CHECK_EXTERNAL_LINKS=1 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v tests.test_reference_library.ReferenceExternalSourceTests`;
+  1/1 test resolved 30/30 unique URLs in 22.646s at source
+  `2b7e269be26d9be9cb712f7c1e5a6701d90fac56`; reference bytes and hashes are
+  unchanged at the final Round 3 source
 - Historical host candidate commit: `d27cc16d62fd0e23e5e62441d17122d622c09492`
 - Historical host candidate tree: `a8c10274d81690deedd361161a1d4d916b70b72c`
 - Historical Codex host: `codex-cli 0.144.5` at normalized `<host-path>`
@@ -21,7 +26,7 @@ does not satisfy `E-CODEX-ACTIVATE-001` or
 DEV-137 remains In Progress with blocker
 `production_skills_not_integrated` until the mandatory combined-tip 25-case
 DEV-136 workflow-triggered gate passes. That combined evidence remains blocked
-and was not accessed or run during this correction.
+and was not accessed, run, or promoted during this correction.
 
 ## Reference payload identity
 
@@ -53,28 +58,33 @@ Additional pinned identities:
 | Reference topology | pass, exactly 5 regular Markdown files |
 | Cache payload | pass, offline contract/oracle confirms exactly 8 regular files; current isolated cache not run |
 | Relative reference links | pass, 43 occurrences; every reference has an incoming sibling edge |
-| Approved official sources | pass offline, 30 unique links; opt-in network resolution skipped |
+| Approved official sources | pass, 30/30 unique links satisfy the authority/version allowlist and passed live URL resolution in 1/1 opt-in audit at source `2b7e269`; reference bytes/hashes are unchanged at the final source |
 | Swift labels | pass, 4 blocks with exactly one allowed visible label each |
 | `compiled_sdk_26_5` | pass, 1/1 block type-checked against SDK 26.5 |
+| Round 3 focused RED | expected fail, 2/2 on base `2b7e269be26d9be9cb712f7c1e5a6701d90fac56`, tree `102248f5a29479de51d7a8760b30579a7bc6eb09`: prior order was `install, host, identity, teardown`, and simulated post-teardown drift returned exit `0` |
+| Round 3 focused GREEN | pass, 2/2: exact order `host, install, host, identity, host, teardown, host`; final drift is normalized `fail/host_resolution_or_version_drift`, exit `1` |
 | Focused disclosure module | pass, 28/28: 19 closed-parser, 4 probe-boundary, and 5 disclosure-host tests |
-| Host identity group | pass, 10/10 |
+| Host identity group | pass, 12/12: 5 disclosure-host and 7 structural-probe race tests |
 | Focused reference group | pass, 14 total with 13 executed/pass and 1 opt-in network skip |
-| Guidance and plugin regression | pass, 38/38; generated adapter exactly 90 lines |
+| Guidance and plugin regression | pass, 40/40; generated adapter exactly 90 lines |
 | Direct-script blocked-PATH proof | pass, 2/2 exact normalized result dictionaries; both exits `2` |
-| Repository unit suite | pass, 137 tests with 136 executed/pass and 1 opt-in network skip |
+| Repository unit suite | pass, 139 tests with 138 executed/pass and 1 opt-in network skip |
 | Python compilation | pass, 3/3 verification modules |
 | Generated synchronization | pass |
 | DEV-128 inherited regression | pass, 6/6 positives and 2/2 exact expected blockers |
 | DEV-130 inherited regression | pass, compile/golden/repeat and 8/8 scenarios; golden includes one additional `SUMMARY` line |
-| DEV-131 inherited regression | pass, 26/26; corpus 11/11; 8 evidence files |
+| DEV-131 inherited regression | pass, 26/26; corpus 11/11; 8/8 evidence files hash-verified; normalized proof SHA-256 `22e956065d3017e2376dfbf30ae9d8b547ca5a138ecd6434e2df61972138ee43` |
 | DEV-138 inherited regression | pass, 36/36 tests and exact 43-row oracle |
 | BATS | pass, 3/3 |
-| Diff/scope/cache hygiene | pass; source commit changes exactly 3 authorized paths, branch delta remains 16 paths, no repo Python cache, no untracked paths |
+| Diff/scope/cache hygiene | pass; source commit changes exactly 2 authorized paths, branch delta remains exactly 16 paths, package remains 5 references/8 regular files/0 runtime surfaces, no repo Python cache, no untracked paths |
 
 Round 2 removed only superseded verification machinery. Static AST and `rg`
 reachability found no repository consumer of the deleted generic/recursive
 parser symbols; `run_case` uses `parse_disclosure_events` as its sole parser.
-The authoritative size reductions are:
+Round 3 adds no capability: its source delta is 100 insertions and 8 deletions
+across the structural probe and focused contract tests. The probe remains 631
+lines; `tests/test_plugin_contract.py` is now 712 lines. The Round 2 size
+reductions remain:
 
 | File | Before | After | Reduction |
 | --- | ---: | ---: | ---: |
@@ -93,13 +103,13 @@ Both runs proved marketplace discovery, installation, enabled state, exact
 eight-file source/cache identity, all five reference hashes, and an empty
 capability list. The result retains
 `blocked/production_skills_not_integrated` for capability activation. It does
-not prove source/cache identity for the Round 1 source commit.
+not prove source/cache identity for the Round 3 source commit.
 
 ## Optional directed-reference result
 
-Every result in this section predates the Round 1 source commit and remains
-historical. The newest result is bound to the historical candidate named
-above; earlier results bind to still earlier revisions.
+Every result in this section predates the Round 3 source commit and remains
+historical. The newest result is bound to the historical candidate named above;
+earlier results bind to still earlier revisions.
 
 The newest historical two-call-prompt `DEV137-CODEX-REF-001` run failed closed
 at task `pattern-final-owner` with normalized reason
@@ -159,7 +169,7 @@ discarded them before emitting normalized status.
 
 | Row | Status | Boundary |
 | --- | --- | --- |
-| `E-CODEX-LOAD-001` | historical pass at `d27cc16`; current source not run | Structural install/cache only; not current Round 1 evidence |
+| `E-CODEX-LOAD-001` | historical pass at `d27cc16`; current source not run | Structural install/cache only; not current Round 3 evidence |
 | `DEV137-CODEX-REF-001` | historical fail / `bulk_reference_content_read` at `pattern-final-owner`; current source not run | Optional explicitly directed reference selection only; never completion evidence |
 | `E-CODEX-ACTIVATE-001` / `DEV137-CODEX-PROGRESSIVE-001` | blocked / `production_skills_not_integrated` | Mandatory combined-tip 25-case gate remains blocked |
 | DEV-137 issue state | In Progress | Remains blocked until the combined-tip gate passes |
@@ -171,9 +181,10 @@ discarded them before emitting normalized status.
 
 ## Limitations
 
-The current correction has offline deterministic evidence only. Historical
-structural installation/cache equality does not prove the corrected package or
-a production workflow activated, and the historical optional directed failure
+The current correction has deterministic offline proof plus one bounded live
+official-source URL availability audit. URL resolution does not prove the
+corrected package or a production workflow activated. Historical structural
+installation/cache equality and the historical optional directed failure
 cannot substitute for the blocked combined 25-case gate. Model behavior is
 probabilistic; any future semantic mismatch, unrelated reference read,
 fictional API invention, or executable drift remains fail rather than blocked
