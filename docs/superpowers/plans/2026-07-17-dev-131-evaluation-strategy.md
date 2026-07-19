@@ -2,23 +2,51 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task.
 
-**Goal:** Define and prove a deterministic, offline-first evaluation contract for Foundation Models handoff architectures while keeping rubric assessment and Apple host tooling as explicit, separately evidenced layers.
+**Goal:** Define and prove a deterministic, offline-first evaluation contract for Foundation Models handoff architectures while keeping rubric assessment, paired plugin-off/plugin-on runtime cost, and Apple host tooling as explicit, separately evidenced layers.
 
 **Architecture:** A standard-library Python proof runner consumes independent fixture inputs and emits stable check identifiers. It validates deterministic handoff invariants, a human-reviewable rubric record, and a redacted evidence-bundle allowlist. A research report maps those executable checks to cross-host acceptance and current Apple Evaluations/Instruments capabilities without turning the research proof into the production harness reserved for DEV-139.
 
 **Tech Stack:** Python 3 standard library, `unittest`, JSON/JSONL, Markdown, shell-based host probes, Swift compiler probes against the installed Apple SDK.
 
-**Issue and stack constraints:**
+**Issue and integration constraints:**
 
 - Linear issue: DEV-131.
-- Temporary stack base: `3db33eb957326b4d22ebe482c21925dd23b03af0` until DEV-130 is finalized; the parent executor will rebase this branch afterward.
+- Maintain one atomic 28-path DEV-131 delta against current `main`.
 - Canonical design: `docs/superpowers/specs/2026-07-17-dev-131-evaluation-strategy-design.md`.
 - Do not add production skills, agents, hooks, commands, MCP servers, packages, or network dependencies.
 - Do not edit generated Codex artifacts.
 - Default tests must not need a model, network, credentials, paid services, Apple Foundation Models availability, or full Xcode.
 - Missing host binaries, SDK modules, model availability, automation, or hardware must be reported as `blocked`, never converted into a pass.
 - Apple Evaluations and Instruments are an optional Xcode 27 host-evidence layer, not app-owned authorization, orchestration, policy, or recovery semantics.
-- Keep all commits local. Do not push, open a PR, publish, tag, merge, or mark DEV-131 complete before the final DEV-130 rebase and reviewable PR exist.
+- The sequential executor owns exactly three main-agent review/fix rounds,
+  exact-lease publication, a current Linear/GitHub reread, head-locked squash
+  merge, reviewed-tree equality, and merged-result smoke verification. Round 1
+  does not claim those later integration steps are complete.
+
+**July 18 runtime-cost amendment:**
+
+- Pair eligible plugin-off/plugin-on workflows with identical stimulus, parent
+  model/provider, toolchain, policy, and correctness oracle.
+- Preserve provider-reported input, cached-input, output, and reasoning tokens
+  when exposed; use a versioned provider normalization for total parent-model
+  tokens.
+- Also capture parent turns, Apple attempts, replacement ratio, declines,
+  fallback rate, latency, and correctness.
+- Release requires at least 10% median total parent-model token reduction, zero
+  correctness regressions, and zero extra parent-model turns.
+- Missing provider telemetry/normalization or live Apple prerequisites is
+  `blocked`; discovery, activation, byte counts, compile checks, and DEV-138
+  mocks cannot satisfy a runtime-cost row.
+- DEV-142 owns usage capture/normalization, DEV-143 paired runtime/routing
+  measurements, DEV-144 correctness/eligibility, and DEV-145 aggregation and
+  release-floor enforcement.
+
+**Current host snapshot (2026-07-19):** macOS 26.5.1 (25F80), Xcode 26.6
+(17F113) at `/Applications/Xcode.app/Contents/Developer`, Swift 6.3.3/driver
+1.148.6, macOS and iPhoneOS SDK 26.5, xctrace 16.0, simctl, two booted
+simulators, Claude Code 2.1.140, and Codex CLI 0.144.5. Xcode/SDK 27,
+`Evaluations`, legacy `Instruments`, and live provider/runtime-cost evidence
+remain blocked.
 
 ---
 
@@ -59,7 +87,10 @@ Add `unittest` coverage that imports functions not yet implemented and asserts:
 - the validator cannot receive expected outcomes from a case fixture;
 - the two synthetic workflow identities are represented across the valid cases;
 - `stateVersion` and `policyVersion` are checked independently;
-- reducer phase, replay, and recovery-before-retry invariants match DEV-130 decisions;
+- reducer phase, replay, and retry-only-after-`confirmed_absent`
+  reconciliation invariants match DEV-130 decisions;
+- nested case schemas reject undeclared/oracle/raw fields, context inclusion is
+  the exact declared minimum, and evidence paths are allowlisted;
 - semantic quality is accepted only through the seven-dimension rubric record and is never inferred from deterministic structural checks;
 - a valid example evidence bundle passes its strict allowlist and SHA-256 checks;
 - an unsafe manifest and an invalid critical rubric score are rejected;
@@ -135,7 +166,7 @@ python3 -m compileall -q fixtures/dev-131
 git diff --check
 ```
 
-Expected: all tests pass; the CLI emits JSON with overall `pass`, exact negative rejection IDs, rubric status, evidence status, and `not_applicable` zero-denominator metrics.
+Expected: all tests pass; the CLI emits JSON with overall `pass`, exact negative rejection IDs, rubric status, evidence status, `not_applicable` zero-denominator metrics, and an honestly `blocked`/null runtime-cost record.
 
 **Step 6: Self-review and commit**
 
@@ -267,8 +298,8 @@ Also rerun the host probes from Task 2 in the primary DEV-131 worktree and compa
 **Step 2: Run scope and safety checks**
 
 ```bash
-git diff --name-only 3db33eb957326b4d22ebe482c21925dd23b03af0...HEAD
-git log --oneline --decorate 3db33eb957326b4d22ebe482c21925dd23b03af0..HEAD
+git diff --name-only origin/main...HEAD
+git log --oneline --decorate origin/main..HEAD
 git status --short
 rg -n 'TBD|TODO|FIXME|fill in details|implement later' docs/superpowers/specs/2026-07-17-dev-131-evaluation-strategy-design.md docs/superpowers/plans/2026-07-17-dev-131-evaluation-strategy.md docs/research/dev-131-evaluation-strategy.md fixtures/dev-131
 rg -n '(api[_-]?key|access[_-]?token|password|secret|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY)' fixtures/dev-131 docs/research/evidence/dev-131-evaluation-command-transcript.md
@@ -278,17 +309,23 @@ Expected: only DEV-131 paths are present; the tree is clean; no placeholder or c
 
 **Step 3: Obtain final code review**
 
-Generate the final SDD review package for `3db33eb957326b4d22ebe482c21925dd23b03af0..HEAD`. A fresh reviewer must verify issue compliance, fixture/oracle separation, test meaningfulness, evidence safety, official-source fidelity, and atomic commit scope. Resolve all critical, important, and minor findings before proceeding.
+The main agent runs exactly three review/fix rounds over `origin/main...HEAD`:
+correctness/scope, simplicity, and adversarial acceptance. A fresh worker owns
+each round's bounded corrections. Resolve every actionable finding before the
+head-locked merge gate.
 
 **Step 4: Attach evidence and update Linear**
 
 Attach or link the evaluation report and command transcript in DEV-131. Add a comment with:
 
-- local commit SHAs and their single-purpose boundaries;
+- reviewed head and squash commit/tree identities;
 - exact offline verification commands and results;
 - real host-probe states, including blockers;
 - review result and evidence artifact paths;
-- downstream decisions already propagated to DEV-132, DEV-134, DEV-138, DEV-139, and DEV-141;
-- explicit note that DEV-131 remains `In Progress` pending rebase onto final DEV-130 and a reviewable stacked PR.
+- downstream decisions propagated to DEV-132, DEV-134, DEV-138, DEV-139,
+  DEV-141, and runtime-evidence owners DEV-142 through DEV-145; and
+- honest blocked state for unavailable runtime/host prerequisites.
 
-Do not change DEV-131 to `Done`, do not push, and do not open a PR in this task.
+Post only Definition-of-Done-required Linear evidence. Status changes belong to
+the sequential executor after the current issue-level completion contract is
+satisfied.

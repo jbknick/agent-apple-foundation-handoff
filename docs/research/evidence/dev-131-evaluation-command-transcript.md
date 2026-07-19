@@ -1,6 +1,6 @@
 # DEV-131 Evaluation Command Transcript
 
-Capture date: `2026-07-17`
+Original capture date: `2026-07-17`; current-host refresh: `2026-07-19`
 
 Working directory:
 `<repo>`
@@ -15,6 +15,10 @@ labels used here are:
 - `not run`: a dependent validation did not start because its prerequisite was
   blocked or the production artifact/harness is owned by a later issue; and
 - `not_applicable`: a valid metric has no denominator.
+
+The 2026-07-17 command records below are retained as historical provenance.
+They do not describe the current developer-directory selection. The bounded
+2026-07-19 refresh later in this transcript is the current host snapshot.
 
 ## Failing document contract
 
@@ -234,6 +238,31 @@ Consequently current-OS Apple device/simulator validation and Apple runtime
 model validation were not run. Their state is blocked by the absent full-Xcode
 toolchain, iPhone SDK, simulator control tool, and compatible target/runtime.
 
+### 2026-07-19 current-host refresh
+
+These current probes supersede the old host facts above without rewriting the
+historical 2026-07-17 transcript:
+
+| Probe | Exit/state | Current result and boundary |
+| --- | --- | --- |
+| `sw_vers` | `0`, executed | macOS 26.5.1, build 25F80 |
+| `xcode-select -p` | `0`, executed | `/Applications/Xcode.app/Contents/Developer` |
+| `xcodebuild -version` | `0`, executed | Xcode 26.6, build 17F113; not Xcode 27 |
+| `swift --version` | `0`, executed | Apple Swift 6.3.3, driver 1.148.6 |
+| macOS and iPhoneOS SDK version probes | `0`, executed | 26.5 for both; no SDK 27 |
+| `xcrun xctrace version` | `0`, prerequisite only | xctrace 16.0 (17F113); no trace captured |
+| `xcrun --find simctl` and booted-device query | `0`, prerequisite only | simctl available; two booted simulators; no Foundation Models runtime scenario ran |
+| `xcrun --find Instruments` | `72`, blocked legacy spelling | The legacy executable is absent; this does not negate xctrace availability |
+| `xcrun swiftc -typecheck` for `import Evaluations` | `1`, blocked | `no such module 'Evaluations'` |
+| `claude --version` | `0`, binary prerequisite only | Claude Code 2.1.140; no DEV-131 plugin activation ran |
+| `codex --version` | `0`, binary prerequisite only | Codex CLI 0.144.5; no DEV-131 plugin activation ran |
+
+Full Xcode is now active, but Xcode/SDK 27, Evaluations, the legacy Instruments
+binary, provider usage telemetry and normalization, and paired live Apple
+plugin-off/plugin-on runtime evidence remain blocked. The available xctrace,
+simulators, discovery output, compilation checks, byte counts, and DEV-138
+mocks cannot satisfy a live runtime-cost row.
+
 ## Claude Code and Codex probes
 
 ### Claude Code
@@ -259,6 +288,14 @@ DEV-131 documentation scope, so the Claude and Codex loading, activation, and
 paired real-host rows are `not run`; those dependent validations must remain
 blocked until their named production artifacts and isolation/automation
 prerequisites exist.
+
+The checked-in `runtimeCostEvidence` record is likewise `blocked`: provider
+input/cached-input/output/reasoning token fields, parent turns, Apple attempts,
+replacement ratio, declines, fallback rate, latency, and correctness are all
+`null`. No token reduction or release verdict is inferred.
+DEV-142 owns provider usage capture/normalization, DEV-143 owns paired
+runtime/routing measurements, DEV-144 owns correctness/eligibility, and
+DEV-145 owns aggregation and release-floor enforcement.
 
 ## Official source availability
 
@@ -298,6 +335,12 @@ The mandatory default proof is offline, synthetic, and deterministic. Re-run
 it after any corpus, fixture, validator, stable-ID, rubric, evidence schema, or
 allowlist change. Re-run host and Apple probes after any CLI, SDK, Xcode, OS,
 device/simulator, model/provider, candidate-plugin, or policy change.
+
+The branch is an atomic 28-path DEV-131 delta against current `main`. The
+sequential executor owns exactly three main-agent review/fix rounds, an
+exact-lease push, current Linear/GitHub reread, and head-locked squash/tree
+verification. Those integration steps are requirements, not completed claims
+in this Round 1 transcript.
 
 The transcript intentionally contains no raw prompt, raw response, hidden
 reasoning, secrets, tokens, credentials, raw Instruments trace, or host-private

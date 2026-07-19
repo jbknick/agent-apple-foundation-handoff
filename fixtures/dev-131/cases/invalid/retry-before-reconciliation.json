@@ -144,7 +144,7 @@
           {"kind": "original", "effectId": "effect-uncertain-1"},
           {"kind": "uncertain_commit", "effectId": "effect-uncertain-1"},
           {"kind": "retry", "effectId": "effect-uncertain-1"},
-          {"kind": "reconciliation", "effectId": "effect-uncertain-1"},
+          {"kind": "reconciliation", "effectId": "effect-uncertain-1", "outcome": "confirmed_absent"},
           {"kind": "replay", "effectId": "effect-uncertain-1"}
         ]
       }

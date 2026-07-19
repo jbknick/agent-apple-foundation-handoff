@@ -36,12 +36,12 @@ The report uses these evidence states:
 - **not_applicable:** a valid computation has no denominator or does not apply
   to that dataset.
 
-Explicit non-goals are a production plugin, production `SKILL.md`, host
-metadata, the production DEV-139 harness, live-model CI, Apple runtime
-architecture, model authorization, exactly-once external effects, or committed
-raw traces. DEV-131 defines requirements and supplies research proof; it does
-not claim loading, activation, or end-to-end capability for a plugin that has
-not yet been implemented.
+Explicit non-goals are a production plugin, production `SKILL.md`, private or
+complete host metadata, the production DEV-139 harness, live-model CI, Apple
+runtime architecture, model authorization, exactly-once external effects, or
+committed raw traces. DEV-131 defines requirements and supplies research proof;
+it does not claim loading, activation, or end-to-end capability for a plugin
+that has not yet been implemented.
 
 ## Evaluation matrix
 
@@ -58,8 +58,8 @@ flag alone.
 | Activation — Codex | Real-host capability | `E-CODEX-ACTIVATE-001` | Same valid/invalid task identities in a fresh Codex task | Same capability contract as Claude, not mere structural parity | Fresh real task observes the same canonical capability, references, result contract, and expected rejection semantics | Loading prerequisite blocked, no compatible model/session/auth, or automation unavailable | Redacted task identity/hash, activation/reference evidence, normalized result, check IDs, exit/final status |
 | Architecture routing and ownership | Offline deterministic | `D-SCHEMA-001`, `D-ROUTE-001`, `D-OWNER-001` | All 11 normalized cases | Versioned shape, allowed/expected destination, exactly one declared final owner | Every valid case passes; each invalid case produces only its oracle-declared sorted violation set | Never blocked in the default Python gate; missing/unreadable corpus is a schema/corpus failure | Machine JSON case records, oracle-match booleans, corpus count/status |
 | Runtime transition and tool behavior | Offline deterministic | `D-TRANSITION-001`, `D-TOOL-001` | Valid workflows plus loop, budget, and unauthorized-tool cases | Valid edges, contiguous acyclic path, finite transition/tool budgets, actor/tool allowlist | Valid cases stay within graph/budgets; negative cases reject with the exact stable ID | Default gate is not blocked; live Apple execution is a separate optional row | Transition/tool checks and exact rejection IDs |
-| Context and boundary policy | Offline security/privacy | `D-CONTEXT-001`, `D-CONTEXT-002`, `D-GRANT-001` | Happy path, replayed effect, missing-context-policy, stale-grant | Required inclusion, forbidden exclusion, independently matching `stateVersion` and `policyVersion` | Both versions match and the declared context policy includes/excludes exact fields | Default gate is not blocked; missing fields fail closed | Check results, classified normalized field names, no values |
-| Phase, effect, recovery, fallback | Offline security/privacy | `D-PHASE-001`, `D-EFFECT-001`, `D-EFFECT-002`, `D-FALLBACK-001` | Valid workflows plus invalid phase and retry-before-reconciliation | Canonical phase/event order, one effect/ledger identity, one original command, no replay command, reconciliation before retry, safe fallback | Every invariant holds; uncertain effects reconcile before retry; replay never emits another command | Default gate is not blocked; external exactly-once behavior is not claimed | Stable effect IDs, counts, phase/reconciliation events, exact rejection IDs |
+| Context and boundary policy | Offline security/privacy | `D-CONTEXT-001`, `D-CONTEXT-002`, `D-GRANT-001` | Happy path, replayed effect, missing-context-policy, stale-grant | Exact minimal inclusion, forbidden exclusion, independently matching `stateVersion` and `policyVersion` | Included fields exactly equal required fields, forbidden fields stay excluded, and both versions match | Default gate is not blocked; missing or undeclared included fields fail closed | Check results, classified normalized field names, no values |
+| Phase, effect, recovery, fallback | Offline security/privacy | `D-PHASE-001`, `D-EFFECT-001`, `D-EFFECT-002`, `D-FALLBACK-001` | Valid workflows plus invalid phase and retry-before-reconciliation | Canonical phase/event order, one effect/ledger identity, one original command, no replay command, reconciliation outcome before retry, safe fallback | Every invariant holds; uncertain effects retry only after `confirmed_absent`; replay never emits another command | Default gate is not blocked; external exactly-once behavior is not claimed | Stable effect IDs, counts, phase/reconciliation events, exact rejection IDs |
 | Evidence safety | Offline security/privacy | `D-EVIDENCE-001` | Valid example bundle plus unsafe evidence case | Strict allowlist, normalized relative paths, classifications, double content scan, SHA-256 match | All eight declared files are safe, present, nonsymlinked, correctly classified, and hash-verified; unsafe case rejects | Default gate is not blocked; raw trace capture remains excluded | Manifest, verified-file count, derived check result, exact rejection ID |
 | Cross-host structure | Repository/generation | `E-CROSSHOST-STRUCT-001` | Canonical source plus generated/adapted host artifacts after DEV-132/DEV-135 | Schema validation, deterministic generation, drift-free shared content, host-specific thin adapters | Both host artifacts derive from the approved canonical ownership model and drift check is clean | Topology/generator/candidate plugin absent or a required host validator unavailable | File inventory, generator command, diff/drift result, schema results, commit |
 | Cross-host capability equivalence | DEV-139 real-host harness | `E-CROSSHOST-CAP-001` | Paired valid/invalid fresh-host tasks | Same canonical semantics, stable IDs, required references, and security/failure behavior; presentation may differ | Both real hosts pass their activation rows and normalized semantic comparison | Either host activation blocked; one host result is never extrapolated to the other | Paired run IDs, normalized results, check-ID comparison, honest per-host states |
@@ -67,6 +67,7 @@ flag alone.
 | Apple Evaluations | Optional Xcode 27 quality evidence | `E-APPLE-EVAL-001` | Typed, versioned synthetic/approved-redacted dataset on a compatible host | Quantitative pass/rate metrics, qualitative evaluator dimensions, trajectory/tool expectations, aggregation | Compatible full Xcode 27 run records dataset/model/toolchain, nonzero denominator, metric results, and no deterministic gate regression | Full Xcode 27, Evaluations module, compatible target/runtime/model/provider, or authorization unavailable | Redacted aggregate report, dataset/stimulus hashes, model/toolchain labels; no judge reasoning |
 | Apple Instruments | Optional Xcode 27 profiling evidence | `E-APPLE-INSTR-001` | Pinned scenario/model/provider/profile/tool/transcript shape on a compatible target | Time to First Token, Tokens per Second, Total Latency, and session/request/inference/tool hierarchy | Authorized trace run records the pinned configuration and normalized aggregate metrics outside the committed bundle | Full Xcode 27, Instruments/`xctrace`, compatible current OS target/device, or runtime unavailable | Redacted metric summary and run metadata; raw Instruments trace excluded |
 | Apple host toolchain | Optional host prerequisite | `E-APPLE-HOST-001` | Current checkout and active developer directory | Full-Xcode identity, SDK 27/Evaluations availability, Instruments, device/simulator target | Exact compatible toolchain and target are identified before Apple rows run | Any required tool/module/target missing; documentation or a bare import is not a substitute | Commands, timestamps, exit codes, versions, target/device class, blocker reason |
+| Parent-model cost and routing | Paired live runtime | `E-RUNTIME-COST-001` | Eligible workflows run plugin-off and plugin-on with the same model, provider, toolchain, policy, and stimulus | Provider-reported input, cached-input, output, and reasoning tokens when exposed; parent turns; Apple attempts; replacement ratio; declines; fallback rate; latency; correctness | Median total parent-model token reduction is at least 10%, correctness has zero regressions, and plugin-on adds no parent-model turn | Provider usage telemetry, a versioned provider normalization, live Apple prerequisites, or any paired run is missing | Redacted paired row identities, nullable provider fields, normalization version, aggregate comparison, blocker reason |
 
 The deterministic and nondeterministic layers are deliberately separate. A
 rubric, model judge, trajectory score, or latency measurement cannot establish
@@ -74,6 +75,26 @@ application authorization, context minimization, `stateVersion`/
 `policyVersion` correctness, reconciliation, or at-most-once command emission.
 Conversely, a deterministic pass does not prove prose quality, model behavior,
 host activation, or Apple runtime performance.
+
+### Runtime-cost comparison contract
+
+`E-RUNTIME-COST-001` is a paired plugin-off/plugin-on contract, not an estimate.
+Rows are eligible only when workflow, stimulus, parent model/provider,
+toolchain, boundary policy, and correctness oracle match. Provider-reported
+input, cached-input, output, and reasoning fields remain separate. A versioned
+provider-specific normalization must define total parent-model tokens; an
+unexposed field stays `null` and missing usage telemetry or normalization makes
+the row `blocked`.
+
+The release floor is the conjunction of at least `10%` median total
+parent-model token reduction, zero correctness regressions, and zero additional
+parent-model turns. Each row also records parent turns, Apple attempts,
+replacement ratio, declines, fallback rate, latency, and correctness.
+Discovery, activation, byte counts, compilation checks, and deterministic
+DEV-138 mocks are prerequisites or regression evidence only; none can satisfy
+a live runtime-cost row. The checked-in example is therefore `blocked`, has
+zero eligible workflows, and uses `null` measurements rather than fabricated
+values.
 
 ## Dataset catalog
 
@@ -116,13 +137,13 @@ The stable deterministic ID catalog is:
 - `D-OWNER-001`: exactly one final response by the declared owner;
 - `D-TRANSITION-001`: valid, contiguous, acyclic, budgeted transitions;
 - `D-TOOL-001`: actor/tool allowlist and call budget;
-- `D-CONTEXT-001`: declared required-context inclusion;
+- `D-CONTEXT-001`: exact declared-minimum context inclusion;
 - `D-CONTEXT-002`: forbidden-context exclusion;
 - `D-GRANT-001`: independent state and policy revision match;
 - `D-PHASE-001`: canonical phase/event order and recovery position;
 - `D-EFFECT-001`: unique effect identities and one matching ledger entry;
-- `D-EFFECT-002`: one original command, no replay command, reconciliation
-  before retry;
+- `D-EFFECT-002`: one original command, no replay command, and
+  `confirmed_absent` reconciliation before retry;
 - `D-FALLBACK-001`: only a declared safe fallback;
 - `D-EVIDENCE-001`: safe allowlisted evidence and exact hashes; and
 - `D-RUBRIC-001`: complete, anchored, hash-bound rubric integrity and verdict.
@@ -188,7 +209,7 @@ Structural checks and real-host capability are separate:
 
 | Host/layer | Current Task 2 state | Required acceptance evidence |
 | --- | --- | --- |
-| Claude Code binary | `pass` prerequisite: version `2.1.91` observed | Version alone does not establish plugin loading or activation |
+| Claude Code binary | `pass` prerequisite: version `2.1.140` observed on 2026-07-19 | Version alone does not establish plugin loading or activation |
 | Claude fork loading | `blocked` / not run | Production candidate absent; later isolated validator and `--plugin-dir` or approved cache workflow must satisfy `E-CLAUDE-LOAD-001` |
 | Claude capability | `blocked` / not run | DEV-139 fresh session must satisfy `E-CLAUDE-ACTIVATE-001` |
 | Codex binary | `pass` prerequisite: `codex-cli 0.144.5` observed | Version alone does not establish marketplace discovery or activation |
@@ -249,13 +270,12 @@ evidence. An explicitly authorized future capture stays outside the repository
 under separate access, retention, redaction, and deletion controls; only a
 redacted aggregate summary enters the evidence bundle.
 
-`E-APPLE-INSTR-001` is `blocked` here. The active developer directory is Command
-Line Tools, `xcodebuild` cannot run, neither `instruments` nor `xctrace` is
-available, the iPhone SDK and `simctl` are unavailable, and no Apple runtime,
-device, or simulator scenario ran. The prerequisite is full Xcode 27 plus a
-compatible current OS target/device and an authorized runtime scenario. A bare
-Foundation Models import is only a module type-check, not runtime or profiling
-evidence.
+`E-APPLE-INSTR-001` remains `blocked`. The 2026-07-19 refresh found Xcode 26.6,
+SDK 26.5, `xctrace` 16.0, `simctl`, and two booted simulators, but not the
+required Xcode/SDK 27 environment or an authorized live Apple runtime trace.
+The legacy `xcrun --find Instruments` spelling still exits `72`. Tool presence
+is not a captured latency/token profile, and a bare Foundation Models import is
+not runtime or profiling evidence.
 
 ## Evidence bundle
 
@@ -272,7 +292,7 @@ the issue handoff. The exact allowlist is:
 | Path | Classification | Content contract |
 | --- | --- | --- |
 | `summary.md` | `redacted-summary` | Synthetic answer-first result only |
-| `checks.json` | `derived-check` | Stable case/rubric/evidence outcomes and zero-denominator record |
+| `checks.json` | `derived-check` | Stable case/rubric/evidence outcomes, zero-denominator record, and blocked/null runtime-cost contract |
 | `commands.jsonl` | `normalized` | Exact repository-relative commands, `<repo>` cwd, exit codes, output classes |
 | `environment.json` | `capability-fact` | Allowlisted requirement booleans only; no complete environment dump |
 | `host-matrix.json` | `capability-fact` | Per-layer `pass` or `blocked` with evidence/reason |
@@ -319,23 +339,25 @@ python3 -m compileall -q fixtures/dev-131
 
 The exact transcript is
 [`dev-131-evaluation-command-transcript.md`](evidence/dev-131-evaluation-command-transcript.md).
-Fresh observations on `2026-07-17` were:
+The original 2026-07-17 capture remains historical evidence. A current
+2026-07-19 refresh on macOS 26.5.1 (25F80) produced:
 
 | Layer/probe | Exit code/state | What it proves |
 | --- | --- | --- |
 | 26-test `unittest` suite | `0`, pass | Deterministic validator, oracle isolation, corpus, rubric, evidence safety, and zero-denominator tests passed |
 | Proof runner | `0`, `status=pass`; 11/11 executed/oracle matched; 8 evidence files verified | Current synthetic offline proof passed with the declared stable IDs |
-| Swift | `0`; Apple Swift 6.3.2 | Compiler identity only |
+| Swift | `0`; Apple Swift 6.3.3, driver 1.148.6 | Compiler identity only |
 | SDK | `0`; 26.5 | Active SDK version only |
 | Foundation Models import | `0` | Bare module import type-checks; no runtime/model behavior ran |
 | Evaluations import | `1`; module unavailable | `E-APPLE-EVAL-001` blocked on SDK 26.5 |
-| Active developer directory | `0`; Command Line Tools | Full Xcode is not active |
-| `xcodebuild` | `1` | Full-Xcode-dependent validation blocked |
-| Instruments and `xctrace` lookup | `72` each | Profiling capture blocked |
-| iPhone SDK lookup | `1` | Device-target compilation blocked |
-| `simctl` lookup | `72` | Simulator automation blocked |
-| Claude Code version | `0`; 2.1.91 | Binary prerequisite only; plugin activation not run |
+| Active developer directory | `0`; `/Applications/Xcode.app/Contents/Developer` | Full Xcode 26.6 (17F113) is active, not Xcode 27 |
+| macOS and iPhoneOS SDKs | `0`; 26.5 each | SDK identities only; no SDK 27 |
+| `xctrace` | `0`; 16.0 (17F113) | Tool prerequisite exists; no trace ran |
+| Legacy `xcrun --find Instruments` | `72` | Legacy executable unavailable; `xctrace` remains the available CLI |
+| `simctl` | `0`; available, two booted simulators | Target prerequisite only; no runtime-model scenario ran |
+| Claude Code version | `0`; 2.1.140 | Binary prerequisite only; plugin activation not run |
 | Codex version | `0`; 0.144.5 | Binary prerequisite only; plugin activation not run |
+| Runtime-cost evidence | `blocked`; all example measurements `null` | Provider usage telemetry/normalization and paired live Apple runs are absent |
 
 Apple Intelligence/model availability, Foundation Models inference, device and
 simulator execution, Instruments capture, Evaluations, and real Claude/Codex
@@ -368,10 +390,19 @@ current proof.
 | DEV-138 | The deterministic fixture suite must retain stable `D-*` IDs and oracle separation, expand the downstream adversarial catalog, prove independent state/policy revisions and reconciliation, and keep default execution offline/synthetic. |
 | DEV-139 | The production cross-host harness must implement `E-CLAUDE-*`, `E-CODEX-*`, and `E-CROSSHOST-*` with isolated structural workflows plus fresh real tasks, progressive-disclosure proof, paired valid/invalid semantics, evidence scans, and honest per-host blockers. |
 | DEV-141 | Final acceptance/release readiness must reject on deterministic/rubric/real-host security failure, oracle drift, missing critical dimensions, unsafe evidence, false executed claims, blocker-as-pass treatment, or absent required host proof. Optional Apple rows remain separately labelled. |
+| DEV-142 | Own provider-specific usage-field capture and versioned normalization; absent or ambiguous token telemetry blocks cost comparison. |
+| DEV-143 | Own paired plugin-off/plugin-on workflow execution and parent-turn, Apple-attempt, replacement, decline, fallback, and latency capture. |
+| DEV-144 | Own correctness-oracle comparison and eligibility filtering so cost savings never mask a behavior regression. |
+| DEV-145 | Own release aggregation and enforce the 10% median token-reduction, zero-correctness-regression, and zero-extra-parent-turn floor. |
 
 No propagation row transfers production runtime ownership into DEV-131. Later
 artifacts must preserve the deterministic-versus-nondeterministic separation,
 zero-denominator rule, source/version labels, and raw-evidence exclusions.
+This branch is one atomic 28-path DEV-131 delta against `main`. Integration is
+owned by the sequential executor: exactly three main-agent review/fix rounds,
+an exact-lease push, current issue/PR reread, head-locked squash merge, reviewed
+tree comparison, and merged-result smoke gate. This document does not claim
+those integration steps are complete.
 
 ## Primary sources
 

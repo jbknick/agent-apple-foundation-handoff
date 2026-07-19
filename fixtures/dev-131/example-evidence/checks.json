@@ -18,5 +18,47 @@
     "denominator": 0,
     "status": "not_applicable",
     "value": null
+  },
+  "runtimeCostEvidence": {
+    "status": "blocked",
+    "reasonCodes": [
+      "live_apple_prerequisites_unavailable",
+      "provider_normalization_unavailable",
+      "provider_usage_telemetry_unavailable"
+    ],
+    "measurements": {
+      "providerInputTokens": null,
+      "providerCachedInputTokens": null,
+      "providerOutputTokens": null,
+      "providerReasoningTokens": null,
+      "parentTurns": null,
+      "appleAttempts": null,
+      "replacementRatio": null,
+      "declines": null,
+      "fallbackRate": null,
+      "latencyMilliseconds": null,
+      "correctness": null
+    },
+    "comparison": {
+      "baseline": "plugin-off",
+      "treatment": "plugin-on",
+      "pairingKey": "workflow/model/provider/toolchain/policy",
+      "eligibleWorkflowCount": 0,
+      "medianTotalParentModelTokenReduction": null,
+      "correctnessRegressionCount": null,
+      "extraParentModelTurnCount": null
+    },
+    "releaseFloor": {
+      "minimumMedianTotalParentModelTokenReduction": 0.1,
+      "maximumCorrectnessRegressions": 0,
+      "maximumExtraParentModelTurns": 0
+    },
+    "nonEvidence": [
+      "activation",
+      "byte-counts",
+      "compile-checks",
+      "discovery",
+      "DEV-138-mocks"
+    ]
   }
 }

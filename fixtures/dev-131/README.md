@@ -12,10 +12,13 @@ Rubric validation proves record integrity and thresholds, while a human reviewer
 owns semantic scores.
 
 Effect fixtures require a stable ID, one ledger record, an original executor
-command, and a replay observation with no second command. This proves
-at-most-once execution plus reconciliation for the synthetic record; it does
-not claim exactly-once delivery, external-effect rollback, or transcript-based
-undo.
+command, and a replay observation with no second command. An uncertain effect
+may retry only after a reconciliation observation explicitly reports
+`confirmed_absent`; `still_unknown` and `confirmed_committed` fail closed. This
+proves at-most-once execution plus bounded reconciliation for the synthetic
+record; it does not claim exactly-once delivery, external-effect rollback, or
+transcript-based undo. Context inclusion is the exact declared minimum, and
+case evidence paths must be drawn from the bundle allowlist.
 
 Run the complete proof with:
 
@@ -27,3 +30,9 @@ python3 -m compileall -q fixtures/dev-131
 
 A missing optional host denominator is emitted as `not_applicable`. It is never
 converted to a perfect rate or an offline capability pass.
+
+`runtimeCostEvidence` is a separate, machine-validated plugin-off/plugin-on
+contract. The checked-in example is `blocked` and all measurements are `null`
+because no provider usage telemetry, provider normalization, or paired live
+Apple run exists. Discovery, activation, byte counts, compile checks, and
+DEV-138 mocks cannot turn that row into a pass.

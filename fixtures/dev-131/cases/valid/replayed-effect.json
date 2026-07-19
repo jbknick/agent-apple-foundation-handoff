@@ -143,7 +143,7 @@
         "observations": [
           {"kind": "original", "effectId": "effect-commit-1"},
           {"kind": "uncertain_commit", "effectId": "effect-commit-1"},
-          {"kind": "reconciliation", "effectId": "effect-commit-1"},
+          {"kind": "reconciliation", "effectId": "effect-commit-1", "outcome": "confirmed_absent"},
           {"kind": "retry", "effectId": "effect-commit-1"},
           {"kind": "replay", "effectId": "effect-commit-1"}
         ]

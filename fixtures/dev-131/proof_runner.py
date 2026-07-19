@@ -98,6 +98,36 @@ EXPECTED_HOST_LAYERS = {
     "codex-activation": "blocked",
     "apple-evaluations": "blocked",
     "apple-instruments": "blocked",
+    "parent-model-runtime-cost": "blocked",
+}
+
+POLICY_KEYS = {
+    "route",
+    "finalOwner",
+    "allowedEdges",
+    "transitionBudget",
+    "toolAllowlist",
+    "toolBudget",
+    "contextPolicy",
+    "stateVersion",
+    "policyVersion",
+    "validPhaseEvents",
+    "allowedFallbacks",
+}
+
+RESULT_KEYS = {
+    "destination",
+    "responses",
+    "transitions",
+    "toolCalls",
+    "context",
+    "grant",
+    "events",
+    "effects",
+    "effectLedger",
+    "executorCommands",
+    "fallback",
+    "evidence",
 }
 
 PROHIBITED_STRUCTURED_KEYS = {
@@ -175,11 +205,51 @@ def _record_list(value: object, fields: dict[str, object]) -> bool:
     if not isinstance(value, list):
         return False
     for item in value:
-        if not isinstance(item, dict):
+        if not isinstance(item, dict) or set(item) != set(fields):
             return False
         for field, validator in fields.items():
             if field not in item or not validator(item[field]):
                 return False
+    return True
+
+
+def _contains_embedded_oracle_or_raw_field(value: object) -> bool:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            normalized = re.sub(r"[^a-z0-9]", "", str(key).lower())
+            if normalized in {
+                "expected",
+                "expectedstatus",
+                "expectedviolations",
+                "oracle",
+                "oraclematch",
+            } or normalized.startswith("raw"):
+                return True
+            if _contains_embedded_oracle_or_raw_field(item):
+                return True
+    elif isinstance(value, list):
+        return any(_contains_embedded_oracle_or_raw_field(item) for item in value)
+    return False
+
+
+def _observations_are_valid(value: object) -> bool:
+    if not isinstance(value, list):
+        return False
+    for observation in value:
+        if not isinstance(observation, dict):
+            return False
+        kind = observation.get("kind")
+        if kind == "reconciliation":
+            if set(observation) != {"kind", "effectId", "outcome"} or observation.get(
+                "outcome"
+            ) not in {"confirmed_absent", "still_unknown", "confirmed_committed"}:
+                return False
+        elif set(observation) != {"kind", "effectId"}:
+            return False
+        if not _non_empty_string(kind) or not _non_empty_string(
+            observation.get("effectId")
+        ):
+            return False
     return True
 
 
@@ -188,7 +258,7 @@ def _valid_case_shape(case: object) -> bool:
         return False
     if set(case) != {"schemaVersion", "caseId", "workflow", "policy", "result"}:
         return False
-    if CASE_ORACLE_FIELDS & set(case):
+    if CASE_ORACLE_FIELDS & set(case) or _contains_embedded_oracle_or_raw_field(case):
         return False
     if (
         case.get("schemaVersion") != "1.0"
@@ -206,7 +276,10 @@ def _valid_case_shape(case: object) -> bool:
     phase_policy = policy.get("validPhaseEvents")
     tool_allowlist = policy.get("toolAllowlist")
     if (
-        not isinstance(route, dict)
+        set(policy) != POLICY_KEYS
+        or set(result) != RESULT_KEYS
+        or not isinstance(route, dict)
+        or set(route) != {"requiredDestination", "allowedDestinations"}
         or not _non_empty_string(route.get("requiredDestination"))
         or not _string_list(route.get("allowedDestinations"))
         or not _non_empty_string(policy.get("finalOwner"))
@@ -227,12 +300,14 @@ def _valid_case_shape(case: object) -> bool:
         or not _integer(policy.get("toolBudget"))
         or policy["toolBudget"] < 0
         or not isinstance(context_policy, dict)
+        or set(context_policy) != {"declared", "required", "forbidden"}
         or not isinstance(context_policy.get("declared"), bool)
         or not _string_list(context_policy.get("required"))
         or not _string_list(context_policy.get("forbidden"))
         or not _integer(policy.get("stateVersion"))
         or not _integer(policy.get("policyVersion"))
         or not isinstance(phase_policy, dict)
+        or set(phase_policy) != set(CANONICAL_PHASE_EVENTS)
         or not all(
             _non_empty_string(phase) and _string_list(events)
             for phase, events in phase_policy.items()
@@ -267,13 +342,12 @@ def _valid_case_shape(case: object) -> bool:
     effects = result.get("effects")
     effects_ok = isinstance(effects, list) and all(
         isinstance(effect, dict)
+        and set(effect)
+        == {"effectId", "uncertainCommit", "retryAttempted", "observations"}
         and _non_empty_string(effect.get("effectId"))
         and isinstance(effect.get("uncertainCommit"), bool)
         and isinstance(effect.get("retryAttempted"), bool)
-        and _record_list(
-            effect.get("observations"),
-            {"kind": _non_empty_string, "effectId": _non_empty_string},
-        )
+        and _observations_are_valid(effect.get("observations"))
         for effect in effects
     )
     context = result.get("context")
@@ -285,9 +359,11 @@ def _valid_case_shape(case: object) -> bool:
         and transitions_ok
         and tool_calls_ok
         and isinstance(context, dict)
+        and set(context) == {"included", "excluded"}
         and _string_list(context.get("included"))
         and _string_list(context.get("excluded"))
         and isinstance(grant, dict)
+        and set(grant) == {"stateVersion", "policyVersion"}
         and _integer(grant.get("stateVersion"))
         and _integer(grant.get("policyVersion"))
         and events_ok
@@ -296,6 +372,8 @@ def _valid_case_shape(case: object) -> bool:
         and commands_ok
         and _non_empty_string(result.get("fallback"))
         and isinstance(evidence, dict)
+        and set(evidence)
+        == {"includedPaths", "redacted", "hashesVerified", "containsRawTrace"}
         and _string_list(evidence.get("includedPaths"))
         and isinstance(evidence.get("redacted"), bool)
         and isinstance(evidence.get("hashesVerified"), bool)
@@ -378,7 +456,7 @@ def evaluate_case(case: dict) -> dict:
     excluded = set(context_result.get("excluded", []))
     required = set(context_policy.get("required", []))
     forbidden = set(context_policy.get("forbidden", []))
-    inclusion_ok = context_policy.get("declared") is True and required <= included
+    inclusion_ok = context_policy.get("declared") is True and required == included
     exclusion_ok = not (forbidden & included) and forbidden <= excluded
     checks.append(_check("D-CONTEXT-001", inclusion_ok))
     checks.append(_check("D-CONTEXT-002", exclusion_ok))
@@ -474,6 +552,7 @@ def evaluate_case(case: dict) -> dict:
             and not replay_commands
         )
         if effect["retryAttempted"]:
+            reconciliation = effect["observations"][2]
             replay_and_recovery_ok = replay_and_recovery_ok and (
                 effect["uncertainCommit"]
                 and kinds
@@ -484,6 +563,7 @@ def evaluate_case(case: dict) -> dict:
                     "retry",
                     "replay",
                 ]
+                and reconciliation.get("outcome") == "confirmed_absent"
             )
         elif effect["uncertainCommit"]:
             replay_and_recovery_ok = False
@@ -513,7 +593,7 @@ def evaluate_case(case: dict) -> dict:
     )
     safe_paths = bool(included_paths) and len(included_paths) == len(
         set(included_paths)
-    )
+    ) and set(included_paths) <= EVIDENCE_ALLOWLIST
     for declared_path in included_paths:
         pure = PurePosixPath(declared_path)
         normalized = pure.as_posix()
@@ -671,6 +751,7 @@ def _checks_schema_is_valid(
         "acceptedWorkflows",
         "exactRejections",
         "optionalAppleEvaluationPassRate",
+        "runtimeCostEvidence",
     }:
         return False
     rejections = value.get("exactRejections")
@@ -700,6 +781,7 @@ def _checks_schema_is_valid(
             "status": "not_applicable",
             "value": None,
         }
+        and value.get("runtimeCostEvidence") == _runtime_cost_evidence()
         and (expected_snapshot is None or value == expected_snapshot)
     )
 
@@ -944,6 +1026,51 @@ def _rate_metric(numerator: int, denominator: int) -> dict:
     }
 
 
+def _runtime_cost_evidence() -> dict:
+    return {
+        "status": "blocked",
+        "reasonCodes": [
+            "live_apple_prerequisites_unavailable",
+            "provider_normalization_unavailable",
+            "provider_usage_telemetry_unavailable",
+        ],
+        "measurements": {
+            "providerInputTokens": None,
+            "providerCachedInputTokens": None,
+            "providerOutputTokens": None,
+            "providerReasoningTokens": None,
+            "parentTurns": None,
+            "appleAttempts": None,
+            "replacementRatio": None,
+            "declines": None,
+            "fallbackRate": None,
+            "latencyMilliseconds": None,
+            "correctness": None,
+        },
+        "comparison": {
+            "baseline": "plugin-off",
+            "treatment": "plugin-on",
+            "pairingKey": "workflow/model/provider/toolchain/policy",
+            "eligibleWorkflowCount": 0,
+            "medianTotalParentModelTokenReduction": None,
+            "correctnessRegressionCount": None,
+            "extraParentModelTurnCount": None,
+        },
+        "releaseFloor": {
+            "minimumMedianTotalParentModelTokenReduction": 0.1,
+            "maximumCorrectnessRegressions": 0,
+            "maximumExtraParentModelTurns": 0,
+        },
+        "nonEvidence": [
+            "activation",
+            "byte-counts",
+            "compile-checks",
+            "discovery",
+            "DEV-138-mocks",
+        ],
+    }
+
+
 def _index_is_valid(index: object) -> bool:
     if (
         not isinstance(index, dict)
@@ -1007,6 +1134,7 @@ def _derived_checks_snapshot(observations: list[dict], corpus_ok: bool) -> dict:
         "acceptedWorkflows": accepted_workflows,
         "exactRejections": exact_rejections,
         "optionalAppleEvaluationPassRate": _rate_metric(0, 0),
+        "runtimeCostEvidence": _runtime_cost_evidence(),
     }
 
 
@@ -1113,7 +1241,8 @@ def run(fixtures_root: Path) -> dict:
         },
         "evidence": evidence,
         "metrics": {
-            "optionalAppleEvaluationPassRate": _rate_metric(0, 0)
+            "optionalAppleEvaluationPassRate": _rate_metric(0, 0),
+            "runtimeCostEvidence": _runtime_cost_evidence(),
         },
     }
 

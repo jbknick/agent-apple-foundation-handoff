@@ -209,6 +209,15 @@ class OfflineEvaluationProofTests(unittest.TestCase):
             ["D-GRANT-001"], self.runner.evaluate_case(stale_policy)["violations"]
         )
 
+        undeclared_context = copy.deepcopy(base)
+        undeclared_context["result"]["context"]["included"].append(
+            "undeclared_private_notes"
+        )
+        self.assertEqual(
+            ["D-CONTEXT-001"],
+            self.runner.evaluate_case(undeclared_context)["violations"],
+        )
+
     def test_phase_replay_and_reconciliation_invariants_are_enforced(self) -> None:
         valid_replay = self.load_case("cases/valid/replayed-effect.json")
         replay_command = copy.deepcopy(valid_replay)
@@ -232,6 +241,16 @@ class OfflineEvaluationProofTests(unittest.TestCase):
             ["D-EFFECT-002"],
             self.runner.evaluate_case(replay_command)["violations"],
         )
+        for outcome in ("still_unknown", "confirmed_committed"):
+            with self.subTest(reconciliation_outcome=outcome):
+                unsafe_retry = copy.deepcopy(valid_replay)
+                unsafe_retry["result"]["effects"][0]["observations"][2][
+                    "outcome"
+                ] = outcome
+                self.assertEqual(
+                    ["D-EFFECT-002"],
+                    self.runner.evaluate_case(unsafe_retry)["violations"],
+                )
         self.assertEqual(
             ["D-EFFECT-002"],
             self.runner.evaluate_case(
@@ -355,6 +374,37 @@ class OfflineEvaluationProofTests(unittest.TestCase):
         malformed_edge["policy"]["allowedEdges"] = [["stable"]]
         mutations.append(malformed_edge)
 
+        nested_locations = (
+            ("policy", "route"),
+            ("policy", "contextPolicy"),
+            ("result", "responses", 0),
+            ("result", "transitions", 0),
+            ("result", "toolCalls", 0),
+            ("result", "context"),
+            ("result", "grant"),
+            ("result", "events", 0),
+            ("result", "effects", 0),
+            ("result", "effects", 0, "observations", 0),
+            ("result", "effectLedger", 0),
+            ("result", "executorCommands", 0),
+            ("result", "evidence"),
+        )
+        for location in nested_locations:
+            nested_extra = copy.deepcopy(happy_path)
+            target = nested_extra
+            for key in location:
+                target = target[key]
+            target["unexpectedField"] = "synthetic-extra"
+            mutations.append(nested_extra)
+
+        result_extra = copy.deepcopy(happy_path)
+        result_extra["result"]["oracle"] = "synthetic-extra"
+        mutations.append(result_extra)
+
+        nested_raw = copy.deepcopy(happy_path)
+        nested_raw["policy"]["route"]["rawResponse"] = "synthetic-extra"
+        mutations.append(nested_raw)
+
         for case in mutations:
             with self.subTest(case=case.get("caseId")):
                 result = self.runner.evaluate_case(case)
@@ -371,6 +421,7 @@ class OfflineEvaluationProofTests(unittest.TestCase):
             "empty": [],
             "traversal": ["safe/../../secret.txt"],
             "raw-prompt": ["raw-prompt.txt"],
+            "safe-but-undeclared": ["safe-but-undeclared.json"],
         }
         for name, included_paths in mutations.items():
             with self.subTest(mutation=name):
@@ -464,12 +515,35 @@ class OfflineEvaluationProofTests(unittest.TestCase):
         self.assertEqual(["D-RUBRIC-001"], result["violations"])
 
     def test_valid_evidence_bundle_passes_allowlist_and_hash_checks(self) -> None:
-        result = self.runner.validate_evidence_bundle(
-            FIXTURES_ROOT / "example-evidence"
-        )
+        source = FIXTURES_ROOT / "example-evidence"
+        result = self.runner.validate_evidence_bundle(source)
         self.assertEqual("pass", result["status"])
         self.assertEqual([], result["violations"])
         self.assertGreater(result["verifiedFileCount"], 0)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            bundle = Path(temp_dir) / "bundle"
+            shutil.copytree(source, bundle)
+            checks_path = bundle / "checks.json"
+            checks = load_json(checks_path)
+            checks["runtimeCostEvidence"]["releaseFloor"][
+                "minimumMedianTotalParentModelTokenReduction"
+            ] = 0.0
+            checks_path.write_text(
+                json.dumps(checks, indent=2) + "\n", encoding="utf-8"
+            )
+            manifest_path = bundle / "manifest.json"
+            manifest = load_json(manifest_path)
+            for item in manifest["files"]:
+                if item["path"] == "checks.json":
+                    item["sha256"] = hashlib.sha256(
+                        checks_path.read_bytes()
+                    ).hexdigest()
+            manifest_path.write_text(
+                json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+            )
+            invalid = self.runner.validate_evidence_bundle(bundle)
+        self.assertEqual(["D-EVIDENCE-001"], invalid["violations"])
 
     def test_unsafe_manifest_and_invalid_critical_rubric_score_are_rejected(self) -> None:
         unsafe_case = self.runner.evaluate_case(
@@ -587,7 +661,6 @@ class OfflineEvaluationProofTests(unittest.TestCase):
         self.assertEqual(0, metric["denominator"])
         self.assertEqual("not_applicable", metric["status"])
         self.assertIsNone(metric["value"])
-        self.assertNotEqual(0, metric["value"])
 
     def test_cli_shape_reports_exact_oracle_rubric_and_evidence_status(self) -> None:
         result = self.runner.run(FIXTURES_ROOT)
@@ -595,6 +668,21 @@ class OfflineEvaluationProofTests(unittest.TestCase):
         self.assertTrue(all(case["oracleMatch"] for case in result["cases"]))
         self.assertEqual("pass", result["rubric"]["status"])
         self.assertEqual("pass", result["evidence"]["status"])
+        cost = result["metrics"]["runtimeCostEvidence"]
+        self.assertEqual("blocked", cost["status"])
+        self.assertEqual(0, cost["comparison"]["eligibleWorkflowCount"])
+        self.assertIsNone(
+            cost["comparison"]["medianTotalParentModelTokenReduction"]
+        )
+        self.assertEqual(
+            {
+                "minimumMedianTotalParentModelTokenReduction": 0.1,
+                "maximumCorrectnessRegressions": 0,
+                "maximumExtraParentModelTurns": 0,
+            },
+            cost["releaseFloor"],
+        )
+        self.assertTrue(all(value is None for value in cost["measurements"].values()))
 
 
 if __name__ == "__main__":

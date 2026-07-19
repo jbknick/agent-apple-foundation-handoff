@@ -2,7 +2,7 @@
 
 Issue: [DEV-131](https://linear.app/devprentice/issue/DEV-131/r5parallel-define-evaluation-observability-and-e2e-proof-requirements)
 
-Evidence date: `2026-07-17`
+Evidence dates: original capture `2026-07-17`; current-host refresh `2026-07-19`
 
 ## Purpose
 
@@ -32,6 +32,10 @@ The selected approach has three independent evidence layers:
    Codex sessions prove activation, reference loading, and output behavior.
    Apple Evaluations and Instruments add optional Xcode 27 beta quality and
    profiling evidence when their exact prerequisites exist.
+4. **Paired runtime-cost evidence.** Eligible plugin-off/plugin-on runs record
+   provider usage fields and routing/correctness metrics without estimating
+   missing data. Provider telemetry, normalization, or live Apple blockers
+   keep the row `blocked`.
 
 Documentation alone was rejected because it cannot execute the issue's
 valid/invalid proof. A production harness was rejected because it would
@@ -56,7 +60,8 @@ The proof runner covers these families:
 - `D-GRANT-001`: independent state and boundary-policy revision matching;
 - `D-PHASE-001`: events occur only in valid phases and cannot erase recovery;
 - `D-EFFECT-001` and `D-EFFECT-002`: one ledger record, no executor command on
-  replay, and reconciliation before retry after an uncertain commit;
+  replay, and a `confirmed_absent` reconciliation before retry after an
+  uncertain commit;
 - `D-FALLBACK-001`: only declared safe fallback outcomes;
 - `D-EVIDENCE-001`: allowlisted paths, classifications, redaction, and hashes;
   and
@@ -74,6 +79,10 @@ approved boundary policy. A grant matches both. Invalid-phase events cannot
 clear an in-flight transition or unresolved recovery. At-most-once proof
 replays the same synthetic effect ID, expects one ledger entry, and expects no
 executor command for the replay. An uncertain commit reconciles before retry.
+The reconciliation outcome must be `confirmed_absent`; `still_unknown` and
+`confirmed_committed` fail closed. Nested policy/result records use exact
+schemas, context inclusion equals the declared minimum, and evidence paths are
+a subset of the evidence allowlist.
 
 ## Rubric contract
 
@@ -148,6 +157,15 @@ The MVP host matrix separates structural setup from capability:
 Plugin discovery, manifest validation, installation, cache contents, and an
 enabled flag do not prove activation or task completion.
 
+The runtime-cost row pairs identical eligible workflows under plugin-off and
+plugin-on conditions. It preserves provider-reported input, cached-input,
+output, and reasoning usage when exposed and records parent turns, Apple
+attempts, replacement ratio, declines, fallback rate, latency, and
+correctness. A versioned provider normalization defines total parent-model
+tokens. Release requires at least 10% median reduction, zero correctness
+regressions, and zero extra parent-model turns. Discovery, activation, byte
+counts, compile checks, and DEV-138 mocks cannot satisfy this live row.
+
 ## Apple evaluation and profiling boundary
 
 Apple's current primary sources establish that Evaluations is new in Xcode 27
@@ -163,11 +181,14 @@ Time to First Token, Tokens per Second, and Total Latency. Apple warns that
 trace files contain prompt and response data and can be sensitive. Host proof
 requires full Xcode 27 plus a compatible current OS target/device.
 
-The installed host uses Command Line Tools and macOS SDK 26.5. It type-checks
-`FoundationModels`, lacks `Evaluations`, `instruments`, and `xctrace`, and
-cannot run `xcodebuild`. These are narrow optional-host blockers. They do not
-turn a bare import, documentation page, or missing binary into a capability
-pass or a blanket Foundation Models failure.
+The 2026-07-19 host refresh observes macOS 26.5.1 (25F80), Xcode 26.6
+(17F113) at `/Applications/Xcode.app/Contents/Developer`, Swift 6.3.3/driver
+1.148.6, macOS and iPhoneOS SDK 26.5, xctrace 16.0, simctl, and two booted
+simulators. `Evaluations` still fails to import, the legacy `Instruments`
+lookup exits 72, and Xcode/SDK 27 is absent. These are narrow optional-host
+blockers; available tools do not prove a runtime model or cost row. Claude Code
+2.1.140 and Codex CLI 0.144.5 are binary prerequisites only and do not prove
+plugin activation.
 
 ## Evidence-bundle contract
 
@@ -211,19 +232,17 @@ introduced.
 
 ## Verification and commit boundary
 
-The branch uses four primary commits:
-
-1. design the evaluation strategy;
-2. plan the evaluation strategy;
-3. add the offline proof fixtures, tests, and safe example bundle; and
-4. publish the evaluation report and reproducible command transcript.
-
-Review corrections use narrow follow-up commits. Verification includes the
+The issue is maintained as one atomic 28-path delta against current `main`.
+Verification includes the
 test suite's observed red/green evidence, exact expected rejection IDs, rubric
 and evidence-bundle checks, source links, installed-host blocker probes,
-placeholder and sensitive-path scans, `git diff --check`, task reviews, a final
-whole-branch review, and fresh exact-head validation.
+placeholder and sensitive-path scans, `git diff --check`, and fresh exact-head
+validation. The sequential executor owns exactly three main-agent review/fix
+rounds, exact-lease publication, a current Linear/GitHub reread, head-locked
+squash merge, reviewed-tree equality, and a merged smoke gate; Round 1 does not
+claim those later steps are complete.
 
-The issue remains local and `In Progress` until the parent rebases it onto the
-final DEV-130 branch and creates the authorized stacked PR. This issue does not
-push, merge, tag, publish, or release anything.
+Runtime-evidence propagation is explicit: DEV-142 owns provider usage capture
+and normalization; DEV-143 owns paired runtime/routing measurements; DEV-144
+owns correctness and eligibility; DEV-145 owns aggregation and the release
+floor. None transfers production runtime ownership into DEV-131.
