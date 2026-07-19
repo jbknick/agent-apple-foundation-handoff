@@ -11,7 +11,7 @@
 ## Global constraints
 
 - Work only on `codex/dev-138-deterministic-swift-fixtures` from
-  `bdbfd335e32eba3efee32f2aac08bd3c2a100368`.
+  `27c7ce6b8d47541711184ceae06b2eecbdc4be8e`.
 - Follow DEV-138 Linear decision comment
   `4bf0b19c-1a3a-485b-ac2e-823e05cbee22`; do not change it implicitly.
 - Add no Swift package/project, production runtime, sample app, skill,
@@ -337,8 +337,9 @@ git commit -m "test(DEV-138): cover adversarial handoff recovery"
 
 - [ ] **Step 1: Write the RED environment/SDK matrix test**
 
-The test captures `swiftc` and `xcrun` with `shutil.which`, validates strict
-version output, and emits only normalized values. Missing tools create a
+The test captures `swiftc`, `xcrun`, and the SDK directory with
+`shutil.which`/`stat`, brackets invocations with exact metadata snapshots,
+validates strict version output, and emits only normalized values. Missing tools create a
 `unittest.SkipTest` message beginning with `blocked/`; release validation treats
 that skip as a blocker, never a pass.
 
@@ -374,6 +375,8 @@ test "$SDK_VERSION" = 26.5
 
 swiftc -typecheck -target "$TARGET" -sdk "$SDK" \
   fixtures/dev-128/compiled/stable-surface.swift
+swiftc -typecheck -target "$TARGET" -sdk "$SDK" \
+  fixtures/dev-128/compiled/generable-macro.swift
 swiftc -parse-as-library -target "$TARGET" -sdk "$SDK" \
   fixtures/dev-128/compiled/availability-probe.swift \
   -o "$TMPDIR/availability"
@@ -402,7 +405,7 @@ test "$("$TMPDIR/baton")" = \
   'source=research destination=review active=review finalOwner=review transferred=true'
 ```
 
-The first four supported Foundation Models rows are
+The first five supported Foundation Models rows are
 `compiled_sdk_26_5`; the baton mock is
 `pseudocode_deterministic_mock` despite compiling.
 
@@ -422,13 +425,14 @@ transient and never copied into tracked evidence.
 
 - [ ] **Step 5: Re-run the authoritative expected blockers**
 
-Use the exact commands and three independent diagnostic checks from
+Use the exact commands and two independent diagnostic checks from
 `fixtures/dev-128/README.md` for:
 
-- `blocked/generable-macro.swift` -> missing `FoundationModelsMacros`;
 - `blocked/os-27-beta-surface.swift` -> dynamic profile/profile,
   profile-session initializer, and `toolCallingMode` diagnostics; and
 - `blocked/evaluations-import.swift` -> no `Evaluations` module.
+
+Compile `compiled/generable-macro.swift` as the sixth positive row.
 
 Each compile must be nonzero and match its capability-specific diagnostic.
 Generic nonzero is `fail`. A future supported surface requires reclassification,
@@ -441,9 +445,10 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
   tests.test_dev_138_fixtures.Dev138SDKTests -v
 ```
 
-Expected on the approved host: Swift 6.3.2, target
-`arm64-apple-macos26.0`, SDK 26.5, positive DEV-128 matrix pass, and exact
-expected blockers. Record normalized versions only.
+Expected on the approved host: Swift 6.3.3, default target
+`arm64-apple-macosx26.0`, compile target `arm64-apple-macos26.0`, SDK 26.5,
+six positive DEV-128 rows, and two exact expected blockers. Record normalized
+versions and metadata identity only.
 
 - [ ] **Step 7: Commit SDK integration and README**
 
@@ -552,7 +557,7 @@ git diff --check
 ```
 
 Expected: DEV-138 exact/repeat/mutation matrix passes; repository suite passes;
-DEV-131 remains 26/26 with 11/11 oracle; DEV-130 remains 7/7 exact; BATS remains
+DEV-131 remains 26/26 with 11/11 oracle; DEV-130 remains 8/8 exact; BATS remains
 3/3; generation is synchronized.
 
 - [ ] **Step 2: Run the SDK matrix from Task 4**
@@ -607,8 +612,9 @@ git diff --check
 git status --short
 ```
 
-Review the complete issue delta against `bdbfd335e32eba3efee32f2aac08bd3c2a100368`
-and require only the seven planned implementation paths.
+Review the complete issue delta against `27c7ce6b8d47541711184ceae06b2eecbdc4be8e`
+and require exactly nine PR paths: seven implementation/evidence paths plus this
+plan and design.
 
 - [ ] **Step 6: Commit final evidence**
 
@@ -639,7 +645,7 @@ GREEN gate has passed.
 | DEV-138 deterministic | `tests.test_dev_138_fixtures` | Every case once; exact sorted violations; two byte-identical runs; oracle hash match. |
 | DEV-138 mutation | Same module | Each independent mutation returns only its intended `D-*` set. |
 | Apple SDK 26.5 | Direct DEV-128 sources | Supported rows compile/run; interface hash matches; blockers have exact diagnostics. |
-| DEV-130 | Direct Swift compile/golden | `7/7`, exact output. |
+| DEV-130 | Direct Swift compile/golden | `8/8`, exact output. |
 | DEV-131 | Unit suite and proof runner | `26/26`, `11/11`, rubric/evidence gates unchanged. |
 | Repository | `unittest discover -s tests` | All tests pass, including package exclusion. |
 | Generation | `sync_generated_artifacts.py --check` | Synchronized; no generated diff. |
@@ -647,7 +653,7 @@ GREEN gate has passed.
 | Packaging | Local temporary package copy | No fixture/test/doc/research/private path or symlink. |
 | Evidence/privacy | Scans plus manual transcript review | Only normalized synthetic metadata; no prohibited content/path. |
 | Deferred host/tool rows | Owner decision | Claude, pre-commit, markdownlint stay explicit blockers, never passes. |
-| Scope | Git diff from base | Only the seven DEV-138 implementation paths; no package/generator/generated change. |
+| Scope | Git diff from base | Exactly nine DEV-138 paths, seven implementation/evidence paths plus plan/design; no package/generator/generated change. |
 
 ## Completion handoff
 

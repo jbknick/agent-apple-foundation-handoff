@@ -39,9 +39,10 @@ The DEV-138 reducer and the reused baton fixture are
 `pseudocode_deterministic_mock`. Compiling them does not establish Apple API or
 probabilistic model behavior.
 
-The reused DEV-128 stable-surface, availability, transcript-round-trip, and
-session-isolation rows are `compiled_sdk_26_5` only after the environment gate
-confirms Swift 6.3.2, SDK 26.5, and target `arm64-apple-macos26.0`. The installed
+The reused DEV-128 stable-surface, generable-macro, availability,
+transcript-round-trip, and session-isolation rows are `compiled_sdk_26_5` only
+after the environment gate confirms Swift 6.3.3, SDK 26.5, and target
+`arm64-apple-macos26.0`. The installed
 `arm64e-apple-macos.swiftinterface` row is
 `interface_verified_sdk_26_5` only when its SHA-256 is exactly
 `ff2285670b0966addb9827dc895a3ee3c9db6e186baae62c034fed012632aacc`.
@@ -71,7 +72,7 @@ diff -u fixtures/dev-138/expected-results.jsonl "$TMPDIR/first.jsonl"
 
 ## SDK 26.5 commands
 
-The positive matrix reuses DEV-128 sources directly. The first four rows are
+The positive matrix reuses DEV-128 sources directly. The first five rows are
 `compiled_sdk_26_5`; the baton row remains
 `pseudocode_deterministic_mock`.
 
@@ -87,6 +88,8 @@ test "$SDK_VERSION" = 26.5
 
 swiftc -typecheck -target "$TARGET" -sdk "$SDK" \
   fixtures/dev-128/compiled/stable-surface.swift
+swiftc -typecheck -target "$TARGET" -sdk "$SDK" \
+  fixtures/dev-128/compiled/generable-macro.swift
 swiftc -parse-as-library -target "$TARGET" -sdk "$SDK" \
   fixtures/dev-128/compiled/availability-probe.swift \
   -o "$TMPDIR/availability"
@@ -135,16 +138,6 @@ trap 'rm -rf "$TMPDIR"' EXIT
 SDK="$(xcrun --sdk macosx --show-sdk-path)"
 
 set +e
-swiftc -typecheck -target arm64-apple-macos26.0 -sdk "$SDK" \
-  fixtures/dev-128/blocked/generable-macro.swift \
-  >"$TMPDIR/generable.out" 2>&1
-macro_rc=$?
-set -e
-test "$macro_rc" -ne 0
-rg -q 'FoundationModelsMacros|macro implementation.*could not be found' \
-  "$TMPDIR/generable.out"
-
-set +e
 swiftc -typecheck -target arm64-apple-macos27.0 -sdk "$SDK" \
   fixtures/dev-128/blocked/os-27-beta-surface.swift \
   >"$TMPDIR/beta.out" 2>&1
@@ -170,12 +163,13 @@ rg -q "no such module 'Evaluations'" "$TMPDIR/evaluations.out"
 
 ## Release blockers
 
-The SDK test captures `swiftc` and `xcrun` once, verifies strict normalized
-version output, and rechecks resolution and version stability. Missing tools
-produce `unittest.SkipTest` messages beginning `blocked/missing_swiftc` or
-`blocked/missing_xcrun`; either skip is a release blocker, never a pass. An SDK
-other than exactly 26.5 produces `blocked/sdk_version_mismatch` and requires
-matrix reclassification.
+The SDK test captures `swiftc`, `xcrun`, and the SDK directory once, verifies
+strict normalized version output, and brackets invocations with the same exact
+device, inode, type, mode, size, modification-time, and change-time snapshots.
+Missing tools produce `unittest.SkipTest` messages beginning
+`blocked/missing_swiftc` or `blocked/missing_xcrun`; either skip is a release
+blocker, never a pass. An SDK other than exactly 26.5 produces
+`blocked/sdk_version_mismatch` and requires matrix reclassification.
 
 A missing or mismatched installed interface, a positive probe failure, an
 expected-blocker compile success, or a nonzero compile without the complete

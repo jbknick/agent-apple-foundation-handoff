@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 import tempfile
 import unittest
@@ -84,10 +85,57 @@ DEV134_RUNTIME_MAPPING_NONCLAIMS = (
     "rubric_owned_by_dev_131",
 )
 SDK_VERSION = "26.5"
-SWIFT_VERSION = "6.3.2"
+SWIFT_VERSION = "6.3.3"
 TARGET = "arm64-apple-macos26.0"
 DEFAULT_SWIFT_TARGET = "arm64-apple-macosx26.0"
 INTERFACE_SHA256 = "ff2285670b0966addb9827dc895a3ee3c9db6e186baae62c034fed012632aacc"
+
+
+def _metadata_snapshot(path):
+    metadata = path.stat()
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        stat.S_IFMT(metadata.st_mode),
+        stat.S_IMODE(metadata.st_mode),
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+
+def _assert_path_identity(locator, resolution, snapshot, reason):
+    try:
+        current_resolution = locator.resolve(strict=True)
+        current_snapshot = _metadata_snapshot(current_resolution)
+    except OSError as error:
+        raise AssertionError(reason) from error
+    if current_resolution != resolution or current_snapshot != snapshot:
+        raise AssertionError(reason)
+
+
+def _capture_bound_executable(
+    locator,
+    resolution,
+    snapshot,
+    arguments,
+    reason,
+    boundaries=(),
+):
+    _assert_path_identity(locator, resolution, snapshot, reason)
+    for boundary in boundaries:
+        _assert_path_identity(*boundary)
+    completed = subprocess.run(
+        [str(resolution), *map(str, arguments)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    _assert_path_identity(locator, resolution, snapshot, reason)
+    for boundary in boundaries:
+        _assert_path_identity(*boundary)
+    return completed
 
 FOUNDATION_COMMANDS = r'''set -e
 TMPDIR="$(mktemp -d)"
@@ -112,6 +160,8 @@ test "$SDK_VERSION" = 26.5
 
 swiftc -typecheck -target "$TARGET" -sdk "$SDK" \
   fixtures/dev-128/compiled/stable-surface.swift
+swiftc -typecheck -target "$TARGET" -sdk "$SDK" \
+  fixtures/dev-128/compiled/generable-macro.swift
 swiftc -parse-as-library -target "$TARGET" -sdk "$SDK" \
   fixtures/dev-128/compiled/availability-probe.swift \
   -o "$TMPDIR/availability"
@@ -150,16 +200,6 @@ BLOCKER_COMMANDS = r'''set -e
 TMPDIR="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR"' EXIT
 SDK="$(xcrun --sdk macosx --show-sdk-path)"
-
-set +e
-swiftc -typecheck -target arm64-apple-macos26.0 -sdk "$SDK" \
-  fixtures/dev-128/blocked/generable-macro.swift \
-  >"$TMPDIR/generable.out" 2>&1
-macro_rc=$?
-set -e
-test "$macro_rc" -ne 0
-rg -q 'FoundationModelsMacros|macro implementation.*could not be found' \
-  "$TMPDIR/generable.out"
 
 set +e
 swiftc -typecheck -target arm64-apple-macos27.0 -sdk "$SDK" \
@@ -754,6 +794,9 @@ struct Probe {
         prohibitedExtension.artifactExtension = ".trace"
         var rawRedaction = valid
         rawRedaction.redaction = .raw
+        var homePath = valid
+        homePath.content = "/home/fixture/private"
+        homePath.fingerprint = "sha256:" + SHA256.hexDigest(homePath.content)
 
         let values = [
             SHA256.hexDigest("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
@@ -764,13 +807,17 @@ struct Probe {
             !HandoffReducer.evidenceRecordIsSafe(absolutePath),
             !HandoffReducer.evidenceRecordIsSafe(prohibitedExtension),
             !HandoffReducer.evidenceRecordIsSafe(rawRedaction),
+            !HandoffReducer.evidenceRecordIsSafe(homePath),
         ]
         print(values.map(String.init).joined(separator: "|"))
     }
 }
 '''
         )
-        self.assertEqual(output, "true|true|true|true|true|true|true|true\n")
+        self.assertEqual(
+            output,
+            "true|true|true|true|true|true|true|true|true\n",
+        )
 
         for mutation in (
             "evidence_bad_fingerprint",
@@ -906,6 +953,494 @@ struct Probe {
             decision.state == executed
                 && decision.command == nil
                 && decision.disposition == .refusedPolicy
+        )
+    }
+}
+'''
+        )
+        self.assertEqual(output, "true\n")
+
+    def test_consultation_and_execution_call_id_replays_are_refused(self):
+        output = self._run_reducer_probe(
+            r'''
+import Foundation
+
+@main
+struct Probe {
+    static func main() {
+        let firstConsultation = HandoffReducer.reduce(
+            .initial,
+            event: .completeConsultation
+        )
+        let repeatedConsultation = HandoffReducer.reduce(
+            firstConsultation.state,
+            event: .completeConsultation
+        )
+
+        let proposed = HandoffReducer.reduce(
+            .initial,
+            event: .proposeBaton(proposal: HandoffProposal.fixture(from: .initial))
+        )
+        var committed = HandoffReducer.reduce(
+            proposed.state,
+            event: .commitBaton
+        ).state
+        committed.effectBudget = 2
+        var firstRequest = ExecutionRequest.fixture(state: committed)
+        firstRequest.effectID = "effect-001"
+        let firstExecution = HandoffReducer.reduce(
+            committed,
+            event: .execute(request: firstRequest)
+        )
+        var reusedCall = ExecutionRequest.fixture(state: firstExecution.state)
+        reusedCall.effectID = "effect-002"
+        let repeatedExecution = HandoffReducer.reduce(
+            firstExecution.state,
+            event: .execute(request: reusedCall)
+        )
+
+        let values = [
+            firstConsultation.command != nil
+                && firstConsultation.state.ledger.count == 1,
+            repeatedConsultation.state == firstConsultation.state
+                && repeatedConsultation.command == nil
+                && repeatedConsultation.disposition == .refusedReplay,
+            repeatedExecution.state == firstExecution.state
+                && repeatedExecution.command == nil
+                && repeatedExecution.disposition == .refusedReplay,
+        ]
+        print(values.map(String.init).joined(separator: "|"))
+    }
+}
+'''
+        )
+        self.assertEqual(output, "true|true|true\n")
+
+    def test_tool_result_matches_one_current_command_and_is_consumed_once(self):
+        output = self._run_reducer_probe(
+            r'''
+import Foundation
+
+@main
+struct Probe {
+    static func main() {
+        let proposed = HandoffReducer.reduce(
+            .initial,
+            event: .proposeBaton(proposal: HandoffProposal.fixture(from: .initial))
+        )
+        let committed = HandoffReducer.reduce(proposed.state, event: .commitBaton).state
+        let request = ExecutionRequest.fixture(state: committed)
+        let executed = HandoffReducer.reduce(committed, event: .execute(request: request)).state
+        let result = ToolResult(
+            callID: request.authorization.callID,
+            binding: request.authorization.binding,
+            stateVersion: executed.stateVersion
+        )
+        let accepted = HandoffReducer.reduce(
+            executed,
+            event: .acceptToolResult(
+                result: result,
+                authorization: request.authorization
+            )
+        )
+        let repeated = HandoffReducer.reduce(
+            accepted.state,
+            event: .acceptToolResult(
+                result: result,
+                authorization: request.authorization
+            )
+        )
+
+        var advanced = executed
+        advanced.stateVersion += 1
+        var currentAuthorization = request.authorization
+        currentAuthorization.stateVersion = advanced.stateVersion
+        var currentResult = result
+        currentResult.stateVersion = advanced.stateVersion
+        let staleOrigin = HandoffReducer.reduce(
+            advanced,
+            event: .acceptToolResult(
+                result: currentResult,
+                authorization: currentAuthorization
+            )
+        )
+
+        var ambiguousCall = executed
+        ambiguousCall.toolBudget = 2
+        ambiguousCall.effectBudget = 2
+        var otherBinding = request.authorization.binding
+        otherBinding.version = "2.0"
+        ambiguousCall.commandHistory.append(
+            ExecutorCommand(
+                effectID: "effect-002",
+                callID: request.authorization.callID,
+                binding: otherBinding,
+                stateVersion: executed.stateVersion,
+                kind: .initial
+            )
+        )
+        ambiguousCall.ledger.append(
+            EffectRecord(
+                effectID: "effect-002",
+                stateVersion: executed.stateVersion,
+                command: otherBinding.name,
+                checkpoint: "committed",
+                truth: "commandIssued",
+                reconciled: false
+            )
+        )
+        ambiguousCall.executorCommandCount += 1
+        let ambiguousOrigin = HandoffReducer.reduce(
+            ambiguousCall,
+            event: .acceptToolResult(
+                result: result,
+                authorization: request.authorization
+            )
+        )
+
+        let values = [
+            accepted.disposition == .applied
+                && accepted.state.ledger.first?.truth == "resultAccepted",
+            repeated.state == accepted.state
+                && repeated.command == nil
+                && repeated.disposition == .refusedReplay,
+            staleOrigin.state == advanced
+                && staleOrigin.command == nil
+                && staleOrigin.disposition == .refusedPolicy,
+            ambiguousOrigin.state == ambiguousCall
+                && ambiguousOrigin.command == nil
+                && ambiguousOrigin.disposition == .refusedPolicy,
+        ]
+        print(values.map(String.init).joined(separator: "|"))
+    }
+}
+'''
+        )
+        self.assertEqual(output, "true|true|true|true\n")
+
+    def test_duplicate_context_names_fail_closed_before_serialization(self):
+        output = self._run_reducer_probe(
+            r'''
+import Foundation
+
+@main
+struct Probe {
+    static func main() {
+        let proposed = HandoffReducer.reduce(
+            .initial,
+            event: .proposeBaton(proposal: HandoffProposal.fixture(from: .initial))
+        )
+        let committed = HandoffReducer.reduce(proposed.state, event: .commitBaton).state
+        var request = ExecutionRequest.fixture(state: committed)
+        request.context.append(request.context[0])
+        let decision = HandoffReducer.reduce(
+            committed,
+            event: .execute(request: request)
+        )
+        let observation = ScenarioObservation(
+            schemaVersion: 1,
+            caseID: "duplicate-context-probe",
+            pattern: .batonPass,
+            sourceProfile: "source",
+            sourceProvider: "provider-a",
+            destinationProfile: "destination",
+            destinationProvider: "provider-b",
+            personID: "person-001",
+            sessionID: "session-001",
+            purpose: "task-execution",
+            retention: "ephemeral",
+            route: RouteContract(
+                pattern: .batonPass,
+                destinationProfile: "destination",
+                destinationProvider: "provider-b",
+                allowedEdges: [.sourceToDestination]
+            ),
+            requiredContextNames: request.requiredContextNames,
+            context: request.context,
+            grant: request.grant,
+            clock: 100,
+            toolAuthorization: request.authorization,
+            toolResult: nil,
+            evidence: [],
+            state: committed,
+            eventRecords: [],
+            recoveryBaseline: nil,
+            auditFacts: []
+        )
+        let payload = HandoffReducer.serializeContextForProvider(observation)
+        print(
+            decision.state == committed
+                && decision.command == nil
+                && decision.disposition == .refusedPolicy
+                && payload.isEmpty
+        )
+    }
+}
+'''
+        )
+        self.assertEqual(output, "true\n")
+
+    def test_validator_rejects_duplicate_context_and_call_identities(self):
+        output = self._run_reducer_probe(
+            r'''
+import Foundation
+
+func observation(
+    state: HandoffState,
+    request: ExecutionRequest,
+    context: [ContextField]
+) -> ScenarioObservation {
+    ScenarioObservation(
+        schemaVersion: 1,
+        caseID: "identity-probe",
+        pattern: .batonPass,
+        sourceProfile: "source",
+        sourceProvider: "provider-a",
+        destinationProfile: "destination",
+        destinationProvider: "provider-b",
+        personID: "person-001",
+        sessionID: "session-001",
+        purpose: "task-execution",
+        retention: "ephemeral",
+        route: RouteContract(
+            pattern: .batonPass,
+            destinationProfile: "destination",
+            destinationProvider: "provider-b",
+            allowedEdges: [.sourceToDestination]
+        ),
+        requiredContextNames: request.requiredContextNames,
+        context: context,
+        grant: request.grant,
+        clock: 100,
+        toolAuthorization: request.authorization,
+        toolResult: nil,
+        evidence: [],
+        state: state,
+        eventRecords: [],
+        recoveryBaseline: nil,
+        auditFacts: []
+    )
+}
+
+@main
+struct Probe {
+    static func main() {
+        let proposed = HandoffReducer.reduce(
+            .initial,
+            event: .proposeBaton(proposal: HandoffProposal.fixture(from: .initial))
+        )
+        var committed = HandoffReducer.reduce(proposed.state, event: .commitBaton).state
+        committed.effectBudget = 2
+        let request = ExecutionRequest.fixture(state: committed)
+        var duplicatedContext = request.context
+        duplicatedContext.append(duplicatedContext[0])
+        let contextViolations = HandoffReducer.validate(
+            observation(state: committed, request: request, context: duplicatedContext)
+        )
+
+        var duplicatedCall = HandoffReducer.reduce(
+            committed,
+            event: .execute(request: request)
+        ).state
+        let firstCommand = duplicatedCall.commandHistory[0]
+        duplicatedCall.commandHistory.append(
+            ExecutorCommand(
+                effectID: "effect-002",
+                callID: firstCommand.callID,
+                binding: firstCommand.binding,
+                stateVersion: firstCommand.stateVersion,
+                kind: .initial
+            )
+        )
+        duplicatedCall.ledger.append(
+            EffectRecord(
+                effectID: "effect-002",
+                stateVersion: firstCommand.stateVersion,
+                command: firstCommand.binding.name,
+                checkpoint: "committed",
+                truth: "commandIssued",
+                reconciled: false
+            )
+        )
+        duplicatedCall.executorCommandCount += 1
+        let callViolations = HandoffReducer.validate(
+            observation(state: duplicatedCall, request: request, context: request.context)
+        )
+        print(
+            contextViolations.contains("D-CONTEXT-002")
+                && callViolations.contains("D-TOOL-001")
+        )
+    }
+}
+'''
+        )
+        self.assertEqual(output, "true\n")
+
+    def test_execution_grant_expiry_uses_the_request_time_inclusively(self):
+        output = self._run_reducer_probe(
+            r'''
+import Foundation
+
+@main
+struct Probe {
+    static func main() {
+        let proposed = HandoffReducer.reduce(
+            .initial,
+            event: .proposeBaton(proposal: HandoffProposal.fixture(from: .initial))
+        )
+        let committed = HandoffReducer.reduce(proposed.state, event: .commitBaton).state
+
+        var boundary = ExecutionRequest.fixture(state: committed)
+        boundary.requestedAt = boundary.grant.expiresAt
+        let boundaryDecision = HandoffReducer.reduce(
+            committed,
+            event: .execute(request: boundary)
+        )
+
+        var expired = ExecutionRequest.fixture(state: committed)
+        expired.requestedAt = expired.grant.expiresAt + 1
+        let expiredDecision = HandoffReducer.reduce(
+            committed,
+            event: .execute(request: expired)
+        )
+
+        print(
+            boundaryDecision.disposition == .applied
+                && boundaryDecision.command != nil
+                && expiredDecision.state == committed
+                && expiredDecision.command == nil
+                && expiredDecision.disposition == .refusedPolicy
+        )
+    }
+}
+'''
+        )
+        self.assertEqual(output, "true\n")
+
+    def test_reconciliation_truth_controls_one_retry_and_resolved_effects_stay_closed(self):
+        output = self._run_reducer_probe(
+            r'''
+import Foundation
+
+func executedState() -> (HandoffState, ExecutionRequest) {
+    let proposed = HandoffReducer.reduce(
+        .initial,
+        event: .proposeBaton(proposal: HandoffProposal.fixture(from: .initial))
+    )
+    let committed = HandoffReducer.reduce(proposed.state, event: .commitBaton).state
+    let request = ExecutionRequest.fixture(state: committed)
+    return (
+        HandoffReducer.reduce(committed, event: .execute(request: request)).state,
+        request
+    )
+}
+
+func recoveryState(_ executed: HandoffState) -> HandoffState {
+    HandoffReducer.reduce(
+        executed,
+        event: .commandUncertain(effectID: "effect-001")
+    ).state
+}
+
+@main
+struct Probe {
+    static func main() {
+        let (executed, request) = executedState()
+        let applied = HandoffReducer.reduce(
+            recoveryState(executed),
+            event: .reconcileSucceeded(truth: .confirmedApplied)
+        )
+        let forbiddenRetry = HandoffReducer.reduce(
+            applied.state,
+            event: .retryReconciled(effectID: "effect-001")
+        )
+
+        let notApplied = HandoffReducer.reduce(
+            recoveryState(executed),
+            event: .reconcileSucceeded(truth: .confirmedNotApplied)
+        )
+        let retry = HandoffReducer.reduce(
+            notApplied.state,
+            event: .retryReconciled(effectID: "effect-001")
+        )
+        let repeatedRetry = HandoffReducer.reduce(
+            retry.state,
+            event: .retryReconciled(effectID: "effect-001")
+        )
+
+        let result = ToolResult(
+            callID: request.authorization.callID,
+            binding: request.authorization.binding,
+            stateVersion: executed.stateVersion
+        )
+        let accepted = HandoffReducer.reduce(
+            executed,
+            event: .acceptToolResult(result: result, authorization: request.authorization)
+        )
+        let reopened = HandoffReducer.reduce(
+            accepted.state,
+            event: .commandUncertain(effectID: "effect-001")
+        )
+
+        let values = [
+            applied.state.repairFacts.lastKnownTruth == "confirmedApplied"
+                && forbiddenRetry.state == applied.state
+                && forbiddenRetry.command == nil,
+            notApplied.state.repairFacts.lastKnownTruth == "confirmedNotApplied"
+                && retry.command?.kind == .retry
+                && retry.state.executorCommandCount == 2,
+            repeatedRetry.state == retry.state
+                && repeatedRetry.command == nil
+                && repeatedRetry.disposition == .refusedReplay,
+            reopened.state == accepted.state
+                && reopened.command == nil
+                && reopened.disposition == .refusedPolicy,
+        ]
+        print(values.map(String.init).joined(separator: "|"))
+    }
+}
+'''
+        )
+        self.assertEqual(output, "true|true|true|true\n")
+
+    def test_recovery_requires_one_matching_unresolved_ledger_record(self):
+        output = self._run_reducer_probe(
+            r'''
+import Foundation
+
+@main
+struct Probe {
+    static func main() {
+        let proposed = HandoffReducer.reduce(
+            .initial,
+            event: .proposeBaton(proposal: HandoffProposal.fixture(from: .initial))
+        )
+        let committed = HandoffReducer.reduce(proposed.state, event: .commitBaton).state
+        let request = ExecutionRequest.fixture(state: committed)
+        var duplicated = HandoffReducer.reduce(
+            committed,
+            event: .execute(request: request)
+        ).state
+        duplicated.ledger.append(duplicated.ledger[0])
+        let decision = HandoffReducer.reduce(
+            duplicated,
+            event: .commandUncertain(effectID: request.effectID)
+        )
+        var missingCommand = duplicated
+        missingCommand.ledger.removeLast()
+        missingCommand.commandHistory = []
+        missingCommand.executorCommandCount = 0
+        let missingCommandDecision = HandoffReducer.reduce(
+            missingCommand,
+            event: .commandUncertain(effectID: request.effectID)
+        )
+        print(
+            decision.state == duplicated
+                && decision.command == nil
+                && decision.disposition == .refusedPolicy
+                && missingCommandDecision.state == missingCommand
+                && missingCommandDecision.command == nil
+                && missingCommandDecision.disposition == .refusedPolicy
         )
     }
 }
@@ -1069,10 +1604,14 @@ class Dev138SDKTests(unittest.TestCase):
                 "blocked/missing_xcrun release_blocker=true"
             )
 
-        cls.swiftc = Path(swiftc).resolve()
-        cls.xcrun = Path(xcrun).resolve()
+        cls.swiftc_locator = Path(swiftc)
+        cls.xcrun_locator = Path(xcrun)
+        cls.swiftc = cls.swiftc_locator.resolve(strict=True)
+        cls.xcrun = cls.xcrun_locator.resolve(strict=True)
+        cls.swiftc_snapshot = _metadata_snapshot(cls.swiftc)
+        cls.xcrun_snapshot = _metadata_snapshot(cls.xcrun)
 
-        swift_version = cls._capture([str(cls.swiftc), "--version"])
+        swift_version = cls._capture_swiftc("--version")
         if swift_version.returncode != 0:
             raise unittest.SkipTest(
                 "blocked/swift_version_unavailable release_blocker=true"
@@ -1106,8 +1645,8 @@ class Dev138SDKTests(unittest.TestCase):
         cls.swift_identity = "swift_" + SWIFT_VERSION.replace(".", "_")
         cls.default_swift_target = version_match.group(2)
 
-        sdk_version = cls._capture(
-            [str(cls.xcrun), "--sdk", "macosx", "--show-sdk-version"]
+        sdk_version = cls._capture_xcrun(
+            "--sdk", "macosx", "--show-sdk-version"
         )
         if (
             sdk_version.returncode != 0
@@ -1123,9 +1662,7 @@ class Dev138SDKTests(unittest.TestCase):
                 "blocked/sdk_version_mismatch release_blocker=true"
             )
 
-        sdk_path = cls._capture(
-            [str(cls.xcrun), "--sdk", "macosx", "--show-sdk-path"]
-        )
+        sdk_path = cls._capture_xcrun("--sdk", "macosx", "--show-sdk-path")
         sdk_lines = sdk_path.stdout.splitlines()
         if (
             sdk_path.returncode != 0
@@ -1137,7 +1674,9 @@ class Dev138SDKTests(unittest.TestCase):
             raise unittest.SkipTest(
                 "blocked/sdk_path_malformed release_blocker=true"
             )
-        cls.sdk_path = Path(sdk_lines[0])
+        cls.sdk_locator = Path(sdk_lines[0])
+        cls.sdk_path = cls.sdk_locator.resolve(strict=True)
+        cls.sdk_snapshot = _metadata_snapshot(cls.sdk_path)
         cls._temporary_directory = tempfile.TemporaryDirectory(prefix="dev-138-sdk-")
         cls.temporary_root = Path(cls._temporary_directory.name)
         cls.environment_matrix = (
@@ -1168,6 +1707,37 @@ class Dev138SDKTests(unittest.TestCase):
             check=False,
         )
 
+    @classmethod
+    def _capture_swiftc(cls, *arguments):
+        boundaries = ()
+        if hasattr(cls, "sdk_snapshot"):
+            boundaries = (
+                (
+                    cls.sdk_locator,
+                    cls.sdk_path,
+                    cls.sdk_snapshot,
+                    "fail/sdk_directory_identity_drift",
+                ),
+            )
+        return _capture_bound_executable(
+            cls.swiftc_locator,
+            cls.swiftc,
+            cls.swiftc_snapshot,
+            arguments,
+            "fail/swiftc_identity_drift",
+            boundaries,
+        )
+
+    @classmethod
+    def _capture_xcrun(cls, *arguments):
+        return _capture_bound_executable(
+            cls.xcrun_locator,
+            cls.xcrun,
+            cls.xcrun_snapshot,
+            arguments,
+            "fail/xcrun_identity_drift",
+        )
+
     def setUp(self):
         self._assert_environment_stable()
 
@@ -1190,7 +1760,26 @@ class Dev138SDKTests(unittest.TestCase):
             "fail/xcrun_resolution_drift",
         )
 
-        swift_version = self._capture([str(self.swiftc), "--version"])
+        _assert_path_identity(
+            self.swiftc_locator,
+            self.swiftc,
+            self.swiftc_snapshot,
+            "fail/swiftc_identity_drift",
+        )
+        _assert_path_identity(
+            self.xcrun_locator,
+            self.xcrun,
+            self.xcrun_snapshot,
+            "fail/xcrun_identity_drift",
+        )
+        _assert_path_identity(
+            self.sdk_locator,
+            self.sdk_path,
+            self.sdk_snapshot,
+            "fail/sdk_directory_identity_drift",
+        )
+
+        swift_version = self._capture_swiftc("--version")
         self.assertEqual(swift_version.returncode, 0, "fail/swift_version_drift")
         self.assertEqual(
             swift_version.stdout,
@@ -1203,8 +1792,8 @@ class Dev138SDKTests(unittest.TestCase):
             "fail/swift_version_drift",
         )
 
-        sdk_version = self._capture(
-            [str(self.xcrun), "--sdk", "macosx", "--show-sdk-version"]
+        sdk_version = self._capture_xcrun(
+            "--sdk", "macosx", "--show-sdk-version"
         )
         self.assertEqual(sdk_version.returncode, 0, "fail/sdk_version_drift")
         self.assertEqual(
@@ -1214,8 +1803,19 @@ class Dev138SDKTests(unittest.TestCase):
         )
         self.assertEqual(sdk_version.stderr, "", "fail/sdk_version_drift")
 
+        sdk_path = self._capture_xcrun(
+            "--sdk", "macosx", "--show-sdk-path"
+        )
+        self.assertEqual(sdk_path.returncode, 0, "fail/sdk_path_drift")
+        self.assertEqual(
+            sdk_path.stdout,
+            str(self.sdk_locator) + "\n",
+            "fail/sdk_path_drift",
+        )
+        self.assertEqual(sdk_path.stderr, "", "fail/sdk_path_drift")
+
     def _swift(self, *arguments):
-        return self._capture([str(self.swiftc), *map(str, arguments)])
+        return self._capture_swiftc(*arguments)
 
     def _assert_compiles(self, source, *, output=None, target=TARGET):
         arguments = ["-target", target, "-sdk", self.sdk_path]
@@ -1254,8 +1854,42 @@ class Dev138SDKTests(unittest.TestCase):
                 "fail/expected_blocker_diagnostic_mismatch",
             )
 
+    def test_bound_executable_rejects_same_path_replacement(self):
+        with tempfile.TemporaryDirectory(prefix="dev-138-identity-") as directory:
+            locator = Path(directory) / "swiftc"
+            replacement = Path(directory) / "replacement"
+            locator.write_text(
+                "#!/bin/sh\n"
+                'mv "$0.replacement" "$0"\n'
+                "printf 'same-version\\n'\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+            locator.chmod(0o700)
+            replacement.write_text(
+                "#!/bin/sh\nprintf 'same-version\\n'\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+            replacement.chmod(0o700)
+            replacement.replace(Path(f"{locator}.replacement"))
+            resolution = locator.resolve(strict=True)
+            snapshot = _metadata_snapshot(resolution)
+
+            with self.assertRaisesRegex(
+                AssertionError,
+                "fail/test_executable_identity_drift",
+            ):
+                _capture_bound_executable(
+                    locator,
+                    resolution,
+                    snapshot,
+                    ["--version"],
+                    "fail/test_executable_identity_drift",
+                )
+
     def test_environment_matrix_is_exact_and_normalized(self):
-        self.assertEqual(self.swift_identity, "swift_6_3_2")
+        self.assertEqual(self.swift_identity, "swift_6_3_3")
         self.assertEqual(self.default_swift_target, DEFAULT_SWIFT_TARGET)
         self.assertEqual(self.sdk_version, SDK_VERSION)
         self.assertEqual(TARGET, "arm64-apple-macos26.0")
@@ -1263,7 +1897,7 @@ class Dev138SDKTests(unittest.TestCase):
             self.environment_matrix,
             (
                 {
-                    "identity": "swift_6_3_2",
+                    "identity": "swift_6_3_3",
                     "target": "arm64-apple-macosx26.0",
                     "status": "pass",
                 },
@@ -1276,11 +1910,6 @@ class Dev138SDKTests(unittest.TestCase):
         )
 
     def test_expected_blockers_require_all_specific_diagnostics(self):
-        self._assert_expected_blocker(
-            DEV128_ROOT / "blocked" / "generable-macro.swift",
-            TARGET,
-            [r"FoundationModelsMacros|macro implementation.*could not be found"],
-        )
         self._assert_expected_blocker(
             DEV128_ROOT / "blocked" / "os-27-beta-surface.swift",
             "arm64-apple-macos27.0",
@@ -1334,6 +1963,10 @@ class Dev138SDKTests(unittest.TestCase):
         stable = self._assert_compiles(compiled / "stable-surface.swift")
         self.assertEqual(stable.stdout, "", "fail/stable_surface_output")
         evidence_rows["stable"] = "compiled_sdk_26_5"
+
+        generable = self._assert_compiles(compiled / "generable-macro.swift")
+        self.assertEqual(generable.stdout, "", "fail/generable_macro_output")
+        evidence_rows["generable"] = "compiled_sdk_26_5"
 
         availability = self.temporary_root / "availability"
         self._assert_compiles(
@@ -1415,6 +2048,7 @@ class Dev138SDKTests(unittest.TestCase):
             evidence_rows,
             {
                 "stable": "compiled_sdk_26_5",
+                "generable": "compiled_sdk_26_5",
                 "availability": "compiled_sdk_26_5",
                 "transcript": "compiled_sdk_26_5",
                 "session": "compiled_sdk_26_5",
@@ -1487,6 +2121,26 @@ class Dev138ContractTests(unittest.TestCase):
         identities = [case["id"] for case in cases]
         self.assertEqual(len(identities), 15)
         self.assertEqual(len(identities), len(set(identities)))
+        self.assertEqual(
+            {
+                owner: sum(case["activationOwner"] == owner for case in cases)
+                for owner in ("direct_workflow", "non_positive_router")
+            },
+            {"direct_workflow": 7, "non_positive_router": 8},
+        )
+        emitted_envelope_fields = {
+            "activationStatus",
+            "selectedSkill",
+            "preselectionInput",
+            "architectureResult",
+            "reasonCode",
+            "domain",
+            "requestedOperation",
+            "clarificationKind",
+            "missingInput",
+            "question",
+        }
+        self.assertNotIn("activationOwner", emitted_envelope_fields)
         for case in cases:
             applicable = case["expectedGuardrails"]["applicable"]
             not_applicable = case["expectedGuardrails"]["not_applicable"]

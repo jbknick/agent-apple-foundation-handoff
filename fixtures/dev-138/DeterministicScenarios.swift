@@ -305,6 +305,7 @@ enum DeterministicScenarios {
     private static func request(from observation: ScenarioObservation) -> ExecutionRequest {
         ExecutionRequest(
             effectID: effectID,
+            requestedAt: observation.clock,
             requiredContextNames: observation.requiredContextNames,
             context: observation.context,
             grant: observation.grant,
@@ -476,7 +477,16 @@ enum DeterministicScenarios {
         var replayCommand = base("DEV138-EFFECT-REPLAY-COMMAND")
         let (replayRecovery, replayRecords) = recoveryExecution()
         replayCommand.state = replayRecovery
-        replayCommand.state.commandHistory.append(replayCommand.state.commandHistory[0])
+        let originalReplayCommand = replayCommand.state.commandHistory[0]
+        replayCommand.state.commandHistory.append(
+            ExecutorCommand(
+                effectID: originalReplayCommand.effectID,
+                callID: "call-001-replay",
+                binding: originalReplayCommand.binding,
+                stateVersion: originalReplayCommand.stateVersion,
+                kind: .initial
+            )
+        )
         replayCommand.state.executorCommandCount = 2
         replayCommand.eventRecords = replayRecords
         replayCommand.auditFacts = ["effect:replay-command", "pendingEffect=effect-001", "refusal:replay"]
@@ -676,7 +686,10 @@ enum DeterministicScenarios {
 
         var reconciledRetry = base("DEV138-RECONCILED-RETRY")
         var (reconciledState, reconciledRecords) = recoveryExecution()
-        let reconciliation = event(reconciledState, .reconcileSucceeded)
+        let reconciliation = event(
+            reconciledState,
+            .reconcileSucceeded(truth: .confirmedNotApplied)
+        )
         reconciledRecords.append(reconciliation)
         reconciledState = reconciliation.decision.state
         let retry = event(reconciledState, .retryReconciled(effectID: effectID))
@@ -684,7 +697,10 @@ enum DeterministicScenarios {
         reconciledState = retry.decision.state
         reconciledRetry.state = reconciledState
         reconciledRetry.eventRecords = reconciledRecords
-        reconciledRetry.auditFacts = ["reconciliation:succeeded", "retry:effect-001"]
+        reconciledRetry.auditFacts = [
+            "reconciliation:confirmedNotApplied",
+            "retry:effect-001",
+        ]
         rebind(&reconciledRetry)
         scenarios.append(reconciledRetry)
 
@@ -810,7 +826,16 @@ enum DeterministicScenarios {
         case "effect_duplicate":
             observation.state.ledger.append(observation.state.ledger[0])
         case "effect_replay":
-            observation.state.commandHistory.append(observation.state.commandHistory[0])
+            let original = observation.state.commandHistory[0]
+            observation.state.commandHistory.append(
+                ExecutorCommand(
+                    effectID: original.effectID,
+                    callID: "call-001-replay",
+                    binding: original.binding,
+                    stateVersion: original.stateVersion,
+                    kind: .initial
+                )
+            )
             observation.state.executorCommandCount = 2
         case "fallback_expands_trust":
             let fallbackAttempt = event(

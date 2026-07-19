@@ -92,6 +92,7 @@ struct ToolResult: Equatable {
 
 struct ExecutionRequest: Equatable {
     var effectID: String
+    var requestedAt: Int
     var requiredContextNames: Set<String>
     var context: [ContextField]
     var grant: BoundaryGrant
@@ -143,6 +144,7 @@ struct ExecutionRequest: Equatable {
         )
         return ExecutionRequest(
             effectID: "effect-001",
+            requestedAt: 100,
             requiredContextNames: ["task_summary"],
             context: context,
             grant: grant,
@@ -288,6 +290,11 @@ enum ModelAvailability: Equatable {
     case unavailable
 }
 
+enum ReconciliationTruth: String, Equatable {
+    case confirmedApplied
+    case confirmedNotApplied
+}
+
 enum TrustedEvent: Equatable {
     case proposeBaton(proposal: HandoffProposal)
     case commitBaton
@@ -298,7 +305,7 @@ enum TrustedEvent: Equatable {
     case commandUncertain(effectID: String)
     case reconciliationUnavailable
     case suppressReplay
-    case reconcileSucceeded
+    case reconcileSucceeded(truth: ReconciliationTruth)
     case retryReconciled(effectID: String)
     case failPrecommit
     case cancelPrecommit
@@ -617,18 +624,37 @@ enum HandoffReducer {
             return applied(next, audit: ["commit:destination"])
 
         case .completeConsultation:
-            guard state.executorCommandCount < state.toolBudget else {
+            let effectID = "consultation-001"
+            let callID = "consultation-call-001"
+            guard !state.ledger.contains(where: { $0.effectID == effectID }),
+                  !state.commandHistory.contains(where: { $0.callID == callID })
+            else {
+                return refused(state, disposition: .refusedReplay, audit: "consultation:refused-replay")
+            }
+            guard state.executorCommandCount < state.toolBudget,
+                  state.ledger.count < state.effectBudget
+            else {
                 return refused(state, disposition: .refusedBudget, audit: "consultation:refused-budget")
             }
             let command = ExecutorCommand(
-                effectID: "consultation-001",
-                callID: "consultation-call-001",
+                effectID: effectID,
+                callID: callID,
                 binding: executorBinding,
                 stateVersion: state.stateVersion,
                 kind: .consultation
             )
             next.executorCommandCount += 1
             next.commandHistory.append(command)
+            next.ledger.append(
+                EffectRecord(
+                    effectID: effectID,
+                    stateVersion: state.stateVersion,
+                    command: executorBinding.name,
+                    checkpoint: "committed",
+                    truth: "commandIssued",
+                    reconciled: false
+                )
+            )
             next.auditEvents.append(contentsOf: ["consultation:isolated", "owner:source"])
             return applied(next, command: command, audit: ["consultation:isolated", "owner:source"])
 
@@ -636,13 +662,17 @@ enum HandoffReducer {
             guard executionRequestIsAuthorized(request, for: state) else {
                 return refused(state, disposition: .refusedPolicy, audit: "execution:refused-policy")
             }
+            guard !state.ledger.contains(where: { $0.effectID == request.effectID }),
+                  !state.commandHistory.contains(where: {
+                      $0.callID == request.authorization.callID
+                  })
+            else {
+                return refused(state, disposition: .refusedReplay, audit: "effect:refused-replay")
+            }
             guard state.executorCommandCount < state.toolBudget,
                   state.ledger.count < state.effectBudget
             else {
                 return refused(state, disposition: .refusedBudget, audit: "effect:refused-budget")
-            }
-            guard !state.ledger.contains(where: { $0.effectID == request.effectID }) else {
-                return refused(state, disposition: .refusedReplay, audit: "effect:refused-replay")
             }
             let command = ExecutorCommand(
                 effectID: request.effectID,
@@ -672,21 +702,38 @@ enum HandoffReducer {
                   result.stateVersion == state.stateVersion,
                   authorization.actorProfile == state.activeProfile,
                   authorization.stateVersion == state.stateVersion,
-                  authorization.policyVersion == state.policyVersion,
-                  state.commandHistory.contains(where: {
-                      $0.callID == authorization.callID
-                          && $0.binding == authorization.binding
-                  })
+                  authorization.policyVersion == state.policyVersion
             else {
                 return refused(state, disposition: .refusedPolicy, audit: "tool-result:refused-provenance")
             }
-            return ReducerDecision(
-                state: state,
-                command: nil,
-                disposition: .applied,
-                outcome: .statePreserved,
-                auditEvents: ["tool-result:accepted"]
-            )
+            let matchingCalls = state.commandHistory.filter {
+                $0.callID == authorization.callID
+            }
+            guard matchingCalls.count == 1,
+                  let command = matchingCalls.first,
+                  command.binding == authorization.binding,
+                  command.stateVersion == authorization.stateVersion
+            else {
+                return refused(state, disposition: .refusedPolicy, audit: "tool-result:refused-provenance")
+            }
+            let matchingRecordIndices = state.ledger.indices.filter { recordIndex in
+                let record = state.ledger[recordIndex]
+                return record.effectID == command.effectID
+                    && record.stateVersion == command.stateVersion
+                    && record.command == command.binding.name
+            }
+            guard matchingRecordIndices.count == 1,
+                  let recordIndex = matchingRecordIndices.first
+            else {
+                return refused(state, disposition: .refusedPolicy, audit: "tool-result:refused-provenance")
+            }
+            guard effectRecordIsUnresolved(state.ledger[recordIndex])
+            else {
+                return refused(state, disposition: .refusedReplay, audit: "tool-result:refused-replay")
+            }
+            next.ledger[recordIndex].truth = "resultAccepted"
+            next.auditEvents.append("tool-result:accepted")
+            return applied(next, audit: ["tool-result:accepted"])
 
         case let .modelAvailability(availability):
             switch availability {
@@ -708,7 +755,13 @@ enum HandoffReducer {
             }
 
         case let .commandUncertain(effectID):
-            guard state.ledger.contains(where: { $0.effectID == effectID }) else {
+            let unresolvedRecords = state.ledger.filter {
+                $0.effectID == effectID && effectRecordIsUnresolved($0)
+            }
+            guard unresolvedRecords.count == 1,
+                  let unresolvedRecord = unresolvedRecords.first,
+                  hasOneCommandAwaitingResult(for: unresolvedRecord, in: state)
+            else {
                 return refused(state, disposition: .refusedPolicy, audit: "recovery:refused-no-effect")
             }
             next.phase = .recoveryRequired
@@ -747,8 +800,18 @@ enum HandoffReducer {
                 auditEvents: ["replay:suppressed", "snapshot=unchanged"]
             )
 
-        case .reconcileSucceeded:
-            guard state.pendingEffectID == state.repairFacts.effectID else {
+        case let .reconcileSucceeded(truth):
+            let unresolvedRecords = state.ledger.filter {
+                $0.effectID == state.repairFacts.effectID
+                    && effectRecordIsUnresolved($0)
+            }
+            guard state.pendingEffectID == state.repairFacts.effectID,
+                  state.repairFacts.disposition == .awaitingReconciliation,
+                  state.repairFacts.retryAuthority == .denied,
+                  unresolvedRecords.count == 1,
+                  let unresolvedRecord = unresolvedRecords.first,
+                  hasOneCommandAwaitingResult(for: unresolvedRecord, in: state)
+            else {
                 return refused(state, disposition: .refusedPolicy, audit: "reconciliation:refused-binding")
             }
             next.phase = .stable
@@ -756,26 +819,38 @@ enum HandoffReducer {
             next.pendingTransition = nil
             next.lastCheckpoint = "reconciled"
             next.repairFacts.disposition = .reconciled
-            next.repairFacts.lastKnownTruth = "externallyConfirmed"
+            next.repairFacts.lastKnownTruth = truth.rawValue
             next.repairFacts.reconciliationAttempts += 1
-            next.repairFacts.retryAuthority = .authorized
+            next.repairFacts.retryAuthority = truth == .confirmedNotApplied ? .authorized : .denied
             next.ledger = next.ledger.map { record in
                 guard record.effectID == state.repairFacts.effectID else { return record }
                 var reconciled = record
-                reconciled.truth = "reconciled"
+                reconciled.truth = truth.rawValue
                 reconciled.reconciled = true
                 return reconciled
             }
-            next.auditEvents.append("reconciliation:succeeded")
-            return applied(next, audit: ["reconciliation:succeeded"])
+            let audit = "reconciliation:\(truth.rawValue)"
+            next.auditEvents.append(audit)
+            return applied(next, audit: [audit])
 
         case let .retryReconciled(effectID):
             guard state.repairFacts.effectID == effectID,
                   state.repairFacts.disposition == .reconciled,
+                  state.repairFacts.lastKnownTruth == ReconciliationTruth.confirmedNotApplied.rawValue,
                   state.repairFacts.retryAuthority == .authorized,
-                  state.executorCommandCount < state.toolBudget
+                  state.executorCommandCount < state.toolBudget,
+                  !state.commandHistory.contains(where: {
+                      $0.effectID == effectID && $0.kind == .retry
+                  })
             else {
-                return refused(state, disposition: .refusedPolicy, audit: "retry:refused-before-reconcile")
+                let replayed = state.commandHistory.contains(where: {
+                    $0.effectID == effectID && $0.kind == .retry
+                })
+                return refused(
+                    state,
+                    disposition: replayed ? .refusedReplay : .refusedPolicy,
+                    audit: replayed ? "retry:refused-replay" : "retry:refused-before-reconcile"
+                )
             }
             let command = ExecutorCommand(
                 effectID: effectID,
@@ -786,6 +861,12 @@ enum HandoffReducer {
             )
             next.executorCommandCount += 1
             next.commandHistory.append(command)
+            next.ledger = next.ledger.map { record in
+                guard record.effectID == effectID else { return record }
+                var retried = record
+                retried.truth = "retryIssued"
+                return retried
+            }
             next.repairFacts.retryAuthority = .denied
             next.auditEvents.append("retry:\(effectID)")
             return applied(next, command: command, audit: ["retry:\(effectID)"])
@@ -891,7 +972,9 @@ enum HandoffReducer {
         if !observation.requiredContextNames.isSubset(of: includedNames) {
             violations.insert("D-CONTEXT-001")
         }
-        if included.contains(where: { !contextFieldIsAllowed($0, for: observation) }) {
+        if includedNames.count != included.count
+            || included.contains(where: { !contextFieldIsAllowed($0, for: observation) })
+        {
             violations.insert("D-CONTEXT-002")
         }
 
@@ -954,10 +1037,12 @@ enum HandoffReducer {
 
     static func serializeContextForProvider(_ observation: ScenarioObservation) -> [String: String] {
         let included = observation.context.filter(\.included)
+        let includedNames = Set(included.map(\.name))
         let transferred = included.filter {
             $0.dataClass == .c1TaskPrivate || $0.dataClass == .c2Sensitive
         }
-        guard observation.requiredContextNames.isSubset(of: Set(included.map(\.name))),
+        guard includedNames.count == included.count,
+              observation.requiredContextNames.isSubset(of: includedNames),
               !included.contains(where: { !contextFieldIsAllowed($0, for: observation) }),
               transferred.isEmpty || grantIsValid(observation.grant, for: observation, fields: transferred)
         else {
@@ -1010,6 +1095,7 @@ enum HandoffReducer {
         let grant = request.grant
 
         guard request.requiredContextNames.isSubset(of: names),
+              names.count == included.count,
               !included.contains(where: {
                   $0.dataClass == .c3NeverTransfer
                       || ($0.dataClass == .c2Sensitive && !$0.redacted)
@@ -1041,7 +1127,7 @@ enum HandoffReducer {
               grant.allowedTools == [authorization.binding],
               grant.callID == authorization.callID,
               grant.retention == "ephemeral",
-              grant.expiresAt >= 100,
+              grant.expiresAt >= request.requestedAt,
               grant.stateVersion == state.stateVersion,
               grant.policyVersion == state.policyVersion,
               grant.exceptionalC2Permission == (classes.contains(.c2Sensitive) ? "approved" : "not-required")
@@ -1133,7 +1219,9 @@ enum HandoffReducer {
               authorization.stateVersion == observation.state.stateVersion,
               authorization.policyVersion == observation.state.policyVersion,
               observation.state.executorCommandCount <= observation.state.toolBudget,
-              observation.state.executorCommandCount == observation.state.commandHistory.count
+              observation.state.executorCommandCount == observation.state.commandHistory.count,
+              Set(observation.state.commandHistory.map(\.callID)).count
+                  == observation.state.commandHistory.count
         else {
             return false
         }
@@ -1212,12 +1300,33 @@ enum HandoffReducer {
         for (effectID, commands) in grouped where commands.count > 1 {
             guard commands.count == 2,
                   commands.last?.kind == .retry,
-                  state.ledger.first(where: { $0.effectID == effectID })?.reconciled == true
+                  state.repairFacts.effectID == effectID,
+                  state.repairFacts.disposition == .reconciled,
+                  state.repairFacts.lastKnownTruth
+                      == ReconciliationTruth.confirmedNotApplied.rawValue
             else {
                 return true
             }
         }
         return false
+    }
+
+    private static func effectRecordIsUnresolved(_ record: EffectRecord) -> Bool {
+        record.truth == "commandIssued" || record.truth == "retryIssued"
+    }
+
+    private static func hasOneCommandAwaitingResult(
+        for record: EffectRecord,
+        in state: HandoffState
+    ) -> Bool {
+        state.commandHistory.filter { command in
+            command.effectID == record.effectID
+                && command.stateVersion == record.stateVersion
+                && command.binding.name == record.command
+                && (record.truth == "retryIssued"
+                    ? command.kind == .retry
+                    : command.kind != .retry)
+        }.count == 1
     }
 
     private static func transitionAttemptWasRefused(_ observation: ScenarioObservation) -> Bool {
@@ -1302,6 +1411,7 @@ enum HandoffReducer {
             "blocked-c3-sentinel",
             "synthetic-credential-sentinel",
             "/Users/",
+            "/home/",
             "session.trace",
             ".xcresult",
             "raw-evidence-payload",

@@ -5,7 +5,7 @@ Issue: [DEV-138](https://linear.app/devprentice/issue/DEV-138/i4parallel-impleme
 Decision date: `2026-07-17`
 
 Branch/base: `codex/dev-138-deterministic-swift-fixtures` at
-`bdbfd335e32eba3efee32f2aac08bd3c2a100368`
+`27c7ce6b8d47541711184ceae06b2eecbdc4be8e`
 
 ## Authority and status
 
@@ -44,7 +44,7 @@ explicitly rejected. Full Xcode is not required for Foundation-only proof.
 
 ### Rejected: extend the DEV-130 fixture in place
 
-DEV-130 is a seven-scenario research proof with a text golden. DEV-138 needs the
+DEV-130 is an eight-scenario research proof with a text golden. DEV-138 needs the
 complete approved state/security/recovery matrix, machine-readable stable
 identities, and downstream oracle ownership. Mutating DEV-130 would blur issue
 authority and make its reviewed evidence non-reproducible.
@@ -130,18 +130,22 @@ to the parent and never transfers final ownership.
 
 Known pre-effect failure or cancellation restores the checkpoint. Possible or
 uncertain effect commit records one effect and remains `recoveryRequired` until
-explicit successful reconciliation establishes external truth. No-safe
-reconciliation remains repair-blocked in `recoveryRequired`. Late/replayed
-events preserve authority, phase, pending/checkpoint state, counts, ledger, and
-repair facts and emit no command. Ordinary budget termination is `stable`-only.
+typed reconciliation establishes either confirmed-applied or
+confirmed-not-applied external truth. Confirmed-applied effects cannot retry;
+confirmed-not-applied effects authorize at most one retry. No-safe reconciliation
+remains repair-blocked in `recoveryRequired`. Late/replayed events preserve
+authority, phase, pending/checkpoint state, counts, ledger, and repair facts and
+emit no command. Ordinary budget termination is `stable`-only.
 
 Context fields bind class, source, subject, purpose, destination, retention,
 and redaction. C3 and unknown data never cross a model boundary. A disallowed
 field rejects the whole envelope. A grant independently binds person, session,
 source profile/provider, destination profile/provider, purpose, exact
-classes/fields/tools, retention, expiry, exceptional C2 permission,
+classes/fields/tools, retention, expiry at the deterministic request time,
+exceptional C2 permission,
 `stateVersion`, and `policyVersion`. Accepted tool results bind call ID,
-tool/version/provider, result type, and current state.
+tool/version/provider, result type, the exact originating command state, and one
+unresolved ledger record; accepting a result consumes that record once.
 
 The effect guarantee is application-controlled at-most-once command emission
 plus reconciliation. The fixture never claims exactly-once delivery or
@@ -205,7 +209,9 @@ catalog:
 
 `docs/research/evidence/dev-134-activation-prototype.json` remains the sole
 15-case activation prototype. Repository tests assert that its six positive,
-six negative, and three ambiguous identities reference only this catalog.
+six negative, and three ambiguous identities reference only this catalog, with
+exactly seven `direct_workflow` and eight `non_positive_router` metadata owners.
+Those owner values are not emitted envelope fields.
 DEV138 baton-pass, consultation, flawed-reducer, and recovery cases provide the
 runtime-invariant mappings for `DEV134-POS-001`, `POS-002`, `POS-004`,
 `POS-006`, and `AMB-003`; the other activation identities remain router/host
@@ -228,7 +234,7 @@ violations below.
 | `DEV138-UNCERTAIN-RECOVERY` | `[]` | Possible commit enters persistent recovery with one ledger row. |
 | `DEV138-RECONCILIATION-UNAVAILABLE` | `[]` | No safe reconciliation path returns repair-blocked/unavailable while phase remains `recoveryRequired`; authority, pending/checkpoint state, counts, ledger, and repair facts are byte-for-byte unchanged and no command is emitted. |
 | `DEV138-REPLAY-SUPPRESSED` | `[]` | Same effect ID keeps one ledger row and emits no replay command. |
-| `DEV138-RECONCILED-RETRY` | `[]` | Explicit reconciliation precedes the one authorized retry. |
+| `DEV138-RECONCILED-RETRY` | `[]` | Confirmed-not-applied reconciliation precedes the one authorized retry; confirmed-applied truth never authorizes retry. |
 | `DEV138-CANCEL-PRECOMMIT` | `[]` | Cancellation restores checkpoint without ledger mutation. |
 | `DEV138-CANCEL-UNCERTAIN` | `[]` | Uncertain cancellation preserves repair facts in recovery. |
 | `DEV138-MODEL-UNAVAILABLE-SAFE` | `[]` | Equal/lower authorized fallback is selected. |
@@ -298,15 +304,16 @@ labels are exact machine values `compiled_sdk_26_5` and
 `interface_verified_sdk_26_5`; the Foundation-free reducer itself is
 `pseudocode_deterministic_mock` even though `swiftc` compiles it.
 
-The SDK row captures `swiftc --version`, `xcrun --sdk macosx
---show-sdk-version`, and target `arm64-apple-macos26.0` without committing the
-literal SDK path. Exact SDK 26.5 positive probes cover stable surface,
-availability, transcript round-trip, session isolation, and the existing baton
-mock. The installed interface hash remains
+The SDK row captures Swift 6.3.3, `xcrun --sdk macosx --show-sdk-version`, and
+target `arm64-apple-macos26.0` without committing the literal executable or SDK
+path. Executable and SDK-directory device/inode/type/mode/size/time snapshots
+are rechecked around invocations. Exact SDK 26.5 positive probes cover stable
+surface, the Generable macro, availability, transcript round-trip, session
+isolation, and the existing baton mock. The installed interface hash remains
 `ff2285670b0966addb9827dc895a3ee3c9db6e186baae62c034fed012632aacc`.
 
-Macro, OS 27 profile/session/tool-calling-mode, and Evaluations probes pass only
-when compilation fails with each capability-specific diagnostic. If a future
+OS 27 profile/session/tool-calling-mode and Evaluations probes pass only when
+compilation fails with each capability-specific diagnostic. If a future
 toolchain supports one, the row must be reclassified; the diagnostic may not be
 weakened. Full Xcode, iPhone SDK, Instruments, Evaluations, Xcode/OS 27 runtime
 features, PCC/custom providers, runtime Skills, and live model generation remain
