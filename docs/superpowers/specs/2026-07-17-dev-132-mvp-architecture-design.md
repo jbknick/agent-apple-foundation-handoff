@@ -2,9 +2,11 @@
 
 Issue: [DEV-132](https://linear.app/devprentice/issue/DEV-132/d1-synthesize-research-into-the-mvp-architecture-and-decision-record)
 
-Decision date: `2026-07-17`
+Decision date: `2026-07-17`; July 18 amendment integrated on `2026-07-19`
 
-Stack base: `3792e8c98a387b7f9c48bd210d25938b40cdd5fe`
+Integration boundary: one atomic DEV-132 documentation change against current
+`main`. Commit identifiers from earlier reviews are historical provenance, not
+current acceptance bindings.
 
 ## Purpose
 
@@ -14,22 +16,24 @@ implement, review, debug, and validate Apple Foundation Models handoff
 architectures. It resolves the repository, Apple API, production-pattern,
 security, and evaluation decisions established by DEV-127 through DEV-131.
 
-The plugin produces coding guidance and reviewable proof contracts. It does not
-run a handoff, implement application authorization, provide a reusable Swift
-runtime, or make a probabilistic model authoritative for transitions or
+DEV-132 produces architecture guidance and reviewable proof contracts only. It
+does not install or run the approved host adapters, cost router, or Swift
+bridge. Those production components are owned by downstream issues; a
+probabilistic model never becomes authoritative for routing, transitions, or
 effects.
 
 ## Source decisions and authority
 
-The following reviewed issue heads are binding inputs:
+The source artifacts on current `main` are binding inputs. Their earlier review
+SHAs remain available in Git history but do not override later amendments.
 
-| Issue | Reviewed head | Authority used here |
-| --- | --- | --- |
-| DEV-127 | `191e2da63b863b367341a614c1ea1d9b4a032cd7` | The authoritative fork started as a three-document repository with no inherited plugin/generation architecture. |
-| DEV-128 | `4f0b66ef7061d842f333e2749e74614f5331c915` | SDK 26.5 compile-checked core, separately labelled OS/Xcode 27 beta surface, and distinct orchestration patterns. |
-| DEV-129 | `3db33eb957326b4d22ebe482c21925dd23b03af0` | One physical skill tree, narrow workflows, explicit generated Codex artifacts, host-specific loading, and no custom worker by default. |
-| DEV-130 | `5e27a1c81a4c45199c912a5cbb750a30a8c7bf17` | Fail-closed reducer, context/grant/effect boundaries, recovery, fallback, metadata-only runtime evidence, and safe synthetic proof. |
-| DEV-131 | `3792e8c98a387b7f9c48bd210d25938b40cdd5fe` | Deterministic/rubric/real-host evidence separation, stable IDs, safe evidence, and explicit blocker semantics. |
+| Issue | Authority used here |
+| --- | --- |
+| DEV-127 | The authoritative fork started as a three-document repository with no inherited plugin/generation architecture. |
+| DEV-128 | SDK 26.5 has six positive fixtures and two strict expected blockers; Xcode 26.6, Swift 6.3.3, and SDK 26.5 observations are compile/interface evidence, never live bridge proof. |
+| DEV-129 | One physical skill tree, five narrow positive workflows, explicit generated Codex artifacts, and host-specific loading. Its original no-router/no-worker conclusion applies to that guidance design, not later approved runtime work. |
+| DEV-130 | Eight-case fail-closed proof, including diagnostic-result routing, original-result preservation, no rerun, provenance, recovery, fallback, and safe synthetic evidence. |
+| DEV-131 | Twenty-six tests and eleven offline cases; deterministic/rubric/live evidence separation; paired null-capable `pluginOff`/`pluginOn` cost arms; `providerNormalizationVersion`; and the 10%/0/0 live release floor. |
 
 Apple API claims remain subordinate to current official Apple documentation,
 installed SDK interfaces, WWDC material, and Apple-owned repositories. Duyet,
@@ -47,9 +51,10 @@ shape for a repository devoted to one plugin.
 
 Root placement is conditional rather than assumed. DEV-135 and DEV-139 must
 prove cached-install integrity and fresh real invocation/reference loading on
-the primary controlled-shell baseline: Claude Code `2.1.91` and Codex
-`0.144.5`. Each row pins its executable before any operation and invalidates
-the result if resolution changes mid-run. The effective cached payload must
+their current issue-approved host matrix. Each row pins its executable before
+any operation and invalidates the result if resolution changes mid-run. An
+earlier host version recorded in DEV-132 is historical evidence only. The
+effective cached payload must
 exclude repository-only fixtures, tests, research, and private repository
 state; none may be exposed as plugin capabilities.
 
@@ -87,21 +92,22 @@ maintainers working in Claude Code or Codex. The supported user goals are:
 4. debug routing, ownership, context, tool, recovery, or availability failures;
 5. validate architecture, Swift examples, security invariants, and evidence.
 
-MVP does not provide:
+This DEV-132 documentation change does not provide:
 
 - application runtime orchestration, authentication, authorization, encryption,
-  persistence, networking, UI, or provider integration;
+  persistence, networking, or UI;
 - a reusable Swift package or sample application;
 - automatic PCC/custom-provider use, credentials, entitlements, or paid
   services;
 - App Intents, Apple Handoff, generic Core ML/Apple Intelligence education, or
   coding-session handoff;
-- a custom agent, hook, command, MCP server, app, or runtime dependency; or
+- production source for the approved non-positive router, `PostToolUse`
+  adapters, cost router, or local Swift bridge; or
 - release, publishing, tagging, merging, or marketplace distribution.
 
 ## Skill catalog and activation ownership
 
-The MVP contains exactly five entry skills:
+The MVP contains exactly five positive workflow skills:
 
 | Skill directory | Activates for | Does not activate for | Primary output |
 | --- | --- | --- | --- |
@@ -111,16 +117,26 @@ The MVP contains exactly five entry skills:
 | `debug-apple-foundation-models-handoff` | Diagnosing routing, ownership, transition, context, tool, recovery, or availability failure | Generic crash debugging without a handoff boundary | Root-cause statement, state/evidence trace, bounded fix and regression proof |
 | `validate-apple-foundation-models-handoff` | Running deterministic, compile, schema, generation, evidence, or cross-host acceptance gates | File-presence or Markdown-only success claims | Per-layer pass/fail/blocked/not-applicable matrix and safe evidence bundle |
 
-DEV-134 owns the final activation prose, positive/negative/ambiguous prompts,
-and workflow-specific output details without changing these five names or their
-non-overlapping responsibilities. A skill must not depend on another skill
-being invoked; all five load common references directly.
+DEV-134 owns the final activation prose and workflow-specific output details
+without changing these names or their non-overlapping responsibilities. A
+positive prompt bypasses non-positive preselection and activates exactly one
+workflow. A skill never depends on another skill invocation; all five load
+common references directly.
 
-No plugin-local worker is justified. The workflows use the host's active agent
-and share the same domain contract. There is no distinct role, isolated context,
-tool set, or responsibility that requires a custom worker. A per-skill
-`agents/openai.yaml`, if required after host validation, is presentation and
-activation metadata only.
+### Bounded non-positive preselection
+
+Exactly one preselection router handles only requests that have no positive
+workflow match. It emits `no_activation` for out-of-domain input or
+`clarification_required` for bounded domain/approved-contract ambiguity. It
+cannot invoke a workflow, load a reference, emit `architectureResult`, use a
+tool or effect, make an Apple capability claim, or introduce commands, agents,
+hooks, or broader routing. `clarification_required` asks one bounded question;
+the host must classify the answer afresh.
+
+The original DEV-129 no-worker conclusion remains binding for the five guidance
+workflows. It does not prohibit the separately approved, deterministic runtime
+chain below. Per-skill `agents/openai.yaml`, if host validation requires it,
+remains presentation and activation metadata only.
 
 ## Progressive-disclosure reference topology
 
@@ -272,14 +288,59 @@ only when constructing a distinct session from explicit entries. Neither is
 renamed baton-pass. Apple Foundation Models runtime Skills, Claude/Codex Agent
 Skills, coding-session handoff, Apple Handoff, and App Intents remain separate.
 
+The bounded non-positive preselection router is not a sixth workflow and is not
+the runtime cost router. Positive workflow activation bypasses it. The cost
+router runs only after an eligible host tool has already produced a result.
+
+## Apple-first diagnostic cost route
+
+The MVP runtime direction is one deterministic chain:
+
+`host PostToolUse adapter -> deterministic cost router -> one local Swift Apple Foundation Models bridge -> host-visible result`
+
+DEV-132 defines interfaces and ownership, not filesystem paths or production
+code:
+
+| Component | Exact boundary | Owner |
+| --- | --- | --- |
+| Runtime-cost benchmark and policy contract | Defines the versioned exact action/tool allowlists, selected command classes, minimum estimated-savings threshold, conservative maximum Apple payload, pairing rules, telemetry normalization, and release calculation. Unknown or unset policy data fails closed. | DEV-142 |
+| Local Swift bridge | Accepts only a validated `condense_diagnostic_output` request, gates Apple availability and application data-policy permission, applies the policy-owned payload bound, requests a structured local result, and returns a validated result or normalized failure. | DEV-143 |
+| Codex host adapter | Observes selected test/build/typecheck/lint result envelopes at `PostToolUse`, preserves the original result, invokes the deterministic router at most once, and renders the routed outcome. | DEV-144 |
+| Claude host adapter | Applies the same `PostToolUse`, original-result, provenance, and no-rerun contract for Claude. | DEV-145 |
+| Workflow integrations | Consume the proven chain without changing its route, bridge, or acceptance semantics. | DEV-139, DEV-140, DEV-141 |
+
+The cost router requires all of the following before one bridge attempt: exact
+action `condense_diagnostic_output`; membership in DEV-142's versioned action,
+tool, and command-class allowlists; a selected test/build/typecheck/lint result
+envelope; sufficient estimated savings under DEV-142's threshold; payload at or
+below DEV-142's conservative Apple bound; explicit application data-policy
+permission; trusted-local allowed fields with provenance; and current Apple
+runtime availability. DEV-132 does not invent tool names, concrete commands,
+or numeric policy bounds.
+
+Ineligible, unavailable, unknown-policy, and router-decline paths return the
+original result unchanged. Apple failure, timeout, cancellation, or invalid
+output returns a bounded normalized error together with the original result.
+No path reruns the original tool. Only a provenance-bound, schema-valid bridge
+response may replace the host-visible diagnostic result. The bridge is never
+the task or final-response owner.
+
+Apple Foundation Models is the sole MVP local provider. Generic provider
+interfaces, GLM, Kimi, local OpenAI-compatible servers, external providers,
+PCC, credentials, paid services, and network surfaces are deferred. The route
+cannot reduce the parent model's first turn because `PostToolUse` occurs after
+the original tool result; it targets lower parent-model consumption on later
+turns.
+
 ## Apple API and model boundaries
 
 Runnable guidance uses the compile-checked SDK 26.5 core: sessions, on-device
 availability/context, tools, runtime dynamic schemas, transcript Codable and
 rehydration, streaming shapes, prewarm, and the stable versioned error surface.
-Static macros remain blocked under the installed Command Line Tools because
-`FoundationModelsMacros` is missing; runtime dynamic schema is the locally
-compiled structured-output path.
+Static `@Generable` and `@Guide` macros compile with the currently recorded
+Xcode 26.6 / Swift 6.3.3 toolchain against SDK 26.5. The earlier Command Line
+Tools macro failure is historical evidence only. Typechecking and offline
+fixtures do not establish a live model or production bridge.
 
 Dynamic instructions/profiles, generic models, PCC/custom providers, tool
 calling mode, mutable transcript, history transforms, `.onToolCall`, transcript
@@ -464,6 +525,15 @@ Every result status is `pass`, `fail`, `blocked`, or `not_applicable`. A zero
 denominator yields `not_applicable` with null value. One host's pass does not
 replace another host's blocker.
 
+`E-RUNTIME-COST-001` is a paired live-runtime contract. Eligible rows preserve
+separate null-capable `pluginOff` and `pluginOn` arms and a versioned
+`providerNormalizationVersion`; missing or ambiguous telemetry, normalization,
+pairing, policy, or live Apple evidence is `blocked`, never estimated. DEV-142
+must prove the conjunction of at least 10% median total parent-model token
+reduction across eligible workflows, zero correctness regressions, and zero
+additional parent-model turns. DEV-138's deterministic Swift fixtures are
+repository-only regression evidence and cannot satisfy this live gate.
+
 Runtime/live-host logs, traces, and derived capability telemetry may contribute
 only normalized metadata to committed evidence; their raw/source content is
 excluded. The canonical DEV-131 allowlist separately permits a hash-bound
@@ -566,9 +636,34 @@ summary to a custom provider; after dispatch timed out, it proposes retrying.”
    states only. The credential, raw prompt, provider payload, and trace do not
    enter committed evidence.
 
-Every scenario has one activation, one pattern/failure path, one owner result,
-one safety result, and a reproducible validation boundary. There is no
-unresolved alternative in the expected flow.
+### Scenario 5: out-of-domain non-activation
+
+An out-of-domain request reaches the bounded preselection router only after no
+positive workflow matches. It returns exactly `no_activation`, invokes no
+workflow, loads no reference, emits no `architectureResult`, and performs no
+tool, effect, command, hook, agent, or Apple operation.
+
+### Scenario 6: bounded clarification
+
+A request whose domain or approved implementation contract is ambiguous reaches
+the same non-positive router and returns exactly `clarification_required` with
+one bounded question. It performs none of the prohibited Scenario 5 actions;
+the answer is classified as a new input rather than resuming hidden state.
+
+### Scenario 7: Apple diagnostic route and fallback
+
+A synthetic selected diagnostic result arrives after one original test/build/
+typecheck/lint tool execution. The `PostToolUse` adapter checks exact action
+`condense_diagnostic_output` and every versioned DEV-142 policy gate before at
+most one local bridge request. A validated bridge response may replace the
+visible result. Decline, ineligibility, unavailability, or unknown policy keeps
+the original unchanged; failure returns a normalized error plus the original.
+Every branch records zero original-tool reruns and makes no first-parent-turn
+savings claim.
+
+Every scenario has one deterministic route or activation decision, one
+pattern/failure path, one owner result, one safety result, and a reproducible
+validation boundary. There is no unresolved alternative in the expected flow.
 
 ## Local development and host acceptance
 
@@ -588,16 +683,10 @@ reason and is never echoed. Raw blocker diagnostics stay transient. Committed
 blocker evidence contains only probe identity, exit code, normalized status,
 and a stable `diagnosticClass` after the expected error class is verified.
 
-The primary controlled-shell baseline remains Claude Code `2.1.91` and Codex
-`0.144.5`. Claude Code `2.1.91` supports structural validation and session-only
-`--plugin-dir`; packaging/cache tests use an isolated `CLAUDE_CONFIG_DIR`, local
-marketplace registration, install, and enabled-state inspection. Codex
-`0.144.5` rejects `codex --plugin-dir`; it uses an isolated `CODEX_HOME`, local
-marketplace registration, plugin add/install, enabled-state inspection, and a
-fresh task. An Alternate-PATH Claude Code `2.1.140` observation is diagnostic
-only: it is neither substitute evidence for the selected Claude row nor an
-additional acceptance row. Version output establishes an executable
-prerequisite only, never plugin loading, activation, or capability.
+Each downstream host issue owns its current approved executable/model matrix.
+Historical DEV-132 host observations establish provenance only. Version output
+establishes an executable prerequisite, never plugin loading, activation,
+capability, or runtime-cost proof.
 
 DEV-135 owns structural generation/schema/install proof. DEV-139 owns fresh
 real task activation/reference/output proof. Neither issue may report discovery
@@ -611,11 +700,9 @@ design-scenario evidence. It does not create production manifests, skills,
 references, schemas, generators, tests, or Swift fixtures. Those paths in the
 proposed tree are contracts for downstream issues, not files created here.
 
-The DEV-132 PR is stacked on DEV-131 and contains separately reviewable commits
-for design, plan, decision/evidence artifacts, and narrow review corrections.
-Before opening it, rebase onto the final reviewed DEV-131 head, verify issue
-blobs and the exact allowed path set, rerun the existing SDK 26.5, security, and
-evaluation regression gates, and obtain fresh whole-issue review.
+The DEV-132 change integrates atomically against current `main`. Verify the
+exact allowed path set, rerun the current DEV-128 SDK matrix, DEV-130 security
+oracle, and DEV-131 evaluation suite, then obtain fresh whole-issue review.
 
 ## Completion criteria
 
@@ -625,8 +712,10 @@ DEV-132 is complete only when:
 - every decision includes source, rationale, and downstream impact;
 - the selected root placement and fallback trigger are unambiguous;
 - the proposed file trees match the ownership model;
-- all four scenario walkthroughs pass independent consistency review;
-- DEV-133 through DEV-141 contain the decisions they inherit;
+- all seven scenario walkthroughs pass independent consistency review;
+- DEV-133 through DEV-145 contain the decisions they inherit; in particular,
+  DEV-136/137 and DEV-139 through DEV-145 carry the amended routing/runtime
+  contracts while generated artifacts retain their canonical ownership rules;
 - existing DEV-128/130/131 regression gates still pass;
 - each host row records normalized `<host-path>` identity and exact version,
   emits prerequisite blockers before exit, uses one captured executable

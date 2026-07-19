@@ -4,37 +4,35 @@
 > `superpowers:subagent-driven-development` to execute this plan task by task.
 
 **Goal:** Publish a durable, internally consistent MVP architecture decision
-record and machine-checkable proof for four representative design scenarios,
+record and machine-checkable proof for seven representative design scenarios,
 without creating any production plugin artifact.
 
 **Architecture:** The canonical design spec fixes the product and repository
 contract. A concise decision record will restate every binding choice with its
 source, rationale, and downstream impact. A normalized JSON evidence file will
-encode four representative scenarios against one small design-proof schema so
+retain the original four scenarios and add three amendment cases against one
+small design-proof schema so
 deterministic checks can validate activation, pattern, ownership, safety,
 version labels, and expected verification IDs. Existing DEV-128, DEV-130, and
 DEV-131 fixtures remain the executable regression authorities.
 
-**Tech Stack:** Markdown, JSON, Python 3 standard library, Swift 6.3.2,
-macOS SDK 26.5, Git, Linear, Claude Code 2.1.91, and Codex CLI 0.144.5.
+**Tech Stack:** Markdown, JSON, Python 3 standard library, Swift 6.3.3,
+Xcode 26.6, macOS SDK 26.5, Git, and Linear. These toolchain observations are
+compile/regression evidence only, not live runtime proof.
 
 ## Global constraints
 
 - Work from the repository root, recorded as `<repo>`, on
   `codex/dev-132-mvp-architecture`.
-- The reviewed stack base is
-  `3792e8c98a387b7f9c48bd210d25938b40cdd5fe` (DEV-131). Before opening the
-  stacked PR, rebase onto the final reviewed DEV-131 head if that head changed.
-- The stacked PR targets `codex/dev-131-evaluation-strategy`, not `main`.
-- The design commit is
-  `61e40ae` (`docs(DEV-132): design MVP architecture`). Preserve it as an
-  independently reviewable commit.
+- Integrate the unique four-path DEV-132 delta atomically against current
+  `main`. Historical stack bases, commit IDs, and host versions are provenance,
+  not acceptance bindings.
 - Do not push, merge, tag, publish, or release unless the active issue separately
   authorizes that action. Opening the issue-scoped PR is permitted only after
   final verification and review.
 - Do not create production manifests, marketplaces, skills, references,
-  schemas, generators, tests, Swift fixtures, hooks, agents, commands, MCP
-  servers, apps, dependencies, or runtime packages in DEV-132.
+  schemas, generators, tests, Swift fixtures, routers, hooks, bridges, agents,
+  commands, MCP servers, apps, dependencies, or runtime packages in DEV-132.
 - Do not edit any generated artifact. The proposed generated paths in the
   design are downstream contracts, not DEV-132 deliverables.
 - Use Apple-owned material and the installed SDK for Apple API truth. Structural
@@ -46,10 +44,8 @@ macOS SDK 26.5, Git, Linear, Claude Code 2.1.91, and Codex CLI 0.144.5.
   that captured executable, recheck resolution before completion, and invalidate
   the row on drift. Commit only normalized `<host-path>` identity and exact
   version; never commit a literal executable path or raw `PATH`.
-- The primary controlled-shell baseline is Claude Code `2.1.91` and Codex
-  `0.144.5`. Alternate-PATH Claude Code `2.1.140` is diagnostic only, not
-  substitute evidence and not another acceptance row. Version output proves a
-  binary prerequisite only.
+- Each downstream issue owns its current host/model matrix. Version output
+  proves a binary prerequisite only and no historical version may substitute.
 - Default validation remains offline and requires no live model generation,
   PCC, custom provider, credential, network service, entitlement, or hardware.
 - Apply changes with `apply_patch`. Keep each commit single-purpose.
@@ -72,8 +68,11 @@ the commit or PR. Any correction must modify one of the four allowed files.
 
 - Identity: `apple-foundation-models-handoff`; display name
   `Apple Foundation Models Handoff`.
-- Exactly five workflow skills: design, implement, review, debug, and validate,
-  using the exact directory names in the design spec.
+- Exactly five positive workflow skills: design, implement, review, debug, and
+  validate, using the exact directory names in the design spec. Positive
+  prompts bypass one bounded non-positive router; its only outputs are
+  `no_activation` and `clarification_required`, with no workflow/reference/
+  architectureResult/tool/effect/Apple/command/agent/hook behavior.
 - One physical provider-neutral skills tree and one shared references tree.
 - Canonical `CLAUDE.md`; generated `AGENTS.md` adapter; canonical Claude shared
   identity; authored Codex interface/marketplace inputs; generated Codex
@@ -103,6 +102,16 @@ the commit or PR. Any correction must modify one of the four allowed files.
   metadata-only. The DEV-131 allowlist may contain a hash-bound synthetic or
   approved-redacted rubric stimulus, assessments with bounded rationales, and
   a redacted summary after all path/content/key/classification/hash scanners.
+- A separate `PostToolUse` cost route uses exact action
+  `condense_diagnostic_output` for selected test/build/typecheck/lint result
+  envelopes. DEV-142 owns versioned exact allowlists, command classes, savings
+  and payload bounds, paired cost normalization, and the 10%/0/0 gate; DEV-143
+  owns the sole local Swift Apple bridge; DEV-144 and DEV-145 own Codex and
+  Claude adapters. Unknown policy fails closed. Decline/unavailable preserves
+  the original; failure adds only a normalized error; no path reruns the tool.
+- Apple is the sole MVP local provider. Generic provider interfaces, GLM, Kimi,
+  local OpenAI-compatible servers, external providers, PCC, credentials, paid,
+  and network surfaces are deferred.
 
 ## Task 1: Publish the durable decision record
 
@@ -173,9 +182,10 @@ test "$red_semantic_rc" -ne 0
 
 Use `apply_patch` to create the file. It must:
 
-1. identify DEV-127 through DEV-131 and their reviewed heads as source issues;
-2. state the plugin identity, users, five workflows, exact skill names, and
-   explicit MVP exclusions;
+1. identify the current DEV-127 through DEV-131 artifacts as source authority
+   and label earlier reviewed heads as historical provenance;
+2. state the plugin identity, users, five positive workflows, bounded
+   non-positive router, exact skill names, and explicit DEV-132 exclusions;
 3. state one physical skill/reference corpus and the five concern-owned
    references;
 4. distinguish canonical inputs, generated outputs, and edit rules;
@@ -197,8 +207,10 @@ Use `apply_patch` to create the file. It must:
     status meanings, metadata-only runtime/live-host telemetry, the allowlisted
     synthetic/approved-redacted rubric and summary exception, and all raw/live
     evidence exclusions;
-12. record rejected alternatives and deferred work; and
-13. provide a decision-propagation table for DEV-133 through DEV-141 with
+12. record the Apple-first `PostToolUse` cost chain, fallback/no-rerun behavior,
+    DEV-142 through DEV-145 ownership, 10%/0/0 floor, rejected alternatives,
+    and deferred provider/runtime surfaces; and
+13. provide a decision-propagation table for DEV-133 through DEV-145 with
     source, rationale, inherited decision, and impact.
 
 Do not copy long research prose. Prefer compact tables with explicit ownership
@@ -224,8 +236,9 @@ for token in \
   'plugins/apple-foundation-models-handoff' \
   'stateVersion' 'policyVersion' 'recoveryRequired' \
   'no safe reconciliation' 'metadata-only' 'rubric stimulus' \
-  '<host-path>' '2.1.91' '0.144.5' \
-  'D-OWNER-001' 'not_applicable' 'DEV-141'; do
+  '<host-path>' 'no_activation' 'clarification_required' \
+  'condense_diagnostic_output' 'providerNormalizationVersion' \
+  'D-OWNER-001' 'not_applicable' 'DEV-141' 'DEV-145'; do
   rg -q -F "$token" "$record"
 done
 git diff --check -- "$record"
@@ -253,7 +266,7 @@ git commit -m 'docs(DEV-132): publish MVP decision record'
 
 Expected staged path: the decision record only.
 
-## Task 2: Add machine-checkable four-scenario architecture proof
+## Task 2: Amend the machine-checkable seven-scenario architecture proof
 
 **Files:**
 
@@ -277,9 +290,9 @@ real host, model, provider, or Apple runtime. Synthetic scenario evidence must
 still satisfy the DEV-131 path, content, structured-key, classification, and
 hash boundaries; this file does not authorize raw/live evidence.
 
-### Step 2: Establish the JSON contract RED
+### Step 2: Establish the amended JSON contract RED
 
-Run before creating the file:
+Run before editing the existing four-scenario file:
 
 ```bash
 set +e
@@ -289,15 +302,23 @@ from pathlib import Path
 
 path = Path('docs/research/evidence/dev-132-architecture-scenarios.json')
 data = json.loads(path.read_text())
-assert data['schemaVersion'] == '1.0'
-assert len(data['scenarios']) == 4
+assert [s['id'] for s in data['scenarios']] == [
+    f'DEV132-SCENARIO-{n:03d}' for n in range(1, 8)
+]
+text = path.read_text()
+for required in (
+    'no_activation', 'clarification_required',
+    'condense_diagnostic_output',
+):
+    assert required in text
 PY
 red_rc=$?
 set -e
 test "$red_rc" -ne 0
 ```
 
-Expected: nonzero because the evidence file does not yet exist.
+Expected: nonzero because the stale evidence has only scenarios 001-004 and no
+July 18 routing/cost contract.
 
 ### Step 3: Create the normalized JSON evidence
 
@@ -309,6 +330,8 @@ evidenceKind = design_scenario
 sourceIssue = DEV-132
 designArtifact
 designArtifactSha256
+workflowRoutingContract
+costRoutingContract
 status
 limitations[]
 scenarios[]
@@ -333,7 +356,7 @@ apiClaims[] = { surface, versionLabel, localStatus }
 limitations[]
 ```
 
-Encode exactly these cases:
+Retain and amend exactly these cases:
 
 - `DEV132-SCENARIO-001`: new baton-pass design; design skill; source research,
   destination/final owner review; valid selected context; no invented Apple
@@ -353,6 +376,16 @@ Encode exactly these cases:
   pending/checkpoint state, counts, or ledger. If no safe reconciliation path is
   currently available, the result is repair-blocked/unavailable while the
   phase, ledger, and repair facts remain unchanged.
+- `DEV132-SCENARIO-005`: an out-of-domain request returns exact
+  `no_activation` with every non-positive-router side effect prohibited.
+- `DEV132-SCENARIO-006`: bounded domain/approved-contract ambiguity returns
+  exact `clarification_required`, asks one bounded question, and reclassifies
+  the answer afresh without hidden state.
+- `DEV132-SCENARIO-007`: a selected diagnostic result enters the separate
+  Apple-first `PostToolUse` cost route; exact DEV-142 policy gates precede one
+  bridge attempt; decline/unavailable preserves the original, failure returns
+  a normalized error plus the original, and every path has zero original-tool
+  reruns and no first-parent-turn savings claim.
 
 Keep the two branches in Scenario 4 explicit so the blocked C3 envelope is not
 misrepresented as having been dispatched.
@@ -379,6 +412,49 @@ assert d['designArtifact'] == design_path.as_posix()
 assert d['designArtifactSha256'] == hashlib.sha256(
     design_path.read_bytes()
 ).hexdigest()
+workflow_route = d['workflowRoutingContract']
+assert workflow_route['positiveWorkflowCount'] == 5
+assert workflow_route['positivePromptBehavior'] == (
+    'bypass_non_positive_router_and_activate_exactly_one_workflow'
+)
+assert workflow_route['nonPositiveRouterCount'] == 1
+assert workflow_route['outcomes'] == [
+    'no_activation', 'clarification_required'
+]
+cost_route = d['costRoutingContract']
+assert cost_route['trigger'] == 'host_PostToolUse'
+assert cost_route['action'] == 'condense_diagnostic_output'
+assert cost_route['eligibleResultClasses'] == [
+    'test', 'build', 'typecheck', 'lint'
+]
+assert cost_route['policyOwner'] == 'DEV-142'
+assert cost_route['provider'] == 'local_Apple_Foundation_Models_only'
+assert cost_route['unknownPolicyBehavior'] == (
+    'fail_closed_preserve_original'
+)
+assert cost_route['acceptance'] == {
+    'minimumMedianTotalParentModelTokenReduction': 0.1,
+    'maximumCorrectnessRegressions': 0,
+    'maximumExtraParentModelTurns': 0,
+    'evidenceShape': (
+        'paired_null_capable_pluginOff_pluginOn_with_'
+        'providerNormalizationVersion'
+    ),
+}
+assert cost_route['liveRuntimeCostEvidence'] == {
+    'id': 'E-RUNTIME-COST-001',
+    'status': 'blocked',
+    'reasonCodes': [
+        'DEV142_benchmark_and_DEV143_145_runtime_chain_unavailable',
+        'paired_provider_usage_and_normalization_evidence_unavailable',
+    ],
+    'nonEvidence': [
+        'DEV132_architecture_scenarios',
+        'DEV128_compiled_fixtures',
+        'DEV130_deterministic_fixture',
+        'DEV138_repository_fixtures',
+    ],
+}
 assert d['status'] == 'pass'
 assert isinstance(d['limitations'], list) and d['limitations']
 
@@ -388,6 +464,9 @@ assert [s['id'] for s in scenarios] == [
     'DEV132-SCENARIO-002',
     'DEV132-SCENARIO-003',
     'DEV132-SCENARIO-004',
+    'DEV132-SCENARIO-005',
+    'DEV132-SCENARIO-006',
+    'DEV132-SCENARIO-007',
 ]
 required = {
     'id', 'title', 'workflowSkill', 'inputClass', 'expectedPattern',
@@ -407,7 +486,7 @@ assert all(s['verification']['requiredIds'] for s in scenarios)
 assert all(s['apiClaims'] for s in scenarios)
 assert all(s['limitations'] for s in scenarios)
 
-s1, s2, s3, s4 = scenarios
+s1, s2, s3, s4, s5, s6, s7 = scenarios
 assert s1['workflowSkill'] == 'design-apple-foundation-models-handoff'
 assert s1['expectedPattern'] == 'baton_pass'
 assert s1['destinationProfile'] == s1['finalResponseOwner'] == 'review'
@@ -443,6 +522,46 @@ assert outcomes['NO_SAFE_RECONCILIATION'] == (
     'repair_blocked_remain_recovery_required'
 )
 
+for scenario, outcome in (
+    (s5, 'no_activation'),
+    (s6, 'clarification_required'),
+):
+    assert scenario['workflowSkill'] == 'none'
+    assert scenario['expectedPattern'] == 'deterministic_routing'
+    assert scenario['stateOutcome']['commandCount'] == 0
+    assert scenario['stateOutcome']['effectCount'] == 0
+    route_outcomes = {
+        o['id']: o['expected'] for o in scenario['safetyOutcomes']
+    }
+    assert route_outcomes['NON_POSITIVE_OUTCOME'] == outcome
+    assert route_outcomes['NON_POSITIVE_SIDE_EFFECTS'] == (
+        'no_workflow_reference_architectureResult_tool_effect_command_'
+        'agent_hook_or_Apple_claim'
+    )
+
+assert s7['workflowSkill'] == 'none'
+assert s7['expectedPattern'] == 'deterministic_routing'
+assert s7['finalResponseOwner'] == 'host_parent'
+cost_outcomes = {o['id']: o['expected'] for o in s7['safetyOutcomes']}
+assert cost_outcomes['DIAGNOSTIC_ACTION'] == 'condense_diagnostic_output'
+assert cost_outcomes['ORIGINAL_TOOL_EXECUTION'] == 'one_before_PostToolUse'
+assert cost_outcomes['ORIGINAL_TOOL_RERUN'] == 'zero_for_every_route_outcome'
+assert cost_outcomes['DECLINE_OR_UNAVAILABLE'] == 'original_result_unchanged'
+assert cost_outcomes['APPLE_FAILURE'] == (
+    'normalized_error_plus_original_result'
+)
+assert cost_outcomes['PARENT_USAGE_BOUNDARY'] == (
+    'no_first_turn_savings_claim_lower_subsequent_consumption_target'
+)
+assert cost_outcomes['LIVE_ACCEPTANCE'].startswith('blocked_pending_')
+assert all(
+    'E-RUNTIME-COST-001' not in s['verification']['requiredIds']
+    for s in scenarios if s['verification']['expectedResult'] == 'pass'
+)
+assert s7['apiClaims'][0]['surface'] == (
+    'DEV128_SDK_26_5_fixture_regression_boundary'
+)
+
 allowed_labels = {
     'compiled_sdk_26_5', 'interface_verified_sdk_26_5',
     'official_os_xcode_27_beta_locally_unverified',
@@ -450,12 +569,12 @@ allowed_labels = {
 }
 assert all(c['versionLabel'] in allowed_labels
            for s in scenarios for c in s['apiClaims'])
-print('DEV132_SCENARIOS_PASS count=4 semantic_contract=pass')
+print('DEV132_SCENARIOS_PASS count=7 semantic_contract=pass')
 PY
 ```
 
 Expected output:
-`DEV132_SCENARIOS_PASS count=4 semantic_contract=pass`.
+`DEV132_SCENARIOS_PASS count=7 semantic_contract=pass`.
 
 This check validates scenario semantics and cross-field invariants. File
 existence or JSON syntax alone is not acceptance.
@@ -500,7 +619,8 @@ the correction separately.
 
 ```bash
 set -e
-base=3792e8c98a387b7f9c48bd210d25938b40cdd5fe
+# Reviewed main base captured for this PR.
+base=6992d57cc4b6882f7c644141852cddad23e77d2a
 git merge-base --is-ancestor "$base" HEAD
 git diff --check "$base"..HEAD
 actual_paths_file="$(mktemp)"
@@ -533,8 +653,8 @@ for path in "$spec" "$plan" "$record" "$json"; do test -s "$path"; done
 placeholder_re='T(BD)|TO(DO)|FIX(ME)|fill in detai(ls)|implement lat(er)'
 ! rg -n -e "$placeholder_re" \
   "$spec" "$plan" "$record" "$json"
-test "$(rg -c '^### Scenario [1-4]:' "$spec")" -eq 4
-git diff --check 3792e8c98a387b7f9c48bd210d25938b40cdd5fe..HEAD
+test "$(rg -c '^### Scenario [1-7]:' "$spec")" -eq 7
+git diff --check origin/main...HEAD
 ```
 
 ### Step 3: Re-run DEV-131 deterministic evaluation proof
@@ -568,13 +688,14 @@ swiftc -warnings-as-errors -parse-as-library \
 diff -u fixtures/dev-130/expected-output.txt "$artifact_dir/first.out"
 "$artifact_dir/dev130-adversarial" > "$artifact_dir/second.out"
 cmp "$artifact_dir/first.out" "$artifact_dir/second.out"
-rg -q '^SUMMARY passed=7 failed=0$' "$artifact_dir/first.out"
+rg -q '^SUMMARY passed=8 failed=0$' "$artifact_dir/first.out"
 ```
 
 Expected: warnings-as-errors compile succeeds, exact golden matches, summary is
-7 pass/0 fail, and the repeat is byte-identical.
+8 pass/0 fail, including diagnostic-result routing, and the repeat is
+byte-identical.
 
-### Step 5: Re-run DEV-128 compiled SDK 26.x matrix
+### Step 5: Re-run the DEV-128 six-positive/two-blocker matrix
 
 ```bash
 set -e
@@ -583,6 +704,8 @@ SDK="$(xcrun --sdk macosx --show-sdk-path)"
 TARGET=arm64-apple-macos26.0
 swiftc -warnings-as-errors -typecheck -target "$TARGET" -sdk "$SDK" \
   fixtures/dev-128/compiled/stable-surface.swift
+swiftc -warnings-as-errors -typecheck -target "$TARGET" -sdk "$SDK" \
+  fixtures/dev-128/compiled/generable-macro.swift
 swiftc -warnings-as-errors -parse-as-library -target "$TARGET" -sdk "$SDK" \
   fixtures/dev-128/compiled/availability-probe.swift \
   -o "$artifact_dir/availability"
@@ -606,19 +729,42 @@ swiftc -warnings-as-errors -parse-as-library -target "$TARGET" -sdk "$SDK" \
   -o "$artifact_dir/baton"
 test "$("$artifact_dir/baton")" = \
   'source=research destination=review active=review finalOwner=review transferred=true'
+
+set +e
+swiftc -warnings-as-errors -typecheck -target arm64-apple-macos27.0 \
+  -sdk "$SDK" fixtures/dev-128/blocked/os-27-beta-surface.swift \
+  >"$artifact_dir/beta.out" 2>&1
+beta_rc=$?
+swiftc -warnings-as-errors -typecheck -target arm64-apple-macos27.0 \
+  -sdk "$SDK" fixtures/dev-128/blocked/evaluations-import.swift \
+  >"$artifact_dir/evaluations.out" 2>&1
+evaluations_rc=$?
+set -e
+test "$beta_rc" -ne 0
+test "$evaluations_rc" -ne 0
+rg -q "DynamicProfile.*not a member type|has no member 'Profile'" \
+  "$artifact_dir/beta.out"
+rg -q "extra arguments at positions #1, #2 in call" "$artifact_dir/beta.out"
+rg -q "extra argument 'toolCallingMode' in call" "$artifact_dir/beta.out"
+rg -q "no such module 'Evaluations'" "$artifact_dir/evaluations.out"
 ```
 
-Expected: all compiles and assertions pass. The availability values themselves
+Expected: six positive fixtures pass and both strict expected blockers match
+their capability-specific diagnostics. Static macros are now positive under
+Xcode 26.6; the old Command Line Tools blocker is historical. The availability
+values themselves
 remain host-state observations; their four output shapes are the gate.
 Unique `mktemp` artifacts remain outside the repository because destructive
 cleanup commands are not permitted in this execution environment.
 
-### Step 6: Reconfirm narrow blockers without false passes
+### Step 6: Preserve historical host evidence without false passes
 
-Run in the same controlled shell used for the selected baseline row. Capture
-the first executable resolution once before any host operation, invoke only the
-captured variables, and recheck resolution afterward. Do not print or commit
-the literal resolution or raw `PATH`:
+The following July 17 probe is retained only as historical provenance. Do not
+run it as a current acceptance gate or repeat its Command Line Tools blockers:
+the current bounded observation is Xcode 26.6, Swift 6.3.3, and SDK 26.5, with
+the six-positive/two-strict-blocker DEV-128 matrix in Step 5. Current downstream
+host/model issues own their own matrices; missing live Apple, paired telemetry,
+or runtime prerequisites remain `blocked` rather than inheriting this output.
 
 ```bash
 set -e
@@ -830,9 +976,8 @@ if test "$claude_integrity_state" != pass || \
 fi
 ```
 
-Expected on the planning host: Command Line Tools path is available;
-`xcodebuild`, Instruments/xctrace, iPhone SDK, simctl, and Evaluations remain
-blocked. Before operations, a missing/non-runnable executable, unavailable
+Historical July 17 result only: Command Line Tools was selected and the listed
+Xcode/device tooling was blocked. Before operations, a missing/non-runnable executable, unavailable
 version, or version other than the approved baseline produces a normalized
 `blocked` row with `<host-path>` and observed exact version or `null`; only then
 does the command exit. Claude 2.1.91 and Codex 0.144.5 produce prerequisite
@@ -850,10 +995,12 @@ limited to the probe name, exit code, normalized status, and stable
 
 ### Step 7: Verify downstream Linear propagation
 
-Read DEV-133 through DEV-141 from Linear. Confirm each issue contains the
+Read DEV-133 through DEV-145 from Linear, including DEV-136/137 and DEV-139
+through DEV-145. Confirm each affected issue contains the
 DEV-132 propagation comment with decision, rationale, source issue, and impact,
-and that no stale assumption contradicts the approved root/fallback, five-skill,
-generation, security, or evidence contracts. If a durable decision changed,
+and that no stale assumption contradicts the approved root/fallback, five
+positive workflows, bounded non-positive router, generated-artifact ownership,
+Apple-first runtime chain, security, or cost/evidence contracts. If a durable decision changed,
 update DEV-132 first, then every affected downstream issue before proceeding.
 
 ## Task 4: Obtain final whole-issue review and attach evidence
@@ -871,18 +1018,18 @@ If it finds an issue, invoke `superpowers:receiving-code-review`, verify the
 claim technically, assign the narrow correction, rerun affected gates and the
 full verification suite, and obtain a fresh final verdict.
 
-### Step 2: Rebase the stack safely if required
+### Step 2: Confirm atomic integration against current main
 
-Fetch/review the current DEV-131 head. If it differs from the recorded base,
-rebase `codex/dev-132-mvp-architecture` onto that reviewed head, preserving the
-atomic commit boundaries. Resolve only DEV-132 conflicts. Re-run Tasks 3 and 4
-after the rebase. Do not merge the parent branch into this branch.
+Fetch `origin/main`, verify the reviewed remote head has not changed, and
+integrate only the unique DEV-132 four-path delta. Resolve conflicts in favor
+of current `main` plus DEV-132-owned behavior, then rerun Tasks 3 and 4. Stop on
+remote drift; never overwrite concurrent work.
 
 ### Step 3: Attach durable evidence in Linear
 
 Post one DEV-132 evidence comment containing:
 
-- exact branch, parent branch, base SHA, final head, and ordered commit list;
+- exact branch, current-main base SHA, final head, and ordered commit list;
 - links to all four allowed repository artifacts;
 - Task 1 semantic gate result;
 - the exact scenario-oracle output and scenario count;
@@ -895,16 +1042,14 @@ Post one DEV-132 evidence comment containing:
 - downstream propagation issue/comment references; and
 - every non-claim and deferred capability.
 
-Link the issue-scoped stacked PR after it exists. Do not mark DEV-132 complete
+Link the issue-scoped PR after it exists. Do not mark DEV-132 complete
 until the Definition of Done is fully proven and the evidence comment is
 durable in Linear.
 
-### Step 4: Open the atomic stacked PR
+### Step 4: Verify the atomic PR
 
-Only after all gates and reviews pass, push the DEV-132 branch and open a PR
-targeting `codex/dev-131-evaluation-strategy`. The PR body must include the
-Linear issue, commit-by-commit review guide, four-path scope, verification
-summary, blockers/non-claims, and stack dependency. Do not merge it.
+The PR targets `main`. Its body must include the Linear issue, four-path scope,
+verification summary, blockers/non-claims, and current base/head bindings.
 
 ### Step 5: Final completion gate
 
@@ -912,7 +1057,7 @@ Invoke `superpowers:verification-before-completion` and rerun the fresh commands
 it requires. Then confirm:
 
 - DEV-132 issue evidence and downstream propagation are current;
-- the stacked PR diff contains only the four allowed paths;
+- the PR diff contains only the four allowed paths;
 - all required deterministic and compile gates pass;
 - each host row used one captured executable, records normalized `<host-path>`
   plus exact version, and rejects resolution drift;
