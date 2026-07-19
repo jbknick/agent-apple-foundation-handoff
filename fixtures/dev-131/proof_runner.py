@@ -84,14 +84,6 @@ REQUIRED_CASE_PATHS = {
     ),
 }
 
-CASE_ORACLE_FIELDS = {
-    "expected",
-    "expectedStatus",
-    "expectedViolations",
-    "oracle",
-    "oracleMatch",
-}
-
 EXPECTED_HOST_LAYERS = {
     "offline-contract": "pass",
     "claude-code-activation": "blocked",
@@ -208,7 +200,7 @@ def _record_list(value: object, fields: dict[str, object]) -> bool:
         if not isinstance(item, dict) or set(item) != set(fields):
             return False
         for field, validator in fields.items():
-            if field not in item or not validator(item[field]):
+            if not validator(item[field]):
                 return False
     return True
 
@@ -258,7 +250,7 @@ def _valid_case_shape(case: object) -> bool:
         return False
     if set(case) != {"schemaVersion", "caseId", "workflow", "policy", "result"}:
         return False
-    if CASE_ORACLE_FIELDS & set(case) or _contains_embedded_oracle_or_raw_field(case):
+    if _contains_embedded_oracle_or_raw_field(case):
         return False
     if (
         case.get("schemaVersion") != "1.0"

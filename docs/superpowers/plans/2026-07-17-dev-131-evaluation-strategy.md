@@ -1,7 +1,5 @@
 # DEV-131 Evaluation Strategy Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task.
-
 **Goal:** Define and prove a deterministic, offline-first evaluation contract for Foundation Models handoff architectures while keeping rubric assessment, paired plugin-off/plugin-on runtime cost, and Apple host tooling as explicit, separately evidenced layers.
 
 **Architecture:** A standard-library Python proof runner consumes independent fixture inputs and emits stable check identifiers. It validates deterministic handoff invariants, a human-reviewable rubric record, and a redacted evidence-bundle allowlist. A research report maps those executable checks to cross-host acceptance and current Apple Evaluations/Instruments capabilities without turning the research proof into the production harness reserved for DEV-139.
@@ -99,7 +97,8 @@ Add `unittest` coverage that imports functions not yet implemented and asserts:
 Run the test before implementing the runner:
 
 ```bash
-python3 -m unittest discover -s fixtures/dev-131/tests -p 'test_*.py' -v
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+  -s fixtures/dev-131/tests -p 'test_*.py' -v
 ```
 
 Expected: FAIL because `fixtures/dev-131/proof_runner.py` or the named API is missing.
@@ -160,9 +159,9 @@ The valid assessment requires a mean score of at least `3.0` and scores of at le
 **Step 5: Run focused verification**
 
 ```bash
-python3 -m unittest discover -s fixtures/dev-131/tests -p 'test_*.py' -v
-python3 fixtures/dev-131/proof_runner.py
-python3 -m compileall -q fixtures/dev-131
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+  -s fixtures/dev-131/tests -p 'test_*.py' -v
+PYTHONDONTWRITEBYTECODE=1 python3 fixtures/dev-131/proof_runner.py
 git diff --check
 ```
 
@@ -204,8 +203,9 @@ Expected: FAIL because neither artifact exists.
 Run and record exact commands, exit codes, timestamps, and summarized outputs for:
 
 ```bash
-python3 -m unittest discover -s fixtures/dev-131/tests -p 'test_*.py' -v
-python3 fixtures/dev-131/proof_runner.py
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+  -s fixtures/dev-131/tests -p 'test_*.py' -v
+PYTHONDONTWRITEBYTECODE=1 python3 fixtures/dev-131/proof_runner.py
 swift --version
 xcrun --show-sdk-version
 printf 'import FoundationModels\n' >/tmp/dev-131-foundation-models.swift
@@ -252,7 +252,8 @@ Avoid naming exact public Swift identifiers that cannot be confirmed from the in
 **Step 4: Run report and transcript checks**
 
 ```bash
-python3 fixtures/dev-131/proof_runner.py >/tmp/dev-131-proof.json
+PYTHONDONTWRITEBYTECODE=1 python3 fixtures/dev-131/proof_runner.py \
+  >/tmp/dev-131-proof.json
 python3 -m json.tool /tmp/dev-131-proof.json >/dev/null
 rg -n '^## (Decision summary|Evaluation matrix|Dataset catalog|Rubric contract|Cross-host acceptance|Apple Evaluations mapping|Apple Instruments mapping|Evidence bundle|Local validation|Decision propagation|Primary sources)$' docs/research/dev-131-evaluation-strategy.md
 rg -n 'blocked|not_applicable|stateVersion|policyVersion|reconciliation|synthetic|SHA-256|Xcode 27' docs/research/dev-131-evaluation-strategy.md
@@ -287,9 +288,9 @@ Record the commit SHA and review result in the SDD progress ledger.
 Use a temporary detached worktree at the DEV-131 head and run:
 
 ```bash
-python3 -m unittest discover -s fixtures/dev-131/tests -p 'test_*.py' -v
-python3 fixtures/dev-131/proof_runner.py
-python3 -m compileall -q fixtures/dev-131
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+  -s fixtures/dev-131/tests -p 'test_*.py' -v
+PYTHONDONTWRITEBYTECODE=1 python3 fixtures/dev-131/proof_runner.py
 git diff --check
 ```
 

@@ -23,9 +23,9 @@ case evidence paths must be drawn from the bundle allowlist.
 Run the complete proof with:
 
 ```bash
-python3 -m unittest discover -s fixtures/dev-131/tests -p 'test_*.py' -v
-python3 fixtures/dev-131/proof_runner.py
-python3 -m compileall -q fixtures/dev-131
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+  -s fixtures/dev-131/tests -p 'test_*.py' -v
+PYTHONDONTWRITEBYTECODE=1 python3 fixtures/dev-131/proof_runner.py
 ```
 
 A missing optional host denominator is emitted as `not_applicable`. It is never

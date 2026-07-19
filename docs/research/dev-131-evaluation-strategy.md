@@ -330,9 +330,9 @@ for material it intentionally excludes.
 Reproduce the default proof from the repository root:
 
 ```bash
-python3 -m unittest discover -s fixtures/dev-131/tests -p 'test_*.py' -v
-python3 fixtures/dev-131/proof_runner.py
-python3 -m compileall -q fixtures/dev-131
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+  -s fixtures/dev-131/tests -p 'test_*.py' -v
+PYTHONDONTWRITEBYTECODE=1 python3 fixtures/dev-131/proof_runner.py
 ```
 
 ## Local validation
@@ -368,10 +368,11 @@ import.
 Default validation commands are:
 
 ```bash
-python3 -m unittest discover -s fixtures/dev-131/tests -p 'test_*.py' -v
-python3 fixtures/dev-131/proof_runner.py
-python3 -m compileall -q fixtures/dev-131
-python3 fixtures/dev-131/proof_runner.py > /tmp/dev-131-proof.json
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+  -s fixtures/dev-131/tests -p 'test_*.py' -v
+PYTHONDONTWRITEBYTECODE=1 python3 fixtures/dev-131/proof_runner.py
+PYTHONDONTWRITEBYTECODE=1 python3 fixtures/dev-131/proof_runner.py \
+  > /tmp/dev-131-proof.json
 python3 -m json.tool /tmp/dev-131-proof.json > /dev/null
 git diff --check
 ```
