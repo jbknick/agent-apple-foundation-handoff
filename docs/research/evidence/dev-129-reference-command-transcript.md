@@ -309,8 +309,11 @@ by install and inspection of the cached installed plugin.
 ## Isolated representative loading
 
 Fresh disposable homes were created for both hosts, then the pinned bstack
-root was used without modification. Paths in the selected output are
-normalized:
+root was used without modification. The displayed JSON objects and
+human-readable status lines are selected, condensed excerpts. Paths are
+normalized; every field used by the acceptance selectors is retained, while
+incidental descriptive, source, scope, and timestamp fields plus status
+spinner or suffix decoration are omitted:
 
 ```text
 $ CLAUDE_CONFIG_DIR=<claude-home> claude plugin marketplace add <reference-root>/bstack --scope user
