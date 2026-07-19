@@ -1,664 +1,340 @@
-# DEV-138 Deterministic Swift Handoff Fixtures Implementation Plan
+# DEV-138 Deterministic Swift Handoff Fixtures Verification and Merge Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+**Goal:** Verify and merge the completed DEV-138 repository-only Swift fixture
+system without widening it into production runtime code or overstating its
+evidence.
 
-**Goal:** Add a repository-only Foundation Swift reducer and exact adversarial oracle that prove the approved handoff state, security, recovery, Apple SDK, packaging, and evidence contracts offline.
+**Architecture:** `fixtures/dev-138/HandoffReducer.swift` is a pure,
+Foundation-only reducer. `DeterministicScenarios.swift` evaluates the fixed case
+corpus, while `expected-results.jsonl` is the sole closed outcome oracle. Python
+tests compile and run the fixtures, exercise adversarial mutations, reuse the
+authoritative DEV-128 SDK probes in place, and prove the fixtures never enter the
+metadata-only plugin package.
 
-**Architecture:** Two direct-`swiftc` sources implement a pure framework-neutral reducer and a sorted synthetic scenario executable. The executable emits canonical JSONL; a separate tracked JSONL file is the sole expected-outcome oracle. A Python `unittest` module compiles/runs twice, performs exact/mutation checks, reuses DEV-128 sources directly, records normalized environment states, maps DEV-134 identities, and proves fixtures stay outside the plugin package.
+**Canonical detail:** The approved design owns invariant and mapping detail,
+`fixtures/dev-138/README.md` owns the case list and direct commands, and
+`docs/research/evidence/dev-138-command-transcript.md` owns executed evidence.
+This file is the present-state review, verification, and publication runbook; it
+does not reconstruct implementation history.
 
-**Tech Stack:** Swift 6 / Foundation, `swiftc`, Python 3 standard library and `unittest`, JSON Lines, macOS SDK 26.5 Command Line Tools, `xcrun`, BATS 1.13.0, and existing DEV-128/130/131 fixtures.
+## Authority and boundaries
 
-## Global constraints
+- DEV-138 and its complete chronological Linear record are authoritative. The
+  durable decision is comment `4bf0b19c-1a3a-485b-ac2e-823e05cbee22`; the July
+  19 amendment is comment `a802f758-ea3f-429e-8f81-04ca8b2f00b7`. Re-read the
+  issue, relations, attachments, and comments immediately before publication
+  and merge. A newer amendment stops the sequence.
+- The issue base is
+  `27c7ce6b8d47541711184ceae06b2eecbdc4be8e`. DEV-138 remains deterministic,
+  offline, and repository-only.
+- Add no production bridge, workflow router, cost router, hook, skill,
+  reference, agent, command, MCP server, package capability, dependency, live
+  model call, provider/PCC call, credential access, hardware gate, release, or
+  publication behavior.
+- The reducer and baton fixture are `pseudocode_deterministic_mock`. Compilation
+  does not prove Apple runtime behavior, model behavior, or capability
+  activation.
+- Do not invoke or substitute Claude Code `2.1.91`, `pre-commit`, or
+  `markdownlint`; retain `blocked/deferred_by_owner`. Claude Code `2.1.140`
+  remains diagnostic-only and cannot substitute. Full Xcode, Xcode/OS 27
+  runtime behavior, Evaluations, Instruments, device, entitlement, and other
+  unavailable host prerequisites remain explicit blockers, never passes.
 
-- Work only on `codex/dev-138-deterministic-swift-fixtures` from
-  `27c7ce6b8d47541711184ceae06b2eecbdc4be8e`.
-- Follow DEV-138 Linear decision comment
-  `4bf0b19c-1a3a-485b-ac2e-823e05cbee22`; do not change it implicitly.
-- Add no Swift package/project, production runtime, sample app, skill,
-  reference, plugin metadata, schema, generated artifact, generator behavior,
-  dependency, network call, credential, PCC/provider call, model call, hardware
-  gate, hook, agent, command, MCP server, release, or publication.
-- `fixtures/dev-138/` is repository-only and absent from the effective package
-  and advertised capabilities.
-- Treat reducer output as `pseudocode_deterministic_mock`, not Apple behavior.
-  Reuse DEV-128 sources instead of copying Apple signatures.
-- Keep exact check IDs and sorted expected violations from the design. Expected
-  outcomes exist only in `expected-results.jsonl`, never in Swift cases.
-- Use TDD: observe each focused RED failure before the smallest GREEN change;
-  do not weaken an oracle to turn RED green.
-- Default proof is offline and credential-free. Normalize blockers and never
-  commit raw diagnostics or literal local paths.
-- Do not invoke Claude Code. Claude Code, `pre-commit`, and `markdownlint`
-  remain `blocked/deferred_by_owner`; BATS remains required.
+## Exact issue scope
 
-## File responsibility map
+The complete delta is exactly nine regular files. The first two are planning
+paths; the remaining seven are implementation/evidence paths.
 
-| Path | Action | Responsibility |
-| --- | --- | --- |
-| `fixtures/dev-138/HandoffReducer.swift` | Create | State/policy/event types, reducer, invariant validator, normalized result. |
-| `fixtures/dev-138/DeterministicScenarios.swift` | Create | Exact scenario corpus and canonical JSONL executable. |
-| `fixtures/dev-138/expected-results.jsonl` | Create | Sole sorted expected status/violation/observable oracle. |
-| `fixtures/dev-138/README.md` | Create | Case map, truth boundary, exact commands and blockers. |
-| `tests/test_dev_138_fixtures.py` | Create | TDD harness, mutation tests, SDK probes, environment, DEV-134 map, package proof. |
-| `tests/test_plugin_contract.py` | Modify | Assert DEV-138 repository fixture never enters copied package payload. |
-| `docs/research/evidence/dev-138-command-transcript.md` | Create | Final normalized evidence matrix and hashes. |
+1. `docs/superpowers/plans/2026-07-17-dev-138-deterministic-swift-fixtures.md`
+2. `docs/superpowers/specs/2026-07-17-dev-138-deterministic-swift-fixtures-design.md`
+3. `fixtures/dev-138/HandoffReducer.swift`
+4. `fixtures/dev-138/DeterministicScenarios.swift`
+5. `fixtures/dev-138/expected-results.jsonl`
+6. `fixtures/dev-138/README.md`
+7. `tests/test_dev_138_fixtures.py`
+8. `tests/test_plugin_contract.py`
+9. `docs/research/evidence/dev-138-command-transcript.md`
 
----
+No package metadata, generator, generated file, or effective plugin payload may
+change. The package must continue to expose zero capabilities and exclude all
+repository fixtures, tests, docs, research, caches, private state, and runtime
+artifacts.
 
-### Task 1: Define the executable/oracle contract test-first
+## Contract that every review preserves
 
-**Files:**
-- Create: `tests/test_dev_138_fixtures.py`
-- Create: `fixtures/dev-138/expected-results.jsonl`
+- Keep all 43 stable `DEV138-*` case IDs enumerated in the README. The executable
+  emits one canonical, lexically ordered JSONL row per case; violations are
+  sorted; the executable never reads or duplicates the expected oracle.
+- Preserve typed, fail-closed ownership of transitions, minimized context,
+  complete grants, tool-result provenance and consumption, stable effects,
+  reconciliation truth, one authorized retry, cancellation, recovery,
+  availability fallback, transcript repair, and metadata-only evidence.
+- Preserve independent state and policy versions, exact destination/purpose/
+  retention/class/field/tool bindings, C0-C3 policy, stable effect-ledger
+  identities, no-rerun behavior, original-result ownership, and recovery until
+  reconciliation.
+- DEV-131 alone owns rubric scoring. DEV-138 may exercise `D-RUBRIC-001` as an
+  inherited contract but must not add a second semantic scorer.
+- Where the DEV-134 mapping is read, preserve five positive workflows—design,
+  implement, review, debug, and validate—and one bounded non-positive router.
+  The prototype remains 6 positive, 6 negative, and 3 ambiguous identities.
+  Its 7 `direct_workflow` and 8 `non_positive_router` values are ownership
+  metadata, not fields in any exact emitted envelope.
+- The approved SDK row is Swift `6.3.3`, default target
+  `arm64-apple-macosx26.0`, explicit target `arm64-apple-macos26.0`, and macOS
+  SDK `26.5`. The installed arm64e Foundation Models interface SHA-256 is exactly
+  `ff2285670b0966addb9827dc895a3ee3c9db6e186baae62c034fed012632aacc`.
+- The DEV-128 matrix has six positive rows (five
+  `compiled_sdk_26_5` rows plus the pseudocode baton row), one
+  `interface_verified_sdk_26_5` row, and two strict expected blockers. Generic
+  nonzero compilation is a failure; newly supported surfaces require honest
+  reclassification.
+- No gate establishes live Apple/model behavior, a production workflow/router,
+  runtime cost or latency, host activation, or future capability. Missing
+  evidence is `blocked`, not inferred or fabricated.
 
-**Interfaces:**
-- `compile_fixture() -> Path`
-- `run_fixture(executable: Path) -> bytes`
-- `parse_jsonl(payload: bytes) -> list[dict[str, object]]`
-- `load_oracle() -> list[dict[str, object]]`
-- `environment_row() -> dict[str, object]`
+## Exactly three review/fix rounds
 
-- [ ] **Step 1: Write the failing fixture-presence and closed-output tests**
+The main agent performs all three rounds in order against the whole PR and
+records severity, exact evidence, impact, and the smallest bounded correction.
+Each round uses a fresh fix worker that owns only named paths, preserves all
+other work, commits locally, and never pushes, merges, or changes GitHub/Linear
+state. Behavioral corrections require an observed focused RED and the smallest
+GREEN fix. The main agent inspects every resulting diff and reruns the focused
+gate. A clean round changes nothing and creates no no-op commit.
 
-Create `tests/test_dev_138_fixtures.py` using only the Python standard library.
-Define exact source/oracle paths and assert:
+1. **Correctness and scope:** current Linear/GitHub compliance, state and
+   security invariants, exclusions, SDK provenance, package boundaries, and
+   existing unresolved feedback.
+2. **Simplicity:** readable and concise control flow, single ownership of
+   policy/oracles, DRY behavior tests, no dead scaffolding, and no speculative
+   runtime surface.
+3. **Adversarial acceptance:** replay, cancellation, recovery, reconciliation,
+   stale versions/hashes/SHAs, duplicated identities, unavailable prerequisites,
+   evidence honesty, and whole-PR readiness.
 
-```python
-ROOT = Path(__file__).resolve().parents[1]
-FIXTURE_ROOT = ROOT / "fixtures" / "dev-138"
-SOURCES = (
-    FIXTURE_ROOT / "HandoffReducer.swift",
-    FIXTURE_ROOT / "DeterministicScenarios.swift",
-)
-ORACLE = FIXTURE_ROOT / "expected-results.jsonl"
-CHECK_IDS = {
-    "D-SCHEMA-001", "D-ROUTE-001", "D-OWNER-001",
-    "D-TRANSITION-001", "D-TOOL-001", "D-CONTEXT-001",
-    "D-CONTEXT-002", "D-GRANT-001", "D-PHASE-001",
-    "D-EFFECT-001", "D-EFFECT-002", "D-FALLBACK-001",
-    "D-EVIDENCE-001", "D-RUBRIC-001",
-}
-RESULT_KEYS = {
-    "schemaVersion", "caseId", "status", "violations", "pattern",
-    "activeProfile", "finalResponseOwner", "phase", "stateVersion",
-    "policyVersion", "transitionCount", "transitionBudget",
-    "executorCommandCount", "effectCount", "fallback",
-    "contextIncluded", "contextExcluded", "auditEvents",
-}
-```
+All findings in a round must be closed before advancing. Immediately before
+merge, re-read Linear and GitHub and require zero actionable findings.
 
-The first tests require both sources, validate every JSONL line is a closed
-object with sorted unique case IDs and sorted unique `violations`, require
-violations to be a subset of `CHECK_IDS`, and require exact byte equality
-between executable output and the oracle.
+## Verification ladder
 
-- [ ] **Step 2: Verify RED for missing Swift sources**
+Run from the repository root at the exact reviewed head. Use a fresh temporary
+directory and keep Python bytecode outside the repository.
 
-Run:
-
-```bash
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
-  tests.test_dev_138_fixtures.Dev138FixtureTests.test_output_matches_exact_oracle -v
-```
-
-Expected: nonzero assertion naming missing
-`fixtures/dev-138/HandoffReducer.swift`; no skip and no generic compiler error.
-
-- [ ] **Step 3: Add the complete oracle rows before implementation**
-
-Write `expected-results.jsonl` from the design matrix. Use one compact
-sorted-key object per case, lexical `caseId` order, the exact violation sets,
-and normalized observables. Passing blocked-adversary cases have `status:
-"pass"` and `violations: []`; deliberately invalid outcomes have `status:
-"fail"` and the exact listed set.
-
-The test must reject an omitted, duplicate, extra, reordered, malformed, or
-unknown-ID oracle row.
-
-- [ ] **Step 4: Keep RED at the implementation boundary**
-
-Run the focused test again. Expected: source-presence/compile RED remains; the
-oracle shape itself passes.
-
-Do not commit a red state. Task 1 becomes green in Task 2 and is included in
-that atomic commit.
-
----
-
-### Task 2: Implement the smallest Foundation-only reducer and happy paths
-
-**Files:**
-- Create: `fixtures/dev-138/HandoffReducer.swift`
-- Create: `fixtures/dev-138/DeterministicScenarios.swift`
-- Modify: `tests/test_dev_138_fixtures.py`
-
-**Core Swift interfaces:**
-
-```swift
-enum Pattern: String, Codable { case batonPass, isolatedConsultation }
-enum Phase: String, Codable { case stable, transitioning, recoveryRequired, terminated }
-enum DataClass: Int, Codable { case c0Public, c1TaskPrivate, c2Sensitive, c3NeverTransfer }
-struct ContextField: Equatable { /* class plus complete provenance */ }
-struct BoundaryGrant: Equatable { /* all bound fields plus both versions */ }
-struct EffectRecord: Equatable { /* effectID, truth, reconciled */ }
-struct HandoffState: Equatable { /* exact design state */ }
-enum TrustedEvent: Equatable { /* propose, commit, fail, cancel, reconcile, replay */ }
-struct ReducerDecision: Equatable { let state: HandoffState; let command: ExecutorCommand? }
-struct CaseResult: Codable { /* exact closed JSONL shape */ }
-enum HandoffReducer {
-    static func reduce(state: HandoffState, event: TrustedEvent) -> ReducerDecision
-    static func validate(_ observation: ScenarioObservation) -> [String]
-}
-```
-
-- [ ] **Step 1: Implement value types and fail-closed validation**
-
-Use `Foundation` only. Preserve independent versions, phase-before-budget
-validation, atomic context rejection, exact grant bindings, provenance checks,
-one effect identity, and sorted metadata-only audit labels. Never parse a
-trusted event from untrusted text.
-
-- [ ] **Step 2: Implement valid baton-pass and consultation reducers**
-
-Add `DEV138-BATON-VALID` and `DEV138-CONSULTATION-VALID`. Baton-pass commits
-destination active/final ownership. Consultation keeps the parent active/final
-owner and uses an isolated child transcript identity.
-
-- [ ] **Step 3: Add canonical encoding and executable ordering**
-
-`DeterministicScenarios.swift` builds scenarios without expected outcomes,
-sorts by `caseId`, evaluates them, and encodes with:
-
-```swift
-let encoder = JSONEncoder()
-encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-```
-
-Write exactly one encoded object plus `\n` per case. The executable must never
-open `expected-results.jsonl`.
-
-- [ ] **Step 4: Verify the focused test is still RED for missing cases**
+### DEV-138 deterministic, mutation, mapping, package, and SDK gates
 
 ```bash
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
-  tests.test_dev_138_fixtures.Dev138FixtureTests.test_output_matches_exact_oracle -v
-```
+set -eu
+dev138_artifacts="$(mktemp -d)"
+trap 'rm -rf "$dev138_artifacts"' EXIT
 
-Expected: compile succeeds, but byte comparison fails because the executable
-has only the two initial rows.
-
-- [ ] **Step 5: Add schema/route/owner/transition baseline cases**
-
-Implement through `DEV138-LOOP`, including schema, route, both owner errors,
-invalid edge, budget exhaustion, and loop detection. Return sorted violations
-from computed checks only.
-
-- [ ] **Step 6: Verify the implemented core and deterministic repeat**
-
-Add a separate core-family test that evaluates the implemented cases without
-changing, filtering, or weakening the full-oracle test. Add a repeat test:
-
-```python
-self.assertEqual(run_fixture(executable), run_fixture(executable))
-```
-
-Expected: the core-family test is green and byte-identical; the full-oracle test
-remains intentionally RED for the still-missing adversarial cases. Do not commit
-this intermediate red work. Continue directly to Task 3 and commit only after
-the complete repository suite is green.
-
----
-
-### Task 3: Add context, grant, tool, effect, recovery, and fallback cases
-
-**Files:**
-- Modify: `fixtures/dev-138/HandoffReducer.swift`
-- Modify: `fixtures/dev-138/DeterministicScenarios.swift`
-- Modify: `fixtures/dev-138/expected-results.jsonl`
-- Modify: `tests/test_dev_138_fixtures.py`
-
-- [ ] **Step 1: Write RED mutation tests for each check family**
-
-Add tests that mutate a valid in-memory scenario independently and assert the
-exact computed set for:
-
-```text
-D-TOOL-001
-D-CONTEXT-001
-D-CONTEXT-002
-D-GRANT-001
-D-PHASE-001
-D-EFFECT-001
-D-EFFECT-002
-D-FALLBACK-001
-D-EVIDENCE-001
-```
-
-For every mutation, assert no unrelated check appears. Run the focused test and
-observe RED because validators/cases do not exist.
-
-- [ ] **Step 2: Implement untrusted-input and context policy cases**
-
-Add `DEV138-INJECTION-IGNORED`, `DEV138-C3-BLOCKED`,
-`DEV138-C2-REDACTED`, `DEV138-TOOL-UNAUTHORIZED`,
-`DEV138-RESULT-SPOOFED`, `DEV138-CONTEXT-REQUIRED-MISSING`,
-`DEV138-C3-LEAK`, and `DEV138-C2-UNREDACTED`.
-
-The blocked C3 case must use a synthetic sentinel and assert it appears in
-neither provider serialization nor audit output. The evidence-leak case later
-uses only synthetic sentinel values.
-
-- [ ] **Step 3: Implement and mutate every exact grant binding independently**
-
-Add explicit state-version, policy-version, destination, purpose, class, field,
-and `DEV138-GRANT-AUTH-EXPIRED` cases. Each must produce only
-`["D-GRANT-001"]`.
-
-From one valid grant, create one mutation test per binding below. Each test
-changes exactly the named value and expects only `["D-GRANT-001"]`:
-
-```text
-grant_person_mismatch                 person identity
-grant_session_mismatch                session identity
-grant_source_profile_mismatch         source profile
-grant_source_provider_mismatch        source provider
-grant_destination_profile_mismatch    destination profile
-grant_destination_provider_mismatch   destination provider
-grant_purpose_mismatch                purpose
-grant_class_mismatch                  exact allowed classes
-grant_field_mismatch                  exact allowed fields
-grant_tool_mismatch                   exact allowed tools
-grant_retention_mismatch              retention
-grant_expired                         expiry/authentication validity
-grant_exceptional_c2_missing          exceptional C2 permission
-grant_state_version_stale             stateVersion
-grant_policy_version_stale            policyVersion
-```
-
-Do not combine source profile/provider or destination profile/provider into one
-mutation. Use deterministic fixture time for expiry; do not inspect credentials
-or live authentication state.
-
-- [ ] **Step 4: Implement failure, recovery, replay, and cancellation**
-
-Add precommit rollback, uncertain recovery, valid
-`DEV138-RECONCILIATION-UNAVAILABLE`, replay suppression, reconciled retry,
-precommit cancellation, uncertain cancellation, invalid phase,
-recovery-termination, duplicate ledger, replay-command, retry-before-reconcile,
-and cancellation-erases-recovery cases.
-
-For replay, assert one ledger entry and `command == nil`. For no-safe
-reconciliation, snapshot authority, pending transition, stable checkpoint,
-transition/tool/effect counts, effect ledger, and repair facts before the event;
-assert every snapshot value remains equal, phase remains `recoveryRequired`,
-the normalized outcome is repair-blocked/unavailable, and `command == nil`.
-For the combined late cancellation mutation, emit exactly
-`["D-EFFECT-001","D-PHASE-001"]` in lexical order.
-
-- [ ] **Step 5: Implement availability fallback and transcript repair**
-
-Add both valid unavailable-model outcomes, unsafe trust-expanding fallback,
-valid transcript repair, and unbalanced transcript reuse. The mock never calls
-`SystemLanguageModel`; availability is a typed synthetic application event.
-
-- [ ] **Step 6: Implement metadata-only evidence validation**
-
-Add `DEV138-EVIDENCE-LEAKAGE` with one synthetic record containing prohibited
-raw-content classification, credential sentinel, absolute-path marker, and
-`.trace` extension. It emits only `["D-EVIDENCE-001"]`; raw values never enter
-stdout/audit.
-
-- [ ] **Step 7: Verify exact full-corpus GREEN**
-
-```bash
-set -e
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
   tests.test_dev_138_fixtures -v
-```
 
-Expected: every design case appears once; exact golden and byte-identical repeat
-pass; every mutation emits exactly its expected sorted set.
-
-- [ ] **Step 8: Commit the adversarial matrix**
-
-```bash
-git add fixtures/dev-138 tests/test_dev_138_fixtures.py
-git diff --cached --check
-git commit -m "test(DEV-138): cover adversarial handoff recovery"
-```
-
----
-
-### Task 4: Reuse DEV-128 SDK 26.5 probes and record environment truth
-
-**Files:**
-- Modify: `tests/test_dev_138_fixtures.py`
-- Create: `fixtures/dev-138/README.md`
-
-- [ ] **Step 1: Write the RED environment/SDK matrix test**
-
-The test captures `swiftc`, `xcrun`, and the SDK directory with
-`shutil.which`/`stat`, brackets invocations with exact metadata snapshots,
-validates strict version output, and emits only normalized values. Missing tools create a
-`unittest.SkipTest` message beginning with `blocked/`; release validation treats
-that skip as a blocker, never a pass.
-
-Assert SDK version is exactly `26.5` before assigning SDK 26.5 labels. A
-different SDK yields `blocked/sdk_version_mismatch` and requires matrix
-reclassification.
-
-- [ ] **Step 2: Add exact Foundation-only fixture commands to README**
-
-```bash
-set -e
-TMPDIR="$(mktemp -d)"
-trap 'rm -rf "$TMPDIR"' EXIT
 swiftc -warnings-as-errors -parse-as-library \
   fixtures/dev-138/HandoffReducer.swift \
   fixtures/dev-138/DeterministicScenarios.swift \
-  -o "$TMPDIR/dev-138-fixtures"
-"$TMPDIR/dev-138-fixtures" >"$TMPDIR/first.jsonl"
-"$TMPDIR/dev-138-fixtures" >"$TMPDIR/second.jsonl"
-cmp "$TMPDIR/first.jsonl" "$TMPDIR/second.jsonl"
-diff -u fixtures/dev-138/expected-results.jsonl "$TMPDIR/first.jsonl"
-```
+  -o "$dev138_artifacts/dev138"
+"$dev138_artifacts/dev138" >"$dev138_artifacts/first.jsonl"
+"$dev138_artifacts/dev138" >"$dev138_artifacts/second.jsonl"
+cmp "$dev138_artifacts/first.jsonl" "$dev138_artifacts/second.jsonl"
+diff -u fixtures/dev-138/expected-results.jsonl \
+  "$dev138_artifacts/first.jsonl"
+test "$(wc -l < fixtures/dev-138/expected-results.jsonl | tr -d ' ')" = 43
 
-- [ ] **Step 3: Add exact SDK and target probes**
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
+  tests.test_dev_138_fixtures.Dev138ContractTests \
+  tests.test_plugin_contract.PluginContractTests.test_dev_138_fixtures_are_repository_only \
+  -v
 
-```bash
-set -e
-SWIFT_VERSION="$(swiftc --version)"
-SDK="$(xcrun --sdk macosx --show-sdk-path)"
-SDK_VERSION="$(xcrun --sdk macosx --show-sdk-version)"
-TARGET=arm64-apple-macos26.0
-test "$SDK_VERSION" = 26.5
-
-swiftc -typecheck -target "$TARGET" -sdk "$SDK" \
-  fixtures/dev-128/compiled/stable-surface.swift
-swiftc -typecheck -target "$TARGET" -sdk "$SDK" \
-  fixtures/dev-128/compiled/generable-macro.swift
-swiftc -parse-as-library -target "$TARGET" -sdk "$SDK" \
-  fixtures/dev-128/compiled/availability-probe.swift \
-  -o "$TMPDIR/availability"
-"$TMPDIR/availability" >"$TMPDIR/availability.out"
-rg -q '^availability=' "$TMPDIR/availability.out"
-rg -q '^isAvailable=' "$TMPDIR/availability.out"
-rg -q '^contextSize=[0-9]+$' "$TMPDIR/availability.out"
-rg -q '^supportsCurrentLocale=' "$TMPDIR/availability.out"
-
-swiftc -parse-as-library -target "$TARGET" -sdk "$SDK" \
-  fixtures/dev-128/compiled/transcript-roundtrip.swift \
-  -o "$TMPDIR/transcript"
-test "$("$TMPDIR/transcript")" = \
-  'entries=3 codableRoundTrip=true rehydrated=true'
-
-swiftc -parse-as-library -target "$TARGET" -sdk "$SDK" \
-  fixtures/dev-128/compiled/session-isolation.swift \
-  -o "$TMPDIR/isolation"
-test "$("$TMPDIR/isolation")" = \
-  'parentEntries=1 childEntries=1 isolated=true'
-
-swiftc -parse-as-library -target "$TARGET" -sdk "$SDK" \
-  fixtures/dev-128/compiled/baton-pass-state.swift \
-  -o "$TMPDIR/baton"
-test "$("$TMPDIR/baton")" = \
-  'source=research destination=review active=review finalOwner=review transferred=true'
-```
-
-The first five supported Foundation Models rows are
-`compiled_sdk_26_5`; the baton mock is
-`pseudocode_deterministic_mock` despite compiling.
-
-- [ ] **Step 4: Verify the installed interface identity**
-
-```bash
-INTERFACE="$(find \
-  "$SDK/System/Library/Frameworks/FoundationModels.framework/Modules/FoundationModels.swiftmodule" \
-  -name 'arm64e-apple-macos.swiftinterface' -print -quit)"
-test -n "$INTERFACE"
-test "$(shasum -a 256 "$INTERFACE" | awk '{print $1}')" = \
-  ff2285670b0966addb9827dc895a3ee3c9db6e186baae62c034fed012632aacc
-```
-
-This row is `interface_verified_sdk_26_5`. The literal interface/SDK path is
-transient and never copied into tracked evidence.
-
-- [ ] **Step 5: Re-run the authoritative expected blockers**
-
-Use the exact commands and two independent diagnostic checks from
-`fixtures/dev-128/README.md` for:
-
-- `blocked/os-27-beta-surface.swift` -> dynamic profile/profile,
-  profile-session initializer, and `toolCallingMode` diagnostics; and
-- `blocked/evaluations-import.swift` -> no `Evaluations` module.
-
-Compile `compiled/generable-macro.swift` as the sixth positive row.
-
-Each compile must be nonzero and match its capability-specific diagnostic.
-Generic nonzero is `fail`. A future supported surface requires reclassification,
-not a weaker regex.
-
-- [ ] **Step 6: Verify SDK tests GREEN**
-
-```bash
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
   tests.test_dev_138_fixtures.Dev138SDKTests -v
 ```
 
-Expected on the approved host: Swift 6.3.3, default target
-`arm64-apple-macosx26.0`, compile target `arm64-apple-macos26.0`, SDK 26.5,
-six positive DEV-128 rows, and two exact expected blockers. Record normalized
-versions and metadata identity only.
+Required result: DEV-138 passes exactly `36/36` with no skip; all 43 oracle
+rows are exact and byte-identical across two runs; the mapping/package subset
+passes `3/3`; and the SDK class confirms Swift 6.3.3, SDK 26.5, six positives,
+the exact interface hash, and both capability-specific blockers. Any SDK skip
+is a merge blocker. The README contains the authoritative direct positive and
+negative command bodies; do not duplicate or weaken them here.
 
-- [ ] **Step 7: Commit SDK integration and README**
-
-```bash
-git add fixtures/dev-138/README.md tests/test_dev_138_fixtures.py
-git diff --cached --check
-git commit -m "test(DEV-138): verify SDK 26.5 fixture boundary"
-```
-
----
-
-### Task 5: Prove router mapping and offline package exclusion
-
-**Files:**
-- Modify: `tests/test_dev_138_fixtures.py`
-- Modify: `tests/test_plugin_contract.py`
-
-- [ ] **Step 1: Write RED DEV-134 mapping assertions**
-
-Load `docs/research/evidence/dev-134-activation-prototype.json` and assert exact
-counts `6/6/3`, unique identities, and that every applicable/not-applicable
-guardrail is in `CHECK_IDS`. Map baton, consultation, flawed reducer, recovery,
-and review-first identities to their named DEV-138 cases. Do not run either
-host or pretend prototype activation is runtime proof.
-
-- [ ] **Step 2: Write RED package-exclusion assertion**
-
-In `tests/test_plugin_contract.py`, extend the existing package test with a
-temporary copy and assert:
-
-```python
-self.assertTrue((ROOT / "fixtures/dev-138").is_dir())
-self.assertFalse((plugin_root / "fixtures").exists())
-assert_plugin_package_contract(self, copied_plugin_root)
-```
-
-Scan copied relative payload names and require no `fixtures`, `dev-138`,
-`tests`, `docs`, `research`, `.trace`, `.xcresult`, credential sentinel, or
-literal private path. Use no network, credential, Codex home, or host install.
-
-- [ ] **Step 3: Observe and then fix RED**
-
-Run the two focused tests before their mapping/assertion implementation;
-expected RED names the missing mapping/package assertion. Add only the mapping
-table and package-copy checks, then rerun:
+### Inherited deterministic and repository gates
 
 ```bash
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
-  tests.test_dev_138_fixtures.Dev138ContractTests \
-  tests.test_plugin_contract.PluginContractTests.test_dev_138_fixtures_are_repository_only -v
-```
+set -eu
+dev138_artifacts="$(mktemp -d)"
+trap 'rm -rf "$dev138_artifacts"' EXIT
 
-Expected: pass with a local temporary package copy and no external state.
-
-- [ ] **Step 4: Run generator and BATS regressions without changing them**
-
-```bash
-set -e
-PYTHONDONTWRITEBYTECODE=1 python3 scripts/sync_generated_artifacts.py --check
-bats tests/plugin_skeleton.bats
-git diff --exit-code -- AGENTS.md .agents/plugins/marketplace.json \
-  plugins/apple-foundation-models-handoff/.codex-plugin/plugin.json
-```
-
-Expected: generator synchronized; BATS `3/3`; no generated diff.
-
-- [ ] **Step 5: Commit the repository/package boundary**
-
-```bash
-git add tests/test_dev_138_fixtures.py tests/test_plugin_contract.py
-git diff --cached --check
-git commit -m "test(DEV-138): prove repository-only fixture packaging"
-```
-
----
-
-### Task 6: Capture normalized evidence and run the full validation matrix
-
-**Files:**
-- Create: `docs/research/evidence/dev-138-command-transcript.md`
-- Modify: `fixtures/dev-138/README.md` only if final commands/counts need correction
-
-- [ ] **Step 1: Run focused and inherited suites**
-
-```bash
-set -e
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
-  tests.test_dev_138_fixtures -v
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
   -s tests -p 'test_*.py' -v
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
   -s fixtures/dev-131/tests -p 'test_*.py' -v
-python3 fixtures/dev-131/proof_runner.py >"$TMPDIR/dev131.json"
-python3 -m compileall -q fixtures/dev-131
+PYTHONDONTWRITEBYTECODE=1 python3 fixtures/dev-131/proof_runner.py \
+  >"$dev138_artifacts/dev131.json"
+PYTHONPYCACHEPREFIX="$dev138_artifacts/pycache" \
+  python3 -m compileall -q fixtures/dev-131
 
 swiftc -warnings-as-errors -parse-as-library \
   fixtures/dev-130/HandoffSecurityPolicy.swift \
   fixtures/dev-130/AdversarialScenarios.swift \
-  -o "$TMPDIR/dev130"
-"$TMPDIR/dev130" >"$TMPDIR/dev130.out"
-diff -u fixtures/dev-130/expected-output.txt "$TMPDIR/dev130.out"
+  -o "$dev138_artifacts/dev130"
+"$dev138_artifacts/dev130" >"$dev138_artifacts/dev130-first.out"
+"$dev138_artifacts/dev130" >"$dev138_artifacts/dev130-second.out"
+diff -u fixtures/dev-130/expected-output.txt \
+  "$dev138_artifacts/dev130-first.out"
+cmp "$dev138_artifacts/dev130-first.out" \
+  "$dev138_artifacts/dev130-second.out"
+rg -q '^SUMMARY passed=8 failed=0$' \
+  "$dev138_artifacts/dev130-first.out"
 
-bats tests/plugin_skeleton.bats
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/sync_generated_artifacts.py --check
-git diff --check
+git diff --exit-code -- AGENTS.md .agents/plugins/marketplace.json \
+  plugins/apple-foundation-models-handoff/.codex-plugin/plugin.json
+
+test "$(bats --version)" = 'Bats 1.13.0'
+bats tests/plugin_skeleton.bats
 ```
 
-Expected: DEV-138 exact/repeat/mutation matrix passes; repository suite passes;
-DEV-131 remains 26/26 with 11/11 oracle; DEV-130 remains 8/8 exact; BATS remains
-3/3; generation is synchronized.
+Required result: repository `93/93`, DEV-131 `26/26` and `11/11`, DEV-130
+`8/8` with exact golden and byte-identical repeat, synchronized generation, no
+generated diff, and Bats `3/3`.
 
-- [ ] **Step 2: Run the SDK matrix from Task 4**
-
-Execute all positive, interface, and expected-blocker commands exactly. Record
-only normalized compiler version, target, SDK version, evidence label,
-diagnostic class, exit code, and status. Do not record the SDK path or raw
-diagnostic text.
-
-- [ ] **Step 3: Prove JSONL identity and publish hashes**
+### Official validator and two exact Codex structural probes
 
 ```bash
-"$TMPDIR/dev-138-fixtures" >"$TMPDIR/dev138-first.jsonl"
-"$TMPDIR/dev-138-fixtures" >"$TMPDIR/dev138-second.jsonl"
-cmp "$TMPDIR/dev138-first.jsonl" "$TMPDIR/dev138-second.jsonl"
-diff -u fixtures/dev-138/expected-results.jsonl "$TMPDIR/dev138-first.jsonl"
-shasum -a 256 fixtures/dev-138/expected-results.jsonl \
-  "$TMPDIR/dev138-first.jsonl" "$TMPDIR/dev138-second.jsonl"
+set -eu
+dev138_codex_root="${CODEX_HOME:-${HOME}/.codex}"
+PYTHONDONTWRITEBYTECODE=1 python3 \
+  "$dev138_codex_root/skills/.system/plugin-creator/scripts/validate_plugin.py" \
+  plugins/apple-foundation-models-handoff
+
+dev138_first_probe="$(PYTHONDONTWRITEBYTECODE=1 \
+  python3 tests/e2e/codex_plugin_load.py)"
+dev138_second_probe="$(PYTHONDONTWRITEBYTECODE=1 \
+  python3 tests/e2e/codex_plugin_load.py)"
+test "$dev138_first_probe" = "$dev138_second_probe"
+printf '%s\n' "$dev138_first_probe" | jq -e '
+  select(
+    .status == "pass" and
+    .hostVersion == "0.144.5" and
+    .pluginVersion == "0.1.0" and
+    .enabled == true and
+    .capabilities == [] and
+    .capabilityActivation == "blocked/production_skill_not_implemented" and
+    (.cacheFiles | length) == 3
+  )'
 ```
 
-Expected: all three SHA-256 values are identical.
+Required result: the current official validator accepts the metadata-only
+package. Both fresh isolated Codex `0.144.5` probes exit zero and emit identical
+normalized JSON with an exact three-file cache. This is structural discovery,
+installation, enabled-state, and cache-integrity evidence only.
 
-- [ ] **Step 4: Write the normalized evidence transcript**
-
-`docs/research/evidence/dev-138-command-transcript.md` must contain:
-
-- exact commit/base and tracked DEV-138 path list;
-- exact commands and exit codes;
-- case counts, pass/fail-fixture counts, exact-violation result, repeat result,
-  and JSONL SHA-256;
-- normalized Swift/compiler/target/SDK/interface identity;
-- DEV-128 positive and expected-blocker rows with exact evidence labels;
-- DEV-130, DEV-131, repository, BATS, generation, package, scope, privacy, and
-  whitespace results;
-- `blocked/deferred_by_owner` rows for Claude Code, `pre-commit`, and
-  `markdownlint` without invoking them;
-- blocked OS/Xcode 27 capabilities and all no-network/no-credential nonclaims;
-  and
-- no literal local path, raw `PATH`, raw diagnostics, raw prompt/response/tool
-  content, credential, `.trace`, or `.xcresult`.
-
-- [ ] **Step 5: Run privacy/scope/final-diff gates**
+### Exact scope, modes, privacy, cache, and diff gates
 
 ```bash
-set -e
-test -z "$(find . -name '__pycache__' -o -name '*.pyc')"
-! rg -n '/Users/|/home/|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|DEV138_SECRET_SENTINEL' \
-  fixtures/dev-138/expected-results.jsonl fixtures/dev-138/README.md \
+set -eu
+dev138_base=27c7ce6b8d47541711184ceae06b2eecbdc4be8e
+dev138_paths=(
   docs/research/evidence/dev-138-command-transcript.md
-! find . -name '*.trace' -o -name '*.xcresult' | rg .
+  docs/superpowers/plans/2026-07-17-dev-138-deterministic-swift-fixtures.md
+  docs/superpowers/specs/2026-07-17-dev-138-deterministic-swift-fixtures-design.md
+  fixtures/dev-138/DeterministicScenarios.swift
+  fixtures/dev-138/HandoffReducer.swift
+  fixtures/dev-138/README.md
+  fixtures/dev-138/expected-results.jsonl
+  tests/test_dev_138_fixtures.py
+  tests/test_plugin_contract.py
+)
+test "${#dev138_paths[@]}" = 9
+diff -u \
+  <(printf '%s\n' "${dev138_paths[@]}" | LC_ALL=C sort) \
+  <(git diff --name-only "$dev138_base"..HEAD | LC_ALL=C sort)
+for dev138_file in "${dev138_paths[@]}"; do
+  test "$(git ls-tree HEAD -- "$dev138_file" | awk '{print $1}')" = 100644
+done
+
+PYTHONDONTWRITEBYTECODE=1 python3 - <<'PY'
+from pathlib import Path
+
+files = [
+    Path("fixtures/dev-138/expected-results.jsonl"),
+    Path("fixtures/dev-138/README.md"),
+    Path("docs/research/evidence/dev-138-command-transcript.md"),
+]
+files.extend(
+    entry
+    for entry in Path("plugins/apple-foundation-models-handoff").rglob("*")
+    if entry.is_file()
+)
+markers = (
+    "/" + "Users" + "/",
+    "/" + "home" + "/",
+    "DEV138_" + "SECRET_SENTINEL",
+    "BEGIN " + "RSA" + " PRIVATE KEY",
+    "BEGIN " + "OPENSSH" + " PRIVATE KEY",
+    "BEGIN " + "EC" + " PRIVATE KEY",
+)
+for entry in files:
+    payload = entry.read_text(encoding="utf-8")
+    for marker in markers:
+        if marker in payload:
+            raise SystemExit(f"unsafe evidence in {entry}")
+PY
+
+test -z "$(find . -type d -name '__pycache__' -print -quit)"
+test -z "$(find . -type f -name '*.pyc' -print -quit)"
+test -z "$(find . -type f \( -name '*.trace' -o -name '*.xcresult' \) \
+  -print -quit)"
+git diff --check "$dev138_base"..HEAD
 git diff --check
-git status --short
+test -z "$(git status --porcelain)"
 ```
 
-Review the complete issue delta against `27c7ce6b8d47541711184ceae06b2eecbdc4be8e`
-and require exactly nine PR paths: seven implementation/evidence paths plus this
-plan and design.
+Required result: exactly nine paths, all mode `100644`; no prohibited evidence,
+cache, trace, result bundle, whitespace error, generated drift, or worktree
+change.
 
-- [ ] **Step 6: Commit final evidence**
+## Evidence truth and merge gate
+
+The transcript records only normalized versions, targets, stable diagnostic
+classes, exit codes, counts, hashes, branch/base, exact tested source commit and
+tree, and the nine-path scope. It excludes executable/SDK/private paths, raw
+environment search values, diagnostics, prompts, responses, reasoning, tool
+payloads, credentials, private configuration, real data, `.trace`, and
+`.xcresult`.
+
+Any change to reducer/scenario/oracle/README/test behavior requires the affected
+gate ladder to run again and the evidence to bind the new tested source commit
+and tree. A planning-only edit does not rebind source evidence when those seven
+implementation/evidence responsibilities and all recorded results remain
+unchanged. Never reconstruct a missing RED, stale hash, result, or prerequisite.
+
+Publication and merge are main-agent-only. After all three rounds, all gates,
+the final Linear/GitHub reread, and zero actionable findings:
 
 ```bash
-git add fixtures/dev-138/README.md \
-  docs/research/evidence/dev-138-command-transcript.md
-git diff --cached --check
-git commit -m "docs(DEV-138): record deterministic fixture evidence"
+set -eu
+dev138_reviewed_head="$(git rev-parse HEAD^{commit})"
+dev138_reviewed_tree="$(git rev-parse HEAD^{tree})"
+dev138_remote_before="$(git rev-parse refs/remotes/origin/codex/dev-138-deterministic-swift-fixtures)"
+
+git push origin \
+  HEAD:refs/heads/codex/dev-138-deterministic-swift-fixtures \
+  --force-with-lease=refs/heads/codex/dev-138-deterministic-swift-fixtures:"$dev138_remote_before"
+test "$(git ls-remote origin refs/heads/codex/dev-138-deterministic-swift-fixtures | awk '{print $1}')" = \
+  "$dev138_reviewed_head"
+gh pr edit 10 --base main
+gh pr ready 10
+gh pr merge 10 --squash --match-head-commit "$dev138_reviewed_head"
+
+git fetch origin main
+test "$(git rev-parse origin/main^{tree})" = "$dev138_reviewed_tree"
 ```
 
-## Atomic implementation commit boundaries
-
-| Commit | Scope | Must be green before commit |
-| --- | --- | --- |
-| `test(DEV-138): cover deterministic handoff recovery` | Closed oracle, reducer, canonical output, and complete state/context/grant/tool/effect/recovery/cancellation/fallback/transcript/evidence matrix. | Full exact case/violation/mutation suite; no intermediate red commit. |
-| `test(DEV-138): verify SDK 26.5 fixture boundary` | DEV-128 reuse, normalized environment, README commands. | Exact positive/interface/blocker matrix. |
-| `test(DEV-138): prove repository-only fixture packaging` | DEV-134 map and offline package/generator/BATS boundary. | Focused contract plus inherited package/generator/BATS tests. |
-| `docs(DEV-138): record deterministic fixture evidence` | Final normalized transcript and any command-only README correction. | Entire validation matrix, privacy, scope, clean diff. |
-
-Each commit is independently reviewable, contains no production/plugin payload
-change, and is made only after its RED test has been observed and its complete
-GREEN gate has passed.
-
-## Final validation matrix
-
-| Layer | Command/owner | Passing result |
-| --- | --- | --- |
-| DEV-138 deterministic | `tests.test_dev_138_fixtures` | Every case once; exact sorted violations; two byte-identical runs; oracle hash match. |
-| DEV-138 mutation | Same module | Each independent mutation returns only its intended `D-*` set. |
-| Apple SDK 26.5 | Direct DEV-128 sources | Supported rows compile/run; interface hash matches; blockers have exact diagnostics. |
-| DEV-130 | Direct Swift compile/golden | `8/8`, exact output. |
-| DEV-131 | Unit suite and proof runner | `26/26`, `11/11`, rubric/evidence gates unchanged. |
-| Repository | `unittest discover -s tests` | All tests pass, including package exclusion. |
-| Generation | `sync_generated_artifacts.py --check` | Synchronized; no generated diff. |
-| BATS | `bats tests/plugin_skeleton.bats` | `3/3`. |
-| Packaging | Local temporary package copy | No fixture/test/doc/research/private path or symlink. |
-| Evidence/privacy | Scans plus manual transcript review | Only normalized synthetic metadata; no prohibited content/path. |
-| Deferred host/tool rows | Owner decision | Claude, pre-commit, markdownlint stay explicit blockers, never passes. |
-| Scope | Git diff from base | Exactly nine DEV-138 paths, seven implementation/evidence paths plus plan/design; no package/generator/generated change. |
-
-## Completion handoff
-
-Before claiming completion, invoke `superpowers:verification-before-completion`
-and run the matrix from a clean exact-head checkout. Update DEV-138 with final
-SHA, commands, counts, hashes, package proof, reviewer verdict, and blockers.
-Propagate only stable case/check identities and environment semantics to
-DEV-136, DEV-137, DEV-139, and DEV-141. Do not merge, tag, publish, or release.
+Stop instead of overwriting if the remote lease, PR head, Linear contract, or
+required prerequisite changed. Retain the remote branch and existing worktree.
+Fast-forward the existing `main` worktree to `origin/main`, repeat the focused
+merged-result smoke gate there, and stop if its tree or result differs.
+Post only DoD-required normalized Linear evidence; change issue status only when
+its current issue-level completion contract is satisfied.
