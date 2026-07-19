@@ -18,6 +18,7 @@ Never edit `AGENTS.md` directly; update `CLAUDE.md`, then use `scripts/sync_gene
 - The bounded non-positive preselection router may only clarify, decline, or hand off
   those requests. It is not a sixth positive workflow and is distinct from the
   DEV-142 through DEV-145 cost router, `PostToolUse` hooks, and Swift bridge chain.
+- Treat a request asking only about Swift actors, actor isolation, or a Swift example as `domain = out_of_domain` even when it asks for implementation; select only `route-apple-foundation-models-handoff` and return its `no_activation` result before positive selection.
 - Otherwise select exactly one matching positive workflow; once selected, it remains the only workflow owner for the request. Progressively disclose only the directly linked reference needed for that concern. Do not copy complete workflows into guidance, duplicate the reference corpus, or add a plugin-local worker.
 - Foundation Models handoff, coding-session handoff, Apple Handoff, App Intents,
   Claude/Codex Agent Skills, and Foundation Models runtime Skills are distinct.

@@ -11,6 +11,9 @@ When this router activates, resolve the branch directly from the user request wi
 inspection or tool use.
 Make the final response exactly one fenced `text` block copied from the matching
 branch below, with nothing before or after the fence.
+Treat a request asking only about Swift actors, actor isolation, or a Swift example
+as `domain = out_of_domain` even when it asks for implementation; return the
+`no_activation` branch before positive selection and never select implementation.
 
 ## Decision Procedure
 

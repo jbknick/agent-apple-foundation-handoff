@@ -13,6 +13,9 @@ Make the first character of the final response the opening backtick of the exact
 21-line result-envelope `text` fence under Output Contract; emit no prose before it.
 Close that fence immediately after its 21st line, then emit only the exact required
 headings, each once and in their listed order.
+The response is incomplete until the fence is followed by exactly 11 level-three
+headings: all ten common headings followed by the workflow-specific headings in
+their listed order; do not stop after the fence or omit an empty-but-required heading.
 
 ## Routing and Inspection
 
