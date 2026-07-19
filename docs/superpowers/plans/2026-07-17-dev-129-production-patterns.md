@@ -1,7 +1,7 @@
 # DEV-129 Production Plugin Pattern Comparison Implementation Plan
 
-> Execute with `superpowers:subagent-driven-development`. Use a fresh
-> implementer and reviewer for each task.
+> Execute exactly three main-agent review/fix rounds, using a fresh fix worker
+> for each round.
 
 **Goal:** Verify pinned production Claude Code/Codex structures and publish an
 evidence-backed adopt/adapt/reject decision matrix for this fork.
@@ -80,13 +80,11 @@ Record `test -e`, `find`, `git ls-tree`, and focused source excerpts that prove:
 - canonical/shared versus mirrored skill trees;
 - generator, sync, drift, validator, and workflow paths;
 - official Codex plugin `interface`, per-skill `agents/openai.yaml`
-  UI/activation metadata, and the root reference-file observation;
+  UI/activation metadata, and the unvalidated root reference-file observation;
 - the distinction between documented entry-point requirements, optional rich
   fields, and the pinned official validator's stricter creation policy;
 - required `plugin.json.interface.category` versus marketplace-only
   `plugins[].policy` and `plugins[].category`;
-- per-skill `agents/openai.yaml` UI/activation metadata versus the unvalidated
-  root reference file;
 - full loader recognition order and root `.`/`./` marketplace source handling,
   without claiming when root support was introduced;
 - precise Claude marketplace/local-path symlink handling; and

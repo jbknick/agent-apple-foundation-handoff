@@ -52,9 +52,8 @@ current runtime-contract or Apple API authority.
 
 Host-local observations are additionally pinned to installed Claude Code
 `2.1.140` and Codex CLI `0.144.5` as refreshed on 2026-07-19. Current web
-documentation can be newer than
-those binaries, so a feature used by this project must pass an installed-host
-test rather than relying only on prose.
+documentation can be newer than those binaries, so a feature used by this
+project must pass an installed-host test rather than relying only on prose.
 
 ## Repository guidance comparison
 

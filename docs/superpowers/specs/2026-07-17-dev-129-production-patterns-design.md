@@ -64,10 +64,9 @@ The current OpenAI build documentation identifies
 manifest fields as optional. The pinned official `validate_plugin.py` applies
 a stricter creation policy: it requires shared identity fields and a complete
 `interface`, including long description, presentation category, capabilities,
-and a default prompt.
-This project will satisfy the pinned stricter validator while recording that
-the requirement comes from the validator, not overstating every rich field as
-a loader-level requirement.
+and a default prompt. This project will satisfy the pinned stricter validator
+while recording that the requirement comes from the validator, not overstating
+every rich field as a loader-level requirement.
 
 Current Codex loader compatibility with Claude-only metadata is evidence about
 the pinned runtime, not the forward production packaging contract. The project

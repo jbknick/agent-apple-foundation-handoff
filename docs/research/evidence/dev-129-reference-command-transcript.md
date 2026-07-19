@@ -2,8 +2,8 @@
 
 Structural reference evidence was collected on 2026-07-17 (Asia/Jerusalem);
 installed-host workflow observations were refreshed on 2026-07-19. Repository
-paths below are pinned links. Temporary checkout and host-home paths are normalized as
-`<reference-root>`, `<claude-home>`, and `<codex-home>`.
+paths below are pinned links; temporary checkout and host-home paths are
+normalized as `<reference-root>`, `<claude-home>`, and `<codex-home>`.
 
 ## Scope and classifications
 
@@ -256,8 +256,8 @@ contracts.
 
 The 2026-07-19 installed Claude CLI refresh defines the behavior this project
 can rely on. [Official documentation](https://code.claude.com/docs/en/plugins-reference)
-provides context, but only behavior verified on the installed host is relied
-on. The following selected refresh output was observed:
+provides context; the following selected output verifies the behavior on the
+current host:
 
 ```text
 $ claude --version
@@ -276,10 +276,9 @@ $ claude plugin validate <reference-root>/bstack/plugins/me
 Validation passed
 ```
 
-All Claude gates exited `0`. Session-only `claude --plugin-dir <path>` is a
-repeatable supported local-development workflow for installed Claude Code
-`2.1.140`. Documentation alone is not treated as installed-host behavior
-without verification on the current host.
+All Claude gates exited `0`. The refresh confirms session-only
+`claude --plugin-dir <path>` as a repeatable supported local-development
+workflow in installed Claude Code `2.1.140`.
 
 Codex's installed CLI and the pinned OpenAI loader source establish a different
 workflow:
