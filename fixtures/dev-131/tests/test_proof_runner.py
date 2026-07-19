@@ -218,6 +218,35 @@ class OfflineEvaluationProofTests(unittest.TestCase):
             self.runner.evaluate_case(undeclared_context)["violations"],
         )
 
+        duplicate_included = copy.deepcopy(base)
+        duplicate_included["result"]["context"]["included"].append("request")
+        self.assertEqual(
+            ["D-CONTEXT-001"],
+            self.runner.evaluate_case(duplicate_included)["violations"],
+        )
+
+        duplicate_required = copy.deepcopy(base)
+        duplicate_required["policy"]["contextPolicy"]["required"].append(
+            "request"
+        )
+        self.assertEqual(
+            ["D-CONTEXT-001"],
+            self.runner.evaluate_case(duplicate_required)["violations"],
+        )
+
+        contradictory_context = copy.deepcopy(base)
+        contradictory_context["result"]["context"]["excluded"].append(
+            "request"
+        )
+        self.assertEqual(
+            ["D-CONTEXT-002"],
+            self.runner.evaluate_case(contradictory_context)["violations"],
+        )
+
+        reordered_context = copy.deepcopy(base)
+        reordered_context["result"]["context"]["included"].reverse()
+        self.assertEqual("pass", self.runner.evaluate_case(reordered_context)["status"])
+
     def test_phase_replay_and_reconciliation_invariants_are_enforced(self) -> None:
         valid_replay = self.load_case("cases/valid/replayed-effect.json")
         replay_command = copy.deepcopy(valid_replay)
@@ -553,6 +582,30 @@ class OfflineEvaluationProofTests(unittest.TestCase):
             invalid = self.runner.validate_evidence_bundle(bundle)
         self.assertEqual(["D-EVIDENCE-001"], invalid["violations"])
 
+        with tempfile.TemporaryDirectory() as temp_dir:
+            bundle = Path(temp_dir) / "bundle"
+            shutil.copytree(source, bundle)
+            checks_path = bundle / "checks.json"
+            checks = load_json(checks_path)
+            cost = checks["runtimeCostEvidence"]
+            cost["measurements"] = cost.pop("arms")["pluginOff"]
+            del cost["comparison"]["providerNormalizationVersion"]
+            checks_path.write_text(
+                json.dumps(checks, indent=2) + "\n", encoding="utf-8"
+            )
+            manifest_path = bundle / "manifest.json"
+            manifest = load_json(manifest_path)
+            for item in manifest["files"]:
+                if item["path"] == "checks.json":
+                    item["sha256"] = hashlib.sha256(
+                        checks_path.read_bytes()
+                    ).hexdigest()
+            manifest_path.write_text(
+                json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+            )
+            legacy_flat = self.runner.validate_evidence_bundle(bundle)
+        self.assertEqual(["D-EVIDENCE-001"], legacy_flat["violations"])
+
     def test_unsafe_manifest_and_invalid_critical_rubric_score_are_rejected(self) -> None:
         unsafe_case = self.runner.evaluate_case(
             self.load_case("cases/invalid/unsafe-evidence-manifest.json")
@@ -690,7 +743,24 @@ class OfflineEvaluationProofTests(unittest.TestCase):
             },
             cost["releaseFloor"],
         )
-        self.assertTrue(all(value is None for value in cost["measurements"].values()))
+        required_metrics = {
+            "providerInputTokens",
+            "providerCachedInputTokens",
+            "providerOutputTokens",
+            "providerReasoningTokens",
+            "parentTurns",
+            "appleAttempts",
+            "replacementRatio",
+            "declines",
+            "fallbackRate",
+            "latencyMilliseconds",
+            "correctness",
+        }
+        self.assertEqual({"pluginOff", "pluginOn"}, set(cost["arms"]))
+        for arm in cost["arms"].values():
+            self.assertEqual(required_metrics, set(arm))
+            self.assertTrue(all(value is None for value in arm.values()))
+        self.assertIsNone(cost["comparison"]["providerNormalizationVersion"])
 
 
 if __name__ == "__main__":

@@ -4,8 +4,8 @@
   "runId": "synthetic-offline-proof-1",
   "commit": "recorded-by-linear-handoff",
   "files": [
-    {"path":"summary.md","sha256":"fc648eba4a36f228fa8136d7f8195fda2e9753a86dbcffe4a65d41864e357f4f","classification":"redacted-summary"},
-    {"path":"checks.json","sha256":"5bb9e83945dabfcea38d54dc4d60e2e60f5693c78f9ab44772fb376fb1204ab0","classification":"derived-check"},
+    {"path":"summary.md","sha256":"24a967b7437b28adf902eb4a853e1a02ef9fc0e530114e92fe80ca7b73afeebe","classification":"redacted-summary"},
+    {"path":"checks.json","sha256":"dc2dadbf8446572e212a3c8b89924e40eb5d0c5de92b107b983e1dc12d0fe0b5","classification":"derived-check"},
     {"path":"commands.jsonl","sha256":"29cff498fd8afc04f5aff86696b3fb4c75ad9c56777016753953415985af402d","classification":"normalized"},
     {"path":"environment.json","sha256":"e7e661436aaab742d3353cff014e8981b2fe9f699145e0d361372b94082e8538","classification":"capability-fact"},
     {"path":"host-matrix.json","sha256":"072b318d0fecfdbca69c6980e3092ed364755f4e7b1a13922cf4121195a0018c","classification":"capability-fact"},

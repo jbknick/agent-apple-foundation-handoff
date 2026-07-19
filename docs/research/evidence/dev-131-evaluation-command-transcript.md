@@ -289,10 +289,12 @@ paired real-host rows are `not run`; those dependent validations must remain
 blocked until their named production artifacts and isolation/automation
 prerequisites exist.
 
-The checked-in `runtimeCostEvidence` record is likewise `blocked`: provider
-input/cached-input/output/reasoning token fields, parent turns, Apple attempts,
-replacement ratio, declines, fallback rate, latency, and correctness are all
-`null`. No token reduction or release verdict is inferred.
+The checked-in `runtimeCostEvidence` record is likewise `blocked`: separate
+`pluginOff` and `pluginOn` arms each contain provider input/cached-input/output/
+reasoning token fields, parent turns, Apple attempts, replacement ratio,
+declines, fallback rate, latency, and correctness. Every value and the provider
+normalization version are `null`; no token reduction or release verdict is
+inferred.
 DEV-142 owns provider usage capture/normalization, DEV-143 owns paired
 runtime/routing measurements, DEV-144 owns correctness/eligibility, and
 DEV-145 owns aggregation and release-floor enforcement.

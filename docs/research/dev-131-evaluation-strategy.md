@@ -93,8 +93,9 @@ replacement ratio, declines, fallback rate, latency, and correctness.
 Discovery, activation, byte counts, compilation checks, and deterministic
 DEV-138 mocks are prerequisites or regression evidence only; none can satisfy
 a live runtime-cost row. The checked-in example is therefore `blocked`, has
-zero eligible workflows, and uses `null` measurements rather than fabricated
-values.
+zero eligible workflows, and keeps the exact metric set under separate
+`pluginOff` and `pluginOn` arms. Both arms and the required provider
+normalization version are `null` rather than fabricated.
 
 ## Dataset catalog
 

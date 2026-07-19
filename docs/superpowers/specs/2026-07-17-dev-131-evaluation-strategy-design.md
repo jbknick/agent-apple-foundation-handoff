@@ -32,10 +32,11 @@ The selected approach has three independent evidence layers:
    Codex sessions prove activation, reference loading, and output behavior.
    Apple Evaluations and Instruments add optional Xcode 27 beta quality and
    profiling evidence when their exact prerequisites exist.
-4. **Paired runtime-cost evidence.** Eligible plugin-off/plugin-on runs record
-   provider usage fields and routing/correctness metrics without estimating
-   missing data. Provider telemetry, normalization, or live Apple blockers
-   keep the row `blocked`.
+4. **Paired runtime-cost evidence.** Eligible plugin-off/plugin-on runs use two
+   explicit arms with the same exact provider usage and routing/correctness
+   fields, plus a bound normalization version. Missing data stays `null`;
+   provider telemetry, normalization, or live Apple blockers keep the row
+   `blocked`.
 
 Documentation alone was rejected because it cannot execute the issue's
 valid/invalid proof. A production harness was rejected because it would
@@ -158,13 +159,14 @@ Plugin discovery, manifest validation, installation, cache contents, and an
 enabled flag do not prove activation or task completion.
 
 The runtime-cost row pairs identical eligible workflows under plugin-off and
-plugin-on conditions. It preserves provider-reported input, cached-input,
-output, and reasoning usage when exposed and records parent turns, Apple
-attempts, replacement ratio, declines, fallback rate, latency, and
-correctness. A versioned provider normalization defines total parent-model
-tokens. Release requires at least 10% median reduction, zero correctness
-regressions, and zero extra parent-model turns. Discovery, activation, byte
-counts, compile checks, and DEV-138 mocks cannot satisfy this live row.
+plugin-on conditions. Separate `pluginOff` and `pluginOn` arms preserve the
+same exact provider-reported input, cached-input, output, reasoning, parent
+turn, Apple-attempt, replacement, decline, fallback, latency, and correctness
+fields. The comparison binds the versioned provider normalization that defines
+total parent-model tokens. Release requires at least 10% median reduction,
+zero correctness regressions, and zero extra parent-model turns. Discovery,
+activation, byte counts, compile checks, and DEV-138 mocks cannot satisfy this
+live row.
 
 ## Apple evaluation and profiling boundary
 

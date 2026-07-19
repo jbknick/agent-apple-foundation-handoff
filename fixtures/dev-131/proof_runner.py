@@ -444,12 +444,20 @@ def evaluate_case(case: dict) -> dict:
 
     context_policy = policy.get("contextPolicy", {})
     context_result = result.get("context", {})
-    included = set(context_result.get("included", []))
-    excluded = set(context_result.get("excluded", []))
-    required = set(context_policy.get("required", []))
+    included_fields = context_result.get("included", [])
+    excluded_fields = context_result.get("excluded", [])
+    required_fields = context_policy.get("required", [])
+    included = set(included_fields)
+    excluded = set(excluded_fields)
+    required = set(required_fields)
     forbidden = set(context_policy.get("forbidden", []))
-    inclusion_ok = context_policy.get("declared") is True and required == included
-    exclusion_ok = not (forbidden & included) and forbidden <= excluded
+    inclusion_ok = (
+        context_policy.get("declared") is True
+        and len(included_fields) == len(included)
+        and len(required_fields) == len(required)
+        and required == included
+    )
+    exclusion_ok = not (included & excluded) and forbidden <= excluded
     checks.append(_check("D-CONTEXT-001", inclusion_ok))
     checks.append(_check("D-CONTEXT-002", exclusion_ok))
 
@@ -1027,6 +1035,19 @@ def _rate_metric(numerator: int, denominator: int) -> dict:
 
 
 def _runtime_cost_evidence() -> dict:
+    empty_arm = {
+        "providerInputTokens": None,
+        "providerCachedInputTokens": None,
+        "providerOutputTokens": None,
+        "providerReasoningTokens": None,
+        "parentTurns": None,
+        "appleAttempts": None,
+        "replacementRatio": None,
+        "declines": None,
+        "fallbackRate": None,
+        "latencyMilliseconds": None,
+        "correctness": None,
+    }
     return {
         "status": "blocked",
         "reasonCodes": [
@@ -1034,23 +1055,15 @@ def _runtime_cost_evidence() -> dict:
             "provider_normalization_unavailable",
             "provider_usage_telemetry_unavailable",
         ],
-        "measurements": {
-            "providerInputTokens": None,
-            "providerCachedInputTokens": None,
-            "providerOutputTokens": None,
-            "providerReasoningTokens": None,
-            "parentTurns": None,
-            "appleAttempts": None,
-            "replacementRatio": None,
-            "declines": None,
-            "fallbackRate": None,
-            "latencyMilliseconds": None,
-            "correctness": None,
+        "arms": {
+            "pluginOff": dict(empty_arm),
+            "pluginOn": dict(empty_arm),
         },
         "comparison": {
             "baseline": "plugin-off",
             "treatment": "plugin-on",
             "pairingKey": "workflow/model/provider/toolchain/policy",
+            "providerNormalizationVersion": None,
             "eligibleWorkflowCount": 0,
             "medianTotalParentModelTokenReduction": None,
             "correctnessRegressionCount": None,

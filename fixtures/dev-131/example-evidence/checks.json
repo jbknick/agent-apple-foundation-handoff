@@ -26,23 +26,39 @@
       "provider_normalization_unavailable",
       "provider_usage_telemetry_unavailable"
     ],
-    "measurements": {
-      "providerInputTokens": null,
-      "providerCachedInputTokens": null,
-      "providerOutputTokens": null,
-      "providerReasoningTokens": null,
-      "parentTurns": null,
-      "appleAttempts": null,
-      "replacementRatio": null,
-      "declines": null,
-      "fallbackRate": null,
-      "latencyMilliseconds": null,
-      "correctness": null
+    "arms": {
+      "pluginOff": {
+        "providerInputTokens": null,
+        "providerCachedInputTokens": null,
+        "providerOutputTokens": null,
+        "providerReasoningTokens": null,
+        "parentTurns": null,
+        "appleAttempts": null,
+        "replacementRatio": null,
+        "declines": null,
+        "fallbackRate": null,
+        "latencyMilliseconds": null,
+        "correctness": null
+      },
+      "pluginOn": {
+        "providerInputTokens": null,
+        "providerCachedInputTokens": null,
+        "providerOutputTokens": null,
+        "providerReasoningTokens": null,
+        "parentTurns": null,
+        "appleAttempts": null,
+        "replacementRatio": null,
+        "declines": null,
+        "fallbackRate": null,
+        "latencyMilliseconds": null,
+        "correctness": null
+      }
     },
     "comparison": {
       "baseline": "plugin-off",
       "treatment": "plugin-on",
       "pairingKey": "workflow/model/provider/toolchain/policy",
+      "providerNormalizationVersion": null,
       "eligibleWorkflowCount": 0,
       "medianTotalParentModelTokenReduction": null,
       "correctnessRegressionCount": null,

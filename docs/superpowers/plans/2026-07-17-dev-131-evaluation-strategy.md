@@ -28,6 +28,8 @@
 - Preserve provider-reported input, cached-input, output, and reasoning tokens
   when exposed; use a versioned provider normalization for total parent-model
   tokens.
+- Keep the exact metric set in separate `pluginOff` and `pluginOn` arms and
+  bind the provider normalization version in the comparison record.
 - Also capture parent turns, Apple attempts, replacement ratio, declines,
   fallback rate, latency, and correctness.
 - Release requires at least 10% median total parent-model token reduction, zero

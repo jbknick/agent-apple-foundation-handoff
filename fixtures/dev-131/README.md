@@ -17,8 +17,9 @@ may retry only after a reconciliation observation explicitly reports
 `confirmed_absent`; `still_unknown` and `confirmed_committed` fail closed. This
 proves at-most-once execution plus bounded reconciliation for the synthetic
 record; it does not claim exactly-once delivery, external-effect rollback, or
-transcript-based undo. Context inclusion is the exact declared minimum, and
-case evidence paths must be drawn from the bundle allowlist.
+transcript-based undo. Context inclusion is the unique exact declared minimum
+and is disjoint from excluded fields. Case evidence paths must be drawn from
+the bundle allowlist.
 
 Run the complete proof with:
 
@@ -32,7 +33,8 @@ A missing optional host denominator is emitted as `not_applicable`. It is never
 converted to a perfect rate or an offline capability pass.
 
 `runtimeCostEvidence` is a separate, machine-validated plugin-off/plugin-on
-contract. The checked-in example is `blocked` and all measurements are `null`
-because no provider usage telemetry, provider normalization, or paired live
-Apple run exists. Discovery, activation, byte counts, compile checks, and
+contract. Its two explicit arms contain the same exact metric fields. Every arm
+value and `comparison.providerNormalizationVersion` is `null` in the blocked
+example because no provider usage telemetry, versioned normalization, or paired
+live Apple run exists. Discovery, activation, byte counts, compile checks, and
 DEV-138 mocks cannot turn that row into a pass.
