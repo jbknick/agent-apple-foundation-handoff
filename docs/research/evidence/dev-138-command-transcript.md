@@ -1,6 +1,6 @@
 # DEV-138 deterministic Swift fixture command transcript
 
-Evidence date: `2026-07-17`
+Evidence date: `2026-07-19`
 
 This transcript records the final offline validation matrix for DEV-138. All
 results are normalized to compiler version, target, SDK version, interface
@@ -11,13 +11,14 @@ credential, or private configuration.
 
 ## Identity and scope
 
-- Issue base: `bdbfd335e32eba3efee32f2aac08bd3c2a100368`
-- Candidate tested before this evidence commit:
-  `da2875f4f790600683a65f0e877d7ae669752de2`
+- Issue base: `27c7ce6b8d47541711184ceae06b2eecbdc4be8e`
+- Exact tested source commit:
+  `24b70d0db2ddd2fa783da01c6d0ec636e1c66c3b`
+- Exact tested source tree:
+  `ab5d0f50d474cbe29002bedf6f0f124f04367f99`
 - Branch: `codex/dev-138-deterministic-swift-fixtures`
-- Plan commit: `149826e7f2271b7c16e6d431f56996495abeb230`
-- Plan-only SDK interface correction:
-  `76cb42d55f70b3b15de3374ba116f706eadca6a2`
+- The follow-up evidence commit changes only this transcript; it does not change
+  the tested source tree above.
 
 The issue delta contains two approved planning paths, which are not counted as
 implementation:
@@ -35,10 +36,10 @@ The implementation scope is exactly these seven paths:
 6. `tests/test_plugin_contract.py`
 7. `docs/research/evidence/dev-138-command-transcript.md`
 
-The plan correction changes only the approved plan. It is not an eighth
-implementation path. No package metadata, generator, generated artifact,
-production skill, reference, hook, agent, command, MCP server, dependency, or
-runtime was added or modified by DEV-138.
+The complete issue delta is exactly nine paths: the two planning paths and the
+seven implementation/evidence paths above. No package metadata, generator,
+generated artifact, production skill, reference, hook, agent, command, MCP
+server, dependency, or runtime was added or modified by DEV-138.
 
 ## TDD provenance
 
@@ -58,6 +59,19 @@ tests and exited `1` with two failures: the DEV-134 mapping table and the
 repository-only package assertion were absent. After the smallest additions,
 the same three tests passed. This contract RED does not retroactively prove the
 uncaptured Task 2 or Task 3 intermediate RED steps.
+
+The July 19 review round captured the current defects before correction:
+
+| Focused RED | Observed result before fix |
+| --- | --- |
+| Consultation/effect replay, result consumption/provenance, duplicate context/call validation, and private-root evidence | Five tests exited `1`: four assertion failures and one duplicate-key serialization trap |
+| Deterministic request expiry and typed applied/not-applied reconciliation | Two tests exited `1` with missing-type/member compile failures |
+| Unique unresolved ledger/command binding | One test emitted `false` and exited `1` |
+| Ambiguous call identity and missing originating command | Two focused tests emitted their final `false` values and exited `1` |
+
+The corresponding focused GREEN set passed before the full matrix. The source
+commit above contains the tests and smallest reducer correction; no historical
+RED output was reconstructed.
 
 ## Deterministic DEV-138 oracle
 
@@ -85,7 +99,7 @@ Normalized result:
 
 | Gate | Exit | Result |
 | --- | ---: | --- |
-| DEV-138 unit module | `0` | `27/27` tests passed |
+| DEV-138 unit module | `0` | `35/35` tests passed; no skip |
 | Fixture compile | `0` | `pseudocode_deterministic_mock` |
 | Canonical cases | `0` | `43` unique sorted cases |
 | Passing fixtures | `0` | `15` |
@@ -96,7 +110,7 @@ Normalized result:
 All three JSONL artifacts have SHA-256:
 
 ```text
-be33fa294cf64ba731889718bdba8c5885f657c7a6cef5c8da819b5b67665f2f
+f665a7e3556e25c82254a480b0d0fb3cc473971e6fa52044daae729c9593fd5d
 ```
 
 The Swift scenarios do not contain a second expected-outcome oracle, do not
@@ -105,15 +119,16 @@ self-attest policy verdicts, and do not implement DEV-131 rubric scoring.
 ## Apple SDK 26.5 matrix
 
 The exact positive and expected-blocker command blocks are also retained in
-`fixtures/dev-138/README.md`. They were rerun with one captured compiler and
-SDK identity; resolution, version, and SDK stability were checked before and
-after each SDK test.
+`fixtures/dev-138/README.md`. They were rerun with captured compiler, `xcrun`,
+and SDK-directory identities. Exact device/inode/type/mode/size/time snapshots
+were checked around invocations; a same-path replacement regression also
+passed. No skipped SDK test is counted as a pass.
 
 Normalized environment:
 
 | Field | Value | Status |
 | --- | --- | --- |
-| Apple Swift compiler | `6.3.2` | `pass` |
+| Apple Swift compiler | `6.3.3` | `pass` |
 | Default compiler target | `arm64-apple-macosx26.0` | `pass` |
 | Explicit fixture target | `arm64-apple-macos26.0` | `pass` |
 | macOS SDK | `26.5` | `pass` |
@@ -127,6 +142,8 @@ TARGET=arm64-apple-macos26.0
 
 swiftc -typecheck -target "$TARGET" -sdk "$SDK" \
   fixtures/dev-128/compiled/stable-surface.swift
+swiftc -typecheck -target "$TARGET" -sdk "$SDK" \
+  fixtures/dev-128/compiled/generable-macro.swift
 swiftc -parse-as-library -target "$TARGET" -sdk "$SDK" \
   fixtures/dev-128/compiled/availability-probe.swift -o "$TMPDIR/availability"
 "$TMPDIR/availability" >"$TMPDIR/availability.out"
@@ -145,6 +162,7 @@ swiftc -parse-as-library -target "$TARGET" -sdk "$SDK" \
 | Row | Evidence | Exit | Status |
 | --- | --- | ---: | --- |
 | Stable surface | `compiled_sdk_26_5` | `0` | `pass` |
+| Generable macro | `compiled_sdk_26_5` | `0` | `pass` |
 | Availability shape | `compiled_sdk_26_5` | `0` | `pass` |
 | Transcript round trip | `compiled_sdk_26_5` | `0` | `pass` |
 | Session isolation | `compiled_sdk_26_5` | `0` | `pass` |
@@ -154,8 +172,6 @@ swiftc -parse-as-library -target "$TARGET" -sdk "$SDK" \
 Expected-blocker commands:
 
 ```bash
-swiftc -typecheck -target arm64-apple-macos26.0 -sdk "$SDK" \
-  fixtures/dev-128/blocked/generable-macro.swift
 swiftc -typecheck -target arm64-apple-macos27.0 -sdk "$SDK" \
   fixtures/dev-128/blocked/os-27-beta-surface.swift
 swiftc -typecheck -target arm64-apple-macos27.0 -sdk "$SDK" \
@@ -167,7 +183,6 @@ required nonzero compilation plus its complete stable diagnostic-class match.
 
 | Row | Diagnostic class | Exit | Status |
 | --- | --- | ---: | --- |
-| Generable macro | `macro_implementation_unavailable` | `1` | `blocked` |
 | OS 27 beta surface | `dynamic_profile_profile_initializer_tool_calling_mode_unavailable` | `1` | `blocked` |
 | Evaluations import | `evaluations_module_unavailable` | `1` | `blocked` |
 | OS 27 runtime behavior | `installed_sdk_26_5_only` | not run | `blocked` |
@@ -205,11 +220,11 @@ git diff --exit-code -- AGENTS.md .agents/plugins/marketplace.json \
 
 | Gate | Exit | Result |
 | --- | ---: | --- |
-| Repository discovery | `0` | `74/74` tests passed |
+| Repository discovery | `0` | `92/92` tests passed |
 | DEV-131 unit suite | `0` | `26/26` tests passed |
 | DEV-131 proof runner | `0` | `11/11` executed cases matched the oracle; top-level status `pass` |
 | DEV-131 compileall | `0` | `pass` |
-| DEV-130 Swift compile/golden | `0` | `7/7` scenarios passed; seven scenario lines plus one exact summary line |
+| DEV-130 Swift compile/golden | `0` | `8/8` scenarios passed; exact golden and byte-identical repeat |
 | BATS skeleton | `0` | `3/3` passed |
 | Generator check | `0` | synchronized |
 | Generated-file diff | `0` | no generated change |
@@ -228,7 +243,9 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
 Result: exit `0`; `3/3` tests passed.
 
 - The DEV-134 prototype remains exactly `6` positive, `6` negative, and `3`
-  ambiguous identities with stable guardrails.
+  ambiguous identities with stable guardrails, `7` `direct_workflow` owners,
+  and `8` `non_positive_router` owners. Owner metadata is absent from exact
+  emitted envelopes.
 - The exact baton, consultation, flawed-reducer, recovery, and review-first
   mappings resolve only to deterministic DEV-138 invariant cases.
 - The mapping does not prove router activation, review-first/no-edit behavior,
@@ -236,7 +253,31 @@ Result: exit `0`; `3/3` tests passed.
 - A temporary local copy of the effective plugin preserves the canonical
   package contract and contains no repository fixture, DEV-138, test, docs,
   research, private-state, credential-sentinel, or prohibited runtime artifact.
-- Packaging uses no network, credential, host install, or external state.
+- The package-exclusion proof uses no network, credential, host install, or
+  external state.
+
+## Structural package and Codex checks
+
+The current official plugin validator accepted the metadata-only package.
+Bats 1.13.0 passed 3/3, generation was synchronized, and the three generated
+outputs had no diff. Two fresh isolated Codex runs used the captured `0.144.5`
+executable, produced byte-identical normalized JSON, and verified regular-file
+mode/type, exact three-file source/cache membership, source/cache hash equality,
+enabled state, and zero capabilities.
+
+| Structural field | Normalized result |
+| --- | --- |
+| Host/version | `codex` / `0.144.5` |
+| Plugin/version | `apple-foundation-models-handoff` / `0.1.0` |
+| Cache file count | `3` |
+| Canonical manifest SHA-256 | `2ef1c67b4c5d4788b5316dd645aa9e580fea18b6ec5cbfb8759b355af31ae618` |
+| Generated manifest SHA-256 | `2cf94a87d9e25e687435e423d3e1f11bf848e5fac3b1ae1399e83c70085047b8` |
+| Enabled/capabilities | `true` / `[]` |
+| Capability activation | `blocked/production_skill_not_implemented` |
+
+This is local structural discovery, installation, and cache-integrity evidence.
+It is not workflow activation, router execution, Apple runtime behavior, or
+capability proof.
 
 ## Deferred rows and nonclaims
 
@@ -251,9 +292,10 @@ The following owner-deferred tools were not invoked or substituted:
 DEV-138 is an offline, deterministic, repository-only proof. It performs no
 network call, PCC call, provider request, credential lookup, paid-service call,
 live model generation, model-selected tool call, entitlement operation, device
-hardware gate, host activation, or release operation. It does not prove a
-production router is enabled, a host can discover or activate future skills,
-or Foundation Models runtime behavior.
+hardware gate, capability activation, or release operation. The local Codex
+row proves only structural discovery/install/cache integrity; it does not prove
+future workflow activation, production routing, or Foundation Models runtime
+behavior.
 
 ## Final gates
 
@@ -268,10 +310,12 @@ git diff --exit-code -- AGENTS.md .agents/plugins/marketplace.json \
 git status --short
 ```
 
-A content scanner also constructs the prohibited private-root, credential, key,
+A content scanner also constructs prohibited private-root, credential, key,
 and runtime-artifact markers from separate string fragments and scans the
 oracle, fixture README, transcript, and copied plugin payload. This avoids
 placing a prohibited literal into the evidence file merely to describe its
-absence. The final committed-head result is recorded in the DEV-138 handoff;
-no push, merge, tag, publication, release, or downstream issue mutation is part
-of this task.
+absence. The source commit had a clean worktree, exactly nine issue paths and
+seven implementation/evidence paths, no package/generator/generated delta, and
+no cache or runtime artifact. The final committed-head result is recorded in
+the DEV-138 handoff; no push, merge, tag, publication, release, or downstream
+issue mutation is part of this task.
