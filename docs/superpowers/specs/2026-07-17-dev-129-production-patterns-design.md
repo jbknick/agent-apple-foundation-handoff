@@ -2,7 +2,8 @@
 
 Issue: [DEV-129](https://linear.app/devprentice/issue/DEV-129/r3parallel-compare-production-claude-codecodex-plugin-and-skill)
 
-Evidence collection range: `2026-07-16` through `2026-07-17`
+Evidence collection range: `2026-07-16` through `2026-07-19` (structural
+references through 2026-07-17; installed-host workflow refresh on 2026-07-19)
 
 ## Purpose
 
@@ -34,8 +35,9 @@ Evidence is tied to these immutable revisions:
 - `openai/plugins@11c74d6ba24d3a6d48f54a194cd00ef3beea18f9`
 - `openai/codex@693b8c2ba4396772eeb82ce2982acad19dd960f5`
 
-Installed host observations use Claude Code `2.1.91` and Codex CLI `0.144.5`.
-Version-sensitive conclusions must be revalidated when either host changes.
+Installed-host workflow observations were refreshed on 2026-07-19 using Claude
+Code `2.1.140` and Codex CLI `0.144.5`. Version-sensitive conclusions must be
+revalidated when either host changes.
 
 ## Selected structural model
 
@@ -109,16 +111,16 @@ must remain valid under the selected packaging workflow.
 
 ## Host-local workflows
 
-Installed Claude Code `2.1.91` directly demonstrates:
+The 2026-07-19 installed Claude Code `2.1.140` refresh directly demonstrates:
 
 - `claude plugin validate <path>` for structural validation;
-- session-only `claude --plugin-dir <path>` loading; and
+- session-only repeatable `claude --plugin-dir <path>` loading; and
 - isolated marketplace/install workflows when packaging is under test.
 
 Those installed observations are authoritative for features this project
-relies on. Current Anthropic documentation may describe behavior added after
-`2.1.91`; newer-version-only behavior is context, not a supported project
-assumption until the installed host is upgraded and reverified.
+relies on. Documentation alone is context, not a supported project assumption,
+until the behavior is verified on the installed host; version-sensitive
+conclusions are revalidated after an upgrade.
 
 Codex `0.144.5` does not support `codex --plugin-dir`. Its isolated local
 workflow is:

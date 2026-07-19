@@ -1,7 +1,8 @@
 # DEV-129 pinned production-reference command transcript
 
-Collected on 2026-07-17 (Asia/Jerusalem). Repository paths below are pinned
-links. Temporary checkout and host-home paths are normalized as
+Structural reference evidence was collected on 2026-07-17 (Asia/Jerusalem);
+installed-host workflow observations were refreshed on 2026-07-19. Repository
+paths below are pinned links. Temporary checkout and host-home paths are normalized as
 `<reference-root>`, `<claude-home>`, and `<codex-home>`.
 
 ## Scope and classifications
@@ -43,8 +44,8 @@ exited `0`:
 | [`openai/plugins`](https://github.com/openai/plugins/tree/11c74d6ba24d3a6d48f54a194cd00ef3beea18f9) | `11c74d6ba24d3a6d48f54a194cd00ef3beea18f9` |
 | [`openai/codex`](https://github.com/openai/codex/tree/693b8c2ba4396772eeb82ce2982acad19dd960f5) | `693b8c2ba4396772eeb82ce2982acad19dd960f5` |
 
-The installed hosts used for the workflow observations were Claude Code
-`2.1.91` and Codex CLI `0.144.5`.
+The 2026-07-19 host refresh used Claude Code `2.1.140` and Codex CLI
+`0.144.5` for workflow observations.
 
 ## Exact structural path evidence
 
@@ -253,17 +254,17 @@ contracts.
 
 ## Installed host workflow evidence
 
-The installed Claude CLI defines the behavior this project can rely on;
-[official documentation](https://code.claude.com/docs/en/plugins-reference)
-provides additional context but may describe features added after `2.1.91`.
-The following selected output was observed:
+The 2026-07-19 installed Claude CLI refresh defines the behavior this project
+can rely on. [Official documentation](https://code.claude.com/docs/en/plugins-reference)
+provides context, but only behavior verified on the installed host is relied
+on. The following selected refresh output was observed:
 
 ```text
 $ claude --version
-2.1.91 (Claude Code)
+2.1.140 (Claude Code)
 
 $ claude --help | rg -- '--plugin-dir'
---plugin-dir <path>  Load plugins from a directory for this session only
+--plugin-dir <path>  Load plugins from a directory for this session only (repeatable: --plugin-dir A --plugin-dir B) (default: [])
 
 $ claude plugin --help
 install ...
@@ -276,9 +277,9 @@ Validation passed
 ```
 
 All Claude gates exited `0`. Session-only `claude --plugin-dir <path>` is a
-supported local-development workflow for installed Claude Code `2.1.91`.
-Version-labelled documentation for later Claude releases is not treated as
-installed-host behavior until this host is upgraded and reverified.
+repeatable supported local-development workflow for installed Claude Code
+`2.1.140`. Documentation alone is not treated as installed-host behavior
+without verification on the current host.
 
 Codex's installed CLI and the pinned OpenAI loader source establish a different
 workflow:
@@ -361,8 +362,9 @@ credentials or paid provider.
 - The current OpenAI documentation's optional rich manifest fields and the
   pinned validator's stricter creation policy are different contract layers.
   Passing or failing one must not be reported as passing or failing the other.
-- Claude documentation that postdates installed `2.1.91` does not establish
-  that a newer-version-only feature is available on this host.
+- Claude documentation alone does not establish that a feature is available on
+  the current host; version-sensitive behavior must be reverified after a host
+  change.
 - The presence of hooks, MCP, app, command, or agent loader surfaces did not
   approve those capabilities for the original DEV-136 guidance/catalog slice.
   The later Linear approval for DEV-142–DEV-145 runtime work is separate

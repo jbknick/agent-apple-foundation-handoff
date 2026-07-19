@@ -1,7 +1,8 @@
 # DEV-129 production Claude Code/Codex pattern comparison
 
-Collected on 2026-07-17 (Asia/Jerusalem). The reproducible command evidence
-for this comparison is the
+Structural reference evidence was collected on 2026-07-17 (Asia/Jerusalem);
+installed-host workflow observations were refreshed on 2026-07-19. The
+reproducible command evidence for this comparison is the
 [pinned reference transcript](evidence/dev-129-reference-command-transcript.md).
 
 ## Scope and authority
@@ -50,7 +51,8 @@ current runtime-contract or Apple API authority.
 | OpenAI `codex` | [`693b8c2ba4396772eeb82ce2982acad19dd960f5`](https://github.com/openai/codex/tree/693b8c2ba4396772eeb82ce2982acad19dd960f5) | [`validate_plugin.py`](https://github.com/openai/codex/blob/693b8c2ba4396772eeb82ce2982acad19dd960f5/codex-rs/skills/src/assets/samples/plugin-creator/scripts/validate_plugin.py), [`plugin_namespace.rs`](https://github.com/openai/codex/blob/693b8c2ba4396772eeb82ce2982acad19dd960f5/codex-rs/utils/plugins/src/plugin_namespace.rs), [`marketplace.rs`](https://github.com/openai/codex/blob/693b8c2ba4396772eeb82ce2982acad19dd960f5/codex-rs/core-plugins/src/marketplace.rs), and [`loader.rs`](https://github.com/openai/codex/blob/693b8c2ba4396772eeb82ce2982acad19dd960f5/codex-rs/core-plugins/src/loader.rs) | Pinned validation policy, manifest/marketplace recognition order, root-source handling, and optional capability defaults. |
 
 Host-local observations are additionally pinned to installed Claude Code
-`2.1.91` and Codex CLI `0.144.5`. Current web documentation can be newer than
+`2.1.140` and Codex CLI `0.144.5` as refreshed on 2026-07-19. Current web
+documentation can be newer than
 those binaries, so a feature used by this project must pass an installed-host
 test rather than relying only on prose.
 
@@ -199,9 +201,10 @@ approved issue defines a need, contract, test, and ownership boundary.
 
 ## Host-local workflow comparison
 
-Installed Claude Code `2.1.91` supports `claude plugin validate <path>` and
-session-only `claude --plugin-dir <path>`. When packaging/cache semantics are
-under test, it also supports an isolated `CLAUDE_CONFIG_DIR`, local marketplace
+The 2026-07-19 refresh of installed Claude Code `2.1.140` supports
+`claude plugin validate <path>` and session-only repeatable
+`claude --plugin-dir <path>`. When packaging/cache semantics are under test,
+it also supports an isolated `CLAUDE_CONFIG_DIR`, local marketplace
 registration, install, and enabled-state inspection. The pinned bstack plugin
 passed those structural workflows.
 
@@ -262,8 +265,8 @@ Completion evidence for this research is structural and reproducible:
 - the pinned official validator passed the official example and produced the
   recorded expected policy failures for bstack and Duyet, without conflating
   those failures with native validation;
-- installed Claude Code `2.1.91` and Codex `0.144.5` behavior was exercised in
-  isolated homes; and
+- the 2026-07-19 installed-host refresh exercised Claude Code `2.1.140` and
+  Codex `0.144.5` behavior in isolated homes; and
 - generated Codex artifacts have an explicit non-editable ownership boundary,
   while the physical skills/references/scripts remain shared.
 

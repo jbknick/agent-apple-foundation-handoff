@@ -158,9 +158,10 @@ test "$codex_plugin_dir_rc" -ne 0
 rg -q "unexpected argument.*--plugin-dir" /tmp/dev129-codex-plugin-dir.out
 ```
 
-The transcript must record that installed Claude `2.1.91` supports session-only
-`--plugin-dir`, Codex `0.144.5` rejects it, and relied host features are based
-on installed behavior rather than possibly newer documentation.
+The transcript must record the 2026-07-19 Claude `2.1.140` refresh supporting
+session-only repeatable `--plugin-dir`, Codex `0.144.5` rejecting it, and
+relied host features being based on current installed behavior rather than
+documentation alone.
 
 ### Step 6: Run isolated representative loading
 
