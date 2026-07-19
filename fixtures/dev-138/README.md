@@ -63,7 +63,11 @@ exact historical command/record pairs remain valid after state advances.
 Resolved stable truth must cross-bind coherent repair facts with a positive,
 monotonic reconciliation count. A retry records a typed confirmed-not-applied
 basis, consumes retry authority, accepts only its own result, and remains valid
-through renewed uncertainty and later reconciliation.
+through renewed uncertainty and later reconciliation. Initial and consultation
+commands cannot carry retry provenance. After the event-phase gate, reducer
+admission reuses the validator's state-phase coherence check, so malformed
+same-phase state cannot be normalized by an event; recovery attempt counts are
+never negative.
 
 Evidence extensions and prohibited content are compared case-insensitively.
 Fingerprint verification still hashes the original content exactly.

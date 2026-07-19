@@ -123,9 +123,12 @@ fallback
 
 Only typed trusted events enter the reducer. Prompt, model, repository,
 retrieved, summary, and tool text remain untrusted data. Phase validation occurs
-before budget or authority mutation. A valid proposal snapshots the active
-profile/provider plus independent state and policy versions. Both proposal and
-commit boundaries reject either version drifting before the baton commits.
+before budget or authority mutation: the event's required phase is checked
+first, then the validator's shared state-phase coherence predicate rejects a
+malformed same-phase snapshot without changing it. A valid proposal snapshots
+the active profile/provider plus independent state and policy versions. Both
+proposal and commit boundaries reject either version drifting before the baton
+commits.
 Transitioning-state validation also requires the exact pending baton marker,
 current source, allowed edge, and an unvisited destination. A
 committed baton-pass activates the destination and transfers final ownership; a
@@ -139,8 +142,9 @@ confirmed-not-applied effects authorize at most one retry. No-safe reconciliatio
 remains repair-blocked in `recoveryRequired`. Late/replayed events preserve
 authority, phase, pending/checkpoint state, counts, ledger, and repair facts and
 emit no command. Reconciliation attempts increase monotonically for the same
-effect, and confirmed-not-applied truth cannot restore retry authority after the
-one retry was consumed. Ordinary budget termination is `stable`-only.
+effect and cannot be negative. Malformed recovery state cannot use a reducer
+event to self-heal. Confirmed-not-applied truth cannot restore retry authority
+after the one retry was consumed. Ordinary budget termination is `stable`-only.
 
 Context fields bind class, source, subject, purpose, destination, retention,
 and redaction. C3 and unknown data never cross a model boundary. A disallowed
@@ -166,6 +170,7 @@ external-effect rollback. A retry command preserves a typed
 confirmed-not-applied
 reconciliation basis, so renewed uncertainty and later reconciliation do not
 erase valid lineage. A retry without that lineage remains a replay violation.
+Initial and consultation commands must carry no retry basis.
 Fallback may only use an already authorized
 equal-or-lower provider/context/retention/tool/effect boundary; otherwise the
 result is explicit unavailable/degraded.

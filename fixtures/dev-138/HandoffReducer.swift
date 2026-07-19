@@ -571,6 +571,9 @@ enum HandoffReducer {
         guard state.phase == requiredPhase(for: event) else {
             return refused(state, disposition: .refusedPhase, audit: "event:refused-phase")
         }
+        guard statePhaseFactsAreValid(state) else {
+            return refused(state, disposition: .refusedPolicy, audit: "event:refused-state")
+        }
 
         var next = state
 
@@ -1258,7 +1261,27 @@ enum HandoffReducer {
     }
 
     private static func phaseFactsAreValid(_ observation: ScenarioObservation) -> Bool {
-        let state = observation.state
+        guard statePhaseFactsAreValid(observation.state) else { return false }
+
+        for record in observation.eventRecords {
+            if record.decision.disposition == .applied
+                && record.before.phase != requiredPhase(for: record.event)
+            {
+                return false
+            }
+        }
+
+        if let baseline = observation.recoveryBaseline,
+           baseline.phase == .recoveryRequired,
+           observation.eventRecords.last?.event == .cancelUncertain,
+           observation.state != baseline
+        {
+            return false
+        }
+        return true
+    }
+
+    private static func statePhaseFactsAreValid(_ state: HandoffState) -> Bool {
         switch state.phase {
         case .stable:
             if state.pendingTransition != nil
@@ -1294,6 +1317,7 @@ enum HandoffReducer {
                 || state.lastCheckpoint != "uncertain"
                 || state.repairFacts.lastKnownTruth != "possibleCommit"
                 || state.repairFacts.disposition != .awaitingReconciliation
+                || state.repairFacts.reconciliationAttempts < 0
                 || state.repairFacts.retryAuthority != .denied
                 || !effectRecordIsUnresolved(record)
                 || !hasBoundCommand(for: record, in: state)
@@ -1307,22 +1331,6 @@ enum HandoffReducer {
             {
                 return false
             }
-        }
-
-        for record in observation.eventRecords {
-            if record.decision.disposition == .applied
-                && record.before.phase != requiredPhase(for: record.event)
-            {
-                return false
-            }
-        }
-
-        if let baseline = observation.recoveryBaseline,
-           baseline.phase == .recoveryRequired,
-           observation.eventRecords.last?.event == .cancelUncertain,
-           observation.state != baseline
-        {
-            return false
         }
         return true
     }
@@ -1379,11 +1387,14 @@ enum HandoffReducer {
         let grouped = Dictionary(grouping: state.commandHistory, by: \.effectID)
         for (effectID, commands) in grouped {
             if commands.count == 1 {
-                if commands[0].kind == .retry { return true }
+                if commands[0].kind == .retry || commands[0].retryBasis != nil {
+                    return true
+                }
                 continue
             }
             guard commands.count == 2,
                   commands.first?.kind == .initial,
+                  commands.first?.retryBasis == nil,
                   commands.last?.kind == .retry,
                   commands.last?.retryBasis == .confirmedNotApplied,
                   let recordIndex = soleEffectRecordIndex(for: effectID, in: state),

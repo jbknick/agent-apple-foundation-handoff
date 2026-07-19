@@ -1386,6 +1386,17 @@ struct Probe {
             event: .execute(request: request)
         ).state
 
+        var initialWithRetryBasis = executed
+        let initialCommand = initialWithRetryBasis.commandHistory[0]
+        initialWithRetryBasis.commandHistory[0] = ExecutorCommand(
+            effectID: initialCommand.effectID,
+            callID: initialCommand.callID,
+            binding: initialCommand.binding,
+            stateVersion: initialCommand.stateVersion,
+            kind: initialCommand.kind,
+            retryBasis: .confirmedNotApplied
+        )
+
         var missingLedger = executed
         missingLedger.ledger = []
 
@@ -1480,6 +1491,16 @@ struct Probe {
             event: .commitBaton
         ).state
         let consultationRequest = ExecutionRequest.fixture(state: consultationCommitted)
+        var consultationWithRetryBasis = consultationCommitted
+        let consultationCommand = consultationWithRetryBasis.commandHistory[0]
+        consultationWithRetryBasis.commandHistory[0] = ExecutorCommand(
+            effectID: consultationCommand.effectID,
+            callID: consultationCommand.callID,
+            binding: consultationCommand.binding,
+            stateVersion: consultationCommand.stateVersion,
+            kind: consultationCommand.kind,
+            retryBasis: .confirmedNotApplied
+        )
 
         var orphanRepair = HandoffState.initial
         orphanRepair.repairFacts = RepairFacts(
@@ -1524,6 +1545,7 @@ struct Probe {
                 .contains("D-CONTEXT-002"),
             violations(duplicatedCall, request: request).contains("D-TOOL-001"),
             violations(executed, request: request).isEmpty,
+            violations(initialWithRetryBasis, request: request) == ["D-EFFECT-002"],
             violations(missingLedger, request: request) == ["D-EFFECT-001"],
             violations(extraLedger, request: request) == ["D-EFFECT-001"],
             violations(mismatchedCommand, request: request) == ["D-EFFECT-001"],
@@ -1538,6 +1560,8 @@ struct Probe {
             violations(mismatchedRecovery, request: request) == ["D-PHASE-001"],
             violations(recoveryWithoutEffect, request: request) == ["D-PHASE-001"],
             violations(consultationCommitted, request: consultationRequest).isEmpty,
+            violations(consultationWithRetryBasis, request: consultationRequest)
+                == ["D-EFFECT-002"],
             violations(orphanRepair, request: orphanRequest) == ["D-PHASE-001"],
             violations(mismatchedStableRepair, request: request) == ["D-PHASE-001"],
             violations(resolvedWithoutRepair, request: request) == ["D-PHASE-001"],
@@ -1557,7 +1581,7 @@ struct Probe {
         )
         self.assertEqual(
             output,
-            "true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true\n",
+            "true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true\n",
         )
 
     def test_execution_grant_expiry_uses_the_request_time_inclusively(self):
@@ -1748,6 +1772,20 @@ struct Probe {
         forgedBasisRetry.executorCommandCount += 1
         forgedBasisRetry.ledger[0].truth = "retryIssued"
         forgedBasisRetry.repairFacts = .none
+        let forgedUncertainty = HandoffReducer.reduce(
+            forgedBasisRetry,
+            event: .commandUncertain(effectID: "effect-001")
+        )
+
+        var malformedRecovery = recoveryState(executed)
+        malformedRecovery.pendingTransition = "forged-transition"
+        malformedRecovery.lastCheckpoint = "forged-checkpoint"
+        malformedRecovery.repairFacts.lastKnownTruth = "fabricated"
+        malformedRecovery.repairFacts.reconciliationAttempts = -7
+        let malformedReconciliation = HandoffReducer.reduce(
+            malformedRecovery,
+            event: .reconcileSucceeded(truth: .confirmedApplied)
+        )
 
         var loneRetry = retry.state
         loneRetry.commandHistory.removeFirst()
@@ -1824,6 +1862,12 @@ struct Probe {
             HandoffReducer.validate(
                 observation(state: forgedBasisRetry, request: request)
             ) == ["D-PHASE-001"],
+            forgedUncertainty.state == forgedBasisRetry
+                && forgedUncertainty.command == nil
+                && forgedUncertainty.disposition == .refusedPolicy,
+            malformedReconciliation.state == malformedRecovery
+                && malformedReconciliation.command == nil
+                && malformedReconciliation.disposition == .refusedPolicy,
             HandoffReducer.validate(
                 observation(state: loneRetry, request: request)
             ) == ["D-EFFECT-002"],
@@ -1838,7 +1882,7 @@ struct Probe {
         )
         self.assertEqual(
             output,
-            "true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true\n",
+            "true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true\n",
         )
 
     def test_recovery_requires_one_matching_unresolved_ledger_record(self):
