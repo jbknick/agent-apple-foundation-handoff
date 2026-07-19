@@ -2,36 +2,40 @@
 
 ## Scope and claim boundary
 
-This record covers Task 5 only: structural Codex installation/cache identity
-and the optional, explicitly directed reference-selection prerequisite. It is
-not workflow-triggered activation, does not satisfy `E-CODEX-ACTIVATE-001` or
+This record binds the Round 1 offline correction proof to one source commit and
+retains older structural Codex and explicitly directed reference-selection
+outcomes as historical evidence only. It is not workflow-triggered activation,
+does not satisfy `E-CODEX-ACTIVATE-001` or
 `DEV137-CODEX-PROGRESSIVE-001`, and cannot complete DEV-137.
 
-- Reference candidate commit: `d27cc16d62fd0e23e5e62441d17122d622c09492`
-- Reference candidate tree: `a8c10274d81690deedd361161a1d4d916b70b72c`
-- Source retrieval date: `2026-07-17`
-- Codex host: `codex-cli 0.144.5` at normalized `<host-path>`
-- Selected model for every Codex execution: `gpt-5.6-sol`
-- Model fallback: prohibited and not used
+- Round 1 source commit: `128a8991e143a4226897ff509adf8c23e20ec311`
+- Round 1 source tree: `25da4cd51b1f2f74281c2d9f4191a0e3fd330291`
+- Deterministic verification date: `2026-07-20`
+- Current live Codex/model/network run: not invoked
+- Historical host candidate commit: `d27cc16d62fd0e23e5e62441d17122d622c09492`
+- Historical host candidate tree: `a8c10274d81690deedd361161a1d4d916b70b72c`
+- Historical Codex host: `codex-cli 0.144.5` at normalized `<host-path>`
+- Historical selected model: `gpt-5.6-sol`; fallback was prohibited and not used
 - Claude: not invoked
 
 DEV-137 remains In Progress with blocker
-`production_skills_not_integrated` until DEV-136 rebases above DEV-137 and the
-mandatory combined-tip Task 6 gate passes.
+`production_skills_not_integrated` until the mandatory combined-tip 25-case
+DEV-136 workflow-triggered gate passes. That combined evidence remains blocked
+and was not accessed or run during this correction.
 
 ## Reference payload identity
 
-The structural probe installed eight exact regular files into each fresh
-isolated cache and proved the following five reference files byte-identical to
-source:
+The current source commit contains exactly eight approved package files and the
+following five reference identities. These current hashes are offline source
+identity only; the structural cache probe was not rerun for this correction.
 
 | Reference file | SHA-256 |
 | --- | --- |
-| `references/apple-api-availability.md` | `a2ddfd157d4c9f48897b7b652d4c71ebb8660104899e1866c1ec64fedec1f8ab` |
-| `references/architecture-and-state.md` | `c017fa85bf158d4d25dab292db2ac79773950541f43dce7034aaf0c301e83a68` |
-| `references/evaluation-and-observability.md` | `f28a5d4dc32755867d4b8e19030c248ab4cbdc5d0a0773fe3466bc4489c9d0b4` |
-| `references/orchestration-patterns.md` | `eaeeed0a33dea4f9af70116d191be5bc9a23ff869ecf26cd4406341687fabbc3` |
-| `references/security-context-and-recovery.md` | `1ff0393f68720c79a50b0a7dd488354c995673686c72667aa89f8350e6d1f5c3` |
+| `references/apple-api-availability.md` | `3bda66a1fd1f5d92afd437918a955c0103ad8cad399f29456271eea684f885c5` |
+| `references/architecture-and-state.md` | `3eabd71891ff3b3d6960816df3e027e0d410cc6cf0ecf33dad87c02c90912839` |
+| `references/evaluation-and-observability.md` | `9c8de725a9c559d72468413651130b6525f350515aa67e1aa488ca238378acd4` |
+| `references/orchestration-patterns.md` | `3eec171cbaab5ea086e27902931ebeb321cf4d02ef19cd240d738e418d7a9ab0` |
+| `references/security-context-and-recovery.md` | `42d390e8647c532df9edc6414a908305ca1455e6282cf18c3a29bd6fa4579796` |
 
 Additional pinned identities:
 
@@ -47,39 +51,55 @@ Additional pinned identities:
 | Check | Result |
 | --- | --- |
 | Reference topology | pass, exactly 5 regular Markdown files |
-| Cache payload | pass, exactly 8 regular files |
-| Relative reference links | pass, 37 occurrences; every reference has an incoming sibling edge |
-| Approved official sources | pass, 30 unique links; live audit 1/1 |
+| Cache payload | pass, offline contract/oracle confirms exactly 8 regular files; current isolated cache not run |
+| Relative reference links | pass, 43 occurrences; every reference has an incoming sibling edge |
+| Approved official sources | pass offline, 30 unique links; opt-in network resolution skipped |
 | Swift labels | pass, 4 blocks with exactly one allowed visible label each |
 | `compiled_sdk_26_5` | pass, 1/1 block type-checked against SDK 26.5 |
-| Directed-reference adversarial suite | pass, 44/44 |
-| Focused reference/package suite | pass, 20/20 |
-| Repository unit suite | pass, 59; the opt-in network row skipped here and passed separately |
+| Disclosure parser group | pass, 41/41 |
+| Host identity group | pass, 10/10 |
+| Focused reference group | pass, 13/13 |
+| Focused plugin group | pass, 15/15 |
+| Guidance and plugin regression | pass, 33/33; generated adapter exactly 90 lines |
+| Direct-script blocked-PATH proof | pass, 2/2 exact normalized result dictionaries; both exits `2` |
+| Repository unit suite | pass, 155 tests with 154 executed/pass and 1 opt-in network skip |
+| E2E helper compilation | pass, 2/2 modules |
 | Generated synchronization | pass |
-| DEV-130 inherited regression | pass, 7/7 |
+| DEV-128 inherited regression | pass, 6/6 positives and 2/2 exact expected blockers |
+| DEV-130 inherited regression | pass, compile/golden/repeat and 8/8 scenarios; golden includes one additional `SUMMARY` line |
 | DEV-131 inherited regression | pass, 26/26; corpus 11/11; 8 evidence files |
+| DEV-138 inherited regression | pass, 36/36 tests and exact 43-row oracle |
 | BATS | pass, 3/3 |
+| Diff/scope/cache hygiene | pass; 15 authorized source paths, no repo Python cache, no untracked paths |
 
 ## Codex structural result
 
-`E-CODEX-LOAD-001` passed twice from fresh isolated homes. The normalized JSON
+Historical `E-CODEX-LOAD-001` passed twice from fresh isolated homes at
+candidate `d27cc16d62fd0e23e5e62441d17122d622c09492`, tree
+`a8c10274d81690deedd361161a1d4d916b70b72c`. The normalized JSON
 outputs were byte-identical with SHA-256
 `a4b23e4d8744d6f85e36a23a6a927701aefdc8941ed893c145ec27275bf6c465`.
 Both runs proved marketplace discovery, installation, enabled state, exact
 eight-file source/cache identity, all five reference hashes, and an empty
 capability list. The result retains
-`blocked/production_skills_not_integrated` for capability activation.
+`blocked/production_skills_not_integrated` for capability activation. It does
+not prove source/cache identity for the Round 1 source commit.
 
 ## Optional directed-reference result
 
-The newest two-call-prompt final-code `DEV137-CODEX-REF-001` run failed closed
+Every result in this section predates the Round 1 source commit and remains
+historical. The newest result is bound to the historical candidate named
+above; earlier results bind to still earlier revisions.
+
+The newest historical two-call-prompt `DEV137-CODEX-REF-001` run failed closed
 at task `pattern-final-owner` with normalized reason
 `bulk_reference_content_read` on exact model `gpt-5.6-sol`. The runner exited
 `1`; its normalized JSON SHA-256 is
 `db9cc39117f47abcea7c2010e13c5ebbfd31064c484b644b1624c5fa5a44f146`.
-That newest result is authoritative and is not converted to a prerequisite
-blocker or pass. Exactly one fresh full run was made from the final code; it was
-not retried. Task 5 is therefore failed/blocking at this head.
+That newest historical result is authoritative for its candidate and is not
+converted to a prerequisite blocker or pass. Exactly one fresh full run was
+made from that code; it was not retried. Task 5 was therefore failed/blocking
+at that historical head.
 
 The immediately preceding shell-wrapper-hardened run and the pre-wrapper
 final-code run before it produced the same task, reason, exit, and normalized
@@ -129,20 +149,22 @@ discarded them before emitting normalized status.
 
 | Row | Status | Boundary |
 | --- | --- | --- |
-| `E-CODEX-LOAD-001` | pass | Structural install/cache only |
-| `DEV137-CODEX-REF-001` | fail / `bulk_reference_content_read` at `pattern-final-owner`; Task 5 failed/blocking | Optional explicitly directed reference selection only; never completion evidence |
-| `E-CODEX-ACTIVATE-001` / `DEV137-CODEX-PROGRESSIVE-001` | blocked / `production_skills_not_integrated` | Mandatory combined-tip gate after DEV-136 rebases above DEV-137 |
+| `E-CODEX-LOAD-001` | historical pass at `d27cc16`; current source not run | Structural install/cache only; not current Round 1 evidence |
+| `DEV137-CODEX-REF-001` | historical fail / `bulk_reference_content_read` at `pattern-final-owner`; current source not run | Optional explicitly directed reference selection only; never completion evidence |
+| `E-CODEX-ACTIVATE-001` / `DEV137-CODEX-PROGRESSIVE-001` | blocked / `production_skills_not_integrated` | Mandatory combined-tip 25-case gate remains blocked |
 | DEV-137 issue state | In Progress | Remains blocked until the combined-tip gate passes |
 | `E-CLAUDE-LOAD-001` / activation | blocked/deferred_by_owner | Claude not invoked |
 | BATS | pass, 3/3 | Existing generator regression |
 | pre-commit | blocked/deferred_by_owner | Not invoked |
 | markdownlint | blocked/deferred_by_owner | Not invoked |
-| Xcode 27 / Evaluations / Instruments | blocked | Current host is SDK 26.5 Command Line Tools |
+| Xcode 27 / Evaluations / Instruments | blocked | Current full Xcode is 26.6 (17F113) with SDK 26.5, not Xcode 27 |
 
 ## Limitations
 
-Structural installation and cache equality do not prove a production workflow
-activated. The newest optional directed probe failed and cannot substitute for
-Task 6. Model behavior is probabilistic; any future semantic mismatch,
-unrelated reference read, fictional API invention, or executable drift remains
-fail rather than blocked or pass.
+The current correction has offline deterministic evidence only. Historical
+structural installation/cache equality does not prove the corrected package or
+a production workflow activated, and the historical optional directed failure
+cannot substitute for the blocked combined 25-case gate. Model behavior is
+probabilistic; any future semantic mismatch, unrelated reference read,
+fictional API invention, or executable drift remains fail rather than blocked
+or pass.
