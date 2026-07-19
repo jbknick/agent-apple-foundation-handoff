@@ -54,6 +54,45 @@ def normalized_guide(path: Path) -> str:
     return re.sub(r"\s+", " ", path.read_text(encoding="utf-8"))
 
 
+class _MutateAfterRead:
+    def __init__(self, stream, mutation):
+        self._stream = stream
+        self._mutation = mutation
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *arguments):
+        return self._stream.__exit__(*arguments)
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+    def read(self, *arguments, **keywords):
+        content = self._stream.read(*arguments, **keywords)
+        self._mutation()
+        return content
+
+
+@contextlib.contextmanager
+def mutate_after_read(read_number: int, mutation):
+    real_fdopen = sync_generated_artifacts.os.fdopen
+    reads = 0
+
+    def wrapped_fdopen(*arguments, **keywords):
+        nonlocal reads
+        reads += 1
+        stream = real_fdopen(*arguments, **keywords)
+        if reads == read_number:
+            return _MutateAfterRead(stream, mutation)
+        return stream
+
+    with mock.patch.object(
+        sync_generated_artifacts.os, "fdopen", side_effect=wrapped_fdopen
+    ):
+        yield
+
+
 class RepositoryGuidanceTests(unittest.TestCase):
     def test_generated_agents_matches_canonical_adapter_exactly(self):
         canonical_text = CANONICAL.read_text(encoding="utf-8")
@@ -240,6 +279,59 @@ class RepositoryGuidanceTests(unittest.TestCase):
                     result.stderr,
                 )
                 self.assertFalse(os.path.lexists(isolated_root / "AGENTS.md"))
+
+    def _assert_post_read_change_is_rejected(
+        self, target_name: str, read_number: int, diagnostic_text: str, change: str
+    ):
+        with tempfile.TemporaryDirectory() as directory:
+            isolated_root = Path(directory)
+            shutil.copyfile(CANONICAL, isolated_root / "CLAUDE.md")
+            self.assertTrue(sync_generated_artifacts.synchronize(isolated_root, True))
+            target = isolated_root / target_name
+
+            if change == "replacement":
+                replacement = isolated_root / "replacement"
+                replacement.write_bytes(target.read_bytes())
+
+                def mutation():
+                    os.replace(replacement, target)
+
+            else:
+
+                def mutation():
+                    with target.open("ab") as stream:
+                        stream.write(b"post-read change\n")
+
+            diagnostic = io.StringIO()
+            with mutate_after_read(read_number, mutation):
+                with contextlib.redirect_stderr(diagnostic):
+                    synchronized = sync_generated_artifacts.synchronize(
+                        isolated_root, write=False
+                    )
+
+            self.assertFalse(synchronized)
+            self.assertEqual(diagnostic_text, diagnostic.getvalue())
+            self.assertNotIn(str(isolated_root), diagnostic.getvalue())
+
+    def test_canonical_input_rejects_post_read_changes(self):
+        for change in ("replacement", "in-place mutation"):
+            with self.subTest(change=change):
+                self._assert_post_read_change_is_rejected(
+                    "CLAUDE.md",
+                    1,
+                    "CLAUDE.md: invalid canonical adapter input\n",
+                    change,
+                )
+
+    def test_generated_output_rejects_post_read_changes(self):
+        for change in ("replacement", "in-place mutation"):
+            with self.subTest(change=change):
+                self._assert_post_read_change_is_rejected(
+                    "AGENTS.md",
+                    2,
+                    "AGENTS.md: unsafe or unwritable generated output\n",
+                    change,
+                )
 
     def test_temporary_path_swap_is_rejected_and_cleaned(self):
         with tempfile.TemporaryDirectory() as directory:

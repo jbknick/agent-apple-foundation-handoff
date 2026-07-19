@@ -63,9 +63,12 @@ Ignored `.superpowers/sdd/**` files are local scratch state, not product scope.
 
 The generated adapter must be a regular root file, unique in the repository,
 smaller than the canonical guide, at most 90 lines, and at most 6500 UTF-8
-bytes. The 21 behavior-focused tests cover extraction, check/write behavior,
-idempotence, drift, obstruction/symlink/path-swap failures, cleanup, bounds,
-placement, links, ownership, routing, evidence, host lifecycle, and privacy.
+bytes. Before accepting read bytes, the synchronizer revalidates the opened
+descriptor snapshot and current pathname identity, mode, size, modification
+time, and change time. The 23 behavior-focused tests cover extraction,
+check/write behavior, idempotence, drift, obstruction/symlink/path-swap and
+post-read mutation failures, cleanup, bounds, placement, links, ownership,
+routing, evidence, host lifecycle, and privacy.
 
 ## Guidance invariants
 
@@ -99,7 +102,7 @@ placement, links, ownership, routing, evidence, host lifecycle, and privacy.
 
 ## Deterministic acceptance
 
-Run generation and all 21 repository-guidance tests:
+Run generation and all 23 repository-guidance tests:
 
 ```bash
 set -euo pipefail

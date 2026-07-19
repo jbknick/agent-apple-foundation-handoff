@@ -58,6 +58,31 @@ def _same_file(left: os.stat_result, right: os.stat_result) -> bool:
     return (left.st_dev, left.st_ino) == (right.st_dev, right.st_ino)
 
 
+def _same_snapshot(left: os.stat_result, right: os.stat_result) -> bool:
+    return _same_file(left, right) and (
+        left.st_mode,
+        left.st_size,
+        left.st_mtime_ns,
+        left.st_ctime_ns,
+    ) == (
+        right.st_mode,
+        right.st_size,
+        right.st_mtime_ns,
+        right.st_ctime_ns,
+    )
+
+
+def _unchanged_after_read(
+    opened: os.stat_result, after_read: os.stat_result, current: os.stat_result
+) -> bool:
+    return (
+        stat.S_ISREG(after_read.st_mode)
+        and stat.S_ISREG(current.st_mode)
+        and _same_snapshot(opened, after_read)
+        and _same_snapshot(after_read, current)
+    )
+
+
 def _read_canonical(canonical: Path) -> bytes:
     descriptor: int | None = None
     try:
@@ -72,7 +97,12 @@ def _read_canonical(canonical: Path) -> bytes:
             raise CanonicalInputError
         with os.fdopen(descriptor, "rb") as stream:
             descriptor = None
-            return stream.read()
+            content = stream.read()
+            after_read = os.fstat(stream.fileno())
+            current = canonical.lstat()
+            if not _unchanged_after_read(opened, after_read, current):
+                raise CanonicalInputError
+            return content
     except CanonicalInputError:
         raise
     except OSError as error:
@@ -122,7 +152,12 @@ def _read_generated(generated: Path) -> bytes | None:
             raise GeneratedOutputError
         with os.fdopen(descriptor, "rb") as stream:
             descriptor = None
-            return stream.read()
+            content = stream.read()
+            after_read = os.fstat(stream.fileno())
+            current = generated.lstat()
+            if not _unchanged_after_read(opened, after_read, current):
+                raise GeneratedOutputError
+            return content
     except OSError as error:
         raise GeneratedOutputError from error
     finally:
