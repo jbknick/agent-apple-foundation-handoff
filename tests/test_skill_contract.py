@@ -2235,8 +2235,12 @@ class SkillContractMutationTests(unittest.TestCase):
                 1,
             ),
             "freeze after inspection": fixture.replace(
-                "before inspection or non-skill tool use",
-                "after inspection or non-skill tool use",
+                first_step,
+                first_step.replace(
+                    "before inspection or non-skill tool use",
+                    "after inspection or non-skill tool use",
+                    1,
+                ),
                 1,
             ),
             "inspect before pre-selection": fixture.replace(
@@ -2253,30 +2257,48 @@ class SkillContractMutationTests(unittest.TestCase):
     def test_design_source_preselection_tuple_mutations_are_rejected(self) -> None:
         skill = "design-apple-foundation-models-handoff"
         fixture = build_valid_skill_fixture(skill)
+
+        def mutate_source_tuple(
+            *,
+            domain: str = "foundation_models_handoff",
+            operation: str = "design",
+            artifact: str = "absent",
+            evidence: str = "missing",
+        ) -> str:
+            mutated_sentence = DESIGN_SOURCE_PRESELECTION_SENTENCE.replace(
+                "`foundation_models_handoff/design/absent/missing`",
+                f"`{domain}/{operation}/{artifact}/{evidence}`",
+                1,
+            )
+            for field, original, replacement in (
+                ("domain", "foundation_models_handoff", domain),
+                ("requestedOperation", "design", operation),
+                ("artifactState", "absent", artifact),
+                ("evidenceState", "missing", evidence),
+            ):
+                mutated_sentence = mutated_sentence.replace(
+                    f"`{field} = {original}`",
+                    f"`{field} = {replacement}`",
+                    1,
+                )
+            return fixture.replace(
+                DESIGN_SOURCE_PRESELECTION_SENTENCE,
+                mutated_sentence,
+                1,
+            )
+
         mutations = {
-            "wrong domain": fixture.replace(
-                "foundation_models_handoff/design/absent/missing",
-                "ambiguous/design/absent/missing",
-                1,
-            ),
-            "wrong operation": fixture.replace(
-                "foundation_models_handoff/design/absent/missing",
-                "foundation_models_handoff/review/absent/missing",
-                1,
-            ),
-            "wrong artifact state": fixture.replace(
-                "foundation_models_handoff/design/absent/missing",
-                "foundation_models_handoff/design/present/missing",
-                1,
-            ),
-            "wrong evidence state": fixture.replace(
-                "foundation_models_handoff/design/absent/missing",
-                "foundation_models_handoff/design/absent/available",
-                1,
-            ),
+            "wrong domain": mutate_source_tuple(domain="ambiguous"),
+            "wrong operation": mutate_source_tuple(operation="review"),
+            "wrong artifact state": mutate_source_tuple(artifact="unknown"),
+            "wrong evidence state": mutate_source_tuple(evidence="available"),
             "post-inspection tuple": fixture.replace(
-                "before inspection or non-skill tool use",
-                "after inspection or non-skill tool use",
+                DESIGN_SOURCE_PRESELECTION_SENTENCE,
+                DESIGN_SOURCE_PRESELECTION_SENTENCE.replace(
+                    "before inspection or non-skill tool use",
+                    "after inspection or non-skill tool use",
+                    1,
+                ),
                 1,
             ),
             "tuple not immediately after immutable serialization": fixture.replace(
