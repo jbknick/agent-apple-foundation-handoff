@@ -1,6 +1,6 @@
 # DEV-138 deterministic Swift fixture command transcript
 
-Evidence date: `2026-07-19`
+Evidence date: `2026-07-20`
 
 This transcript records the final offline validation matrix for DEV-138. All
 results are normalized to compiler version, target, SDK version, interface
@@ -13,9 +13,9 @@ credential, or private configuration.
 
 - Issue base: `27c7ce6b8d47541711184ceae06b2eecbdc4be8e`
 - Exact tested source commit:
-  `d9461767cb9ae804f8de56dbd4fc5484642deae5`
+  `e49be5c2640bd8401a12d91eebdcc84720a67f84`
 - Exact tested source tree:
-  `7511eab03747d31e77954a72e873e6b3dfc6a4a4`
+  `5eb008057be4b87db9ccab5954d9cd323414988a`
 - Branch: `codex/dev-138-deterministic-swift-fixtures`
 - The follow-up evidence commit changes only this transcript; it does not change
   the tested source tree above.
@@ -90,6 +90,9 @@ reviewed head:
 | Retry completion and monotonic recovery | In the 17-value lifecycle probe, accepted retry completion, late-original refusal, preserved/incremented attempt counts, second confirmed-not-applied authority denial, and forged-basis repair coherence emitted `false`. |
 | Typed retry basis | The focused probe failed compilation because `retryBasis` was `String?` and had no typed `confirmedNotApplied` member. |
 | Stable repair command binding | After the preceding corrections, the commandless reconciled-repair mutation was the sole `false` value in its updated validator position. |
+| Non-retry provenance | In the 29-value validator probe, initial and consultation commands carrying a typed confirmed-not-applied retry basis were the two `false` values. |
+| Renewed uncertainty from incoherent retry state | In the 19-value lifecycle probe, a forged retry with erased repair lineage was normalized into recovery instead of being refused; its new expectation was `false`. |
+| Malformed recovery self-healing | In the same lifecycle probe, forged transition/checkpoint/truth facts and a negative attempt count were accepted by reconciliation instead of preserving/refusing the snapshot; its new expectation was `false`. |
 
 The corresponding focused GREEN set passed before the full matrix. The source
 commit above contains the tests and smallest reducer correction; no historical
