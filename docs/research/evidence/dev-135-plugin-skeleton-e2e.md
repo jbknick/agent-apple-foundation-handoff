@@ -5,9 +5,9 @@
 - Candidate branch: `codex/dev-135-minimal-plugin-skeleton`
 - Base: main `c749d14129888c643b66646158735bf58e6fc603`
 - Exact tested source commit:
-  `67d4be3e6e477f1d8aea1c66cd3ddf907b846f36`
+  `6a2425968db11153a9e9c61c919fbe27d824c6ce`
 - Exact tested source tree:
-  `57454cf56ba821ea6cd57ed14b1c614807140fdb`
+  `3b83adc9a0cb8546694378f128f41cc116f45d3f`
 - The follow-up commit changes only this evidence document; it does not change
   the tested source tree above.
 
@@ -19,7 +19,7 @@ reported `generated artifacts are synchronized`. The bytes of all three
 generated outputs were identical before the first write, after the first
 write, and after the second write.
 
-The repository suite passed 52 of 52 tests. It included 21 generated-artifact
+The repository suite passed 56 of 56 tests. It included 21 generated-artifact
 test methods and 38 isolated canonical-mutation cases. The current Codex plugin
 validator also passed the metadata-only package.
 
@@ -28,6 +28,18 @@ namespaces: each synchronized isolated check incorrectly exited `0`. GREEN
 rejected both paths with the normalized `generated artifacts: unexpected
 generated path` diagnostic while the existing unexpected-file, nested-parent
 symlink, and generated-output symlink checks remained passing.
+
+The structural-probe race regressions were also observed RED. A pathname
+replacement during a regular-file read and an in-place mutation during that
+read both returned without `ProbeFailure`; the captured executable metadata was
+unused, so a same-path executable replacement emitting the same exact version
+was accepted. A follow-up RED marker proved that checking the version before
+the replacement snapshot invoked an already-drifted executable. GREEN uses one
+exact device/inode/type/mode/size/mtime/ctime snapshot: regular-file reads must
+match it at pre-open, opened, post-read, and current-path boundaries, while the
+host version invocation is bracketed by matching executable snapshots. All four
+focused pathname, in-place, pre-version replacement, and during-version
+replacement tests passed without exposing a private path.
 
 Canonical and generated metadata retained these exact values:
 
