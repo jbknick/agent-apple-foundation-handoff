@@ -301,8 +301,10 @@ cover independent `stateVersion`/`policyVersion`, stale source state,
 destination, purpose, class, field, proposal-policy and grant-policy mismatches,
 proposal phase gating before budget, uncertain replay, late-event immunity,
 approved diagnostic-name plus trusted-local-origin filtering,
-schema/provenance mismatches, original result preservation, normalized
-interruption errors, and no original-tool rerun.
+response schema and result-type mismatches; independent `callID`, `toolName`,
+`toolVersion`, `stateVersion`, `action`, and `originalResultType` binding
+mismatches; accepted-response and cancellation replay; original result
+preservation; normalized interruption errors; and no original-tool rerun.
 
 ## Adversarial E2E execution
 

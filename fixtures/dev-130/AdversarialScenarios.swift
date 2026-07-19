@@ -106,6 +106,35 @@ struct AdversarialScenarios {
         expect(!decision.rerunOriginalTool, "\(message): original tool would rerun")
     }
 
+    static func diagnosticBinding(
+        from binding: DiagnosticRouteBinding,
+        callID: String? = nil,
+        toolName: String? = nil,
+        toolVersion: String? = nil,
+        stateVersion: Int? = nil,
+        action: String? = nil,
+        originalResultType: String? = nil
+    ) -> DiagnosticRouteBinding {
+        DiagnosticRouteBinding(
+            callID: callID ?? binding.callID,
+            toolName: toolName ?? binding.toolName,
+            toolVersion: toolVersion ?? binding.toolVersion,
+            stateVersion: stateVersion ?? binding.stateVersion,
+            action: action ?? binding.action,
+            originalResultType: originalResultType ?? binding.originalResultType
+        )
+    }
+
+    static func expectDiagnosticReplay(
+        initial: DiagnosticRoutingDecision,
+        replayed: DiagnosticRoutingDecision,
+        _ message: String
+    ) {
+        expect(replayed == initial, "\(message): decision changed")
+        expect(replayed.originalExecutionCount == 1, "\(message): execution count changed")
+        expect(!replayed.rerunOriginalTool, "\(message): original tool would rerun")
+    }
+
     static func main() {
         let injected = HandoffSecurityPolicy.reduce(
             state: baseState(),
@@ -246,49 +275,89 @@ struct AdversarialScenarios {
         expect(acceptedDiagnostic.originalExecutionCount == 1, "valid response changed executions")
         expect(!acceptedDiagnostic.rerunOriginalTool, "valid response would rerun the tool")
 
-        let mismatchedBinding = DiagnosticRouteBinding(
-            callID: diagnosticContext.callID,
-            toolName: diagnosticContext.toolName,
-            toolVersion: "different-version",
-            stateVersion: diagnosticContext.stateVersion,
-            action: declinedDiagnostic.request.binding.action,
-            originalResultType: diagnosticResult.resultType
-        )
-        let invalidResponses = [
-            DiagnosticBridgeResponse(
-                schemaVersion: 2,
-                binding: declinedDiagnostic.request.binding,
-                resultType: acceptedResponse.resultType,
-                condensedResult: "wrong schema"
+        let expectedBinding = declinedDiagnostic.request.binding
+        let bindingMutations: [(String, DiagnosticRouteBinding)] = [
+            ("callID", diagnosticBinding(from: expectedBinding, callID: "different-call")),
+            ("toolName", diagnosticBinding(from: expectedBinding, toolName: "different-tool")),
+            (
+                "toolVersion",
+                diagnosticBinding(from: expectedBinding, toolVersion: "different-version")
             ),
-            DiagnosticBridgeResponse(
-                schemaVersion: acceptedResponse.schemaVersion,
-                binding: mismatchedBinding,
-                resultType: acceptedResponse.resultType,
-                condensedResult: "wrong provenance"
+            (
+                "stateVersion",
+                diagnosticBinding(
+                    from: expectedBinding,
+                    stateVersion: expectedBinding.stateVersion + 1
+                )
             ),
-            DiagnosticBridgeResponse(
-                schemaVersion: acceptedResponse.schemaVersion,
-                binding: declinedDiagnostic.request.binding,
-                resultType: "wrong_result_type",
-                condensedResult: "wrong type"
+            ("action", diagnosticBinding(from: expectedBinding, action: "different-action")),
+            (
+                "originalResultType",
+                diagnosticBinding(
+                    from: expectedBinding,
+                    originalResultType: "different-original-result-type"
+                )
             ),
         ]
-        let invalidDecisions = invalidResponses.map {
-            DiagnosticResultRoutingPolicy.resolve(
-                result: diagnosticResult,
-                context: diagnosticContext,
-                outcome: .response($0)
+        let invalidResponseCases: [(String, DiagnosticBridgeResponse)] = [
+            (
+                "schemaVersion",
+                DiagnosticBridgeResponse(
+                    schemaVersion: 2,
+                    binding: expectedBinding,
+                    resultType: acceptedResponse.resultType,
+                    condensedResult: "wrong schema"
+                )
+            ),
+            (
+                "resultType",
+                DiagnosticBridgeResponse(
+                    schemaVersion: acceptedResponse.schemaVersion,
+                    binding: expectedBinding,
+                    resultType: "wrong_result_type",
+                    condensedResult: "wrong type"
+                )
+            ),
+        ] + bindingMutations.map { label, binding in
+            (
+                label,
+                DiagnosticBridgeResponse(
+                    schemaVersion: acceptedResponse.schemaVersion,
+                    binding: binding,
+                    resultType: acceptedResponse.resultType,
+                    condensedResult: "wrong \(label)"
+                )
+            )
+        }
+        let invalidDecisions = invalidResponseCases.map { label, response in
+            (
+                label: label,
+                decision: DiagnosticResultRoutingPolicy.resolve(
+                    result: diagnosticResult,
+                    context: diagnosticContext,
+                    outcome: .response(response)
+                )
             )
         }
         for invalidDecision in invalidDecisions {
             expectDiagnosticFallback(
-                invalidDecision,
+                invalidDecision.decision,
                 originalResult: rawDiagnostic,
                 normalizedError: "diagnostic_bridge_invalid_response",
-                "invalid diagnostic response"
+                "invalid diagnostic response \(invalidDecision.label)"
             )
         }
+
+        let replayedAcceptedDiagnostic = DiagnosticResultRoutingPolicy.resolve(
+            result: diagnosticResult,
+            context: diagnosticContext,
+            outcome: .response(acceptedResponse)
+        )
+        expectDiagnosticReplay(
+            initial: acceptedDiagnostic,
+            replayed: replayedAcceptedDiagnostic,
+            "valid diagnostic response replay"
+        )
 
         let failedOutcomes: [(DiagnosticBridgeOutcome, String, String)] = [
             (
@@ -319,10 +388,27 @@ struct AdversarialScenarios {
             )
         }
 
+        guard let initialCancellation = failedDecisions.first(where: {
+            $0.label == "cancellation"
+        })?.decision else {
+            fatalError("missing diagnostic cancellation case")
+        }
+        let replayedCancellation = DiagnosticResultRoutingPolicy.resolve(
+            result: diagnosticResult,
+            context: diagnosticContext,
+            outcome: .cancelled
+        )
+        expectDiagnosticReplay(
+            initial: initialCancellation,
+            replayed: replayedCancellation,
+            "diagnostic cancellation replay"
+        )
+
         let diagnosticEvidence = (
-            [declinedDiagnostic, acceptedDiagnostic]
-                + invalidDecisions
+            [declinedDiagnostic, acceptedDiagnostic, replayedAcceptedDiagnostic]
+                + invalidDecisions.map(\.decision)
                 + failedDecisions.map(\.decision)
+                + [replayedCancellation]
         ).flatMap(\.audit).joined(separator: "\n")
         expect(!diagnosticEvidence.contains(rawDiagnostic), "raw diagnostic leaked to audit")
         expect(!diagnosticEvidence.contains(remoteDiagnostic), "remote diagnostic leaked to audit")
