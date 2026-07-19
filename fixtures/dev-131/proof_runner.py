@@ -552,7 +552,14 @@ def evaluate_case(case: dict) -> dict:
             and not replay_commands
         )
         if effect["retryAttempted"]:
-            reconciliation = effect["observations"][2]
+            reconciliation = next(
+                (
+                    observation
+                    for observation in effect["observations"]
+                    if observation["kind"] == "reconciliation"
+                ),
+                None,
+            )
             replay_and_recovery_ok = replay_and_recovery_ok and (
                 effect["uncertainCommit"]
                 and kinds
@@ -563,7 +570,8 @@ def evaluate_case(case: dict) -> dict:
                     "retry",
                     "replay",
                 ]
-                and reconciliation.get("outcome") == "confirmed_absent"
+                and reconciliation is not None
+                and reconciliation["outcome"] == "confirmed_absent"
             )
         elif effect["uncertainCommit"]:
             replay_and_recovery_ok = False

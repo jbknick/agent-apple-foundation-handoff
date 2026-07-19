@@ -251,6 +251,14 @@ class OfflineEvaluationProofTests(unittest.TestCase):
                     ["D-EFFECT-002"],
                     self.runner.evaluate_case(unsafe_retry)["violations"],
                 )
+        for observation_count in range(3):
+            with self.subTest(observation_count=observation_count):
+                truncated = copy.deepcopy(valid_replay)
+                truncated["result"]["effects"][0]["observations"] = truncated[
+                    "result"
+                ]["effects"][0]["observations"][:observation_count]
+                violations = self.runner.evaluate_case(truncated)["violations"]
+                self.assertIn("D-EFFECT-002", violations)
         self.assertEqual(
             ["D-EFFECT-002"],
             self.runner.evaluate_case(
