@@ -50,6 +50,10 @@ def run_isolated_cli(root: Path, mode: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def normalized_guide(path: Path) -> str:
+    return re.sub(r"\s+", " ", path.read_text(encoding="utf-8"))
+
+
 class RepositoryGuidanceTests(unittest.TestCase):
     def test_generated_agents_matches_canonical_adapter_exactly(self):
         canonical_text = CANONICAL.read_text(encoding="utf-8")
@@ -304,8 +308,8 @@ class RepositoryGuidanceTests(unittest.TestCase):
         canonical_bytes = CANONICAL.read_bytes()
         generated_bytes = GENERATED.read_bytes()
 
-        self.assertLessEqual(len(generated_bytes.decode("utf-8").splitlines()), 100)
-        self.assertLessEqual(len(generated_bytes), 8192)
+        self.assertLessEqual(len(generated_bytes.decode("utf-8").splitlines()), 90)
+        self.assertLessEqual(len(generated_bytes), 6500)
         self.assertLess(len(generated_bytes), len(canonical_bytes))
 
     def test_only_one_root_agents_file_exists(self):
@@ -326,7 +330,7 @@ class RepositoryGuidanceTests(unittest.TestCase):
 
     def test_guidance_distinguishes_current_artifacts_from_planned_payloads(self):
         for guide in (CANONICAL, GENERATED):
-            text = re.sub(r"\s+", " ", guide.read_text(encoding="utf-8"))
+            text = normalized_guide(guide)
 
             self.assertIn(
                 "Today the repository-guidance artifact set is exactly authored "
@@ -339,12 +343,12 @@ class RepositoryGuidanceTests(unittest.TestCase):
                 text,
             )
             self.assertIn(
-                "DEV-135 owns the planned plugin metadata inputs and generated manifest "
+                "DEV-135 owns planned plugin metadata inputs and generated manifest "
                 "outputs",
                 text,
             )
             self.assertIn(
-                "remain absent until DEV-135 implements them through the shared "
+                "remain absent until it implements them through the shared "
                 "synchronization entry point",
                 text,
             )
@@ -352,7 +356,7 @@ class RepositoryGuidanceTests(unittest.TestCase):
 
     def test_guidance_bounds_positive_workflows_and_non_positive_routing(self):
         for guide in (CANONICAL, GENERATED):
-            text = re.sub(r"\s+", " ", guide.read_text(encoding="utf-8"))
+            text = normalized_guide(guide)
 
             self.assertIn(
                 "five positive workflows: design, implement, review, debug, and "
@@ -360,18 +364,17 @@ class RepositoryGuidanceTests(unittest.TestCase):
                 text,
             )
             self.assertIn(
-                "may only clarify, decline, or hand off requests outside those "
-                "workflows",
+                "may only clarify, decline, or hand off other requests",
                 text,
             )
-            self.assertIn("It is not a sixth positive skill", text)
+            self.assertIn("not a sixth positive skill", text)
             self.assertIn(
-                "distinct from the later DEV-142 through DEV-145 deterministic cost "
+                "distinct from the later DEV-142 through DEV-145 cost "
                 "router, `PostToolUse` hook, and Swift bridge chain",
                 text,
             )
             self.assertIn(
-                "DEV-133 is guidance-only and implements none of that runtime chain",
+                "DEV-133 is guidance-only and implements no runtime",
                 text,
             )
             self.assertNotIn("Keep exactly five narrow skills", text)
@@ -396,9 +399,7 @@ class RepositoryGuidanceTests(unittest.TestCase):
                 self.assertTrue((ROOT / link).is_file())
 
     def test_guidance_preserves_plugin_payload_and_host_boundaries(self):
-        canonical_text = re.sub(
-            r"\s+", " ", CANONICAL.read_text(encoding="utf-8")
-        )
+        canonical_text = normalized_guide(CANONICAL)
         required_contracts = (
             "`./` is conditional",
             "`./plugins/apple-foundation-models-handoff`",
@@ -406,9 +407,9 @@ class RepositoryGuidanceTests(unittest.TestCase):
             "repository-only docs, research, fixtures, tests, and private state",
             "Claude Code `2.1.91`",
             "Codex CLI `0.144.5`",
-            "Initial absence, non-executability, or version mismatch is `blocked`",
-            "After successful capture, resolution or version drift emits normalized "
-            "`fail` before exit",
+            "Before host operations, a missing/non-runnable executable",
+            "baseline mismatch emits normalized `blocked`",
+            "After capture, resolution or version drift emits normalized `fail`",
             "strict single-line version",
             "raw `PATH`",
             "`compiled_sdk_26_5`",
@@ -419,57 +420,54 @@ class RepositoryGuidanceTests(unittest.TestCase):
                 self.assertIn(contract, canonical_text)
 
     def test_guidance_defines_conditional_host_loading_and_status_lifecycle(self):
-        canonical_text = CANONICAL.read_text(encoding="utf-8")
-        generated_text = GENERATED.read_text(encoding="utf-8")
+        canonical_text = normalized_guide(CANONICAL)
+        generated_text = normalized_guide(GENERATED)
         required_contracts = (
-            "Claude Code uses the captured approved `2.1.91` executable with "
-            "session-only `--plugin-dir <repo>` or an isolated install for packaging "
-            "and cache tests.",
-            "Codex `0.144.5` uses the captured executable with isolated `CODEX_HOME`, "
-            "marketplace registration, plugin install/add, and then a fresh task.",
-            "`codex --plugin-dir` is not an approved workflow for Codex `0.144.5`.",
-            "Claude Code `2.1.140` is diagnostic only and cannot substitute.",
-            "DEV-135 owns the planned plugin metadata inputs and generated manifest "
-            "outputs. They remain absent until DEV-135 implements them through the "
-            "shared synchronization entry point.",
-            "Host loading flows remain planned and conditional; they claim no "
+            "captured approved `2.1.91` executable with session-only `--plugin-dir "
+            "<repo>` or an isolated packaging/cache install",
+            "Codex `0.144.5` uses its captured executable with isolated `CODEX_HOME`, "
+            "marketplace registration, plugin install/add, then a fresh task",
+            "`codex --plugin-dir` is not approved",
+            "Claude `2.1.140` is diagnostic-only and cannot substitute",
+                "DEV-135 owns planned plugin metadata inputs and generated manifest "
+                "outputs; they remain absent until it implements them through the shared "
+                "synchronization entry point",
+            "Host loading remains conditional and claims no "
             "discovery, installation, activation, reference, or capability success.",
-            "Normalize repository location as `<repo>` and executable identity as "
-            "`<host-path>`; never commit their literal resolutions or raw `PATH`.",
-            "Before host operations, a missing or non-runnable executable, unavailable "
-            "or malformed version, or approved-baseline mismatch emits a normalized "
-            "`blocked` row with stable reason/version metadata before exit.",
-            "After successful capture, resolution or version drift emits normalized "
-            "`fail` before exit, invalidates the row, and requires a fresh run.",
+            "Normalize the repository as `<repo>` and executable as `<host-path>`",
+            "never commit literal resolutions, other private absolute paths, or raw "
+            "`PATH`",
+            "Before host operations, a missing/non-runnable executable, malformed/"
+            "unavailable version, or baseline mismatch emits normalized `blocked` "
+            "with stable reason/version metadata",
+            "After capture, resolution or version drift emits normalized `fail`, "
+            "invalidates the row, and requires a fresh run",
         )
 
         for text in (canonical_text, generated_text):
-            normalized_text = re.sub(r"\s+", " ", text)
-            self.assertEqual(1, normalized_text.count("resolution or version drift"))
+            self.assertEqual(1, text.count("resolution or version drift"))
             for contract in required_contracts:
                 with self.subTest(contract=contract, guide=text[:12]):
-                    self.assertIn(contract, normalized_text)
+                    self.assertIn(contract, text)
 
     def test_guidance_preserves_safe_synthetic_and_redacted_evidence_exception(self):
-        canonical_text = CANONICAL.read_text(encoding="utf-8")
-        generated_text = GENERATED.read_text(encoding="utf-8")
+        canonical_text = normalized_guide(CANONICAL)
+        generated_text = normalized_guide(GENERATED)
         required_contracts = (
-            "Raw/live prompts, responses, reasoning, tool arguments/results, "
+            "Exclude raw/live prompts, responses, reasoning, tool arguments/results, "
             "credentials, private configuration, real user/third-party data, raw "
-            "diagnostics, `.trace`, and `.xcresult` remain excluded.",
-            "A hash-bound synthetic or approved-redacted rubric stimulus, rubric "
-            "assessments with only bounded rationales, and a redacted summary may be "
-            "committed only after the DEV-131 path, content, structured-key, "
-            "classification, and hash scanners pass.",
+            "diagnostics, `.trace`, and `.xcresult`",
+            "hash-bound synthetic or approved-redacted rubric stimulus, bounded rubric "
+            "rationales, and redacted summary may be committed only after DEV-131 "
+            "path, content, structured-key, classification, and hash scans pass",
             "Runtime/live-host logs, traces, and derived capability telemetry "
             "contribute normalized metadata only.",
         )
 
         for text in (canonical_text, generated_text):
-            normalized_text = re.sub(r"\s+", " ", text)
             for contract in required_contracts:
                 with self.subTest(contract=contract, guide=text[:12]):
-                    self.assertIn(contract, normalized_text)
+                    self.assertIn(contract, text)
 
     def test_guidance_contains_no_literal_private_paths_or_placeholders(self):
         combined = CANONICAL.read_text(encoding="utf-8") + GENERATED.read_text(
