@@ -472,8 +472,8 @@ $ swift build -v --package-path /tmp/apple-foundation-models-utilities
 # normalized compiler identity
 -target arm64-apple-macosx27.0
 -sdk /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk
-target-sdk-version 26.5
-target-sdk-name macosx26.5
+-target-sdk-version 26.5
+-target-sdk-name macosx26.5
 
 error: 'DynamicProfile' is not a member type of class 'FoundationModels.LanguageModelSession'
 # exit 1
