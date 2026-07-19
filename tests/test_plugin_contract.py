@@ -9,6 +9,7 @@ import stat
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -41,6 +42,7 @@ FORBIDDEN_SURFACES = (
     "assets",
 )
 SYNC_SCRIPT = ROOT / "scripts" / "sync_generated_artifacts.py"
+CODEX_PROBE_SCRIPT = ROOT / "tests" / "e2e" / "codex_plugin_load.py"
 
 
 sync_spec = importlib.util.spec_from_file_location(
@@ -51,6 +53,14 @@ if sync_spec is None or sync_spec.loader is None:
 sync = importlib.util.module_from_spec(sync_spec)
 sys.modules[sync_spec.name] = sync
 sync_spec.loader.exec_module(sync)
+
+probe_spec = importlib.util.spec_from_file_location(
+    "codex_plugin_load_contract_tests", CODEX_PROBE_SCRIPT
+)
+if probe_spec is None or probe_spec.loader is None:
+    raise RuntimeError("unable to load Codex structural probe module")
+codex_probe = importlib.util.module_from_spec(probe_spec)
+probe_spec.loader.exec_module(codex_probe)
 
 
 def load_json(relative_path: str) -> dict[str, object]:
@@ -372,6 +382,124 @@ class PluginContractTests(unittest.TestCase):
             self.assertTrue(os.path.lexists(external_link))
             with self.assertRaises(AssertionError):
                 assert_plugin_package_contract(self, plugin_root)
+
+
+class CodexProbeRaceTests(unittest.TestCase):
+    def test_regular_file_read_rejects_path_replacement(self):
+        with tempfile.TemporaryDirectory() as directory:
+            artifact = Path(directory) / "artifact.json"
+            replacement = Path(directory) / "replacement.json"
+            artifact.write_bytes(b'{"generation":1}')
+            replacement.write_bytes(b'{"generation":2}')
+            original_read = os.read
+            replaced = False
+
+            def replace_after_read(descriptor: int, size: int) -> bytes:
+                nonlocal replaced
+                payload = original_read(descriptor, size)
+                if payload and not replaced:
+                    replacement.replace(artifact)
+                    replaced = True
+                return payload
+
+            with mock.patch.object(
+                codex_probe.os, "read", side_effect=replace_after_read
+            ):
+                with self.assertRaisesRegex(
+                    codex_probe.ProbeFailure, "artifact_changed"
+                ):
+                    codex_probe.read_regular_file(artifact, "artifact_changed")
+
+    def test_regular_file_read_rejects_in_place_mutation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            artifact = Path(directory) / "artifact.json"
+            artifact.write_bytes(b'{"generation":1}')
+            original_read = os.read
+            mutated = False
+
+            def mutate_after_read(descriptor: int, size: int) -> bytes:
+                nonlocal mutated
+                payload = original_read(descriptor, size)
+                if payload and not mutated:
+                    with artifact.open("ab", buffering=0) as mutable_artifact:
+                        mutable_artifact.write(b" ")
+                        os.fsync(mutable_artifact.fileno())
+                    mutated = True
+                return payload
+
+            with mock.patch.object(
+                codex_probe.os, "read", side_effect=mutate_after_read
+            ):
+                with self.assertRaisesRegex(
+                    codex_probe.ProbeFailure, "artifact_changed"
+                ):
+                    codex_probe.read_regular_file(artifact, "artifact_changed")
+
+    def test_host_check_rejects_same_version_path_replacement(self):
+        check_host = getattr(codex_probe, "require_stable_host", None)
+        self.assertIsNotNone(check_host, "probe lacks a stable-host check")
+        assert check_host is not None
+
+        with tempfile.TemporaryDirectory() as directory:
+            locator = Path(directory) / "codex"
+            replacement = Path(directory) / "replacement"
+            marker = Path(directory) / "executed"
+            script = "#!/bin/sh\nprintf 'codex-cli 0.144.5\\n'\n"
+            locator.write_text(script, encoding="utf-8", newline="\n")
+            locator.chmod(0o700)
+            initial_resolution = locator.resolve(strict=True)
+            initial_snapshot = codex_probe.metadata_snapshot(locator.stat())
+            replacement.write_text(
+                f"#!/bin/sh\ntouch '{marker}'\nprintf 'codex-cli 0.144.5\\n'\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+            replacement.chmod(0o700)
+            replacement.replace(locator)
+
+            with self.assertRaisesRegex(
+                codex_probe.ProbeFailure, "host_resolution_or_version_drift"
+            ):
+                check_host(
+                    str(initial_resolution),
+                    locator,
+                    initial_resolution,
+                    initial_snapshot,
+                    {"PATH": os.environ.get("PATH", "")},
+                )
+            self.assertFalse(marker.exists(), "replaced host was executed")
+
+    def test_host_check_rejects_replacement_during_version_invocation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            locator = Path(directory) / "codex"
+            replacement = Path(f"{locator}.replacement")
+            locator.write_text(
+                "#!/bin/sh\n"
+                'mv "$0.replacement" "$0"\n'
+                "printf 'codex-cli 0.144.5\\n'\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+            locator.chmod(0o700)
+            replacement.write_text(
+                "#!/bin/sh\nprintf 'codex-cli 0.144.5\\n'\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+            replacement.chmod(0o700)
+            initial_resolution = locator.resolve(strict=True)
+            initial_snapshot = codex_probe.metadata_snapshot(locator.stat())
+
+            with self.assertRaisesRegex(
+                codex_probe.ProbeFailure, "host_resolution_or_version_drift"
+            ):
+                codex_probe.require_stable_host(
+                    str(initial_resolution),
+                    locator,
+                    initial_resolution,
+                    initial_snapshot,
+                    {"PATH": os.environ.get("PATH", "")},
+                )
 
 
 if __name__ == "__main__":

@@ -159,6 +159,45 @@ def require(condition: bool, reason: str) -> None:
         raise ProbeFailure(reason)
 
 
+def metadata_snapshot(
+    metadata: os.stat_result,
+) -> tuple[int, int, int, int, int, int, int]:
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        stat.S_IFMT(metadata.st_mode),
+        stat.S_IMODE(metadata.st_mode),
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+
+def require_stable_host(
+    executable: str,
+    locator: Path,
+    initial_resolution: Path,
+    initial_snapshot: tuple[int, int, int, int, int, int, int],
+    environment: dict[str, str],
+) -> None:
+    reason = "host_resolution_or_version_drift"
+
+    def require_current_identity() -> None:
+        try:
+            current_resolution = locator.resolve(strict=True)
+            current_metadata = current_resolution.stat()
+        except OSError:
+            raise ProbeFailure(reason) from None
+        require(current_resolution == initial_resolution, reason)
+        require(stat.S_ISREG(current_metadata.st_mode), reason)
+        require(metadata_snapshot(current_metadata) == initial_snapshot, reason)
+        require(os.access(locator, os.X_OK), reason)
+
+    require_current_identity()
+    require(exact_version(executable, environment), reason)
+    require_current_identity()
+
+
 def require_exact_keys(
     document: dict[str, Any], expected_keys: set[str], reason: str
 ) -> None:
@@ -226,18 +265,30 @@ def validate_installed_path(reported: str, codex_home: Path) -> Path:
 def read_regular_file(path: Path, reason: str) -> bytes:
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
     try:
+        initial_metadata = path.lstat()
+        require(stat.S_ISREG(initial_metadata.st_mode), reason)
+        initial_snapshot = metadata_snapshot(initial_metadata)
         descriptor = os.open(path, flags)
     except OSError:
         raise ProbeFailure(reason) from None
     try:
-        metadata = os.fstat(descriptor)
-        require(stat.S_ISREG(metadata.st_mode), reason)
+        opened_metadata = os.fstat(descriptor)
+        require(stat.S_ISREG(opened_metadata.st_mode), reason)
+        require(metadata_snapshot(opened_metadata) == initial_snapshot, reason)
         chunks: list[bytes] = []
         while True:
             chunk = os.read(descriptor, 1024 * 1024)
             if not chunk:
                 break
             chunks.append(chunk)
+        final_metadata = os.fstat(descriptor)
+        current_metadata = path.lstat()
+        require(
+            metadata_snapshot(final_metadata)
+            == metadata_snapshot(current_metadata)
+            == initial_snapshot,
+            reason,
+        )
         return b"".join(chunks)
     except OSError:
         raise ProbeFailure(reason) from None
@@ -301,6 +352,7 @@ def probe(
     executable: str,
     locator: Path,
     initial_resolution: Path,
+    initial_snapshot: tuple[int, int, int, int, int, int, int],
     base_environment: dict[str, str],
 ) -> dict[str, Any]:
     with tempfile.TemporaryDirectory() as temporary_home:
@@ -412,17 +464,12 @@ def probe(
             "installed_plugin_contract_mismatch",
         )
 
-        try:
-            final_resolution = locator.resolve(strict=True)
-            final_metadata = final_resolution.stat()
-        except OSError:
-            raise ProbeFailure("host_resolution_or_version_drift") from None
-        require(final_resolution == initial_resolution, "host_resolution_or_version_drift")
-        require(stat.S_ISREG(final_metadata.st_mode), "host_resolution_or_version_drift")
-        require(os.access(locator, os.X_OK), "host_resolution_or_version_drift")
-        require(
-            exact_version(executable, environment),
-            "host_resolution_or_version_drift",
+        require_stable_host(
+            executable,
+            locator,
+            initial_resolution,
+            initial_snapshot,
+            environment,
         )
 
         scan_payload(PLUGIN_ROOT, "source_payload_contract_mismatch")
@@ -495,7 +542,13 @@ def main() -> int:
         return blocked()
 
     try:
-        result = probe(executable, locator, initial_resolution, base_environment)
+        result = probe(
+            executable,
+            locator,
+            initial_resolution,
+            metadata_snapshot(initial_metadata),
+            base_environment,
+        )
     except ProbeFailure as failure:
         return failed(failure.reason)
     except Exception:
