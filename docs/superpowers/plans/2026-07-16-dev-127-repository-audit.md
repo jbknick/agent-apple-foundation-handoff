@@ -6,7 +6,7 @@
 
 **Architecture:** The command transcript is the evidence layer; the architecture report consumes it and separates authoritative fork facts, pinned upstream reference observations, not-yet-established decisions, and explicit blockers. Upstream bstack is comparison material only.
 
-**Tech Stack:** Git, Bash, GitHub CLI, rg, jq, Claude Code CLI 2.1.91, Codex CLI 0.144.5, Apple Swift toolchain (`swiftc`), `xcodebuild` (expected blocked prerequisite), Markdown.
+**Tech Stack:** Git, Bash, GitHub CLI, rg, jq, Claude Code CLI 2.1.91, Codex CLI 0.144.5, Apple Swift toolchain (`swiftc`), `xcodebuild` (host availability/version check), Markdown.
 
 ## Global Constraints
 
@@ -83,7 +83,7 @@ bash "$upstream_dir/scripts/check-codex-artifacts.sh"
 
 Expected: exact revision `34a04e16b8582d9ddc605563fea1f868732cca4e`; upstream contains Claude and generated Codex marketplace/manifests, shared `skills/`, schemas, scripts, and BATS tests. The drift check exits 0. Record upstream observations as `Reference only`.
 
-- [ ] **Step 4: Capture installed host versions and the Xcode blocker**
+- [ ] **Step 4: Capture installed host versions and the Xcode blocker (historical 2026-07-16/17)**
 
 Run:
 
@@ -95,11 +95,15 @@ printf 'import FoundationModels\n' | swiftc -typecheck -
 xcodebuild -version
 ```
 
-Expected: Claude Code `2.1.91`, Codex `0.144.5`, Apple Swift `6.3.2`; the
+**Historical expected result (2026-07-16/17):** Claude Code `2.1.91`, Codex `0.144.5`, Apple Swift `6.3.2`; the
 bare `FoundationModels` import exits 0 using the installed Command Line Tools
 SDK, which does not establish compilation of absent project examples;
 `xcodebuild` exits 1 because the active developer directory is CommandLineTools
 rather than full Xcode.
+
+The later 2026-07-19 host revalidation is recorded in the evidence and report.
+It establishes Xcode host-tool availability and version only, not project
+example compilation or behavior.
 
 - [ ] **Step 5: Prove isolated Claude Code discovery and installation using the pinned upstream reference**
 

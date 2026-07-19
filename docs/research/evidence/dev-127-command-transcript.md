@@ -218,9 +218,11 @@ This establishes only that the installed Command Line Tools SDK exposes a
 module that accepts a bare import. **Not established:** compilation of project
 examples, because the authoritative fork contains no examples to compile.
 
-**Blocked.** Full-Xcode validation is unavailable because the active developer
-directory is the Command Line Tools installation rather than a full Xcode
-installation.
+### Historical Xcode blocker (2026-07-16/17)
+
+**Historical evidence. Blocked.** Full-Xcode validation was unavailable because
+the active developer directory was the Command Line Tools installation rather
+than a full Xcode installation.
 
 ```console
 $ xcodebuild -version
@@ -228,6 +230,32 @@ xcode-select: error: tool 'xcodebuild' requires Xcode, but active developer dire
 ```
 
 Exit status: `1`.
+
+### 2026-07-19 Xcode host revalidation
+
+**Established (limited).** On 2026-07-19, the host reported Xcode `26.6` (build
+`17F113`), and `xcode-select -p` reported
+`/Applications/Xcode.app/Contents/Developer`. Apple Swift was `6.3.3`; the
+macOS SDK version remained `26.5`.
+
+```console
+$ xcodebuild -version
+Xcode 26.6
+Build version 17F113
+$ xcode-select -p
+/Applications/Xcode.app/Contents/Developer
+$ swift --version
+swift-driver version: 1.148.6 Apple Swift version 6.3.3 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)
+Target: arm64-apple-macosx26.0
+$ xcrun --show-sdk-version
+26.5
+```
+
+Exit status: `0` for each command.
+
+This revalidation establishes host Xcode tool availability and version only.
+**Not established:** project example compilation, device or runtime proof, and
+any `FoundationModels` behavior not run.
 
 **Established.** For supporting command-line inspection, `jq` was present at
 `/opt/homebrew/bin/jq`; `rg` availability is evidenced by successful transcript
