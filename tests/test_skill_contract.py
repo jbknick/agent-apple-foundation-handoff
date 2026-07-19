@@ -335,7 +335,15 @@ ROUTER_PROHIBITIONS = (
     "Never add explanatory prose before or after the result fence.",
 )
 
+ROUTER_CLASSIFICATION_FREEZE_SENTENCE = (
+    "Freeze `domain`, `requestedOperation`, `artifactState`, and `evidenceState` "
+    "exactly once; emit the matching router-owned branch immediately, and never "
+    "let a requested operation, artifact, or evidence cue override `domain = "
+    "ambiguous`."
+)
+
 ROUTER_FINAL_RESPONSE_GATE_SENTENCES = (
+    ROUTER_CLASSIFICATION_FREEZE_SENTENCE,
     "When this router activates, resolve the branch directly from the user "
     "request without inspection or tool use.",
     "Make the final response exactly one fenced `text` block copied from the "
@@ -346,7 +354,14 @@ ROUTER_FINAL_RESPONSE_GATE_SENTENCES = (
     "implementation.",
 )
 
+POSITIVE_FROZEN_TUPLE_SENTENCE = (
+    "Before drafting, freeze normalized `domain`, `requestedOperation`, "
+    "`artifactState`, and `evidenceState`, then copy that same tuple unchanged "
+    "into `routerInput`; use no synonyms and do not reclassify later."
+)
+
 POSITIVE_FINAL_RESPONSE_GATE_SENTENCES = (
+    POSITIVE_FROZEN_TUPLE_SENTENCE,
     "Once this positive workflow activates, it remains the only workflow owner; "
     "never select, invoke, or switch to another skill.",
     "Make the first character of the final response the opening backtick of the "
@@ -354,6 +369,14 @@ POSITIVE_FINAL_RESPONSE_GATE_SENTENCES = (
     "prose before it.",
     "Close that fence immediately after its 21st line, then emit only the exact "
     "required headings, each once and in their listed order.",
+)
+
+REVIEW_AUTHORIZED_FOLLOW_ON_SENTENCE = (
+    "Any requested fix requires a separate authorized follow-on."
+)
+REVIEW_COMPOUND_FINAL_RESPONSE_SENTENCE = (
+    "When `requestedOperation = compound_review_fix`, write the literal sentence "
+    f"`{REVIEW_AUTHORIZED_FOLLOW_ON_SENTENCE}` under `### Findings`."
 )
 
 REQUIRED_RESPONSE_HEADING_COUNTS = {
@@ -369,6 +392,11 @@ def positive_final_response_gate_sentences(skill: str) -> tuple[str, ...]:
     count = REQUIRED_RESPONSE_HEADING_COUNTS[skill]
     return (
         *POSITIVE_FINAL_RESPONSE_GATE_SENTENCES,
+        *(
+            (REVIEW_COMPOUND_FINAL_RESPONSE_SENTENCE,)
+            if skill == "review-apple-foundation-models-handoff"
+            else ()
+        ),
         "The response is incomplete until the fence is followed by exactly "
         f"{count} level-three headings: all ten common headings followed by the "
         "workflow-specific headings in their listed order; do not stop after the "
@@ -991,6 +1019,9 @@ def assert_exclusive_section_ownership(
             allowed = section_owns(output, occurrence.start()) or (
                 field == "architectureResult"
                 and section_owns(guardrails, occurrence.start())
+            ) or (
+                field == "routerInput"
+                and section_owns(final_response_gate, occurrence.start())
             )
             test_case.assertTrue(
                 allowed,
@@ -1851,6 +1882,62 @@ class SkillContractMutationTests(unittest.TestCase):
                 ),
             }
             for mutation, candidate in mutations.items():
+                with self.subTest(skill=skill, mutation=mutation):
+                    self.assert_skill_rejected(candidate, skill)
+
+    def test_closed_response_compiler_mutations_are_rejected(self) -> None:
+        router_fixture = build_valid_router_fixture()
+        router_mutations = {
+            "missing classification freeze": router_fixture.replace(
+                ROUTER_CLASSIFICATION_FREEZE_SENTENCE,
+                "",
+                1,
+            ),
+            "wrong ambiguity precedence": router_fixture.replace(
+                "override `domain = ambiguous`",
+                "override `domain = out_of_domain`",
+                1,
+            ),
+        }
+        for mutation, candidate in router_mutations.items():
+            with self.subTest(owner="router", mutation=mutation):
+                self.assert_router_rejected(candidate)
+
+        for skill in WORKFLOW_SKILLS:
+            fixture = build_valid_skill_fixture(skill)
+            positive_mutations = {
+                "missing frozen tuple": fixture.replace(
+                    POSITIVE_FROZEN_TUPLE_SENTENCE,
+                    "",
+                    1,
+                ),
+                "wrong tuple serialization": fixture.replace(
+                    "copy that same tuple unchanged",
+                    "copy a newly inferred tuple",
+                    1,
+                ),
+                "wrong reclassification boundary": fixture.replace(
+                    "do not reclassify later",
+                    "reclassify during drafting",
+                    1,
+                ),
+            }
+            if skill == "review-apple-foundation-models-handoff":
+                positive_mutations.update(
+                    {
+                        "missing review follow-on": fixture.replace(
+                            REVIEW_COMPOUND_FINAL_RESPONSE_SENTENCE,
+                            "",
+                            1,
+                        ),
+                        "wrong review follow-on literal": fixture.replace(
+                            REVIEW_AUTHORIZED_FOLLOW_ON_SENTENCE,
+                            "Requested fixes may be applied during review.",
+                            1,
+                        ),
+                    }
+                )
+            for mutation, candidate in positive_mutations.items():
                 with self.subTest(skill=skill, mutation=mutation):
                     self.assert_skill_rejected(candidate, skill)
 

@@ -59,6 +59,13 @@ GENERIC_SWIFT_ACTOR_ROUTER_RECIPE = (
     "select only `route-apple-foundation-models-handoff` and return its "
     "`no_activation` result before positive selection."
 )
+CLOSED_RESPONSE_COMPILER_GUIDANCE = (
+    "Treat pre-selection as one closed compilation transaction: resolve and "
+    "freeze `domain`, `requestedOperation`, `artifactState`, and `evidenceState` "
+    "exactly once; emit a router-owned outcome immediately before positive "
+    "selection, or pass the same frozen tuple to the one selected positive "
+    "workflow for unchanged serialization without re-inference."
+)
 STALE_WORKFLOW_CLAIMS = (
     "remain unimplemented",
     "must not be advertised as active",
@@ -82,6 +89,7 @@ WORKFLOW_GUIDANCE_CONTRACTS = (
     "cannot prove behavioral or capability activation",
     *ROUTER_FIRST_GUIDANCE_CONTRACTS,
     GENERIC_SWIFT_ACTOR_ROUTER_RECIPE,
+    CLOSED_RESPONSE_COMPILER_GUIDANCE,
 )
 SKILL_OWNED_SECTION_HEADINGS = (
     "Routing and Inspection",
@@ -739,6 +747,31 @@ class RepositoryGuidanceTests(unittest.TestCase):
 
         with self.assertRaises(AssertionError):
             assert_workflow_guidance_contract(self, reordered)
+
+    def test_guidance_oracle_rejects_closed_response_compiler_mutations(self):
+        valid = " ".join((*WORKFLOW_SKILLS, *WORKFLOW_GUIDANCE_CONTRACTS))
+
+        assert_workflow_guidance_contract(self, valid)
+        mutations = {
+            "removed compiler": valid.replace(
+                CLOSED_RESPONSE_COMPILER_GUIDANCE,
+                "",
+                1,
+            ),
+            "wrong resolution cardinality": valid.replace(
+                "exactly once; emit a router-owned outcome immediately",
+                "again after selection; emit a router-owned outcome eventually",
+                1,
+            ),
+            "wrong positive tuple": valid.replace(
+                "same frozen tuple",
+                "newly inferred tuple",
+                1,
+            ),
+        }
+        for mutation, candidate in mutations.items():
+            with self.subTest(mutation=mutation), self.assertRaises(AssertionError):
+                assert_workflow_guidance_contract(self, candidate)
 
     def test_guidance_does_not_duplicate_skill_owned_contract_sections(self):
         for path in (CANONICAL, GENERATED):
