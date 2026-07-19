@@ -223,6 +223,9 @@ def synchronize(root: Path, write: bool) -> bool:
 
     try:
         synchronized, _ = _synchronize(root, write)
+    except CanonicalInputError:
+        print(CANONICAL_DIAGNOSTIC, file=sys.stderr)
+        return False
     except GeneratedOutputError:
         print(OUTPUT_DIAGNOSTIC, file=sys.stderr)
         return False

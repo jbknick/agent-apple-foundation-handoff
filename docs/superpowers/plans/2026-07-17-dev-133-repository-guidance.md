@@ -13,18 +13,20 @@ instructions.
 One delimited section inside it is the canonical adapter input; the Python
 standard-library sync entry point extracts that section and writes or checks
 the root `AGENTS.md`. Unit tests own deterministic generation, drift, size,
-privacy, placement, link, and command contracts. Fresh Claude Code and Codex
-read-only sessions supply separately labelled host proof; their raw responses
-remain transient.
+privacy, placement, link, and command contracts. The 2026-07-17 Claude Code and
+Codex read-only sessions are historical evidence only; current semantic and
+prerequisite status is recorded separately without relabelling deferred work.
 
 **Tech Stack:** Markdown, Python 3 standard library, `unittest`, Claude Code
 2.1.91, Codex CLI 0.144.5, Git.
 
 ## Global Constraints
 
-- Start from reviewed DEV-132 head
-  `ca767a0c50e1b527fed5c87e0922bf51cf655295` on
-  `codex/dev-133-repository-guidance`.
+- Historical implementation started from reviewed DEV-132 head
+  `ca767a0c50e1b527fed5c87e0922bf51cf655295`. The current review is bound to
+  merged `main` at `829d5f71ac5cb9609f96dde4a7ae73c32f42e3cd`.
+- Current acceptance uses exactly three main-agent review rounds, each with a
+  fresh fix worker. Fix workers commit locally but never publish or merge.
 - Linear decision source is DEV-133 comment
   `973b4feb-4832-4482-85de-228d17839ace`; inherited corrections in all prior
   DEV-133 comments remain binding.
@@ -68,8 +70,10 @@ remain transient.
   discovery are structural evidence, not plugin capability proof.
 - Missing pre-commit, Markdown, host, authentication, automation, SDK, or
   hardware prerequisites are explicit blockers, never false passes.
-- Do not push, create/edit a PR, merge, tag, publish, release, or move DEV-133
-  beyond In Progress. Root owns publication after independent review.
+- Root is authorized to update and merge the PR after acceptance. Fix workers
+  must not push, edit PR metadata, merge, tag, publish, or release.
+- Leave DEV-133 In Review while the current Claude semantic E2E, `pre-commit`,
+  and `markdownlint` prerequisites remain deferred or blocked.
 
 ## Exact DEV-133 Path Set
 
@@ -243,7 +247,7 @@ test -z "$(find . -type d -name '__pycache__' -print -quit)"
 test -z "$(find . -type f -name '*.pyc' -print -quit)"
 ```
 
-Expected: 10 guidance tests pass, generation is synchronized, one root adapter
+Expected at current review: 21 guidance tests pass, generation is synchronized, one root adapter
 exists, and no repository bytecode/cache artifact exists.
 
 - [ ] **Step 6: Re-run inherited deterministic regressions**
@@ -262,11 +266,11 @@ swiftc -warnings-as-errors -parse-as-library \
   -o "$artifact_dir/dev130-adversarial"
 "$artifact_dir/dev130-adversarial" > "$artifact_dir/output"
 diff -u fixtures/dev-130/expected-output.txt "$artifact_dir/output"
-rg -q '^SUMMARY passed=7 failed=0$' "$artifact_dir/output"
+rg -q '^SUMMARY passed=8 failed=0$' "$artifact_dir/output"
 ```
 
 Expected: DEV-131 reports 26 passing tests and 11/11 proof-runner oracle
-matches; DEV-130 matches the golden file with 7/0 summary.
+matches; DEV-130 matches the golden file with 8/0 summary.
 
 - [ ] **Step 7: Commit the reviewed green change atomically**
 
@@ -280,7 +284,7 @@ git commit -m 'feat(DEV-133): add generated repository guidance'
 
 Expected: only the four Task 2 paths are committed.
 
-### Task 3: Run fresh-host repository E2E and record safe evidence
+### Task 3: Historical fresh-host E2E and current safe evidence
 
 **Files:**
 
@@ -288,13 +292,15 @@ Expected: only the four Task 2 paths are committed.
 
 **Interfaces:**
 
-- Consumes: canonical `CLAUDE.md`, generated `AGENTS.md`, captured Claude Code
-  2.1.91/Codex 0.144.5 executables, and a shared repository-probe contract.
-- Produces: normalized host rows and assertions only. Raw prompts, responses,
-  diagnostics, executable paths, configuration, and session data remain in
-  untracked `mktemp` storage.
+- Historical execution consumed canonical `CLAUDE.md`, generated `AGENTS.md`,
+  captured Claude Code 2.1.91/Codex 0.144.5 executables, and a shared
+  repository-probe contract. Current review preserves those rows as historical
+  rather than rerunning a model session.
+- Produces current deterministic results and a prerequisite snapshot alongside
+  clearly dated historical normalized host rows. Raw prompts, responses,
+  diagnostics, executable paths, configuration, and session data stay excluded.
 
-- [ ] **Step 1: Define one semantic repository probe without embedding answers**
+- [ ] **Step 1 (historical 2026-07-17): Define one semantic repository probe without embedding answers**
 
 Use a prompt that asks each fresh host to return machine-readable fields for:
 
@@ -311,7 +317,7 @@ whether structural guidance proves plugin capability
 The prompt must not state the expected values. Validate the returned fields
 against the tracked guidance after the session.
 
-- [ ] **Step 2: Run the Claude row read-only from the repository root**
+- [ ] **Step 2 (historical 2026-07-17): Run the Claude row read-only from the repository root**
 
 Capture `claude_bin="$(command -v claude)"`, validate the strict exact version,
 then invoke only `"$claude_bin"`:
@@ -333,7 +339,7 @@ If binary/version/auth/model/session/automation is unavailable before the
 semantic probe, emit `blocked` with a stable reason. Post-capture drift is
 `fail`. Never substitute the alternate Claude 2.1.140 binary.
 
-- [ ] **Step 3: Run the Codex row read-only from the repository root**
+- [ ] **Step 3 (historical 2026-07-17): Run the Codex row read-only from the repository root**
 
 Capture `codex_bin="$(command -v codex)"`, validate the strict exact version,
 then invoke only `"$codex_bin"`:
@@ -353,7 +359,7 @@ probe=codex-repository-guidance version=0.144.5 status=pass assertions=7
 Missing binary/version/auth/model/session/automation is `blocked`; post-capture
 drift is `fail`. Repository answers remain structural evidence only.
 
-- [ ] **Step 4: Probe repository validation prerequisites honestly**
+- [ ] **Step 4: Capture current repository validation prerequisites honestly**
 
 Run and record normalized statuses for:
 
@@ -399,11 +405,11 @@ Expected: only the normalized evidence path is committed.
 ## Final Verification and Handoff
 
 Invoke `superpowers:verification-before-completion`, then rerun from the exact
-final head:
+current head against the reviewed main binding:
 
 ```bash
 set -euo pipefail
-base=ca767a0c50e1b527fed5c87e0922bf51cf655295
+base=829d5f71ac5cb9609f96dde4a7ae73c32f42e3cd
 git merge-base --is-ancestor "$base" HEAD
 git diff --check "$base"..HEAD
 python3 scripts/sync_generated_artifacts.py --check
@@ -417,15 +423,18 @@ test -z "$(find . -type f -name '*.pyc' -print -quit)"
 test -z "$(git status --short)"
 ```
 
-Also rerun the DEV-130 golden command, both fresh-host semantic probes, static
-private-path/raw-evidence scans, the exact six-path allowlist, and a detached
-exact-head verification. Obtain a fresh task spec/quality review and a fresh
-whole-branch review with zero unresolved Critical, Important, or Minor
-findings. If a gate fails, invoke `superpowers:systematic-debugging`, establish
-root cause, make one narrow correction commit, rerun affected and full gates,
-and obtain re-review.
+Also rerun the DEV-130 golden command, static private-path/raw-evidence scans,
+the exact six-path allowlist, and a detached exact-head verification. Do not
+rerun a model-backed semantic session in the current review: keep both
+2026-07-17 rows historical and add only the current prerequisite snapshot.
+Complete exactly three main-agent review/fresh-fix-worker rounds with zero
+actionable findings. If a gate fails, invoke `superpowers:systematic-debugging`,
+establish root cause, make one narrow correction commit, and rerun affected and
+full gates.
 
 After proof, attach one DEV-133 Linear evidence comment with decision and
 propagation comment IDs, ordered commits, exact commands/counts, normalized
 host results, blockers/nonclaims, hashes, review verdicts, exact scope, and
-clean status. Leave DEV-133 In Progress. Do not push or create/edit a PR.
+clean status. Leave DEV-133 In Review while the deferred current semantic and
+tool prerequisites remain incomplete. Root may publish and merge only after all
+current acceptance gates pass; fix workers never publish.

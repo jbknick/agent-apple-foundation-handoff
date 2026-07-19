@@ -5,39 +5,41 @@
 ## Repository contract
 
 `CLAUDE.md` is the only authored canonical repository guide. `AGENTS.md` is generated
-from its bounded adapter section. Never edit `AGENTS.md` directly;
-update `CLAUDE.md`, then use `scripts/sync_generated_artifacts.py`.
+from its bounded adapter section. Never edit `AGENTS.md` directly; update `CLAUDE.md`,
+then use `scripts/sync_generated_artifacts.py`.
 
 ### Scope and capability ownership
-
-- The plugin ID is `apple-foundation-models-handoff`. It helps Apple-platform engineers
-  design, implement, review, debug, and validate Foundation Models handoff architectures;
-  it is not generic Apple Intelligence education.
-- Keep exactly five narrow skills: `design-apple-foundation-models-handoff`, `implement-apple-foundation-models-handoff`,
-  `review-apple-foundation-models-handoff`, `debug-apple-foundation-models-handoff`, and
-  `validate-apple-foundation-models-handoff`.
-- Select the one skill matching the request, then progressively disclose only
-  the directly linked reference needed for that concern. Do not copy complete
-  workflows into guidance, duplicate the reference corpus, or add a plugin-local
-  worker.
+- The plugin ID is `apple-foundation-models-handoff`. Its approved future capability
+  surface has five positive workflows: design, implement, review, debug, and validate
+  Foundation Models handoff architectures; it is not generic Apple Intelligence education.
+- Positive preselection chooses one matching workflow and progressively discloses only
+  the directly linked reference needed for that concern. Do not copy complete workflows
+  into guidance, duplicate the reference corpus, or add a plugin-local worker.
+- One bounded non-positive preselection router may only clarify, decline, or hand off
+  requests outside those workflows. It is not a sixth positive skill. It is distinct
+  from the later DEV-142 through DEV-145 deterministic cost router, `PostToolUse` hook,
+  and Swift bridge chain. DEV-133 is guidance-only and implements none of that runtime chain.
+- Skill and reference payloads are planned for their owning later issue and are absent
+  from the current DEV-133 repository-guidance artifact set.
 - Foundation Models handoff, coding-session handoff, Apple Handoff, App Intents,
   Claude/Codex Agent Skills, and Foundation Models runtime Skills are distinct.
 
 ### Canonical and generated paths
-
-- Authored canonical inputs include `CLAUDE.md`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`,
-  `metadata/codex-interface.json`, `metadata/codex-marketplace.json`, `skills/**`, and `references/**`.
-- `AGENTS.md`, `.codex-plugin/plugin.json`, and `.agents/plugins/marketplace.json` are generated,
-  non-editable outputs of the shared synchronization entry point.
+- Today the repository-guidance artifact set is exactly authored canonical `CLAUDE.md`
+  and generated root `AGENTS.md`; no plugin metadata, skill/reference payload, or generated
+  manifest is present under DEV-133.
+- DEV-135 owns the planned plugin metadata inputs and generated manifest outputs. They
+  remain absent until DEV-135 implements them through the shared synchronization entry point.
+- Host loading flows remain planned and conditional; they claim no discovery,
+  installation, activation, reference, or capability success.
 - Preferred source `./` is conditional on isolated cache inspection and fresh
   real-host activation/reference proof. The deterministic fallback is
   `./plugins/apple-foundation-models-handoff`; it changes placement only and
   must not use external symlinks.
-- The effective cached plugin payload must exclude repository-only docs, research, fixtures, tests, and private state;
-  none may appear as plugin capabilities.
+- The effective cached plugin payload must exclude repository-only docs, research,
+  fixtures, tests, and private state; none may appear as plugin capabilities.
 
 ### Apple API and validation truth
-
 - Apple API claims may use only current official Apple documentation, installed
   SDK interfaces, WWDC material, and Apple-owned repositories. Structural
   production references are not Apple API authority.
@@ -52,15 +54,13 @@ update `CLAUDE.md`, then use `scripts/sync_generated_artifacts.py`.
   Xcode. A missing prerequisite is an explicit blocker, never a false pass.
 
 ### Host, security, and evidence boundaries
-
-- Capture one explicit executable before each host row, invoke only it, and recheck resolution and version afterward.
-  Primary baselines are Claude Code `2.1.91` and Codex CLI `0.144.5`; Claude Code `2.1.140` is diagnostic only and cannot substitute.
+- Capture one explicit executable before each host row, invoke only it, and recheck
+  resolution and version afterward. Primary baselines are Claude Code `2.1.91` and
+  Codex CLI `0.144.5`; Claude Code `2.1.140` is diagnostic only and cannot substitute.
 - Claude Code uses the captured approved `2.1.91` executable with session-only `--plugin-dir <repo>` or an isolated
   install for packaging and cache tests. Codex `0.144.5` uses the captured executable with isolated `CODEX_HOME`,
   marketplace registration, plugin install/add, and then a fresh task. `codex --plugin-dir` is not an approved
   workflow for Codex `0.144.5`.
-- Until DEV-135 creates plugin metadata, these loading flows are planned and conditional; they claim no discovery,
-  installation, activation, reference, or capability success.
 - Normalize repository location as `<repo>` and executable identity as `<host-path>`; never commit their literal
   resolutions or raw `PATH`. Never commit other private absolute paths. Initial absence, non-executability, or version mismatch is `blocked`.
 - Before host operations, a missing or non-runnable executable, unavailable or malformed version, or approved-baseline
@@ -84,7 +84,6 @@ update `CLAUDE.md`, then use `scripts/sync_generated_artifacts.py`.
   progressive reference loading, valid/invalid outcomes, and complete outputs.
 
 ### Local deterministic commands
-
 ```bash
 python3 scripts/sync_generated_artifacts.py --write
 python3 scripts/sync_generated_artifacts.py --check

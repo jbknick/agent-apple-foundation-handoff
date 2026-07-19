@@ -124,6 +124,25 @@ class RepositoryGuidanceTests(unittest.TestCase):
             )
             self.assertNotIn(str(isolated_root), diagnostic.getvalue())
 
+    def test_synchronize_normalizes_invalid_canonical_input(self):
+        with tempfile.TemporaryDirectory() as directory:
+            isolated_root = Path(directory)
+            (isolated_root / "CLAUDE.md").write_text(
+                "invalid canonical guide\n", encoding="utf-8", newline="\n"
+            )
+            diagnostic = io.StringIO()
+
+            with contextlib.redirect_stderr(diagnostic):
+                synchronized = sync_generated_artifacts.synchronize(
+                    isolated_root, write=False
+                )
+
+            self.assertFalse(synchronized)
+            self.assertEqual(
+                "CLAUDE.md: invalid canonical adapter input\n",
+                diagnostic.getvalue(),
+            )
+
     def test_generated_output_rejects_symlink_without_mutating_target(self):
         for mode in ("--write", "--check"):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
@@ -305,6 +324,59 @@ class RepositoryGuidanceTests(unittest.TestCase):
             self.assertIn("Never edit `AGENTS.md` directly", text)
             self.assertIn("`scripts/sync_generated_artifacts.py`", text)
 
+    def test_guidance_distinguishes_current_artifacts_from_planned_payloads(self):
+        for guide in (CANONICAL, GENERATED):
+            text = re.sub(r"\s+", " ", guide.read_text(encoding="utf-8"))
+
+            self.assertIn(
+                "Today the repository-guidance artifact set is exactly authored "
+                "canonical `CLAUDE.md` and generated root `AGENTS.md`",
+                text,
+            )
+            self.assertIn(
+                "no plugin metadata, skill/reference payload, or generated manifest "
+                "is present under DEV-133",
+                text,
+            )
+            self.assertIn(
+                "DEV-135 owns the planned plugin metadata inputs and generated manifest "
+                "outputs",
+                text,
+            )
+            self.assertIn(
+                "remain absent until DEV-135 implements them through the shared "
+                "synchronization entry point",
+                text,
+            )
+            self.assertNotIn("Authored canonical inputs include", text)
+
+    def test_guidance_bounds_positive_workflows_and_non_positive_routing(self):
+        for guide in (CANONICAL, GENERATED):
+            text = re.sub(r"\s+", " ", guide.read_text(encoding="utf-8"))
+
+            self.assertIn(
+                "five positive workflows: design, implement, review, debug, and "
+                "validate",
+                text,
+            )
+            self.assertIn(
+                "may only clarify, decline, or hand off requests outside those "
+                "workflows",
+                text,
+            )
+            self.assertIn("It is not a sixth positive skill", text)
+            self.assertIn(
+                "distinct from the later DEV-142 through DEV-145 deterministic cost "
+                "router, `PostToolUse` hook, and Swift bridge chain",
+                text,
+            )
+            self.assertIn(
+                "DEV-133 is guidance-only and implements none of that runtime chain",
+                text,
+            )
+            self.assertNotIn("Keep exactly five narrow skills", text)
+            self.assertNotIn("Select the one skill matching the request", text)
+
     def test_guidance_commands_and_markdown_links_resolve(self):
         canonical_text = CANONICAL.read_text(encoding="utf-8")
         required_commands = (
@@ -324,7 +396,9 @@ class RepositoryGuidanceTests(unittest.TestCase):
                 self.assertTrue((ROOT / link).is_file())
 
     def test_guidance_preserves_plugin_payload_and_host_boundaries(self):
-        canonical_text = CANONICAL.read_text(encoding="utf-8")
+        canonical_text = re.sub(
+            r"\s+", " ", CANONICAL.read_text(encoding="utf-8")
+        )
         required_contracts = (
             "`./` is conditional",
             "`./plugins/apple-foundation-models-handoff`",
@@ -355,9 +429,11 @@ class RepositoryGuidanceTests(unittest.TestCase):
             "marketplace registration, plugin install/add, and then a fresh task.",
             "`codex --plugin-dir` is not an approved workflow for Codex `0.144.5`.",
             "Claude Code `2.1.140` is diagnostic only and cannot substitute.",
-            "Until DEV-135 creates plugin metadata, these loading flows are planned "
-            "and conditional; they claim no discovery, installation, activation, "
-            "reference, or capability success.",
+            "DEV-135 owns the planned plugin metadata inputs and generated manifest "
+            "outputs. They remain absent until DEV-135 implements them through the "
+            "shared synchronization entry point.",
+            "Host loading flows remain planned and conditional; they claim no "
+            "discovery, installation, activation, reference, or capability success.",
             "Normalize repository location as `<repo>` and executable identity as "
             "`<host-path>`; never commit their literal resolutions or raw `PATH`.",
             "Before host operations, a missing or non-runnable executable, unavailable "
