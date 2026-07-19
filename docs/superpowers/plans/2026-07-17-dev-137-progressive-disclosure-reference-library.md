@@ -6,7 +6,7 @@
 
 **Architecture:** One provider-neutral `references/` directory lives inside the conventional plugin package. Each concern has one canonical owner; Apple declarations and versioned errors are isolated in the Apple API owner, while framework-neutral state/security/evaluation policy is labelled separately. Python standard-library tests enforce topology, links, source authority, label/compile contracts, and package/cache contents. An explicitly directed Codex 0.144.5 reference-selection probe is only an optional prerequisite. DEV-137 cannot complete until DEV-136 rebases above it and fresh `gpt-5.6-sol` sessions naturally activate all five workflows while observed file-read events prove every exact/minimal route and fictional-API noninvention.
 
-**Tech Stack:** Markdown, Python 3 standard library, `unittest`, Swift 6.3.2, macOS SDK 26.5, Bats 1.13.0, Codex CLI 0.144.5, official Apple documentation/WWDC/PCC material, the installed SDK interface, and the pinned Apple-owned utilities repository.
+**Tech Stack:** Markdown, Python 3 standard library, `unittest`, Xcode 26.6 (17F113), Swift 6.3.3, macOS SDK 26.5, Bats 1.13.0, Codex CLI 0.144.5, official Apple documentation/WWDC/PCC material, the installed SDK interface, and the pinned Apple-owned utilities repository.
 
 ## Global Constraints
 
@@ -15,7 +15,7 @@
 - Do not create or edit production `SKILL.md`, per-skill YAML, generated Codex artifacts by hand, Swift runtime packages, plugin scripts, dependencies, hooks, MCP servers, commands, agents, apps, or assets.
 - Do not copy DEV-128/130/131/138 fixture implementations into the package. Executable orchestration/adversarial proof stays repository-only; reference snippets are small independently checked examples or labelled pseudocode.
 - Use only official Apple documentation, installed SDK interfaces, WWDC sessions, Apple security documentation, and Apple-owned repositories as Apple API authority. Third-party plugin repositories are structural context only.
-- Every Swift block has exactly one visible status: `compiled_sdk_26_5`, `interface_verified_sdk_26_5`, `official_beta_unverified`, or `pseudocode`.
+- Every Swift block has exactly one visible status: `compiled_sdk_26_5`, `interface_verified_sdk_26_5`, `official_os_xcode_27_beta_locally_unverified`, or `pseudocode_deterministic_mock`.
 - Exact Apple error tables contain full associated-value/property/initializer signatures. Names-only lists explicitly say `case names`.
 - Preserve independent `stateVersion`/`policyVersion`, phase-before-budget, stable-only ordinary termination, persistent `recoveryRequired`, C0-C3/provenance, bound grants and confirmations, at-most-once command emission plus reconciliation, safe fallback, metadata-only live evidence, and the exact seven DEV-131 rubric dimensions.
 - Do not commit a literal home/worktree/SDK path. Use `<repo>`, `<host-path>`, and `<sdk>` in durable text and evidence.
@@ -30,10 +30,10 @@
 | Path | Operation | Responsibility |
 | --- | --- | --- |
 | `plugins/apple-foundation-models-handoff/references/architecture-and-state.md` | Create | Common result, state, ownership, lifecycle, termination, cancellation, retry, and repair owner |
-| `plugins/apple-foundation-models-handoff/references/orchestration-patterns.md` | Create | Pattern topology, history, control, final owner, and selection owner |
+| `plugins/apple-foundation-models-handoff/references/orchestration-patterns.md` | Create | Pattern and documentation-only downstream diagnostic-chain topology, history, control, final owner, and selection owner |
 | `plugins/apple-foundation-models-handoff/references/apple-api-availability.md` | Create | Sole Apple declarations/errors/availability/provider/cache/runtime-Skills owner |
-| `plugins/apple-foundation-models-handoff/references/security-context-and-recovery.md` | Create | Apple-fact/application-policy split, context/security/effect/recovery/fallback owner |
-| `plugins/apple-foundation-models-handoff/references/evaluation-and-observability.md` | Create | Stable IDs, rubric, evidence, host, Evaluations/Instruments, and blocker owner |
+| `plugins/apple-foundation-models-handoff/references/security-context-and-recovery.md` | Create | Apple-fact/application-policy split, complete provider grant, context/security/effect/recovery/fallback owner |
+| `plugins/apple-foundation-models-handoff/references/evaluation-and-observability.md` | Create | Stable IDs, rubric, evidence, host, DEV-142 runtime-cost gate, Evaluations/Instruments, and blocker owner |
 | `tests/test_reference_library.py` | Create | Exact topology, headings, ownership, links, citations, labels, compilation, and safety tests |
 | `tests/test_plugin_contract.py` | Modify | Expand exact package regular-file allowlist from metadata-only to metadata plus five references |
 | `tests/e2e/codex_plugin_load.py` | Modify | Expand source/cache payload oracle and hashes to the five references |
@@ -101,8 +101,8 @@ REFERENCE_NAMES = (
 SWIFT_LABELS = {
     "compiled_sdk_26_5",
     "interface_verified_sdk_26_5",
-    "official_beta_unverified",
-    "pseudocode",
+    "official_os_xcode_27_beta_locally_unverified",
+    "pseudocode_deterministic_mock",
 }
 APPLE_OWNER = "apple-api-availability.md"
 VOLATILE_OWNER_TOKENS = (
@@ -281,7 +281,7 @@ this lifecycle truth table:
 
 Add one small reducer example, not copied from a fixture:
 
-Code status: `pseudocode`
+Code status: `pseudocode_deterministic_mock`
 
 ```swift
 switch (state.phase, event) {
@@ -437,7 +437,8 @@ func makeSession() throws -> LanguageModelSession {
 ```
 
 Add installed-interface excerpts with `interface_verified_sdk_26_5`. Add the
-documented defaulted beta initializers with `official_beta_unverified` and a
+documented defaulted beta initializers with
+`official_os_xcode_27_beta_locally_unverified` and a
 source citation immediately adjacent. Do not reduce an exact signature without
 marking it `reduced signature`.
 
@@ -538,7 +539,7 @@ Include this effect boundary:
 known pre-commit failure -> checkpoint restore -> stable -> no effect ledger entry
 possible/confirmed commit -> one ledger identity -> recoveryRequired
 replay/late event -> unchanged state and no executor command
-retry -> only after explicit reconciliation establishes external truth
+retry -> only after reconciliation confirms the earlier effect is absent
 ```
 
 Describe `.onToolCall`, `.historyTransform`, mutable transcript, and transcript
@@ -596,7 +597,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
 PYTHONDONTWRITEBYTECODE=1 python3 fixtures/dev-131/proof_runner.py
 ```
 
-Expected: DEV-130 prints `SUMMARY passed=7 failed=0` and matches its golden;
+Expected: DEV-130 prints `SUMMARY passed=8 failed=0` and matches its golden;
 DEV-131 passes 26/26 and its 11/11 oracle/eight-file evidence checks.
 
 - [ ] **Step 6: Commit the complete green reference library and its contract tests**
@@ -745,7 +746,7 @@ Codex structural/disclosure rows, and this host ledger:
 | BATS | pass, 3/3 | Existing generator regression |
 | pre-commit | blocked/deferred_by_owner | Not invoked |
 | markdownlint | blocked/deferred_by_owner | Not invoked |
-| Xcode 27 / Evaluations / Instruments | blocked | Current host is SDK 26.5 Command Line Tools |
+| Xcode 27 / Evaluations / Instruments | blocked | Current full Xcode is 26.6, not Xcode 27 |
 ```
 
 - [ ] **Step 6: Commit payload and prerequisite proof**
@@ -826,10 +827,13 @@ explicit input path only. Resolve that path through the existing canonical-root,
 regular-file, non-symlink check. Preserve the exact expected-owner comparison and
 the one discovery invocation followed by one content-read invocation.
 
-Do not accept shell wrappers, implicit roots, stdin, recursive search, globs,
-multiple/duplicate files, control operators, redirection, substitution, xargs, or
-indirect file lists. Do not change the three case prompts, expected references, or
-semantic classifications merely to obtain green.
+This superseded direct-reader grammar did not accept shell wrappers. Task 5B
+later replaces it with the one approved transport-only wrapper grammar: a bare
+or absolute `sh`, `bash`, or `zsh`, exactly `-lc`, and one decoded script that is
+exactly an approved command. Implicit roots, stdin, recursive search, globs,
+multiple/duplicate files, control operators, redirection, substitution, xargs,
+and indirect file lists remain rejected. Do not change the three case prompts,
+expected references, or semantic classifications merely to obtain green.
 
 Run:
 
@@ -1181,14 +1185,15 @@ test "$(shasum -a 256 "$INTERFACE" | awk '{print $1}')" = \
   "ff2285670b0966addb9827dc895a3ee3c9db6e186baae62c034fed012632aacc"
 ```
 
-Then run the existing DEV-128 expected blocker commands for macro, OS 27
-dynamic-profile/profile-init/tool-mode diagnostics, and Evaluations import.
-Expected blockers must match independently; a new toolchain result triggers
+Then run the existing DEV-128 matrix. The static structured-output macro is a
+current positive compile under Xcode 26.6; OS 27 dynamic-profile/profile-init/
+tool-mode diagnostics and Evaluations import remain expected blockers. Expected
+results must match independently; a new toolchain result triggers
 reclassification rather than weakened matching.
 
 - [ ] **Step 3: Rerun DEV-130 and DEV-131 regressions**
 
-Use the exact Task 4 commands. Expected: DEV-130 7/7 and golden/repeat identity;
+Use the exact Task 4 commands. Expected: DEV-130 8/8 and golden/repeat identity;
 DEV-131 26/26, 11/11 oracle, safe evidence, and valid/invalid rubric behavior.
 
 - [ ] **Step 4: Run the active external-source and Codex rows at the correct tips**
@@ -1614,3 +1619,114 @@ adversarial review before full Codex-only verification.
 1. `docs(DEV-137): reject ambiguous structural siblings`
 2. `test(DEV-137): reject ambiguous structural siblings`
 3. `fix(DEV-137): reject ambiguous structural siblings`
+
+### Task 12: Apply PR 11 round-one contract corrections
+
+**Files:**
+- Modify: `CLAUDE.md`; regenerate `AGENTS.md` only with the shared generator.
+- Modify: the five existing package references; add no packaged file.
+- Modify: `tests/e2e/codex_plugin_load.py` and
+  `tests/e2e/codex_reference_disclosure.py`.
+- Modify: `tests/test_plugin_contract.py`, `tests/test_reference_library.py`,
+  and `tests/test_codex_reference_disclosure.py` without deleting inherited
+  coverage.
+- Modify: this design and plan. Modify the DEV-137 evidence document only after
+  the source/docs/tests commit exists.
+
+**Decision:** The package remains documentation-only and contains exactly five
+references. Architecture owns the exact positive and non-positive shapes;
+orchestration owns the documentation-only DEV-142 through DEV-145 diagnostic
+chain; security solely owns the complete provider-grant field list and its
+fail-closed data policy; evaluation verifies those contracts and owns the
+runtime-cost release gate. The installed deterministic baseline is Xcode 26.6
+(17F113), Apple Swift 6.3.3, and macOS SDK 26.5. Exact evidence labels are
+`compiled_sdk_26_5`, `interface_verified_sdk_26_5`,
+`official_os_xcode_27_beta_locally_unverified`, and
+`pseudocode_deterministic_mock`.
+
+The positive envelope is exactly `activationStatus = activated`,
+`selectedSkill`, `preselectionInput = { domain, requestedOperation,
+artifactState, evidenceState }`, and `architectureResult`. Positive requests
+bypass the bounded non-positive router. The router loads no reference, is not a
+sixth workflow, and returns only the exact out-of-domain or clarification shape
+defined in the design. It is distinct from the DEV-142 cost router.
+
+The downstream chain is host `PostToolUse` adapter -> DEV-142 deterministic
+cost router -> DEV-143 one local Swift Apple Foundation Models bridge -> DEV-144
+Codex or DEV-145 Claude adapter. Its exact action is
+`condense_diagnostic_output`. It makes at most one bridge attempt, never reruns
+the original tool, preserves the original result on every non-success branch,
+and fails closed with a bounded normalized error when appropriate. Evaluation
+requires at least 10% median total parent-model token reduction, zero correctness
+regressions, and zero additional parent-model turns; missing live inputs block.
+
+- [ ] **Step 1: Add RED contract and host-race regressions**
+
+Add focused assertions for exact router shapes, sole ownership, evidence labels,
+the current toolchain/macro result, retry only after confirmed absence, and the
+10%/zero/zero release gate. Preserve all inherited parser tests. Add host tests
+that prove same-path/same-version replacement is rejected before execution and
+during version capture, that `codex_plugin_load.main()` uses the shared bracketed
+version contract, and that disclosure initial-capture drift becomes a normalized
+fail payload.
+
+- [ ] **Step 2: Implement one closed disclosure parser and shared host helpers**
+
+Extract shared isolated-install, source/cache-identity, and stable-host helpers
+from `codex_plugin_load.py`. The captured host snapshot contains exactly device,
+inode, file type, permission mode, size, mtime nanoseconds, and ctime
+nanoseconds. Check identity before and after every version call and before and
+after every case. Check source/cache identity before yielding the isolated
+environment and again before temporary `CODEX_HOME` teardown.
+
+The disclosure parser accepts exactly two complete successful
+`command_execution` lifecycles in discovery-then-read order, followed by one
+top-level schema-pinned agent message. Require globally unique logical IDs,
+exact event/item schemas, exact five-path discovery output, and safely read
+source bytes/SHA-256 equal to the command output. Accept only direct commands or
+one transport envelope whose executable is a bare or absolute `sh`, `bash`, or
+`zsh`, whose sole flag is `-lc`, and whose decoded script is exactly one approved
+command. Reject nested/lookalike/pre-read/replayed/failed/extra actions and
+fictional signatures in reasoning or final output. Keep direct execution
+import-safe when only `tests/e2e` is on `sys.path`; do not add a fallback parser.
+
+- [ ] **Step 3: Synchronize all five concern owners**
+
+Put full diagnostic-chain prose only in orchestration. Architecture links to
+that owner; security adds only the data-policy/fail-closed cross-reference; and
+evaluation retains the release gate. Put the full provider-grant list only in
+security. Update Apple evidence to the current installed toolchain and retain
+Xcode 27-only APIs as locally unverified blockers. Regenerate `AGENTS.md` from
+`CLAUDE.md` and require generator check success.
+
+- [ ] **Step 4: Run deterministic verification without a live host call**
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v \
+  tests.test_codex_reference_disclosure.ClosedDisclosureParserTests \
+  tests.test_codex_reference_disclosure.HostIdentityTests \
+  tests.test_plugin_contract.CodexProbeRaceTests
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v \
+  tests.test_reference_library tests.test_plugin_contract
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+  -s tests -p 'test_*.py' -v
+PYTHONPYCACHEPREFIX=/tmp/dev137-round1-pycache python3 -m py_compile \
+  tests/e2e/codex_plugin_load.py tests/e2e/codex_reference_disclosure.py
+python3 scripts/sync_generated_artifacts.py --check
+bats tests/plugin_skeleton.bats
+git diff --check
+```
+
+For direct-script verification, use import/compile or a fixture `PATH` that
+cannot resolve a real Codex binary. Do not invoke Codex, Claude, a model, or the
+live disclosure `main` during this correction. Run the inherited DEV-128,
+DEV-130, DEV-131, and DEV-138 deterministic gates without weakening an expected
+blocker.
+
+- [ ] **Step 5: Preserve the evidence boundary**
+
+Commit source/docs/tests first. Then update only the evidence document in a
+separate commit with the actual source commit/tree, current deterministic
+counts/hashes, and historical Codex rows explicitly tied to the older source
+revisions that produced them. Do not relabel a historical host run as evidence
+for the corrected source and do not run a fresh host session in this task.

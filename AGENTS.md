@@ -8,7 +8,7 @@
 Never edit `AGENTS.md` directly; update `CLAUDE.md`, then use `scripts/sync_generated_artifacts.py`.
 
 ### Scope and capability ownership
-- Plugin `apple-foundation-models-handoff` is a metadata-only scaffold with zero
+- Plugin `apple-foundation-models-handoff` is a non-executable scaffold with zero
   capabilities; it does not advertise unfinished behavior.
 - Later issues own five positive workflows: design, implement, review, debug, and
   validate Foundation Models handoff architectures. Positive requests select one
@@ -16,8 +16,10 @@ Never edit `AGENTS.md` directly; update `CLAUDE.md`, then use `scripts/sync_gene
 - One bounded non-positive preselection router may only clarify, decline, or hand off
   other requests once implemented. It is not a sixth positive workflow and is distinct
   from the DEV-142 through DEV-145 cost router, `PostToolUse` hooks, and Swift bridge chain.
-- Skills, references, hooks, commands, agents, MCP servers, scripts, dependencies, and
-  runtime code are absent. Foundation Models handoff, coding-session handoff, Apple
+- Exactly five package reference files are present as documentation-only inputs and
+  provide zero runtime capabilities.
+- Skills, hooks, commands, agents, MCP servers, package scripts, dependencies, and
+  runtime code remain absent. Foundation Models handoff, coding-session handoff, Apple
   Handoff, App Intents, Agent Skills, and Foundation Models runtime Skills are distinct.
 
 ### Canonical and generated paths
@@ -79,10 +81,9 @@ python3 scripts/sync_generated_artifacts.py --check
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-Treat generation drift, test failure, unsafe evidence, or a missing required
-host/SDK prerequisite as fail or blocked according to the contract; never weaken
-an expectation to pass. Push, merge, tag, publish, or release only when a
-separate issue authorizes it.
+Treat generation drift, test failure, unsafe evidence, or a missing required host/SDK
+prerequisite as fail or blocked; never weaken an expectation to pass. Push, merge,
+tag, publish, or release only when a separate issue authorizes it.
 
 Architecture decisions live in the
 [canonical architecture](docs/superpowers/specs/2026-07-17-dev-132-mvp-architecture-design.md)

@@ -189,6 +189,21 @@ def assert_dev_138_repository_only_package(test_case: unittest.TestCase) -> None
 
 
 class PluginContractTests(unittest.TestCase):
+    def test_canonical_guidance_truthfully_names_present_references(self):
+        canonical = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+        generated = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        required = (
+            "Exactly five package reference files are present",
+            "Skills, hooks, commands, agents, MCP servers, package scripts, "
+            "dependencies, and runtime code remain absent",
+            "zero runtime capabilities",
+        )
+        for text in (canonical, generated):
+            flat = " ".join(text.split())
+            for token in required:
+                self.assertIn(token, flat)
+            self.assertNotIn("Skills, references, hooks", text)
+
     def test_canonical_identity_is_exact_and_honest(self):
         manifest = load_json(
             "plugins/apple-foundation-models-handoff/.claude-plugin/plugin.json"
@@ -452,6 +467,38 @@ class PluginContractTests(unittest.TestCase):
 
 
 class CodexProbeRaceTests(unittest.TestCase):
+    def test_main_brackets_the_initial_version_check_with_host_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            locator = Path(directory) / "codex"
+            locator.write_text(
+                "#!/bin/sh\nprintf 'codex-cli 0.144.5\\n'\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+            locator.chmod(0o700)
+            emitted: list[dict[str, object]] = []
+            payload = {"evidenceId": codex_probe.EVIDENCE_ID, "status": "pass"}
+
+            with (
+                mock.patch.object(codex_probe.shutil, "which", return_value=str(locator)),
+                mock.patch.object(
+                    codex_probe,
+                    "stable_host_version_matches",
+                    return_value=True,
+                ) as stable_version,
+                mock.patch.object(
+                    codex_probe,
+                    "exact_version",
+                    side_effect=AssertionError("unbracketed version check"),
+                ),
+                mock.patch.object(codex_probe, "probe", return_value=payload),
+                mock.patch.object(codex_probe, "emit_result", side_effect=emitted.append),
+            ):
+                self.assertEqual(0, codex_probe.main())
+
+            stable_version.assert_called_once()
+            self.assertEqual([payload], emitted)
+
     def test_regular_file_read_rejects_path_replacement(self):
         with tempfile.TemporaryDirectory() as directory:
             artifact = Path(directory) / "artifact.json"

@@ -9,8 +9,8 @@ the installed SDK 26.5 surface separate from current OS and Xcode 27 beta
 documentation. Application authorization, reducer, recovery, and rubric policy
 remain in sibling references.
 
-Evidence was refreshed on 2026-07-17. Installed declarations are pinned to the
-local interface hash. Current beta declarations come from live official Apple
+Installed evidence was refreshed on 2026-07-20. Installed declarations are
+pinned to the local interface hash. Current beta declarations come from live official Apple
 DocC and remain locally unverified because SDK 27 is absent.
 
 ## Evidence labels
@@ -19,8 +19,8 @@ DocC and remain locally unverified because SDK 27 is absent.
 | --- | --- |
 | `compiled_sdk_26_5` | The complete block type-checks against the explicit installed SDK 26.5 and `arm64-apple-macos26.0`; no live generation is run |
 | `interface_verified_sdk_26_5` | Exact declaration tokens are present in the pinned SDK 26.5 interface, without an execution claim |
-| `official_beta_unverified` | Current official Apple beta documentation publishes the declaration, but the installed SDK cannot compile it |
-| `pseudocode` | Application-only contract, never a framework type |
+| `official_os_xcode_27_beta_locally_unverified` | Current official Apple OS/Xcode 27 beta documentation publishes the declaration, but the installed SDK cannot compile it |
+| `pseudocode_deterministic_mock` | Application-only deterministic contract, never a framework type |
 
 An unlabelled Swift block is invalid. A changed SDK, interface hash, or official
 beta declaration requires reclassification rather than preservation of an old
@@ -30,13 +30,14 @@ label.
 
 ```text
 SDK: macOS 26.5
-Swift: Apple Swift 6.3.2
+Xcode: 26.6 (17F113)
+Swift: Apple Swift 6.3.3
 Target: arm64-apple-macos26.0
 Interface: <sdk>/System/Library/Frameworks/FoundationModels.framework/
            Versions/A/Modules/FoundationModels.swiftmodule/
            arm64e-apple-macos.swiftinterface
 SHA-256: ff2285670b0966addb9827dc895a3ee3c9db6e186baae62c034fed012632aacc
-Retrieved/verified: 2026-07-17
+Installed host verified: 2026-07-20
 ```
 
 The durable locator is normalized. A literal host or user path is not evidence.
@@ -47,7 +48,7 @@ The durable locator is normalized. A literal host or user path is not evidence.
 | --- | --- | --- |
 | Sessions | `LanguageModelSession`, get-only transcript, `isResponding`, instructions/transcript initializers, prewarm, response, streaming | Stable SDK 26.5; response calls may type-check but are not run by default |
 | On-device model | default model, availability, context size, locale support, token counting | Stable SDK 26.5; runtime availability is mutable host state |
-| Static structured output | generable/guide declarations and schema | Interface present; macro compilation blocked because Command Line Tools lacks the macro implementation plugin |
+| Static structured output | generable/guide declarations and schema | Compiled SDK 26.5 with the Xcode 26.6 macro plugin; uninvoked typecheck only |
 | Runtime structured output | dynamic schema construction and schema response/stream overloads | Stable SDK 26.5; construction is compiled below |
 | Tools | typed arguments/output, name/description/schema, async call | Stable core; model selection of a tool is probabilistic and not a default test |
 | Transcript/rehydration | collection/Codable entries and transcript initializer | Stable SDK 26.5 mechanics; transfer authorization is application policy |
@@ -56,7 +57,7 @@ The durable locator is normalized. A literal host or user path is not evidence.
 | Tool mode | required/allowed/disallowed static values | Official OS/Xcode 27 beta, locally unverified |
 | Revised errors | split model/session/system/PCC taxonomy | Official OS/Xcode 27 beta; stable taxonomy remains separate |
 | Runtime Skills/history helpers | Apple-owned utilities package | Pinned Apple source, OS 27 minimum, no plugin runtime dependency |
-| Evaluations/Instruments | quality framework and runtime profiling | Xcode 27 beta; blocked on the current Command Line Tools host |
+| Evaluations/Instruments | quality framework and runtime profiling | Xcode 27 beta; blocked because current full Xcode is 26.6, not Xcode 27 |
 
 ## Stable SDK 26.5 surface
 
@@ -111,7 +112,7 @@ and
 [`init(model:dynamicInstructions:history:)`](https://developer.apple.com/documentation/foundationmodels/languagemodelsession/init%28model%3Adynamicinstructions%3Ahistory%3A%29),
 retrieved 2026-07-17.
 
-Code status: `official_beta_unverified`
+Code status: `official_os_xcode_27_beta_locally_unverified`
 ```swift
 convenience init(
     profile: sending some LanguageModelSession.DynamicProfile,
@@ -162,9 +163,11 @@ func makeSession() throws -> LanguageModelSession {
 The stable tool contract has typed arguments convertible from generated
 content, output representable in a prompt, descriptive metadata, and an async
 call. A deterministic direct tool call can be tested offline; whether a model
-chooses the tool is probabilistic. Static structured-output macro declarations
-are in the interface, but a compatible full Xcode macro plugin is required on
-this host.
+chooses the tool is probabilistic. Static structured-output macros `@Generable`
+and `@Guide`, the static structured-response overload, and typed content access
+now compile as `compiled_sdk_26_5` with Xcode 26.6 against SDK 26.5. The
+repository-only DEV-128 matrix records six positive rows including that macro
+fixture; typechecking is not live generation or runtime bridge proof.
 
 ## Transcripts and history
 
@@ -221,7 +224,7 @@ Complete supporting payload/property/initializer signatures:
 
 These tables reproduce complete current Apple DocC case signatures and public
 payload data/initializers retrieved 2026-07-17. They are
-`official_beta_unverified`; similar stable names do not imply source
+`official_os_xcode_27_beta_locally_unverified`; similar stable names do not imply source
 compatibility.
 
 | Current type | Complete case signatures |
@@ -316,7 +319,7 @@ or compile test establishes a cache hit.
 | --- | --- | --- |
 | SDK 26.5 runtime schema block | Compiled offline | Keep explicit SDK/target and rerun after toolchain change |
 | Installed interface | Hash matches pinned value | Reclassify on any hash or SDK drift |
-| Static macros | Blocked: macro implementation plugin unavailable | Use compatible full Xcode; do not relabel compiled |
+| Static macros | Compiled offline with Xcode 26.6 macro plugin against SDK 26.5 | Keep `compiled_sdk_26_5`; rerun after toolchain change |
 | OS/Xcode 27 dynamic surfaces | Blocked: missing declarations in SDK 26.5 | Compile only with compatible SDK 27 |
 | PCC/provider | Blocked by SDK plus network/entitlement/service prerequisites | Keep out of default gates |
 | Evaluations | Blocked: module absent | Requires full compatible Xcode 27 |
@@ -352,4 +355,5 @@ This reference does not prove beta compilation, live generation, tool
 selection, model availability, PCC eligibility, custom-provider behavior,
 cache reuse, Evaluations, or Instruments. Official beta declarations may
 change. Recheck live DocC and the installed interface whenever the OS, SDK,
-Xcode, or pinned utilities revision changes.
+Xcode, or pinned utilities revision changes. The historical Command Line Tools
+macro-plugin blocker is not a current blocker under Xcode 26.6.

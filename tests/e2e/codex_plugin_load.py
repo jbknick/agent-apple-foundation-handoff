@@ -63,6 +63,7 @@ PLUGIN_ADD_KEYS = {
     "authPolicy",
     "installedPath",
 }
+HostSnapshot = tuple[int, int, int, int, int, int, int]
 
 
 class ProbeFailure(Exception):
@@ -172,7 +173,7 @@ def require(condition: bool, reason: str) -> None:
 
 def metadata_snapshot(
     metadata: os.stat_result,
-) -> tuple[int, int, int, int, int, int, int]:
+) -> HostSnapshot:
     return (
         metadata.st_dev,
         metadata.st_ino,
@@ -184,29 +185,180 @@ def metadata_snapshot(
     )
 
 
+def require_current_host_identity(
+    executable: str,
+    locator: Path,
+    initial_resolution: Path,
+    initial_snapshot: HostSnapshot,
+) -> None:
+    reason = "host_resolution_or_version_drift"
+    try:
+        current_resolution = locator.resolve(strict=True)
+        current_metadata = current_resolution.stat()
+    except OSError:
+        raise ProbeFailure(reason) from None
+    require(current_resolution == initial_resolution, reason)
+    require(stat.S_ISREG(current_metadata.st_mode), reason)
+    require(metadata_snapshot(current_metadata) == initial_snapshot, reason)
+    require(os.access(locator, os.X_OK), reason)
+
+
+def stable_host_version_matches(
+    executable: str,
+    locator: Path,
+    initial_resolution: Path,
+    initial_snapshot: HostSnapshot,
+    environment: dict[str, str],
+) -> bool:
+    require_current_host_identity(
+        executable,
+        locator,
+        initial_resolution,
+        initial_snapshot,
+    )
+    matches = exact_version(executable, environment)
+    require_current_host_identity(
+        executable,
+        locator,
+        initial_resolution,
+        initial_snapshot,
+    )
+    return matches
+
+
 def require_stable_host(
     executable: str,
     locator: Path,
     initial_resolution: Path,
-    initial_snapshot: tuple[int, int, int, int, int, int, int],
+    initial_snapshot: HostSnapshot,
     environment: dict[str, str],
 ) -> None:
-    reason = "host_resolution_or_version_drift"
+    require(
+        stable_host_version_matches(
+            executable,
+            locator,
+            initial_resolution,
+            initial_snapshot,
+            environment,
+        ),
+        "host_resolution_or_version_drift",
+    )
 
-    def require_current_identity() -> None:
-        try:
-            current_resolution = locator.resolve(strict=True)
-            current_metadata = current_resolution.stat()
-        except OSError:
-            raise ProbeFailure(reason) from None
-        require(current_resolution == initial_resolution, reason)
-        require(stat.S_ISREG(current_metadata.st_mode), reason)
-        require(metadata_snapshot(current_metadata) == initial_snapshot, reason)
-        require(os.access(locator, os.X_OK), reason)
 
-    require_current_identity()
-    require(exact_version(executable, environment), reason)
-    require_current_identity()
+def install_isolated_plugin(
+    executable: str,
+    environment: dict[str, str],
+    codex_home: Path,
+) -> Path:
+    marketplace_add = run_json(
+        executable,
+        ["plugin", "marketplace", "add", str(ROOT), "--json"],
+        environment,
+        "marketplace_add_failed",
+    )
+    require_exact_keys(
+        marketplace_add,
+        MARKETPLACE_ADD_KEYS,
+        "marketplace_contract_mismatch",
+    )
+    require(
+        marketplace_add.get("marketplaceName") == MARKETPLACE,
+        "marketplace_contract_mismatch",
+    )
+    require(
+        marketplace_add.get("installedRoot") == str(ROOT),
+        "marketplace_contract_mismatch",
+    )
+    require(
+        marketplace_add.get("alreadyAdded") is False,
+        "marketplace_contract_mismatch",
+    )
+
+    available = run_json(
+        executable,
+        ["plugin", "list", "--available", "--json"],
+        environment,
+        "available_list_failed",
+    )
+    require_exact_keys(
+        available,
+        LIST_DOCUMENT_KEYS,
+        "available_plugin_contract_mismatch",
+    )
+    require(available.get("installed") == [], "available_plugin_contract_mismatch")
+    available_entry = require_single_entry(
+        available, "available", "available_plugin_contract_mismatch"
+    )
+    require_plugin_entry(
+        available_entry,
+        installed=False,
+        enabled=False,
+        reason="available_plugin_contract_mismatch",
+    )
+
+    installed = run_json(
+        executable,
+        ["plugin", "add", SELECTOR, "--json"],
+        environment,
+        "plugin_add_failed",
+    )
+    require_exact_keys(installed, PLUGIN_ADD_KEYS, "plugin_add_contract_mismatch")
+    require(installed.get("pluginId") == SELECTOR, "plugin_add_contract_mismatch")
+    require(installed.get("name") == PLUGIN_ID, "plugin_add_contract_mismatch")
+    require(
+        installed.get("marketplaceName") == MARKETPLACE,
+        "plugin_add_contract_mismatch",
+    )
+    require(installed.get("version") == PLUGIN_VERSION, "plugin_add_contract_mismatch")
+    require(
+        installed.get("authPolicy") == "ON_INSTALL",
+        "plugin_add_contract_mismatch",
+    )
+    installed_path_value = installed.get("installedPath")
+    require(
+        isinstance(installed_path_value, str) and bool(installed_path_value),
+        "plugin_add_contract_mismatch",
+    )
+    assert isinstance(installed_path_value, str)
+    installed_path = validate_installed_path(installed_path_value, codex_home)
+
+    installed_list = run_json(
+        executable,
+        ["plugin", "list", "--json"],
+        environment,
+        "installed_list_failed",
+    )
+    require_exact_keys(
+        installed_list,
+        LIST_DOCUMENT_KEYS,
+        "installed_plugin_contract_mismatch",
+    )
+    installed_entry = require_single_entry(
+        installed_list, "installed", "installed_plugin_contract_mismatch"
+    )
+    require_plugin_entry(
+        installed_entry,
+        installed=True,
+        enabled=True,
+        reason="installed_plugin_contract_mismatch",
+    )
+    require(installed_list.get("available") == [], "installed_plugin_contract_mismatch")
+    return installed_path
+
+
+def require_source_cache_identity(installed_path: Path) -> dict[str, str]:
+    scan_payload(PLUGIN_ROOT, "source_payload_contract_mismatch")
+    scan_payload(installed_path, "cache_payload_contract_mismatch")
+    source_hashes = {
+        relative_path: sha256(PLUGIN_ROOT / relative_path)
+        for relative_path in EXPECTED_CACHE_FILES
+    }
+    cached_hashes = {
+        relative_path: sha256(installed_path / relative_path)
+        for relative_path in EXPECTED_CACHE_FILES
+    }
+    require(source_hashes == cached_hashes, "cache_integrity_mismatch")
+    return source_hashes
 
 
 def require_exact_keys(
@@ -363,7 +515,7 @@ def probe(
     executable: str,
     locator: Path,
     initial_resolution: Path,
-    initial_snapshot: tuple[int, int, int, int, int, int, int],
+    initial_snapshot: HostSnapshot,
     base_environment: dict[str, str],
 ) -> dict[str, Any]:
     with tempfile.TemporaryDirectory() as temporary_home:
@@ -371,108 +523,10 @@ def probe(
         environment = dict(base_environment)
         environment["CODEX_HOME"] = str(codex_home)
 
-        marketplace_add = run_json(
+        installed_path = install_isolated_plugin(
             executable,
-            ["plugin", "marketplace", "add", str(ROOT), "--json"],
             environment,
-            "marketplace_add_failed",
-        )
-        require_exact_keys(
-            marketplace_add,
-            MARKETPLACE_ADD_KEYS,
-            "marketplace_contract_mismatch",
-        )
-        require(
-            marketplace_add.get("marketplaceName") == MARKETPLACE,
-            "marketplace_contract_mismatch",
-        )
-        require(
-            marketplace_add.get("installedRoot") == str(ROOT),
-            "marketplace_contract_mismatch",
-        )
-        require(
-            marketplace_add.get("alreadyAdded") is False,
-            "marketplace_contract_mismatch",
-        )
-
-        available = run_json(
-            executable,
-            ["plugin", "list", "--available", "--json"],
-            environment,
-            "available_list_failed",
-        )
-        require_exact_keys(
-            available,
-            LIST_DOCUMENT_KEYS,
-            "available_plugin_contract_mismatch",
-        )
-        require(available.get("installed") == [], "available_plugin_contract_mismatch")
-        available_entry = require_single_entry(
-            available, "available", "available_plugin_contract_mismatch"
-        )
-        require_plugin_entry(
-            available_entry,
-            installed=False,
-            enabled=False,
-            reason="available_plugin_contract_mismatch",
-        )
-
-        installed = run_json(
-            executable,
-            ["plugin", "add", SELECTOR, "--json"],
-            environment,
-            "plugin_add_failed",
-        )
-        require_exact_keys(
-            installed,
-            PLUGIN_ADD_KEYS,
-            "plugin_add_contract_mismatch",
-        )
-        require(installed.get("pluginId") == SELECTOR, "plugin_add_contract_mismatch")
-        require(installed.get("name") == PLUGIN_ID, "plugin_add_contract_mismatch")
-        require(
-            installed.get("marketplaceName") == MARKETPLACE,
-            "plugin_add_contract_mismatch",
-        )
-        require(
-            installed.get("version") == PLUGIN_VERSION,
-            "plugin_add_contract_mismatch",
-        )
-        require(
-            installed.get("authPolicy") == "ON_INSTALL",
-            "plugin_add_contract_mismatch",
-        )
-        installed_path_value = installed.get("installedPath")
-        require(
-            isinstance(installed_path_value, str) and bool(installed_path_value),
-            "plugin_add_contract_mismatch",
-        )
-        assert isinstance(installed_path_value, str)
-        installed_path = validate_installed_path(installed_path_value, codex_home)
-
-        installed_list = run_json(
-            executable,
-            ["plugin", "list", "--json"],
-            environment,
-            "installed_list_failed",
-        )
-        require_exact_keys(
-            installed_list,
-            LIST_DOCUMENT_KEYS,
-            "installed_plugin_contract_mismatch",
-        )
-        installed_entry = require_single_entry(
-            installed_list, "installed", "installed_plugin_contract_mismatch"
-        )
-        require_plugin_entry(
-            installed_entry,
-            installed=True,
-            enabled=True,
-            reason="installed_plugin_contract_mismatch",
-        )
-        require(
-            installed_list.get("available") == [],
-            "installed_plugin_contract_mismatch",
+            codex_home,
         )
 
         require_stable_host(
@@ -483,17 +537,7 @@ def probe(
             environment,
         )
 
-        scan_payload(PLUGIN_ROOT, "source_payload_contract_mismatch")
-        scan_payload(installed_path, "cache_payload_contract_mismatch")
-        source_hashes = {
-            relative_path: sha256(PLUGIN_ROOT / relative_path)
-            for relative_path in EXPECTED_CACHE_FILES
-        }
-        cached_hashes = {
-            relative_path: sha256(installed_path / relative_path)
-            for relative_path in EXPECTED_CACHE_FILES
-        }
-        require(source_hashes == cached_hashes, "cache_integrity_mismatch")
+        source_hashes = require_source_cache_identity(installed_path)
 
         try:
             generated_manifest = json.loads(
@@ -554,15 +598,25 @@ def main() -> int:
     if not stat.S_ISREG(initial_metadata.st_mode) or not os.access(locator, os.X_OK):
         return blocked()
     executable = str(initial_resolution)
-    if not exact_version(executable, base_environment):
-        return blocked()
+    initial_snapshot = metadata_snapshot(initial_metadata)
+    try:
+        if not stable_host_version_matches(
+            executable,
+            locator,
+            initial_resolution,
+            initial_snapshot,
+            base_environment,
+        ):
+            return blocked()
+    except ProbeFailure as failure:
+        return failed(failure.reason)
 
     try:
         result = probe(
             executable,
             locator,
             initial_resolution,
-            metadata_snapshot(initial_metadata),
+            initial_snapshot,
             base_environment,
         )
     except ProbeFailure as failure:

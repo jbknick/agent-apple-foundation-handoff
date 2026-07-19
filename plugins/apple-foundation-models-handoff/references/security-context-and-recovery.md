@@ -10,6 +10,11 @@ declarations and availability are owned by
 [Apple API availability](apple-api-availability.md); framework mechanisms never
 replace the application reducer in [architecture and state](architecture-and-state.md).
 
+For the documentation-only DEV-142 through DEV-145 diagnostic chain,
+[orchestration patterns](orchestration-patterns.md) owns topology and action
+semantics. This reference owns its data-policy checks and fail-closed boundary;
+it does not duplicate or implement that downstream chain.
+
 Every substantive rule is labelled as one of:
 
 - **Official Apple fact** — directly supported by an official source;
@@ -73,10 +78,13 @@ grant is absent, not merely hidden by instructions.
 
 ## Provider grants
 
-**Mandatory application policy:** every provider grant is bound to destination,
-purpose, fields, tools, retention, expiry, person, `stateVersion`, and
-`policyVersion`. It is nontransferable to another provider, model, child
-session, purpose, or effect. Revocation or version drift invalidates it.
+**Mandatory application policy:** this reference solely owns the complete
+provider-grant binding: person/session, source profile/provider, destination
+profile/provider, purpose, exact classes, exact fields, tools, retention,
+expiry, applicable provider disclosure, exceptional C2 permission,
+`stateVersion`, and `policyVersion`. Any bound-field change invalidates the
+grant. It is nontransferable to another provider, model, child session,
+purpose, or effect. Revocation or version drift invalidates it.
 
 **Official Apple fact:** published PCC privacy/security properties describe
 PCC. They do not transfer to a custom provider. Provider packages can own
@@ -100,7 +108,8 @@ and effect identity. A previously confirmed proposal is not a standing grant.
 
 **Official Apple fact:** current beta lifecycle documentation says
 `.onToolCall` runs before tool execution and a thrown error prevents the tool
-from executing. The declaration and Xcode 27 `official_beta_unverified` label
+from executing. The declaration and Xcode 27
+`official_os_xcode_27_beta_locally_unverified` label
 are owned by [Apple API availability](apple-api-availability.md).
 
 ## Reducer authority
@@ -139,7 +148,7 @@ external execution.
 known pre-commit failure -> checkpoint restore -> stable -> no effect ledger entry
 possible/confirmed commit -> one ledger identity -> recoveryRequired
 replay/late event -> unchanged state and no executor command
-retry -> only after explicit reconciliation establishes external truth
+retry -> only after confirmed absence
 ```
 
 Reconciliation queries the authoritative effect system using the same effect
@@ -157,7 +166,8 @@ nothing.
 
 **Official Apple fact:** current beta documentation exposes request-local
 `.historyTransform`, mutable transcript/history behavior, and transcript error
-policy. Their exact Xcode 27 `official_beta_unverified` declarations are linked
+policy. Their exact Xcode 27
+`official_os_xcode_27_beta_locally_unverified` declarations are linked
 through [Apple API availability](apple-api-availability.md). A request-local
 transform does not mutate global history; preserved partial history needs
 application repair.

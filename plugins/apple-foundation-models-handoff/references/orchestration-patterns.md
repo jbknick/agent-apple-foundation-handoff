@@ -81,6 +81,27 @@ availability, an approved capability, policy, or user selection. It does not
 itself transfer authority between already-active roles, promise shared history,
 or create consultation. Record the selected route and owner explicitly.
 
+## Documentation-only downstream diagnostic chain
+
+This reference documents but does not implement the Apple-first downstream
+topology: host `PostToolUse` adapter -> DEV-142 deterministic cost router ->
+DEV-143 one local Swift Apple Foundation Models bridge -> DEV-144 Codex or
+DEV-145 Claude host adapter. The exact action is
+`condense_diagnostic_output`. Each eligible original result may make
+at most one bridge attempt, and no branch reruns the original tool. Ineligible,
+unavailable, unknown-policy, or declined routes preserve the original result.
+Failure, timeout, cancellation, or invalid Apple output preserves the original
+result with a bounded normalized error. Every unknown or missing gate fails
+closed.
+
+DEV-142 owns routing policy. DEV-143 owns the local bridge, DEV-144 owns the
+Codex adapter, and DEV-145 owns the Claude adapter. The runtime-cost release
+gate is defined by
+[evaluation and observability](evaluation-and-observability.md). Data policy
+and fail-closed enforcement are owned by
+[security, context, and recovery](security-context-and-recovery.md). These
+later owners add no capability in DEV-137.
+
 ## Transcript transfer
 
 Transcript transfer constructs a distinct destination session from all or a

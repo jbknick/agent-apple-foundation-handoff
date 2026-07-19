@@ -48,12 +48,11 @@ ledger.
 | `D-EVIDENCE-001` | Safe allowlisted evidence and exact hashes |
 | `D-RUBRIC-001` | Complete, anchored, hash-bound rubric integrity and verdict |
 
-D-GRANT-001 binds person/session, source profile/provider, destination
-profile/provider, purpose, exact classes, exact fields, tools, retention,
-expiry, applicable provider disclosure, exceptional C2 permission,
-stateVersion, and policyVersion; any bound-field change invalidates the
-grant. The two versions advance independently and must each match the approved
-policy and result.
+D-GRANT-001 verifies the complete provider-grant binding owned by
+[security, context, and recovery](security-context-and-recovery.md) without
+redefining that owner's field list. Verification rejects any mismatch and
+checks the independently advancing state and policy versions against the
+approved policy and result.
 
 Host/evidence identities are:
 
@@ -162,6 +161,7 @@ workflow activation.
 | Claude load/activation | Owner-approved invocation | Owner-deferred; do not invoke in this work |
 | Apple Evaluations | Compatible full Xcode 27/module/target | Optional or blocked, never default pass |
 | Instruments | Full Xcode 27, compatible target/device, collection approval | Optional or blocked; sensitive evidence rules apply |
+| DEV-142 runtime-cost gate | Paired normalized live telemetry, current policy, and live Apple prerequisites | At least 10% median total parent-model token reduction, zero correctness regressions, and zero additional parent-model turns; otherwise fail or block |
 
 ## Apple Evaluations
 

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import contextlib
+from contextlib import contextmanager
+from dataclasses import dataclass
 import hashlib
 import io
 import json
@@ -11,9 +13,17 @@ import shlex
 import shutil
 import stat
 import subprocess
-from typing import Any, Iterable
+import tempfile
+from typing import Any, Iterable, Iterator
 import unittest
 from unittest.mock import patch
+
+try:
+    from tests.e2e import codex_plugin_load as plugin_probe
+except ModuleNotFoundError as import_failure:
+    if import_failure.name not in {"tests", "tests.e2e"}:
+        raise
+    import codex_plugin_load as plugin_probe
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -27,6 +37,9 @@ REFERENCE_NAMES = {
     "apple-api-availability.md",
     "security-context-and-recovery.md",
     "evaluation-and-observability.md",
+}
+REFERENCE_PATHS = {
+    f"{REFERENCE_ROOT_RELATIVE}/{name}" for name in REFERENCE_NAMES
 }
 VERSION_OUTPUT = "codex-cli 0.144.5"
 MODEL = "gpt-5.6-sol"
@@ -172,6 +185,17 @@ FICTIONAL_SIGNATURE_PATTERNS = (
         re.IGNORECASE | re.MULTILINE,
     ),
 )
+
+metadata_snapshot = plugin_probe.metadata_snapshot
+require_unchanged_host = plugin_probe.require_stable_host
+
+
+@dataclass(frozen=True)
+class ParsedDisclosure:
+    reference_name: str
+    reference_sha256: str
+    result: str
+    result_sha256: str
 
 CASES = {
     "pattern-final-owner": {
@@ -1291,6 +1315,286 @@ def exact_command_script(command: str, task_id: str) -> tuple[str, bool]:
     return owner, False
 
 
+def _disclosure_command(
+    command: str,
+    *,
+    expect_discovery: bool,
+    task_id: str,
+) -> str | None:
+    direct = command
+    try:
+        outer = shlex.split(command, posix=True)
+    except ValueError:
+        raise ProbeFailure("ambiguous_reference_read", task_id) from None
+    if len(outer) == 3 and outer[1] == "-lc":
+        shell = Path(outer[0])
+        is_bare = len(shell.parts) == 1 and outer[0] in SHELL_WRAPPERS
+        is_absolute = shell.is_absolute() and shell.name in SHELL_WRAPPERS
+        if not (is_bare or is_absolute):
+            raise ProbeFailure("ambiguous_reference_read", task_id)
+        direct = outer[2]
+        try:
+            nested = shlex.split(direct, posix=True)
+        except ValueError:
+            raise ProbeFailure("ambiguous_reference_read", task_id) from None
+        if len(nested) == 3 and nested[1] == "-lc":
+            raise ProbeFailure("ambiguous_reference_read", task_id)
+
+    discovery = f"rg --files {REFERENCE_ROOT_RELATIVE}"
+    if expect_discovery:
+        if direct != discovery:
+            raise ProbeFailure("ambiguous_reference_read", task_id)
+        return None
+
+    try:
+        tokens = shlex.split(direct, posix=True)
+    except ValueError:
+        raise ProbeFailure("ambiguous_reference_read", task_id) from None
+    if len(tokens) != 2 or tokens[0] != "cat":
+        raise ProbeFailure("ambiguous_reference_read", task_id)
+    owner = validate_reference_candidate(
+        tokens[1],
+        ROOT,
+        task_id,
+        directory_discovery=False,
+    )
+    if owner is None or direct != f"cat {REFERENCE_ROOT_RELATIVE}/{owner}":
+        raise ProbeFailure("ambiguous_reference_read", task_id)
+    return owner
+
+
+def _validate_discovery_output(output: str, task_id: str) -> None:
+    if not output or "\r" in output:
+        raise ProbeFailure("invalid_reference_discovery_output", task_id)
+    lines = output.split("\n")
+    if lines[-1] == "":
+        lines.pop()
+    if (
+        len(lines) != len(REFERENCE_PATHS)
+        or any(not line for line in lines)
+        or len(set(lines)) != len(lines)
+        or set(lines) != REFERENCE_PATHS
+    ):
+        raise ProbeFailure("invalid_reference_discovery_output", task_id)
+
+
+def _parse_result_text(text: str, task_id: str) -> str:
+    try:
+        parsed = json.loads(
+            text,
+            object_pairs_hook=pairs_without_duplicates,
+            parse_constant=reject_json_constant,
+        )
+    except (json.JSONDecodeError, ValueError):
+        raise ProbeFailure("malformed_bounded_result", task_id) from None
+    if not isinstance(parsed, dict) or set(parsed) != {"result"}:
+        raise ProbeFailure("malformed_bounded_result", task_id)
+    result = parsed.get("result")
+    if not isinstance(result, str) or not result:
+        raise ProbeFailure("malformed_bounded_result", task_id)
+    return result
+
+
+def parse_disclosure_events(
+    events: list[dict[str, Any]], task_id: str
+) -> ParsedDisclosure:
+    """Parse the one closed Codex disclosure action sequence.
+
+    Non-action thread/turn envelopes and schema-pinned reasoning may surround the
+    sequence, but the only actions are discovery, one source read, and one final
+    top-level agent message in that order.
+    """
+
+    logical_ids: set[str] = set()
+    pending: tuple[str, str, bool] | None = None
+    command_count = 0
+    owner: str | None = None
+    reference_sha256: str | None = None
+    message_text: str | None = None
+    inspected_text: list[str] = []
+    seen_thread_started = False
+    seen_turn_started = False
+    seen_turn_completed = False
+
+    for event in events:
+        if not isinstance(event, dict):
+            raise ProbeFailure("ambiguous_reference_read", task_id)
+        event_type = event.get("type")
+        if "item" not in event:
+            if event_type == "thread.started":
+                if (
+                    seen_thread_started
+                    or command_count
+                    or set(event) != {"thread_id", "type"}
+                    or not isinstance(event.get("thread_id"), str)
+                    or not event.get("thread_id")
+                ):
+                    raise ProbeFailure("ambiguous_reference_read", task_id)
+                seen_thread_started = True
+                continue
+            if event_type == "turn.started":
+                if seen_turn_started or command_count or set(event) != {"type"}:
+                    raise ProbeFailure("ambiguous_reference_read", task_id)
+                seen_turn_started = True
+                continue
+            if event_type == "turn.completed":
+                if (
+                    seen_turn_completed
+                    or message_text is None
+                    or set(event) not in ({"type"}, {"type", "usage"})
+                    or (
+                        "usage" in event
+                        and not isinstance(event.get("usage"), dict)
+                    )
+                ):
+                    raise ProbeFailure("terminal_event_failed", task_id)
+                seen_turn_completed = True
+                continue
+            raise ProbeFailure(
+                "terminal_event_failed"
+                if event_type in {"error", "turn.failed"}
+                else "ambiguous_reference_read",
+                task_id,
+            )
+
+        if set(event) != COMMAND_EVENT_KEYS or event_type not in {
+            "item.started",
+            "item.completed",
+        }:
+            raise ProbeFailure("ambiguous_reference_read", task_id)
+        item = event.get("item")
+        if not isinstance(item, dict):
+            raise ProbeFailure("ambiguous_reference_read", task_id)
+        item_type = item.get("type")
+
+        if item_type == "reasoning":
+            if (
+                event_type != "item.completed"
+                or set(item) != PINNED_PASSIVE_ITEM_KEYS["reasoning"]
+                or message_text is not None
+                or not isinstance(item.get("id"), str)
+                or not item.get("id")
+                or item["id"] in logical_ids
+                or not isinstance(item.get("text"), str)
+            ):
+                raise ProbeFailure("ambiguous_reference_read", task_id)
+            logical_ids.add(item["id"])
+            inspected_text.append(item["text"])
+            continue
+
+        if item_type == "error":
+            raise ProbeFailure("passive_error_event", task_id)
+        if item_type == "agent_message":
+            if (
+                event_type != "item.completed"
+                or set(item) != PINNED_PASSIVE_ITEM_KEYS["agent_message"]
+                or command_count != 2
+                or pending is not None
+                or message_text is not None
+                or not isinstance(item.get("id"), str)
+                or not item.get("id")
+                or item["id"] in logical_ids
+                or not isinstance(item.get("text"), str)
+            ):
+                raise ProbeFailure("malformed_bounded_result", task_id)
+            logical_ids.add(item["id"])
+            message_text = item["text"]
+            inspected_text.append(message_text)
+            continue
+        if item_type != "command_execution":
+            raise ProbeFailure("unexpected_action_event", task_id)
+        if message_text is not None or seen_turn_completed or set(item) != COMMAND_ITEM_KEYS:
+            raise ProbeFailure("unexpected_action_event", task_id)
+
+        identifier = item.get("id")
+        command = item.get("command")
+        if not isinstance(identifier, str) or not identifier or not isinstance(command, str):
+            raise ProbeFailure("ambiguous_reference_read", task_id)
+
+        if event_type == "item.started":
+            if (
+                pending is not None
+                or command_count >= 2
+                or identifier in logical_ids
+                or not command
+                or item.get("status") != "in_progress"
+                or item.get("exit_code") is not None
+                or item.get("aggregated_output") != ""
+            ):
+                raise ProbeFailure("ambiguous_reference_read", task_id)
+            is_discovery = command_count == 0
+            _disclosure_command(
+                command,
+                expect_discovery=is_discovery,
+                task_id=task_id,
+            )
+            logical_ids.add(identifier)
+            pending = (identifier, command, is_discovery)
+            continue
+
+        if (
+            pending is None
+            or pending[:2] != (identifier, command)
+            or item.get("status") != "completed"
+            or type(item.get("exit_code")) is not int
+            or item.get("exit_code") != 0
+            or not isinstance(item.get("aggregated_output"), str)
+        ):
+            raise ProbeFailure(
+                "command_execution_failed"
+                if item.get("status") != "completed" or item.get("exit_code") != 0
+                else "ambiguous_reference_read",
+                task_id,
+            )
+
+        is_discovery = pending[2]
+        output = item["aggregated_output"]
+        parsed_owner = _disclosure_command(
+            command,
+            expect_discovery=is_discovery,
+            task_id=task_id,
+        )
+        if is_discovery:
+            _validate_discovery_output(output, task_id)
+        else:
+            if not output or parsed_owner is None:
+                raise ProbeFailure("invalid_reference_read_output", task_id)
+            try:
+                source_bytes = plugin_probe.read_regular_file(
+                    REFERENCE_ROOT / parsed_owner,
+                    "reference_source_changed",
+                )
+            except plugin_probe.ProbeFailure as failure:
+                raise ProbeFailure(failure.reason, task_id) from None
+            try:
+                output_bytes = output.encode("utf-8", errors="strict")
+            except UnicodeEncodeError:
+                raise ProbeFailure("invalid_reference_read_output", task_id) from None
+            if output_bytes != source_bytes:
+                raise ProbeFailure("invalid_reference_read_output", task_id)
+            owner = parsed_owner
+            reference_sha256 = hashlib.sha256(source_bytes).hexdigest()
+        command_count += 1
+        pending = None
+
+    if pending is not None or command_count != 2 or owner is None or message_text is None:
+        raise ProbeFailure("missing_bounded_result", task_id)
+    if task_id == "fictional-transfer-baton-api" and any(
+        pattern.search(text)
+        for text in inspected_text
+        for pattern in FICTIONAL_SIGNATURE_PATTERNS
+    ):
+        raise ProbeFailure("invented_fictional_api_signature", task_id)
+    result = _parse_result_text(message_text, task_id)
+    assert reference_sha256 is not None
+    return ParsedDisclosure(
+        reference_name=owner,
+        reference_sha256=reference_sha256,
+        result=result,
+        result_sha256=sha256_text(message_text),
+    )
+
+
 def exact_reference_reads(
     events: list[dict[str, Any]], task_id: str
 ) -> set[str]:
@@ -1463,28 +1767,37 @@ def run_case(
         raise ProbeFailure("task_execution_failed", task_id)
 
     events = decode_json_lines(completed.stdout, task_id)
-    observed = observed_reference_reads(
-        events, task_id, require_exact_sequence=True
-    )
+    parsed = parse_disclosure_events(events, task_id)
+    observed = {parsed.reference_name}
     expected = set(case["expectedReferences"])
     if observed != expected:
         raise ProbeFailure("reference_selection_mismatch", task_id)
 
-    result, bounded_response = parse_bounded_result(events, task_id)
-    if result != case["expectedResult"]:
+    if parsed.result != case["expectedResult"]:
         raise ProbeFailure("semantic_result_mismatch", task_id)
     return {
         "expectedReferences": sorted(expected),
         "observedReferences": sorted(observed),
-        "resultClassification": result,
-        "resultSha256": sha256_text(bounded_response),
+        "referenceSha256": parsed.reference_sha256,
+        "resultClassification": parsed.result,
+        "resultSha256": parsed.result_sha256,
         "taskId": task_id,
         "taskSha256": sha256_text(prompt),
     }
 
 
-def capture_host() -> tuple[str, Path, Path, dict[str, str]]:
-    host = shutil.which("codex")
+def capture_host() -> tuple[
+    str,
+    Path,
+    Path,
+    plugin_probe.HostSnapshot,
+    dict[str, str],
+]:
+    search_path = os.environ.get("PATH")
+    if search_path is None:
+        raise ProbeBlocked("missing_binary_or_version_mismatch")
+    environment = {"PATH": search_path}
+    host = shutil.which("codex", path=search_path)
     if host is None:
         raise ProbeBlocked("missing_binary_or_version_mismatch")
     locator = Path(host)
@@ -1495,52 +1808,127 @@ def capture_host() -> tuple[str, Path, Path, dict[str, str]]:
         raise ProbeBlocked("missing_binary_or_version_mismatch") from None
     if not stat.S_ISREG(metadata.st_mode) or not os.access(locator, os.X_OK):
         raise ProbeBlocked("missing_binary_or_version_mismatch")
-    environment = os.environ.copy()
     executable = str(initial_resolution)
-    if not strict_version(executable, environment):
+    snapshot = metadata_snapshot(metadata)
+    try:
+        version_matches = plugin_probe.stable_host_version_matches(
+            executable,
+            locator,
+            initial_resolution,
+            snapshot,
+            environment,
+        )
+    except plugin_probe.ProbeFailure as failure:
+        raise ProbeFailure(failure.reason) from None
+    if not version_matches:
         raise ProbeBlocked("missing_binary_or_version_mismatch")
-    return executable, locator, initial_resolution, environment
+    return executable, locator, initial_resolution, snapshot, environment
 
 
-def require_unchanged_host(
+@contextmanager
+def prepare_isolated_plugin(
     executable: str,
     locator: Path,
     initial_resolution: Path,
-    environment: dict[str, str],
-) -> None:
-    try:
-        final_resolution = locator.resolve(strict=True)
-        metadata = final_resolution.stat()
-    except OSError:
-        raise ProbeFailure("host_resolution_or_version_drift") from None
-    if (
-        final_resolution != initial_resolution
-        or not stat.S_ISREG(metadata.st_mode)
-        or not os.access(locator, os.X_OK)
-        or not strict_version(executable, environment)
-    ):
-        raise ProbeFailure("host_resolution_or_version_drift")
+    initial_snapshot: plugin_probe.HostSnapshot,
+    base_environment: dict[str, str],
+) -> Iterator[dict[str, str]]:
+    with tempfile.TemporaryDirectory() as directory:
+        codex_home = Path(directory).resolve(strict=True)
+        environment = dict(base_environment)
+        environment["CODEX_HOME"] = str(codex_home)
+        installed_path: Path | None = None
+        try:
+            require_unchanged_host(
+                executable,
+                locator,
+                initial_resolution,
+                initial_snapshot,
+                environment,
+            )
+            installed_path = plugin_probe.install_isolated_plugin(
+                executable,
+                environment,
+                codex_home,
+            )
+            require_unchanged_host(
+                executable,
+                locator,
+                initial_resolution,
+                initial_snapshot,
+                environment,
+            )
+            plugin_probe.require_source_cache_identity(installed_path)
+            yield environment
+        except plugin_probe.ProbeFailure as failure:
+            raise ProbeFailure(failure.reason) from None
+        finally:
+            try:
+                if installed_path is not None:
+                    plugin_probe.require_source_cache_identity(installed_path)
+                require_unchanged_host(
+                    executable,
+                    locator,
+                    initial_resolution,
+                    initial_snapshot,
+                    environment,
+                )
+            except plugin_probe.ProbeFailure as failure:
+                raise ProbeFailure(failure.reason) from None
 
 
 def main() -> int:
     try:
-        executable, locator, initial_resolution, environment = capture_host()
+        (
+            executable,
+            locator,
+            initial_resolution,
+            initial_snapshot,
+            environment,
+        ) = capture_host()
     except ProbeBlocked as failure:
         emit_result(blocked_payload(failure.reason, failure.attempted_case_count))
         return 2
+    except ProbeFailure as failure:
+        emit_result(failed_payload(failure))
+        return 1
 
     case_results: list[dict[str, Any]] = []
     terminal_status = 1
     terminal_payload: dict[str, Any]
     try:
-        for task_id, case in CASES.items():
-            case_results.append(run_case(executable, environment, task_id, case))
-            require_unchanged_host(
-                executable,
-                locator,
-                initial_resolution,
-                environment,
-            )
+        with prepare_isolated_plugin(
+            executable,
+            locator,
+            initial_resolution,
+            initial_snapshot,
+            environment,
+        ) as isolated_environment:
+            for task_id, case in CASES.items():
+                require_unchanged_host(
+                    executable,
+                    locator,
+                    initial_resolution,
+                    initial_snapshot,
+                    isolated_environment,
+                )
+                try:
+                    case_results.append(
+                        run_case(
+                            executable,
+                            isolated_environment,
+                            task_id,
+                            case,
+                        )
+                    )
+                finally:
+                    require_unchanged_host(
+                        executable,
+                        locator,
+                        initial_resolution,
+                        initial_snapshot,
+                        isolated_environment,
+                    )
     except ProbeBlocked as failure:
         attempted = len(case_results) + failure.attempted_case_count
         terminal_status = 2
@@ -1574,6 +1962,7 @@ def main() -> int:
                 executable,
                 locator,
                 initial_resolution,
+                initial_snapshot,
                 environment,
             )
         except Exception:

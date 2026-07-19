@@ -25,8 +25,8 @@ REFERENCE_NAMES = (
 SWIFT_LABELS = {
     "compiled_sdk_26_5",
     "interface_verified_sdk_26_5",
-    "official_beta_unverified",
-    "pseudocode",
+    "official_os_xcode_27_beta_locally_unverified",
+    "pseudocode_deterministic_mock",
 }
 APPLE_OWNER = "apple-api-availability.md"
 VOLATILE_OWNER_TOKENS = (
@@ -338,10 +338,11 @@ class ReferenceLibraryTests(unittest.TestCase):
 
     def test_architecture_contract_is_complete(self):
         text = self.texts()["architecture-and-state.md"]
+        flat = text.replace("\n", " ")
         required = (
             "activationStatus = activated",
             "selectedSkill",
-            "routerInput = { domain, requestedOperation, artifactState, evidenceState }",
+            "preselectionInput = { domain, requestedOperation, artifactState, evidenceState }",
             'architectureSchemaVersion: "1.0"',
             "architectureResult",
             "workflow-specific sections are additive inside",
@@ -356,11 +357,21 @@ class ReferenceLibraryTests(unittest.TestCase):
             "late/replayed event or unavailable repair",
             "Preserve authority, phase, pending/checkpoint state, counts, ledger, and repair facts; emit no command.",
             "at most one command",
+            "activationStatus = no_activation",
+            "reasonCode = out_of_domain",
+            "activationStatus = clarification_required",
+            "clarificationKind = domain | approved_contract",
+            "missingInput",
+            "question",
+            "Positive requests bypass the bounded non-positive router",
+            "loads no reference",
+            "not a sixth workflow",
         )
         for token in required:
-            self.assertIn(token, text)
+            self.assertIn(token, flat)
         self.assertRegex(text, r"stateVersion.*policyVersion|policyVersion.*stateVersion")
         self.assertIn("independently", text)
+        self.assertNotIn("routerInput", text)
         self.assertNotIn("exactly-once", text)
         for invented_domain in (
             "implementationResult",
@@ -385,6 +396,15 @@ class ReferenceLibraryTests(unittest.TestCase):
             "parent needs bounded expertise + isolated child transcript -> consultation",
             "application chooses one route before work -> deterministic routing",
             "new session is initialized from selected entries -> transcript transfer",
+            "Documentation-only downstream diagnostic chain",
+            "condense_diagnostic_output",
+            "DEV-142",
+            "DEV-143",
+            "DEV-144",
+            "DEV-145",
+            "original result",
+            "at most one bridge attempt",
+            "no branch reruns the original tool",
         )
         for token in required:
             self.assertIn(token, text)
@@ -392,11 +412,32 @@ class ReferenceLibraryTests(unittest.TestCase):
         self.assertNotRegex(text, r"(?:struct|class|enum|protocol)\s+BatonPass\b")
         self.assertNotRegex(text, r"drop-in\s+`?PhoneFriendTool`?", re.IGNORECASE)
 
+    def test_diagnostic_chain_topology_has_one_owner(self):
+        texts = self.texts()
+        topology_tokens = (
+            "condense_diagnostic_output",
+            "one local Swift Apple Foundation Models bridge",
+            "at most one bridge attempt",
+            "no branch reruns the original tool",
+        )
+        for token in topology_tokens:
+            owners = [name for name, text in texts.items() if token in text]
+            self.assertEqual(["orchestration-patterns.md"], owners, token)
+        self.assertIn(
+            "DEV-142 through DEV-145 cost router documented by [orchestration patterns]",
+            texts["architecture-and-state.md"].replace("\n", " "),
+        )
+        self.assertIn(
+            "owns its data-policy checks and fail-closed boundary",
+            texts["security-context-and-recovery.md"],
+        )
+
     def test_apple_api_contract_has_exact_host_errors_and_boundaries(self):
         text = self.texts()[APPLE_OWNER]
         required = (
             "SDK: macOS 26.5",
-            "Swift: Apple Swift 6.3.2",
+            "Xcode: 26.6 (17F113)",
+            "Swift: Apple Swift 6.3.3",
             EXPECTED_INTERFACE_SHA256,
             "arm64e-apple-macos.swiftinterface",
             "GenerationOptions.ToolCallingMode",
@@ -409,6 +450,9 @@ class ReferenceLibraryTests(unittest.TestCase):
             "Provider behavior varies",
             "not a runtime dependency",
             UTILITIES_COMMIT,
+            "Static structured-output macros",
+            "compiled_sdk_26_5",
+            "six positive",
         )
         for token in required:
             self.assertIn(token, text)
@@ -518,6 +562,7 @@ class ReferenceLibraryTests(unittest.TestCase):
 
     def test_security_contract_is_complete(self):
         text = self.texts()["security-context-and-recovery.md"]
+        flat = text.replace("\n", " ")
         required = (
             "Official Apple fact",
             "Mandatory application policy",
@@ -541,14 +586,21 @@ class ReferenceLibraryTests(unittest.TestCase):
             "typed tool-result provenance",
             "one effect identity",
             "replay/late event -> unchanged state and no executor command",
-            "retry -> only after explicit reconciliation establishes external truth",
+            "retry -> only after confirmed absence",
             "safe fallback",
             ".onToolCall",
             ".historyTransform",
-            "official_beta_unverified",
+            "official_os_xcode_27_beta_locally_unverified",
+            "person/session",
+            "source profile/provider",
+            "destination profile/provider",
+            "exact classes",
+            "exact fields",
+            "applicable provider disclosure",
+            "exceptional C2 permission",
         )
         for token in required:
-            self.assertIn(token, text)
+            self.assertIn(token, flat)
         for line in text.splitlines():
             if "exactly-once" in line:
                 self.assertIn("never promise exactly-once", line)
@@ -564,13 +616,10 @@ class ReferenceLibraryTests(unittest.TestCase):
             with self.subTest(evidence_id=evidence_id):
                 self.assertIn(f"| `{evidence_id}` | {meaning} |", text)
         self.assertIn(
-            "D-GRANT-001 binds person/session, source profile/provider, "
-            "destination profile/provider, purpose, exact classes, exact fields, "
-            "tools, retention, expiry, applicable provider disclosure, exceptional "
-            "C2 permission, stateVersion, and policyVersion; any bound-field change "
-            "invalidates the grant.",
+            "D-GRANT-001 verifies the complete provider-grant binding owned by",
             text.replace("\n", " "),
         )
+        self.assertNotIn("person/session, source profile/provider", text.replace("\n", " "))
         for state in ("pass", "fail", "blocked", "not_applicable"):
             self.assertRegex(text, rf"`{state}`")
         self.assertIn("value: null", text)
@@ -585,6 +634,10 @@ class ReferenceLibraryTests(unittest.TestCase):
         self.assertIn("optional evidence", text)
         self.assertIn("not authorization", text)
         self.assertIn("not default CI", text)
+        lower = text.lower()
+        self.assertIn("at least 10% median total parent-model token reduction", lower)
+        self.assertIn("zero correctness regressions", lower)
+        self.assertIn("zero additional parent-model turns", lower)
         self.assertNotRegex(text, r"\[[^\]]+\]\([^)]*\.(?:trace|xcresult)[^)]*\)")
         self.assertNotRegex(text, r"\braw(?:Prompt|Response)\b")
 

@@ -88,11 +88,11 @@ unexpected files and all symlinks remain failures.
 
 | Reference | Sole ownership | Explicit exclusions |
 | --- | --- | --- |
-| `architecture-and-state.md` | `architectureSchemaVersion: "1.0"`; result domains; source/destination/final ownership; framework-neutral state, phase, transition, termination, cancellation, retry, checkpoint, ledger, and repair contracts | Apple declaration/signature tables, workflow activation text, threat catalog, rubric details |
-| `orchestration-patterns.md` | Baton-pass, isolated consultation, deterministic routing, transcript transfer; topology, history visibility, trigger/control, final owner, and selection tables | Exact Apple declarations/errors, state schema duplication, workflow triggers |
+| `architecture-and-state.md` | `architectureSchemaVersion: "1.0"`; exact positive and non-positive envelopes; source/destination/final ownership; framework-neutral state, phase, transition, termination, cancellation, retry, checkpoint, ledger, and repair contracts | Apple declaration/signature tables, workflow activation text, diagnostic-chain topology, threat catalog, rubric details |
+| `orchestration-patterns.md` | Baton-pass, isolated consultation, deterministic routing, transcript transfer; topology, history visibility, trigger/control, final owner, selection tables, and the documentation-only DEV-142 through DEV-145 diagnostic-chain topology | Exact Apple declarations/errors, state schema duplication, workflow triggers, release-gate arithmetic |
 | `apple-api-availability.md` | Installed SDK 26.5 compiled/interface surfaces; OS/Xcode 27 beta declarations; complete exact error signatures and payloads; availability, provider/PCC, cache, structured output, runtime Skills, and API blockers | Application authorization policy, rubric, skill activation prose |
-| `security-context-and-recovery.md` | Apple security facts separated from application policy; trust boundaries; C0-C3; provenance; grants; confirmation; tool-result provenance; effects; recovery; fallback; trace handling; residual risk | Duplicate Apple signature/error tables, executable reducer fixture code |
-| `evaluation-and-observability.md` | Stable D/E IDs; corpus/oracle rules; seven-dimension rubric; evidence allowlist; host matrix; zero denominators; Evaluations and Instruments boundaries; blocker policy | Exact Apple API signatures, duplicated state/security tables, production host harness implementation |
+| `security-context-and-recovery.md` | Apple security facts separated from application policy; trust boundaries; C0-C3; provenance; the complete provider-grant binding; confirmation; tool-result provenance; effects; recovery; fallback; trace handling; residual risk | Duplicate diagnostic-chain topology, Apple signature/error tables, executable reducer fixture code |
+| `evaluation-and-observability.md` | Stable D/E IDs; corpus/oracle rules; seven-dimension rubric; evidence allowlist; host matrix; DEV-142 runtime-cost release gate; zero denominators; Evaluations and Instruments boundaries; blocker policy | Exact Apple API signatures, duplicated state/security tables or provider-grant field list, production host harness implementation |
 
 If a subject touches another owner, the file states the local decision in one
 sentence and links to the sibling owner. It does not reproduce the sibling
@@ -106,7 +106,23 @@ cache/provider qualifications occur only in `apple-api-availability.md`.
 Required sections are scope and authority, common result schema, ownership and
 state fields, lifecycle transition table, termination and fallback boundary,
 recovery and replay checklist, limitations, related references, and source
-context. The state contract preserves:
+context. Every positive request bypasses the bounded non-positive router,
+selects exactly one workflow, and returns this envelope:
+
+```text
+activationStatus = activated
+selectedSkill
+preselectionInput = { domain, requestedOperation, artifactState, evidenceState }
+architectureResult
+```
+
+The non-positive router loads no reference, is not a sixth workflow, and is
+distinct from the DEV-142 through DEV-145 cost router. Out-of-domain rejection
+contains exactly `activationStatus = no_activation`, `reasonCode =
+out_of_domain`, `domain`, and `requestedOperation`. Clarification contains
+exactly `activationStatus = clarification_required`, `clarificationKind =
+domain | approved_contract`, `missingInput`, and `question`. Neither shape
+contains `architectureResult` or runtime work. The state contract preserves:
 
 ```text
 stateVersion                monotonic state/concurrency revision
@@ -131,9 +147,10 @@ recovery. Late and replayed events mutate nothing and emit no command.
 ### `orchestration-patterns.md`
 
 Required sections are selection questions, a four-pattern comparison, baton-
-pass, isolated consultation, deterministic routing, transcript transfer,
-anti-conflation boundaries, context/cache implications, failure ownership,
-related references, and official pattern sources.
+pass, isolated consultation, deterministic routing, the documentation-only
+downstream diagnostic chain, transcript transfer, anti-conflation boundaries,
+context/cache implications, failure ownership, related references, and
+official pattern sources.
 
 The selection table must preserve these results:
 
@@ -148,6 +165,16 @@ No first-class `BatonPass` type or drop-in `PhoneFriendTool` is claimed.
 Foundation Models runtime Skills, Claude/Codex Agent Skills, Apple Handoff, App
 Intents, and coding-session handoff remain distinct.
 
+The diagnostic-chain topology is host `PostToolUse` adapter -> DEV-142
+deterministic cost router -> DEV-143 one local Swift Apple Foundation Models
+bridge -> DEV-144 Codex or DEV-145 Claude adapter. Its exact action is
+`condense_diagnostic_output`; each eligible original result receives at most one
+bridge attempt, no branch reruns the original tool, and every unavailable,
+unknown, declined, failed, timed-out, cancelled, or invalid branch preserves the
+original result and fails closed. Orchestration owns this topology. Security
+owns data-policy/fail-closed enforcement, while evaluation owns the release
+gate; neither duplicates the full chain.
+
 ### `apple-api-availability.md`
 
 Required sections are evidence labels, normalized host/interface identity,
@@ -160,7 +187,8 @@ The installed interface authority is:
 
 ```text
 SDK: macOS 26.5
-Swift: Apple Swift 6.3.2
+Xcode: 26.6 (17F113)
+Swift: Apple Swift 6.3.3
 Interface: <sdk>/System/Library/Frameworks/FoundationModels.framework/
            Versions/A/Modules/FoundationModels.swiftmodule/
            arm64e-apple-macos.swiftinterface
@@ -196,6 +224,12 @@ PCC properties never transfer to a custom provider. Trace claims stop at
 Apple's statement that prompts/responses may be sensitive and need safe
 handling; the reference makes no unsupported at-rest encryption claim.
 
+This file solely owns the complete provider-grant binding: person/session,
+source profile/provider, destination profile/provider, purpose, exact classes,
+exact fields, tools, retention, expiry, applicable provider disclosure,
+exceptional C2 permission, `stateVersion`, and `policyVersion`. Evaluation may
+verify that contract but never reproduces its field list.
+
 ### `evaluation-and-observability.md`
 
 Required sections are evidence layers/states, stable ID catalog, corpus/oracle
@@ -209,6 +243,11 @@ failure and recovery behavior; testability and observability; limitation
 honesty. Scores are integers 1-4, mean is at least 3.0, and security policy,
 failure/recovery, and limitation honesty each score at least 3. Human semantic
 judgment stays separate from deterministic shape/hash/arithmetic validation.
+
+The DEV-142 runtime-cost release gate requires paired normalized live telemetry,
+current policy, and live Apple prerequisites. Passing means at least 10% median
+total parent-model token reduction, zero correctness regressions, and zero
+additional parent-model turns. Missing inputs are `blocked`, never estimated.
 
 ## Direct progressive-disclosure routes
 
@@ -264,8 +303,8 @@ Every Swift fence has one visible status line immediately before it:
 ```text
 Code status: `compiled_sdk_26_5`
 Code status: `interface_verified_sdk_26_5`
-Code status: `official_beta_unverified`
-Code status: `pseudocode`
+Code status: `official_os_xcode_27_beta_locally_unverified`
+Code status: `pseudocode_deterministic_mock`
 ```
 
 No other Swift status is permitted. `compiled_sdk_26_5` blocks are small,
@@ -273,8 +312,9 @@ self-contained excerpts that type-check independently against the explicit
 macOS 26.5 SDK and `arm64-apple-macos26.0` target. They do not invoke live
 generation, PCC, a provider, credentials, entitlements, or a network service.
 `interface_verified_sdk_26_5` blocks reproduce the pinned local declaration
-shape but do not imply execution. `official_beta_unverified` blocks cite the
-official source and remain blocked without SDK/Xcode 27. `pseudocode` blocks
+shape but do not imply execution.
+`official_os_xcode_27_beta_locally_unverified` blocks cite the official source
+and remain blocked without SDK/Xcode 27. `pseudocode_deterministic_mock` blocks
 are application contracts and never masquerade as framework types.
 
 Reference snippets are not executable scenario fixtures. DEV-138 retains all
@@ -310,8 +350,12 @@ official URL and records an honest blocker if network/TLS/DNS is unavailable.
 files to the three metadata files plus five references. `tests/e2e/
 codex_plugin_load.py` expands `EXPECTED_CACHE_FILES` identically and proves all
 eight source/cache files are regular, non-symlinked, byte-identical, and inside
-the isolated installed package. This remains `E-CODEX-LOAD-001` structural
-evidence, not workflow activation.
+the isolated installed package. Host identity is captured as device, inode,
+file type, permission mode, size, mtime nanoseconds, and ctime nanoseconds, and
+is checked before and after every version query. Source/cache identity is
+checked before and after any directed task while the temporary isolated
+`CODEX_HOME` still exists. This remains `E-CODEX-LOAD-001` structural evidence,
+not workflow activation.
 
 ### Optional structural direct-reference prerequisite
 
@@ -324,6 +368,16 @@ requires the expected minimal reference set for three normalized tasks:
 3. fictional `LanguageModelSession.transferBaton(to:)` signature -> Apple API
    reference and an explicit unsupported/no-first-class-API result, never an
    invented declaration.
+
+The disclosure runner consumes only the closed Codex 0.144.5 JSONL grammar: one
+successful discovery lifecycle, one successful exact-file `cat` lifecycle, and
+one top-level schema-pinned final agent message. It requires exact five-path
+discovery output, read bytes and SHA-256 equal to the safely read source owner,
+globally unique item IDs, direct commands or one bare/absolute `sh`, `bash`, or
+`zsh -lc` transport envelope, and no nested, replayed, failed, pre-read, extra,
+or lookalike action. Schema-pinned passive reasoning may occur but cannot change
+ordering or introduce a fictional API signature. The module must also import
+when run directly with only `tests/e2e` on `sys.path`.
 
 This probe is only an optional structural prerequisite showing that Codex can
 select and ground in the authored corpus when explicitly directed to inspect
@@ -383,7 +437,8 @@ waive DEV-137's combined-stack completion gate.
 | Claude Code load/activation | `blocked/deferred_by_owner`; not invoked | Never represented as pass |
 | `pre-commit` | `blocked/deferred_by_owner` | Never represented as pass |
 | `markdownlint` | `blocked/deferred_by_owner` | Never represented as pass |
-| Xcode 27/Evaluations/Instruments | Blocked on current SDK 26.5 Command Line Tools host | Missing full Xcode/module/tool/compatible target is an explicit blocker |
+| Xcode 26.6 / SDK 26.5 | Active | Stable/interface snippets and static structured-output macro compile are current deterministic evidence |
+| Xcode 27/Evaluations/Instruments | Blocked because current full Xcode is 26.6, not Xcode 27 | Missing required Xcode 27/module/tool/compatible target is an explicit blocker |
 
 Committed host evidence contains normalized `<repo>`/`<host-path>`, strict
 version/status/reason/exit-code metadata, and hashes/counts only. Raw prompts,

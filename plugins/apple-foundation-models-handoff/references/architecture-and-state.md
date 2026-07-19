@@ -19,7 +19,7 @@ Every positive result has exactly this normalized outer envelope:
 ```text
 activationStatus = activated
 selectedSkill
-routerInput = { domain, requestedOperation, artifactState, evidenceState }
+preselectionInput = { domain, requestedOperation, artifactState, evidenceState }
 architectureResult
 ```
 
@@ -58,10 +58,32 @@ All positive results carry `architectureSchemaVersion`, `stateVersion`,
 `policyVersion`, source and destination identities, final-response owner,
 current phase, evidence status, blockers, assumptions, and limitations.
 
-Non-positive results are bounded to `no_activation` with reason
-`out_of_domain`, or `clarification_required` with one missing input and one
-question. They contain no `architectureResult`, fabricated architecture, or
-Apple claim.
+Positive requests bypass the bounded non-positive router and select exactly one
+of the five workflows directly. The router loads no reference, is not a sixth
+workflow, and is distinct from the DEV-142 through DEV-145 cost router documented
+by [orchestration patterns](orchestration-patterns.md).
+
+Out-of-domain rejection contains exactly:
+
+```text
+activationStatus = no_activation
+reasonCode = out_of_domain
+domain
+requestedOperation
+```
+
+Bounded clarification contains exactly:
+
+```text
+activationStatus = clarification_required
+clarificationKind = domain | approved_contract
+missingInput
+question
+```
+
+Neither non-positive shape contains `architectureResult`, loaded references,
+fabricated architecture or Apple claims, tools, effects, commands, agents,
+hooks, MCP, apps, scripts, dependencies, runtime, or cost-routing work.
 
 ## Ownership and state fields
 
@@ -80,7 +102,7 @@ transition.
 | `finalResponseOwner` | The component permitted to return the user-facing result |
 | `allowedEdges` | Policy-approved source/destination transitions |
 | transition/tool/effect counts and budgets | Monotonic bounded counters checked only after phase and version checks |
-| classified context envelope / provider grant | Authorized fields, purpose, tools, recipient, retention, expiry, person, and versions |
+| classified context envelope / provider grant | Grant identity and validation status; the complete binding fields are owned only by [security, context, and recovery](security-context-and-recovery.md) |
 | pending transition / stable checkpoint | Complete repair input retained until success or known rollback |
 | effect ledger | One application identity for each possible or confirmed external commit |
 | metadata-only audit events | Normalized IDs, versions, states, hashes, counts, and reasons; no sensitive content |
@@ -106,7 +128,7 @@ from `stable`; this is the stable-only ordinary termination rule.
 | `recoveryRequired` | late/replayed event or unavailable repair | Preserve authority, phase, pending/checkpoint state, counts, ledger, and repair facts; emit no command. |
 | `stable` | budget exhaustion/no safe path | Terminate or return explicit unavailable/degraded output without expanding trust. |
 
-Code status: `pseudocode`
+Code status: `pseudocode_deterministic_mock`
 ```swift
 switch (state.phase, event) {
 case (.stable, .validProposal(let proposal)):
@@ -150,8 +172,8 @@ provider, final owner, context class, or effect scope.
   establishes external truth.
 - Apply a late or replayed event to the current versions and ledger. A stale
   event returns unchanged state and no command.
-- Permit retry only after reconciliation proves the earlier effect did not
-  commit or the existing committed result has been adopted.
+- Permit retry only after reconciliation confirms the earlier effect is absent.
+  A confirmed committed result is adopted and is never retried.
 - Emit metadata-only repair evidence and keep context/tool payloads outside the
   durable record.
 
