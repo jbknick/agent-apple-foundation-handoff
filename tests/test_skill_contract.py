@@ -340,6 +340,10 @@ ROUTER_FINAL_RESPONSE_GATE_SENTENCES = (
     "request without inspection or tool use.",
     "Make the final response exactly one fenced `text` block copied from the "
     "matching branch below, with nothing before or after the fence.",
+    "Treat a request asking only about Swift actors, actor isolation, or a Swift "
+    "example as `domain = out_of_domain` even when it asks for implementation; "
+    "return the `no_activation` branch before positive selection and never select "
+    "implementation.",
 )
 
 POSITIVE_FINAL_RESPONSE_GATE_SENTENCES = (
@@ -351,6 +355,25 @@ POSITIVE_FINAL_RESPONSE_GATE_SENTENCES = (
     "Close that fence immediately after its 21st line, then emit only the exact "
     "required headings, each once and in their listed order.",
 )
+
+REQUIRED_RESPONSE_HEADING_COUNTS = {
+    "design-apple-foundation-models-handoff": 14,
+    "implement-apple-foundation-models-handoff": 14,
+    "review-apple-foundation-models-handoff": 11,
+    "debug-apple-foundation-models-handoff": 15,
+    "validate-apple-foundation-models-handoff": 15,
+}
+
+
+def positive_final_response_gate_sentences(skill: str) -> tuple[str, ...]:
+    count = REQUIRED_RESPONSE_HEADING_COUNTS[skill]
+    return (
+        *POSITIVE_FINAL_RESPONSE_GATE_SENTENCES,
+        "The response is incomplete until the fence is followed by exactly "
+        f"{count} level-three headings: all ten common headings followed by the "
+        "workflow-specific headings in their listed order; do not stop after the "
+        "fence or omit an empty-but-required heading.",
+    )
 
 CORE_SEMANTIC_SECTION_TITLES = (
     "Final Response Gate",
@@ -1077,7 +1100,7 @@ def assert_structured_skill_contract(
         test_case,
         text,
         sections,
-        POSITIVE_FINAL_RESPONSE_GATE_SENTENCES,
+        positive_final_response_gate_sentences(skill),
     )
     routing = semantic_section(test_case, sections, "routing", "inspection")
     protocol = semantic_section(test_case, sections, "workflow", "protocol")
@@ -1254,7 +1277,7 @@ def build_valid_skill_fixture(skill: str) -> str:
     return (
         f"---\nname: {skill}\ndescription: {description}\n---\n\n"
         "## Final Response Gate\n"
-        + "\n".join(POSITIVE_FINAL_RESPONSE_GATE_SENTENCES)
+        + "\n".join(positive_final_response_gate_sentences(skill))
         + "\n\n"
         "## Routing and Inspection\n"
         + "\n".join(router_lines)
@@ -1589,7 +1612,7 @@ class SkillContractTests(unittest.TestCase):
                     self,
                     text,
                     parse_markdown_sections(text),
-                    POSITIVE_FINAL_RESPONSE_GATE_SENTENCES,
+                    positive_final_response_gate_sentences(skill),
                 )
 
     def test_each_skill_owns_non_recursive_outer_harness_guardrails(self) -> None:
@@ -1762,7 +1785,7 @@ class SkillContractMutationTests(unittest.TestCase):
         positive_fixture = build_valid_skill_fixture(self.skill)
         positive_gate = (
             "## Final Response Gate\n"
-            + "\n".join(POSITIVE_FINAL_RESPONSE_GATE_SENTENCES)
+            + "\n".join(positive_final_response_gate_sentences(self.skill))
             + "\n\n"
         )
         positive_mutations = (
@@ -1773,7 +1796,7 @@ class SkillContractMutationTests(unittest.TestCase):
                 1,
             ),
             positive_fixture.replace(
-                "\n".join(POSITIVE_FINAL_RESPONSE_GATE_SENTENCES),
+                "\n".join(positive_final_response_gate_sentences(self.skill)),
                 "\n".join(ROUTER_FINAL_RESPONSE_GATE_SENTENCES),
                 1,
             ),
@@ -1797,13 +1820,39 @@ class SkillContractMutationTests(unittest.TestCase):
             ),
             router_fixture.replace(
                 "\n".join(ROUTER_FINAL_RESPONSE_GATE_SENTENCES),
-                "\n".join(POSITIVE_FINAL_RESPONSE_GATE_SENTENCES),
+                "\n".join(positive_final_response_gate_sentences(self.skill)),
                 1,
             ),
         )
         for candidate in router_mutations:
             with self.subTest(owner="router"):
                 self.assert_router_rejected(candidate)
+
+    def test_response_completion_gate_mutations_are_rejected(self) -> None:
+        router_fixture = build_valid_router_fixture()
+        router_recipe = ROUTER_FINAL_RESPONSE_GATE_SENTENCES[-1]
+        self.assert_router_rejected(router_fixture.replace(router_recipe, "", 1))
+
+        for skill in WORKFLOW_SKILLS:
+            fixture = build_valid_skill_fixture(skill)
+            expected_count = REQUIRED_RESPONSE_HEADING_COUNTS[skill]
+            self.assertEqual(
+                10 + len(WORKFLOW_SECTIONS[skill]),
+                expected_count,
+                f"{skill}: required response-heading total must derive from the contract",
+            )
+            completion_recipe = positive_final_response_gate_sentences(skill)[-1]
+            mutations = {
+                "missing completion recipe": fixture.replace(completion_recipe, "", 1),
+                "wrong completion count": fixture.replace(
+                    f"exactly {expected_count} level-three headings",
+                    f"exactly {expected_count + 1} level-three headings",
+                    1,
+                ),
+            }
+            for mutation, candidate in mutations.items():
+                with self.subTest(skill=skill, mutation=mutation):
+                    self.assert_skill_rejected(candidate, skill)
 
     def test_flat_token_dump_is_rejected(self) -> None:
         fixture = build_valid_skill_fixture(self.skill)

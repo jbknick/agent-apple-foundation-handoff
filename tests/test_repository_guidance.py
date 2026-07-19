@@ -53,6 +53,12 @@ ROUTER_FIRST_GUIDANCE_CONTRACTS = (
     "Otherwise select exactly one matching positive workflow; once selected, it "
     "remains the only workflow owner for the request.",
 )
+GENERIC_SWIFT_ACTOR_ROUTER_RECIPE = (
+    "Treat a request asking only about Swift actors, actor isolation, or a Swift "
+    "example as `domain = out_of_domain` even when it asks for implementation; "
+    "select only `route-apple-foundation-models-handoff` and return its "
+    "`no_activation` result before positive selection."
+)
 STALE_WORKFLOW_CLAIMS = (
     "remain unimplemented",
     "must not be advertised as active",
@@ -75,6 +81,7 @@ WORKFLOW_GUIDANCE_CONTRACTS = (
     "Discovery, file presence, and installation are structural prerequisites and "
     "cannot prove behavioral or capability activation",
     *ROUTER_FIRST_GUIDANCE_CONTRACTS,
+    GENERIC_SWIFT_ACTOR_ROUTER_RECIPE,
 )
 SKILL_OWNED_SECTION_HEADINGS = (
     "Routing and Inspection",
