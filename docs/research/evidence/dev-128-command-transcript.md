@@ -328,7 +328,7 @@ swiftc -typecheck -target arm64-apple-macos26.0 -sdk "$SDK" \
 ```
 
 ```text
-historical_expected_blocker_macro_rc=0
+macro_compile_rc_on_current_toolchain=0
 macro_typecheck_rc=0
 macro_reclassification=COMPILED
 live_generation_run=false

@@ -99,9 +99,10 @@ rg -q "no such module 'Evaluations'" /tmp/dev-128-evaluations.out
 
 The positive gates perform no live generation, tool selection, network call,
 PCC request, provider request, credential lookup, paid-service call, adapter
-load, or entitlement-dependent operation. They require only the recorded host's
-Swift compiler and macOS SDK. The availability probe records state and does not
-fail merely because model assets are unavailable.
+load, or entitlement-dependent operation. They require the recorded host's
+Swift compiler and macOS SDK; the macro positive also requires the recorded
+Xcode 26.6 toolchain and Foundation Models macro plugin. The availability
+probe records state and does not fail merely because model assets are unavailable.
 
 The blocked gates preserve narrow evidence for missing SDK 27 symbols and the
 Evaluations module. Xcode 26.6 changed the macro result, so the former macro

@@ -468,14 +468,8 @@ Downstream issues must inherit these constraints:
 4. Keep stable `LanguageModelSession.GenerationError`, beta
    `LanguageModelError`, beta `LanguageModelSession.Error`, and model/provider
    errors in separately versioned guidance and tests.
-5. Implement the stable production bridge chain explicitly: gate
-   `SystemLanguageModel.default` availability and locale; enforce a conservative
-   application payload/context bound using `contextSize` and applicable
-   token-count APIs; create a real session and request structured output; treat
-   output as untrusted until application validation succeeds; propagate
-   cancellation; impose an application-owned SDK 26.5 deadline; handle stable
-   `GenerationError`, including `decodingFailure`; and require supported-host
-   live proof before calling the bridge/runtime proven.
+5. Follow the [Stable production bridge contract](#stable-production-bridge-contract);
+   supported-host live proof remains required and is not claimed here.
 6. Default tests must remain deterministic and offline: no PCC, external
    provider, credentials, entitlement, paid service, network, or live generation
    requirement. Unsupported host prerequisites must produce explicit blockers.
