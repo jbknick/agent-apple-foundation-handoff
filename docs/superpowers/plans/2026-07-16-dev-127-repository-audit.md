@@ -6,7 +6,7 @@
 
 **Architecture:** The command transcript is the evidence layer; the architecture report consumes it and separates authoritative fork facts, pinned upstream reference observations, not-yet-established decisions, and explicit blockers. Upstream bstack is comparison material only.
 
-**Tech Stack:** Git, Bash, GitHub CLI, Claude Code CLI 2.1.91, Codex CLI 0.144.5, Markdown.
+**Tech Stack:** Git, Bash, GitHub CLI, rg, jq, Claude Code CLI 2.1.91, Codex CLI 0.144.5, Apple Swift toolchain (`swiftc`), `xcodebuild` (expected blocked prerequisite), Markdown.
 
 ## Global Constraints
 

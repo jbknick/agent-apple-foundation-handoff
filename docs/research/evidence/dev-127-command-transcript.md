@@ -230,9 +230,11 @@ xcode-select: error: tool 'xcodebuild' requires Xcode, but active developer dire
 Exit status: `1`.
 
 **Established.** For supporting command-line inspection, `jq` was present at
-`/opt/homebrew/bin/jq`; `bats` was absent. **Not established:** these host-tool
-observations do not establish repository-native validation or generation
-commands because the authoritative fork contains no corresponding setup.
+`/opt/homebrew/bin/jq`; `rg` availability is evidenced by successful transcript
+commands; and `bats` was absent. **Not established:** the `rg` path and both
+`jq` and `rg` versions were not recorded. These host-tool observations do not
+establish repository-native validation or generation commands because the
+authoritative fork contains no corresponding setup.
 
 ## Claude Code isolated loading
 

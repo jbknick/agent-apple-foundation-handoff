@@ -4,7 +4,7 @@
 
 Produce a current-fork-first architecture audit that prevents later project
 issues from inheriting repository structures that do not exist. The audit will
-describe the repository at commit `7ec9273`, compare it with the project
+describe the repository at commit `7ec92734127236e29ab88d66c1b41f663149ce0e`, compare it with the project
 brief's upstream bstack assumptions without treating upstream as authoritative,
 and record every unsupported validation or host-loading claim as a blocker.
 

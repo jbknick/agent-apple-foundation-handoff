@@ -156,6 +156,12 @@ must report that condition as a blocker unless the host prerequisite changes.
 
 The audit deliberately does not pre-select the following decisions:
 
+**Post-audit downstream constraint (2026-07-18).** DEV-127 neither established
+nor implemented plugin-bundled lifecycle hooks, trusted hook loading,
+executable packaging, writable plugin data, or host-specific result-replacement
+semantics. Downstream extension work must treat them as required extension
+surfaces.
+
 1. DEV-132 must establish the plugin topology and the authoritative ownership
    boundary between shared canonical content, generated host metadata, and any
    host adapters.
