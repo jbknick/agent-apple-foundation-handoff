@@ -223,9 +223,10 @@ REFERENCE_NAMES = (
 )
 
 PROTOCOL_STEPS = (
-    "Inspect the repository, relevant artifacts, and installed SDK interfaces before "
-    "asserting implementation facts.",
-    "Resolve the router inputs and state the selected workflow.",
+    "Freeze the source-request router inputs and state the selected workflow before "
+    "inspection or non-skill tool use.",
+    "Only after pre-selection, inspect the repository, relevant artifacts, and "
+    "installed SDK interfaces for workflow facts.",
     "Establish the current owner, next owner, trust boundary, and effect authority.",
     "Separate control-plane state from model context and minimize transferred data.",
     "Distinguish consultation from ownership transfer.",
@@ -240,8 +241,23 @@ PROTOCOL_STEPS = (
 )
 
 PROTOCOL_STEP_PATTERNS = (
-    (r"inspect", r"repositor", r"artifact", r"installed SDK interface", r"implementation fact"),
-    (r"router input", r"selected workflow"),
+    (
+        r"freeze",
+        r"source-request",
+        r"router input",
+        r"selected workflow",
+        r"before",
+        r"inspection",
+        r"non-skill tool use",
+    ),
+    (
+        r"only after pre-selection",
+        r"inspect",
+        r"repositor",
+        r"artifact",
+        r"installed SDK interface",
+        r"workflow fact",
+    ),
     (r"current owner", r"next owner", r"trust boundar", r"effect authorit"),
     (r"control-plane state", r"model context", r"minimiz", r"transferred data"),
     (r"consultation", r"ownership transfer"),
@@ -379,6 +395,14 @@ POSITIVE_IMMUTABLE_PRESELECTION_SENTENCE = (
     "ownership effect."
 )
 
+DESIGN_SOURCE_PRESELECTION_SENTENCE = (
+    "For an explicit Apple Foundation Models design request with no user-supplied "
+    "or user-described artifact or evidence, freeze the exact tuple "
+    "`foundation_models_handoff/design/absent/missing`: `domain = "
+    "foundation_models_handoff`, `requestedOperation = design`, `artifactState = "
+    "absent`, and `evidenceState = missing` before inspection or non-skill tool use."
+)
+
 POSITIVE_FINAL_RESPONSE_GATE_SENTENCES = (
     POSITIVE_FROZEN_TUPLE_SENTENCE,
     POSITIVE_IMMUTABLE_PRESELECTION_SENTENCE,
@@ -411,7 +435,13 @@ REQUIRED_RESPONSE_HEADING_COUNTS = {
 def positive_final_response_gate_sentences(skill: str) -> tuple[str, ...]:
     count = REQUIRED_RESPONSE_HEADING_COUNTS[skill]
     return (
-        *POSITIVE_FINAL_RESPONSE_GATE_SENTENCES,
+        *POSITIVE_FINAL_RESPONSE_GATE_SENTENCES[:2],
+        *(
+            (DESIGN_SOURCE_PRESELECTION_SENTENCE,)
+            if skill == "design-apple-foundation-models-handoff"
+            else ()
+        ),
+        *POSITIVE_FINAL_RESPONSE_GATE_SENTENCES[2:],
         *(
             (REVIEW_COMPOUND_FINAL_RESPONSE_SENTENCE,)
             if skill == "review-apple-foundation-models-handoff"
@@ -2002,6 +2032,11 @@ class SkillContractMutationTests(unittest.TestCase):
 
         for skill in WORKFLOW_SKILLS:
             fixture = build_valid_skill_fixture(skill)
+            sentence_after_immutable = (
+                DESIGN_SOURCE_PRESELECTION_SENTENCE
+                if skill == "design-apple-foundation-models-handoff"
+                else POSITIVE_FINAL_RESPONSE_GATE_SENTENCES[2]
+            )
             positive_mutations = {
                 "missing immutable preselection": fixture.replace(
                     POSITIVE_IMMUTABLE_PRESELECTION_SENTENCE,
@@ -2035,10 +2070,10 @@ class SkillContractMutationTests(unittest.TestCase):
                     + "\n"
                     + POSITIVE_IMMUTABLE_PRESELECTION_SENTENCE
                     + "\n"
-                    + POSITIVE_FINAL_RESPONSE_GATE_SENTENCES[2],
+                    + sentence_after_immutable,
                     POSITIVE_FROZEN_TUPLE_SENTENCE
                     + "\n"
-                    + POSITIVE_FINAL_RESPONSE_GATE_SENTENCES[2]
+                    + sentence_after_immutable
                     + "\n"
                     + POSITIVE_IMMUTABLE_PRESELECTION_SENTENCE,
                     1,
@@ -2188,6 +2223,76 @@ class SkillContractMutationTests(unittest.TestCase):
         for name, candidate in (("removed", removed), ("reordered", reordered)):
             with self.subTest(mutation=name):
                 self.assert_rejected(candidate)
+
+    def test_preselection_must_precede_inspection_and_tool_use(self) -> None:
+        fixture = build_valid_skill_fixture(self.skill)
+        first_step = f"1. {PROTOCOL_STEPS[0]}"
+        second_step = f"2. {PROTOCOL_STEPS[1]}"
+        mutations = {
+            "inspect first": fixture.replace(
+                f"{first_step}\n{second_step}",
+                f"1. {PROTOCOL_STEPS[1]}\n2. {PROTOCOL_STEPS[0]}",
+                1,
+            ),
+            "freeze after inspection": fixture.replace(
+                "before inspection or non-skill tool use",
+                "after inspection or non-skill tool use",
+                1,
+            ),
+            "inspect before pre-selection": fixture.replace(
+                "Only after pre-selection, inspect",
+                "Before pre-selection, inspect",
+                1,
+            ),
+        }
+
+        for mutation, candidate in mutations.items():
+            with self.subTest(mutation=mutation):
+                self.assert_rejected(candidate)
+
+    def test_design_source_preselection_tuple_mutations_are_rejected(self) -> None:
+        skill = "design-apple-foundation-models-handoff"
+        fixture = build_valid_skill_fixture(skill)
+        mutations = {
+            "wrong domain": fixture.replace(
+                "foundation_models_handoff/design/absent/missing",
+                "ambiguous/design/absent/missing",
+                1,
+            ),
+            "wrong operation": fixture.replace(
+                "foundation_models_handoff/design/absent/missing",
+                "foundation_models_handoff/review/absent/missing",
+                1,
+            ),
+            "wrong artifact state": fixture.replace(
+                "foundation_models_handoff/design/absent/missing",
+                "foundation_models_handoff/design/present/missing",
+                1,
+            ),
+            "wrong evidence state": fixture.replace(
+                "foundation_models_handoff/design/absent/missing",
+                "foundation_models_handoff/design/absent/available",
+                1,
+            ),
+            "post-inspection tuple": fixture.replace(
+                "before inspection or non-skill tool use",
+                "after inspection or non-skill tool use",
+                1,
+            ),
+            "tuple not immediately after immutable serialization": fixture.replace(
+                POSITIVE_IMMUTABLE_PRESELECTION_SENTENCE
+                + "\n"
+                + DESIGN_SOURCE_PRESELECTION_SENTENCE,
+                DESIGN_SOURCE_PRESELECTION_SENTENCE
+                + "\n"
+                + POSITIVE_IMMUTABLE_PRESELECTION_SENTENCE,
+                1,
+            ),
+        }
+
+        for mutation, candidate in mutations.items():
+            with self.subTest(mutation=mutation):
+                self.assert_skill_rejected(candidate, skill)
 
     def test_router_non_positive_shape_omissions_and_malformed_fields_are_rejected(
         self,

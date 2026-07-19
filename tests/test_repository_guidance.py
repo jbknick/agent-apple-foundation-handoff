@@ -47,8 +47,8 @@ ROUTER_FIRST_GUIDANCE_CONTRACTS = (
     "in this order: `domain = out_of_domain`, `domain = ambiguous`, then a "
     "confirmed implementation request missing an approved architecture or exact "
     "change boundary.",
-    f"For any of those cases, select only `{ROUTER_SKILL}`, return its "
-    "non-positive result before any inspection or tool use, and do not select a "
+    f"For any of those cases, select and load only `{ROUTER_SKILL}`, copy its "
+    "exact matching branch before inspection or non-skill tool use, and select no "
     "positive workflow.",
     "Otherwise select exactly one matching positive workflow; once selected, it "
     "remains the only workflow owner for the request.",
@@ -67,12 +67,12 @@ CLOSED_RESPONSE_COMPILER_GUIDANCE = (
     "workflow for unchanged serialization without re-inference."
 )
 DOMAIN_CLASSIFICATION_GUIDANCE = (
-    "Classify explicit Apple Foundation Models session, profile, or provider "
-    "coordination as `domain = foundation_models_handoff`; classify bare `Apple "
-    "handoff` wording without that boundary as `domain = ambiguous`; classify App "
-    "Intents or Shortcuts, Apple Handoff or NSUserActivity, generic Swift or actors, "
-    "generic Core ML, coding-session handoff, Agent Skills, and Foundation Models "
-    "runtime Skills as `domain = out_of_domain`."
+    "Set `domain = foundation_models_handoff` only for explicit Apple Foundation "
+    "Models session, profile, or provider coordination; set `domain = ambiguous` "
+    "for bare `Apple handoff` regardless of operation, artifact, failure, or "
+    "evidence wording; set `domain = out_of_domain` for App Intents or Shortcuts, "
+    "Apple Handoff or NSUserActivity, generic Swift or actors, generic Core ML, "
+    "coding-session handoff, Agent Skills, and Foundation Models runtime Skills."
 )
 IMMUTABLE_PRESELECTION_GUIDANCE = (
     "On positive activation, `routerInput` is an immutable pre-selection record, "
@@ -863,18 +863,44 @@ class RepositoryGuidanceTests(unittest.TestCase):
                 1,
             ),
             "wrong explicit Foundation Models domain": valid.replace(
-                "coordination as `domain = foundation_models_handoff`",
-                "coordination as `domain = ambiguous`",
+                "Set `domain = foundation_models_handoff` only",
+                "Set `domain = ambiguous` only",
                 1,
             ),
             "wrong bare Apple handoff domain": valid.replace(
-                "without that boundary as `domain = ambiguous`",
-                "without that boundary as `domain = foundation_models_handoff`",
+                "set `domain = ambiguous` for bare",
+                "set `domain = foundation_models_handoff` for bare",
                 1,
             ),
             "wrong adjacent-domain classification": valid.replace(
-                "runtime Skills as `domain = out_of_domain`",
-                "runtime Skills as `domain = foundation_models_handoff`",
+                "set `domain = out_of_domain` for App Intents",
+                "set `domain = foundation_models_handoff` for App Intents",
+                1,
+            ),
+            "bare handoff precedence reversal": valid.replace(
+                "regardless of operation, artifact, failure, or evidence wording",
+                "unless operation, artifact, failure, or evidence wording selects "
+                "a workflow",
+                1,
+            ),
+            "omitted route skill load": valid.replace(
+                "select and load only",
+                "select only",
+                1,
+            ),
+            "paraphrased router branch": valid.replace(
+                "copy its exact matching branch",
+                "paraphrase its matching branch",
+                1,
+            ),
+            "positive workflow selected": valid.replace(
+                "select no positive workflow",
+                "select a positive workflow",
+                1,
+            ),
+            "adjacent domain omitted": valid.replace(
+                "coding-session handoff, ",
+                "",
                 1,
             ),
             "workflow finding reversal": valid.replace(
