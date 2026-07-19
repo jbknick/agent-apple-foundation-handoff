@@ -1,0 +1,12 @@
+{
+  "name": "agent-apple-foundation-handoff",
+  "owner": {"name": "Joseph Knickerbocker"},
+  "plugins": [
+    {
+      "name": "apple-foundation-models-handoff",
+      "source": "./plugins/apple-foundation-models-handoff",
+      "description": "Installable metadata scaffold for Apple Foundation Models handoff workflows; production skills are not included yet.",
+      "version": "0.1.0"
+    }
+  ]
+}

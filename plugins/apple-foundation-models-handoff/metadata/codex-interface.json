@@ -1,0 +1,12 @@
+{
+  "displayName": "Apple Foundation Models Handoff",
+  "shortDescription": "Inspect the installable handoff plugin scaffold.",
+  "longDescription": "Metadata-only scaffold for an Apple Foundation Models handoff plugin. Production design, implementation, review, debugging, and validation skills are not included in version 0.1.0.",
+  "developerName": "Joseph Knickerbocker",
+  "category": "Developer Tools",
+  "capabilities": [],
+  "websiteURL": "https://github.com/jbknick/agent-apple-foundation-handoff",
+  "defaultPrompt": [
+    "Inspect the installed plugin metadata and report which capabilities are currently available."
+  ]
+}

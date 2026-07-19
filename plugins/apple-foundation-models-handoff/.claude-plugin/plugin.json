@@ -1,0 +1,13 @@
+{
+  "name": "apple-foundation-models-handoff",
+  "version": "0.1.0",
+  "description": "Installable metadata scaffold for Apple Foundation Models handoff workflows; production skills are not included yet.",
+  "author": {
+    "name": "Joseph Knickerbocker",
+    "url": "https://github.com/jbknick"
+  },
+  "homepage": "https://github.com/jbknick/agent-apple-foundation-handoff",
+  "repository": "https://github.com/jbknick/agent-apple-foundation-handoff",
+  "license": "LicenseRef-PolyForm-Noncommercial-1.0.0",
+  "keywords": ["apple", "foundation-models", "handoff", "swift", "agents"]
+}
