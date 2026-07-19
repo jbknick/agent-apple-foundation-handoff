@@ -1,6 +1,6 @@
 # DEV-128 Apple Foundation Models API and handoff map
 
-Evidence collection range: `2026-07-16` through `2026-07-17`
+Evidence collection range: `2026-07-16` through `2026-07-19`
 
 ## Scope, authority, and labels
 
@@ -51,13 +51,14 @@ and [`Evaluations`](https://developer.apple.com/documentation/evaluations).
 | Item | Verified baseline |
 | --- | --- |
 | Host | Apple Silicon `arm64`, macOS 26.5.1 build 25F80 |
-| Developer directory | `/Library/Developer/CommandLineTools`; full Xcode is not active or installed |
-| Swift | Apple Swift 6.3.2, default target `arm64-apple-macosx26.0` |
-| macOS SDK | Command Line Tools SDK 26.5 |
+| Developer directory | `/Applications/Xcode.app/Contents/Developer` |
+| Xcode | Xcode 26.6, build `17F113` |
+| Swift | Apple Swift 6.3.3, default target `arm64-apple-macosx26.0` |
+| macOS and iPhone SDKs | Xcode SDK 26.5 for both platforms |
 | Foundation Models interface | `arm64e-apple-macos.swiftinterface`, SHA-256 `ff2285670b0966addb9827dc895a3ee3c9db6e186baae62c034fed012632aacc` |
 | Positive fixture target | `arm64-apple-macos26.0` with an explicit SDK path |
 | Observed on-device state | `availability=available`, `isAvailable=true`, `contextSize=4096`, current locale supported; these values are mutable host state |
-| Missing prerequisites | full Xcode, SDK 27, iPhone SDK, `FoundationModelsMacros`, `Evaluations`, `xctrace`, and Instruments |
+| Current narrow blockers | SDK 27, `Evaluations`, the Foundation Models xctrace template, legacy `instruments`, and a supported OS 27 host or device for beta evidence |
 
 Default gates perform no live generation, model-selected tool call, network
 request, PCC request, adapter load, provider request, credential lookup, or paid
@@ -77,8 +78,8 @@ available on every machine.
 | Dynamic instructions | `DynamicInstructions`, its `body`, builder composition, and `init(model:dynamicInstructions:history:)` | Official OS 27 beta, locally unverified | Missing from SDK 26.5. |
 | Dynamic profiles | `LanguageModelSession.DynamicProfile`, `Profile`, `init(profile:history:)`, model/configuration/history/lifecycle modifiers | Official OS 27 beta, locally unverified | The negative fixture matches missing profile and initializer diagnostics independently. |
 | Tools | `Tool<Arguments, Output>`, schema/name/description properties, `includesSchemaInInstructions`, and async `call(arguments:)`; OS 27 adds session properties and tool-calling mode | Stable core plus beta additions | A deterministic `GeneratedContent`-arguments tool type-checks. Model-selected invocation remains probabilistic. |
-| Static structured output | `@Generable`, `@Guide`, `Generable`, `GenerationSchema`, and `GeneratedContent` | Stable SDK 26 declarations | Blocked locally because Command Line Tools lacks `FoundationModelsMacros`; compatible full Xcode is required for macro compilation. |
-| Runtime schema | `DynamicGenerationSchema`, `GenerationSchema(root:dependencies:)`, schema response, and schema streaming overloads | Stable SDK 26.5; explicit-null additions are 26.4 | Runtime schema construction is Compiled SDK 26.5 without the macro plugin; schema-based response and streaming overloads are Interface-verified SDK 26.5 only. |
+| Static structured output | `@Generable`, `@Guide`, `Generable`, `GenerationSchema`, and `GeneratedContent` | Stable SDK 26 declarations | Compiled SDK 26.5 with Xcode 26.6, including an uninvoked static structured-response overload and typed content access. |
+| Runtime schema | `DynamicGenerationSchema`, `GenerationSchema(root:dependencies:)`, schema response, and schema streaming overloads | Stable SDK 26.5; explicit-null additions are 26.4 | Runtime schema construction is Compiled SDK 26.5 independently of macro synthesis; schema-based response and streaming overloads are Interface-verified SDK 26.5 only. |
 | Transcript | `Transcript` as a collection and `Codable`; instruction, prompt, tool-call, tool-output, and response entries; session rehydration | Stable SDK 26.5 | Offline Codable round-trip and destination-session rehydration run successfully. Mechanics do not establish authorization to transfer content. |
 | History mutation | SDK 26 session transcript is get-only; OS 27 makes transcript mutable and adds `SessionPropertyValues.history`, history transforms, and lifecycle modifiers | Official OS 27 beta for mutation | Missing locally. Mutation while responding is a beta session error. |
 | Streaming | `LanguageModelSession.ResponseStream<Content>` as `AsyncSequence`, snapshot `content`/`rawContent`, and `collect()` | Stable SDK 26.5 | Type-checked only; no live stream is consumed by default. |
@@ -88,7 +89,7 @@ available on every machine.
 | Runtime Skills | `Skills`, `Skill`, `SkillActivations`, and `SkillsBuilder` from Apple Foundation Models Utilities | Apple-owned `1.0.0-beta3`, OS 27 minimum | Pinned-source inspected; package build is blocked against SDK 26.5. Distinct from Claude/Codex skills. |
 | History utilities | `rollingWindow(entries:)`, `rollingWindow(size:)`, `droppingCompletedToolCalls()`, and `summarizeHistory(...)` | Apple-owned `1.0.0-beta3`, OS 27 minimum | Pinned-source inspected. Rolling/drop transforms can be deterministic; summarization invokes a model and is lossy. |
 | Evaluations | Datasets, generations, metrics/evaluators, aggregation, model judges, tool-call and trajectory evaluation | Official Xcode 27 beta surface | `import Evaluations` fails with the expected missing-module diagnostic under SDK 26.5. |
-| Instruments | Foundation Models Instruments template with request/session/profile/tool control flow and token/cache/latency measurements | Official Xcode 27 tooling surface | Host evidence requires full Xcode 27 plus a compatible current OS target or device; blocked here. Trace content can be sensitive. |
+| Instruments | Foundation Models Instruments template with request/session/profile/tool control flow and token/cache/latency measurements | Official Xcode 27 tooling surface | Xcode 26.6 provides `xctrace` but its template list has no Foundation Models template. Full Xcode 27 plus a compatible current OS target or device remains required. Trace content can be sensitive. |
 
 ## Stable SDK 26.5 surface
 
@@ -128,21 +129,64 @@ APIs, transcript copying, and generation options. The response function is not
 run. Schema-based response and streaming overloads are present in the pinned
 interface but are not exercised by the fixture.
 
+The separate
+[`fixtures/dev-128/compiled/generable-macro.swift`](../../fixtures/dev-128/compiled/generable-macro.swift)
+type-checks `@Generable`, `@Guide`, the static
+`respond(... generating: HandoffEnvelope.self)` overload, and typed access to
+the returned `HandoffEnvelope`. Its async function is never called by the
+default gate, so this is compile evidence only and performs no live generation.
+
 `SystemLanguageModel.Availability` is `.available` or `.unavailable(reason)`;
 the installed reasons are `.deviceNotEligible`,
 `.appleIntelligenceNotEnabled`, and `.modelNotReady`. Runtime code must inspect
 availability rather than treating the observed local result as portable.
 
-Static `@Generable` and `@Guide` declarations are present in the interface, but
-the checked-in negative fixture proves only that this Command Line Tools image
-lacks their implementation plugin. Runtime `DynamicGenerationSchema` is the
-locally compiled structured-output alternative, not a semantic replacement for
-every macro feature.
+Static `@Generable` and `@Guide` declarations are present in the interface and
+compile with the active Xcode 26.6 macro plugin. The 2026-07-17 Command Line
+Tools failure remains historical evidence in the transcript, but it is no
+longer a current blocker. Runtime `DynamicGenerationSchema` remains a stable
+alternative when schemas are assembled dynamically, not a semantic replacement
+for every macro feature.
 
 The stable `Tool` contract uses structured arguments conforming to
 `ConvertibleFromGeneratedContent` and output conforming to
 `PromptRepresentable`. A deterministic tool can be tested offline; whether the
 model selects it cannot be made a deterministic default assertion.
+
+### Stable production bridge contract
+
+The durable SDK 26.5 production bridge chain is an application contract, not a
+claim that this research PR ships or runs the bridge:
+
+1. Start with `SystemLanguageModel.default`; gate its local `availability` and
+   confirm that it supports the application's intended locale before creating
+   generation work.
+2. Enforce a conservative application payload/context bound below
+   `contextSize`, retaining headroom for instructions, schema, tools,
+   transcript, and response. Where the application uses the SDK 26.4
+   token-count APIs, use the applicable `tokenCount(for:)` overloads as input
+   to that bound rather than treating character or byte counts as tokens.
+3. Construct a real `LanguageModelSession` and request a structured response,
+   such as `respond(... generating: HandoffEnvelope.self)` for a static
+   `@Generable` type or the stable runtime-schema overload where appropriate.
+4. Treat all model output as untrusted. Do not authorize a handoff, tool,
+   destination, or side effect until application validation of the typed
+   fields, policy, provenance, and bounds succeeds.
+5. Propagate cooperative cancellation through the surrounding Swift task and
+   impose an application-owned deadline/timeout around generation on SDK 26.5.
+   Do not invent a stable timeout error: map deadline expiry into an
+   application error. Keep OS 27 beta `LanguageModelError.timeout` in the beta
+   taxonomy only.
+6. Handle stable `LanguageModelSession.GenerationError` cases, including
+   `decodingFailure`, without substituting OS 27 names. Preserve cancellation
+   separately from generation failures.
+7. Require supported-host live proof downstream before describing the bridge
+   or runtime as proven, including an actual availability-qualified structured
+   response, application validation, cancellation/deadline behavior, and the
+   intended error handling.
+
+This PR provides compile/typecheck and deterministic mock evidence only. It
+runs no live generation and therefore is not live runtime proof of this bridge.
 
 ## Official OS 27 beta surface
 
@@ -369,10 +413,11 @@ Apple's Xcode 27 Foundation Models Instruments surface can show session/request
 control flow, active profiles and tools, prompts/responses, token use, cache
 measurements, time to first token, response duration, and related latency.
 Host-level proof requires full Xcode 27 plus a compatible current OS target or
-device. This machine has neither the full toolchain nor `xctrace`/Instruments,
-so a trace is explicitly Blocked rather than passed by documentation. Trace
-artifacts can contain sensitive prompts and responses and must be redacted and
-handled as sensitive evidence.
+device. This machine now has Xcode 26.6 and `xctrace`, but `xctrace list
+templates` has no Foundation Models template and legacy `instruments` remains
+absent. A trace is explicitly Blocked rather than passed by documentation.
+Trace artifacts can contain sensitive prompts and responses and must be
+redacted and handled as sensitive evidence.
 
 Repository acceptance therefore has two independent layers:
 
@@ -386,11 +431,11 @@ Repository acceptance therefore has two independent layers:
 | Fixture | Label | Reproducible result | Proof boundary |
 | --- | --- | --- | --- |
 | `compiled/stable-surface.swift` | Compiled SDK 26.5 | Type-check exit `0` | Stable API shape only; response, streaming, prewarm, and token counts are not run |
+| `compiled/generable-macro.swift` | Compiled SDK 26.5 | Type-check exit `0` for macros, static structured response, and typed content access | Uninvoked function; no generation, application validation, or runtime proof |
 | `compiled/availability-probe.swift` | Compiled SDK 26.5 | Emits all four expected state fields | Host state only; no generation |
 | `compiled/transcript-roundtrip.swift` | Compiled SDK 26.5 | `entries=3 codableRoundTrip=true rehydrated=true` | Stable transfer mechanics, not authorization or baton-pass |
 | `compiled/session-isolation.swift` | Compiled SDK 26.5 | `parentEntries=1 childEntries=1 isolated=true` | Construction isolation, not a complete consultation |
 | `compiled/baton-pass-state.swift` | Pseudocode / deterministic mock | Source-to-destination transition and final owner asserted | Pure application state; no beta profile or model |
-| `blocked/generable-macro.swift` | Blocked | Nonzero compile plus missing `FoundationModelsMacros` diagnostic | Active Command Line Tools limitation only |
 | `blocked/os-27-beta-surface.swift` | Official OS 27 beta, locally unverified / Blocked | Nonzero compile plus independent profile, initializer, and tool-mode diagnostics | SDK 26.5 absence; not a beta API refutation |
 | `blocked/evaluations-import.swift` | Official OS 27 beta, locally unverified / Blocked | Nonzero compile plus `no such module 'Evaluations'` | SDK 26.5 absence only |
 
@@ -399,11 +444,13 @@ pinned checkout, not a default repository test. It fails because an OS 27
 package is compiled against SDK 26.5 and reports the expected missing beta
 declarations.
 
-Remaining narrow blockers are full Xcode, SDK 27, the macro implementation
-plugin, iPhone SDK, Evaluations, `xctrace`, Instruments, and a compatible current
-OS target or device for beta host evidence. A changed toolchain must trigger
-reclassification and a fresh proof; expected diagnostics must not be weakened
-merely to keep an old blocker green.
+Remaining narrow blockers are SDK 27, Evaluations, the Foundation Models
+xctrace template, legacy `instruments`, and a compatible current OS target or
+device for beta host evidence. Xcode, the iPhone SDK, `xctrace`, and the macro
+plugin are now present. The 2026-07-17 failures remain historical evidence, but
+the 2026-07-19 revalidation controls current classification. A changed
+toolchain must trigger reclassification and fresh proof; expected diagnostics
+must not be weakened merely to keep an old blocker green.
 
 ## Downstream requirements
 
@@ -421,21 +468,29 @@ Downstream issues must inherit these constraints:
 4. Keep stable `LanguageModelSession.GenerationError`, beta
    `LanguageModelError`, beta `LanguageModelSession.Error`, and model/provider
    errors in separately versioned guidance and tests.
-5. Default tests must remain deterministic and offline: no PCC, external
+5. Implement the stable production bridge chain explicitly: gate
+   `SystemLanguageModel.default` availability and locale; enforce a conservative
+   application payload/context bound using `contextSize` and applicable
+   token-count APIs; create a real session and request structured output; treat
+   output as untrusted until application validation succeeds; propagate
+   cancellation; impose an application-owned SDK 26.5 deadline; handle stable
+   `GenerationError`, including `decodingFailure`; and require supported-host
+   live proof before calling the bridge/runtime proven.
+6. Default tests must remain deterministic and offline: no PCC, external
    provider, credentials, entitlement, paid service, network, or live generation
    requirement. Unsupported host prerequisites must produce explicit blockers.
-6. Label every Swift example as `Compiled SDK 26.5`, `Official OS 27 beta,
+7. Label every Swift example as `Compiled SDK 26.5`, `Official OS 27 beta,
    locally unverified`, or `Pseudocode / deterministic mock`. Unsupported API
    shapes must not be represented as compiled code.
-7. Preserve transcript provenance and authorization boundaries. Rehydration
+8. Preserve transcript provenance and authorization boundaries. Rehydration
    proves mechanics only; partial-history preservation requires explicit repair,
    and transcript mutation must not occur during a response.
-8. Treat cache and performance claims as hypotheses until measured under a
+9. Treat cache and performance claims as hypotheses until measured under a
    pinned host/model/profile/prefix configuration. Keep sensitive prompt and
    trace content out of default evidence.
-9. Use deterministic fixtures as the mandatory gate and keep Evaluations,
+10. Use deterministic fixtures as the mandatory gate and keep Evaluations,
    rubric judging, live-model behavior, and Instruments as separately reported
    optional evidence with explicit prerequisites.
-10. Re-run the fixture matrix, expected-blocker diagnostics, source audit, and
+11. Re-run the fixture matrix, expected-blocker diagnostics, source audit, and
     report semantic gates whenever the SDK, Xcode, OS, or pinned Apple Utilities
     revision changes.

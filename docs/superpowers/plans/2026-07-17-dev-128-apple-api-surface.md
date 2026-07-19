@@ -8,7 +8,7 @@
 API map, compile/run fixture corpus, and reproducible evidence transcript for
 handoff architectures.
 
-**Stack base:** `origin/codex/dev-127-repository-audit`
+**Scope base:** `origin/main`
 
 **Design:**
 `docs/superpowers/specs/2026-07-17-dev-128-apple-api-surface-design.md`
@@ -18,6 +18,12 @@ the installed SDK interface, and Apple-owned
 `foundation-models-utilities@376ca60e61985369d5067bd3c575bdb6a13f0e1b`.
 Scratch evidence is an input, not a substitute for rerunning the planned
 commands.
+
+**Binding amendment:** The 2026-07-18 Linear amendment requires the durable
+stable production bridge chain documented in the design and API map. The
+2026-07-19 Xcode 26.6 revalidation reclassifies the macro fixture from blocked
+to compiled while preserving the 2026-07-17 Command Line Tools failure as
+historical transcript evidence.
 
 **Constraints:** Do not add a package manifest, dependency, production plugin,
 skill, generator, runtime, or host metadata. Do not require live generation,
@@ -45,7 +51,7 @@ or squash the stack while downstream branches depend on it.
 - Create: `fixtures/dev-128/compiled/transcript-roundtrip.swift`
 - Create: `fixtures/dev-128/compiled/session-isolation.swift`
 - Create: `fixtures/dev-128/compiled/baton-pass-state.swift`
-- Create: `fixtures/dev-128/blocked/generable-macro.swift`
+- Create: `fixtures/dev-128/compiled/generable-macro.swift`
 - Create: `fixtures/dev-128/blocked/os-27-beta-surface.swift`
 - Create: `fixtures/dev-128/blocked/evaluations-import.swift`
 
@@ -75,6 +81,9 @@ Use `apply_patch` to create:
 - a pure Swift deterministic baton-pass state mock that starts with the source
   profile, applies one explicit transfer event, ends with the destination
   profile, and asserts destination final-response ownership.
+- a static `@Generable`/`@Guide` fixture whose uninvoked async function
+  type-checks `respond(... generating: HandoffEnvelope.self)` and typed content
+  access without running generation.
 
 The baton-pass file must say in a source comment that it is a deterministic
 composition mock, not a shipped Apple `BatonPass` API or an OS 27 dynamic
@@ -84,8 +93,6 @@ profile fixture.
 
 Use `apply_patch` to create minimal probes for:
 
-- `@Generable/@Guide`, expected to fail because the active Command Line Tools
-  lacks `FoundationModelsMacros`;
 - OS 27 dynamic profile and tool-calling mode symbols, expected to fail because
   SDK 26.5 lacks them; and
 - `import Evaluations`, expected to fail because the module is absent.
@@ -110,6 +117,9 @@ TARGET=arm64-apple-macos26.0
 
 swiftc -typecheck -target "$TARGET" -sdk "$SDK" \
   fixtures/dev-128/compiled/stable-surface.swift
+
+swiftc -typecheck -target "$TARGET" -sdk "$SDK" \
+  fixtures/dev-128/compiled/generable-macro.swift
 
 swiftc -parse-as-library -target "$TARGET" -sdk "$SDK" \
   fixtures/dev-128/compiled/availability-probe.swift \
@@ -151,16 +161,6 @@ set -e
 SDK="$(xcrun --sdk macosx --show-sdk-path)"
 
 set +e
-swiftc -typecheck -target arm64-apple-macos26.0 -sdk "$SDK" \
-  fixtures/dev-128/blocked/generable-macro.swift \
-  >/tmp/dev-128-generable.out 2>&1
-macro_rc=$?
-set -e
-test "$macro_rc" -ne 0
-rg -q 'FoundationModelsMacros|macro implementation.*could not be found' \
-  /tmp/dev-128-generable.out
-
-set +e
 swiftc -typecheck -target arm64-apple-macos27.0 -sdk "$SDK" \
   fixtures/dev-128/blocked/os-27-beta-surface.swift \
   >/tmp/dev-128-beta.out 2>&1
@@ -184,7 +184,8 @@ test "$evaluations_rc" -ne 0
 rg -q "no such module 'Evaluations'" /tmp/dev-128-evaluations.out
 ```
 
-Expected: each compile exits nonzero and each diagnostic match exits `0`.
+Expected: both compiles exit nonzero and all four exact diagnostic matches exit
+`0`. Do not weaken the OS 27 or Evaluations diagnostics.
 
 ### Step 7: Commit Task 1
 
@@ -223,17 +224,20 @@ date '+%Y-%m-%dT%H:%M:%S%z %Z'
 uname -m
 sw_vers
 xcode-select -p
-pkgutil --pkg-info=com.apple.pkg.CLTools_Executables
+xcodebuild -version
 swift --version
 xcrun --sdk macosx --show-sdk-path
 xcrun --sdk macosx --show-sdk-version
-shasum -a 256 /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/FoundationModels.framework/Versions/A/Modules/FoundationModels.swiftmodule/arm64e-apple-macos.swiftinterface
+xcrun --sdk iphoneos --show-sdk-path
+xcrun --sdk iphoneos --show-sdk-version
+SDK="$(xcrun --sdk macosx --show-sdk-path)"
+shasum -a 256 "$SDK/System/Library/Frameworks/FoundationModels.framework/Versions/A/Modules/FoundationModels.swiftmodule/arm64e-apple-macos.swiftinterface"
 ```
 
 Also run the Task 1 positive and expected-blocker gates from the committed
 fixtures and record their final outputs and exit statuses.
 
-### Step 3: Record narrow host blockers
+### Step 3: Record current host tools and narrow blockers
 
 Run and record the expected failures without converting them into blanket SDK
 failures:
@@ -242,12 +246,18 @@ failures:
 xcodebuild -version
 xcrun --sdk iphoneos --show-sdk-path
 xcrun --find xctrace
+xcrun xctrace list templates
+xcrun simctl list runtimes
 xcrun --find instruments
+xcrun --sdk macosx27.0 --show-sdk-path
 ```
 
-Expected on this host: nonzero with missing full-Xcode/iPhone SDK/tool
-diagnostics. The transcript must separately retain the passing macOS SDK
-fixture evidence.
+Expected on the 2026-07-19 host: Xcode 26.6, iPhone SDK 26.5, `xctrace`, and
+`simctl` are present. The Xcode 26.6 template list has no Foundation Models
+template. Legacy `instruments` remains absent with exit `72`, and SDK 27 remains
+absent. The transcript must preserve the 2026-07-17 Command Line Tools failures
+as historical evidence and append, rather than overwrite them with, this dated
+revalidation.
 
 ### Step 4: Record Apple-owned utilities evidence
 
@@ -307,6 +317,9 @@ rg -q 'compiled SDK 26.5|Compiled SDK 26.5' "$transcript"
 rg -q 'official OS 27 beta|Official OS 27 beta' "$transcript"
 rg -q 'pseudocode|deterministic mock' "$transcript"
 rg -q 'Blocked' "$transcript"
+rg -q '2026-07-19' "$transcript"
+rg -q 'Xcode 26.6' "$transcript"
+rg -q 'macro_typecheck_rc=0' "$transcript"
 ! rg -n 'TBD|TODO|fill in details|implement later' "$transcript"
 git diff --check
 git add "$transcript"
@@ -408,6 +421,14 @@ rg -q 'Compiled SDK 26.5' "$report"
 rg -q 'Official OS 27 beta, locally unverified' "$report"
 rg -q 'Pseudocode / deterministic mock' "$report"
 rg -q 'no first-class.*BatonPass|No first-class.*BatonPass' "$report"
+rg -q 'SystemLanguageModel.default' "$report"
+rg -q 'conservative application payload/context bound' "$report"
+rg -q 'structured response' "$report"
+rg -q 'Treat all model output as untrusted' "$report"
+rg -q 'application-owned deadline/timeout' "$report"
+rg -q 'decodingFailure' "$report"
+rg -q 'supported-host live proof' "$report"
+rg -q 'not live runtime proof' "$report"
 ! rg -n 'TBD|TODO|fill in details|implement later' "$report"
 git diff --check
 ```
@@ -432,7 +453,7 @@ After all task reviews and corrections, run from the exact final head:
 ```bash
 set -e
 git status --short --branch
-git diff --check origin/codex/dev-127-repository-audit...HEAD
+git diff --check origin/main...HEAD
 
 expected_paths="$(printf '%s\n' \
   'docs/research/dev-128-foundation-models-api-map.md' \
@@ -441,23 +462,26 @@ expected_paths="$(printf '%s\n' \
   'docs/superpowers/specs/2026-07-17-dev-128-apple-api-surface-design.md' \
   'fixtures/dev-128/README.md' \
   'fixtures/dev-128/blocked/evaluations-import.swift' \
-  'fixtures/dev-128/blocked/generable-macro.swift' \
   'fixtures/dev-128/blocked/os-27-beta-surface.swift' \
   'fixtures/dev-128/compiled/availability-probe.swift' \
   'fixtures/dev-128/compiled/baton-pass-state.swift' \
+  'fixtures/dev-128/compiled/generable-macro.swift' \
   'fixtures/dev-128/compiled/session-isolation.swift' \
   'fixtures/dev-128/compiled/stable-surface.swift' \
   'fixtures/dev-128/compiled/transcript-roundtrip.swift' | sort)"
 actual_paths="$(git diff --name-only \
-  origin/codex/dev-127-repository-audit...HEAD | sort)"
+  origin/main...HEAD | sort)"
 test "$actual_paths" = "$expected_paths"
+test "$(printf '%s\n' "$actual_paths" | wc -l | tr -d ' ')" -eq 13
 ```
 
 Then rerun Task 1 positive and expected-blocker gates, Task 2 transcript gates,
 and Task 3 report gates. Create a clean detached worktree at `HEAD`, rerun
 `git diff --check`, positive compile/run fixtures, and report/link semantics.
-Full-Xcode, SDK 27, macro, Evaluations, iPhone SDK, and Instruments checks must
-remain explicit expected blockers unless the host prerequisites have changed.
+SDK 27, Evaluations, the Foundation Models xctrace template, legacy
+`instruments`, and supported OS 27 host evidence remain explicit blockers.
+Xcode 26.6, iPhone SDK 26.5, `xctrace`, `simctl`, and macro compilation are
+current positive evidence and must not be reported as blockers.
 
 ## Linear and stacked PR handoff
 

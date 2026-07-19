@@ -1,11 +1,13 @@
 # DEV-128 Apple Foundation Models verification transcript
 
-Evidence collection range: `2026-07-16` through `2026-07-17`
+Evidence collection range: `2026-07-16` through `2026-07-19`
 
 The commands below were rerun from the DEV-128 worktree on `2026-07-17` in
 Asia/Jerusalem. Output is normalized only to omit verbose compiler invocations
 and repeated source excerpts; exit statuses and capability-specific diagnostics
-are retained.
+are retained. Those Command Line Tools results remain historical evidence. The
+clearly dated `2026-07-19` revalidation appended below controls the current
+host/toolchain classification.
 
 ## Scope and evidence labels
 
@@ -264,12 +266,144 @@ xcrun: error: unable to find utility "instruments", not a developer tool or in P
 # exit 72
 ```
 
-These results establish that the active host lacks full Xcode, an iPhone SDK,
-`xctrace`, and the Instruments command. Recording a Foundation Models
-Instrument trace for the official OS 27 beta surface additionally requires
-full Xcode 27 and a compatible current OS target or device. It is therefore
-Blocked on this host; the blocker is not evidence that the installed macOS
-Foundation Models framework is unusable.
+These historical results established that the then-active Command Line Tools
+host lacked full Xcode, an iPhone SDK, `xctrace`, and the Instruments command.
+They are not the current host classification; the dated revalidation below
+records which prerequisites changed.
+
+### 2026-07-19 Xcode 26.6 revalidation
+
+The branch was revalidated after the active developer directory changed. These
+commands append current evidence without rewriting the 2026-07-17 commands or
+diagnostics above:
+
+```console
+$ date '+%Y-%m-%dT%H:%M:%S%z %Z'
+2026-07-19T15:07:53+0300 IDT
+# exit 0
+
+$ xcode-select -p
+/Applications/Xcode.app/Contents/Developer
+# exit 0
+
+$ xcodebuild -version
+Xcode 26.6
+Build version 17F113
+# exit 0
+
+$ swift --version
+swift-driver version: 1.148.6 Apple Swift version 6.3.3 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)
+Target: arm64-apple-macosx26.0
+# exit 0
+
+$ xcrun --sdk macosx --show-sdk-version
+26.5
+# exit 0
+
+$ xcrun --sdk iphoneos --show-sdk-path
+/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.5.sdk
+# exit 0
+
+$ xcrun --sdk iphoneos --show-sdk-version
+26.5
+# exit 0
+
+$ SDK="$(xcrun --sdk macosx --show-sdk-path)"
+$ shasum -a 256 "$SDK/System/Library/Frameworks/FoundationModels.framework/Versions/A/Modules/FoundationModels.swiftmodule/arm64e-apple-macos.swiftinterface"
+ff2285670b0966addb9827dc895a3ee3c9db6e186baae62c034fed012632aacc  /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk/System/Library/Frameworks/FoundationModels.framework/Versions/A/Modules/FoundationModels.swiftmodule/arm64e-apple-macos.swiftinterface
+# exit 0
+```
+
+The pinned arm64e macOS Foundation Models interface SHA is unchanged.
+
+The former macro blocker was used as RED: its old expected-blocker gate failed
+because the fixture type-checked with exit `0`. After reclassification, the
+moved positive fixture additionally type-checks the static structured-response
+overload and typed content access in an uninvoked async function:
+
+```bash
+SDK="$(xcrun --sdk macosx --show-sdk-path)"
+swiftc -typecheck -target arm64-apple-macos26.0 -sdk "$SDK" \
+  fixtures/dev-128/compiled/generable-macro.swift
+```
+
+```text
+historical_expected_blocker_macro_rc=0
+macro_typecheck_rc=0
+macro_reclassification=COMPILED
+live_generation_run=false
+```
+
+The full current positive matrix was then rerun with the commands in
+`fixtures/dev-128/README.md`:
+
+```text
+stable_surface_typecheck_rc=0
+macro_typecheck_rc=0
+availability=available
+isAvailable=true
+contextSize=4096
+supportsCurrentLocale=true
+availability_compile_run_shape_rc=0
+transcript_roundtrip_rc=0
+session_isolation_rc=0
+baton_pass_mock_rc=0
+positive_fixture_matrix=PASS
+live_generation_run=false
+```
+
+The strict OS 27 and Evaluations gates were rerun without weakening any
+diagnostic:
+
+```text
+os27_compile_rc=1
+dynamic_profile_diagnostic_match_rc=0
+profile_init_diagnostic_match_rc=0
+tool_calling_mode_diagnostic_match_rc=0
+error: 'DynamicProfile' is not a member type of class 'FoundationModels.LanguageModelSession'
+error: type 'LanguageModelSession' has no member 'Profile'
+error: extra arguments at positions #1, #2 in call
+error: extra argument 'toolCallingMode' in call
+
+evaluations_compile_rc=1
+evaluations_diagnostic_match_rc=0
+error: no such module 'Evaluations'
+strict_current_blocker_matrix=PASS
+```
+
+Current host-tool probes:
+
+```console
+$ xcrun --find xctrace
+/Applications/Xcode.app/Contents/Developer/usr/bin/xctrace
+# exit 0
+
+$ xcrun xctrace list templates
+== Standard Templates ==
+Activity Monitor
+...
+Time Profiler
+# exit 0; no Foundation Models template
+
+$ xcrun simctl list runtimes
+== Runtimes ==
+iOS 26.5 (26.5 - 23F77) - com.apple.CoreSimulator.SimRuntime.iOS-26-5
+# exit 0
+
+$ xcrun --find instruments
+xcrun: error: unable to find utility "instruments", not a developer tool or in PATH
+# exit 72
+
+$ xcrun --sdk macosx27.0 --show-sdk-path
+xcodebuild: error: SDK "macosx27.0" cannot be located.
+xcrun: error: unable to lookup item 'Path' in SDK 'macosx27.0'
+# exit 1
+```
+
+Xcode, the iPhone SDK, `xctrace`, `simctl`, and macro expansion are now present.
+Current narrow blockers are SDK 27, the `Evaluations` module, the Foundation
+Models xctrace template, legacy `instruments`, and a supported OS 27 host or
+device for beta runtime evidence.
 
 ## Apple utilities evidence
 
@@ -369,7 +503,9 @@ Apple-owned source:
   taxonomy.
 - It does not establish iOS behavior, device behavior, adapter entitlement
   behavior, Instruments traces, or compatibility with Xcode 27.
-- It does not turn missing full Xcode, SDK 27, macro plugins, iPhone SDK,
-  `xctrace`, or Instruments into a blanket Foundation Models failure.
+- It does not turn current SDK 27, Evaluations, Foundation Models xctrace
+  template, legacy `instruments`, or supported-host gaps into a blanket
+  Foundation Models failure. The earlier full-Xcode, iPhone SDK, macro-plugin,
+  and `xctrace` gaps are historical only.
 - It does not make the network-dependent Apple utilities research build a
   default test, nor does its SDK 26.5 failure predict its Xcode 27 result.
