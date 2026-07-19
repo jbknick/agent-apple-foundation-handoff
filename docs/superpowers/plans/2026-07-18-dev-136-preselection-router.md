@@ -864,9 +864,18 @@ and truthful historical-evidence supersession only.
 
 Require the affected evidence to contain exactly the 15 affected rows in
 canonical fixture order, including ten router-owned rows and five positive
-anti-steal rows, with 15 passes and no fail/blocked/not-applicable row. Require
-the full evidence to contain all 25 canonical rows in order, with 25 passes and
-no fail/blocked/not-applicable row.
+anti-steal rows. Under the user's 2026-07-19 bounded affected-gate decision,
+require all 15 rows to be attempted, at least 13 passes, at most two visible
+failures, no blocked or not-applicable row, and Codex process exit code `0` for
+every row. This supersedes only the prior exact-15 affected acceptance rule and
+authorizes no retries. Keep the evidence status truthful: `pass` only for 15/15
+and `fail` for one or two failures. Require passing rows to satisfy every
+applicable assertion, each failing row to contain at least one failed applicable
+assertion, and every non-applicable assertion to remain exactly
+`not_applicable`. Every prerequisite remains `pass` except `pluginActivation`,
+which is `pass` only when all activation assertions pass and otherwise is
+`not_applicable`. Require the full evidence to contain all 25 canonical rows in
+order, with 25 passes and no fail/blocked/not-applicable row.
 
 Bind exact source commit, exact model/version/binary digest, canonical fixture
 digest, six payload digests, plugin selector/source/bound-copy digests, case
@@ -884,6 +893,8 @@ FULL_HOST_EVIDENCE_PATH = (
     ROOT / "docs/research/evidence/dev-136-codex-skill-host.json"
 )
 ROUTER_AFFECTED_CASE_COUNT = 15
+ROUTER_AFFECTED_MINIMUM_PASS_COUNT = 13
+ROUTER_AFFECTED_MAXIMUM_FAIL_COUNT = 2
 FULL_HOST_CASE_COUNT = 25
 ```
 
@@ -943,13 +954,19 @@ CODEX_BIN="$(command -v codex)" python3 \
   --evidence docs/research/evidence/dev-136-codex-router-affected.json
 ```
 
-If any row fails, invoke `superpowers:systematic-debugging`, make the smallest
-test-first correction in a dedicated fix commit, re-review it, and rerun the
-entire 15-case gate. Do not weaken the fixture, scorer, or expected behavior.
+The host runner may exit `1` because one or two row failures truthfully produce
+evidence status `fail`; that result still satisfies the higher-level affected
+acceptance contract when all bounded conditions above hold. Preserve those
+failures without retrying. If three or more rows fail, any row is blocked or
+not applicable, any Codex process exits nonzero, or any other affected contract
+condition fails, invoke `superpowers:systematic-debugging` and make the smallest
+test-first correction in a dedicated fix commit. Do not weaken the fixture,
+scorer, expected behavior, or privacy contract.
 
 - [ ] **Step 5: Run the complete 25-case matrix**
 
-Only after the 15-case gate is green:
+Only after the 15-case evidence satisfies the bounded affected acceptance
+contract:
 
 ```bash
 CODEX_BIN="$(command -v codex)" python3 \

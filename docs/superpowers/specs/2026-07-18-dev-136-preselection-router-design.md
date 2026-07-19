@@ -222,14 +222,30 @@ manufacturing a third failure:
    failing rows as differential RED and the passing domain row as a
    non-regression baseline;
 2. bind the exact router payload digest and six-capability package topology;
-3. require all ten router-owned rows to pass after implementation; and
+3. prove behavior for all ten router-owned rows after implementation; and
 4. rerun the five positive `-001` rows to prove the router does not steal
    positive workflow activation.
 
-Only after that 15-case affected subset is green may the complete 25-case
-Codex matrix run. Raw prompts, responses, reasoning, tool arguments/results,
-local paths, and private state remain transient and uncommitted. Claude host
-execution remains deferred by the user's explicit test-scope decision.
+On 2026-07-19, the user selected the bounded affected-gate amendment. It
+supersedes only the prior exact-15 affected acceptance rule: the evidence must
+contain exactly the 15 canonical rows in canonical order, with all 15 attempted,
+at least 13 passes, at most two failures, no blocked or not-applicable rows, and
+Codex process exit code `0` for every row. Passing rows satisfy every applicable
+assertion. Each visible failing row has at least one failed applicable assertion;
+all non-applicable assertions remain exactly `not_applicable`. Evidence status
+remains truthful: `pass` means 15/15 and `fail` means one or two row failures.
+Every prerequisite remains `pass` except `pluginActivation`, which is `pass`
+only when every activation assertion passes and otherwise is
+`not_applicable`. The runner may therefore exit `1` because the evidence status
+is truthfully `fail` while the higher-level affected acceptance contract still
+succeeds. This amendment authorizes no retries.
+
+Only after that 15-case affected subset satisfies the bounded acceptance
+contract may the complete 25-case Codex matrix run. The complete matrix remains
+strict 25/25 with no failed, blocked, or not-applicable rows. Raw prompts,
+responses, reasoning, tool arguments/results, local paths, and private state
+remain transient and uncommitted. Claude host execution remains deferred by the
+user's explicit test-scope decision.
 
 ## Failure behavior
 
@@ -243,8 +259,9 @@ execution remains deferred by the user's explicit test-scope decision.
   wrong domain/operation, more than one question, or any positive architecture
   content fails its row. The scorer is not relaxed to accept generic host
   output.
-- A positive prompt that returns a non-positive envelope, a router-owned row
-  that returns a workflow result, or an affected row that cannot prove cleanup
+- A positive prompt that returns a non-positive envelope or a router-owned row
+  that returns a workflow result remains a visible row failure. Affected
+  evidence that exceeds the bounded failure threshold or cannot prove cleanup
   prevents the full matrix from starting.
 - Missing host automation or model access is an explicit blocker, never a
   structural pass.
@@ -264,8 +281,8 @@ Implementation follows test-first atomic boundaries:
    semantics;
 8. run focused and full repository, generation, schema, Bats, package,
    privacy, and source-cleanliness gates;
-9. run the 15-case affected Codex subset, then the complete 25-case Codex
-   matrix; and
+9. satisfy the bounded 15-case affected Codex acceptance contract, then run the
+   strict complete 25-case Codex matrix; and
 10. obtain independent task and whole-branch reviews before creating the
     stacked DEV-136 pull request.
 
