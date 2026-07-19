@@ -1424,6 +1424,7 @@ def parse_disclosure_events(
             if event_type == "thread.started":
                 if (
                     seen_thread_started
+                    or seen_turn_started
                     or command_count
                     or set(event) != {"thread_id", "type"}
                     or not isinstance(event.get("thread_id"), str)
@@ -1471,6 +1472,7 @@ def parse_disclosure_events(
             if (
                 event_type != "item.completed"
                 or set(item) != PINNED_PASSIVE_ITEM_KEYS["reasoning"]
+                or pending is not None
                 or message_text is not None
                 or not isinstance(item.get("id"), str)
                 or not item.get("id")

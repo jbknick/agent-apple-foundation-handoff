@@ -1143,13 +1143,26 @@ class ClosedDisclosureParserTests(unittest.TestCase):
         missing = valid_events()[:-1]
         multiple = valid_events() + [agent_message(identifier="message-2")]
         pre_read = [agent_message(), *valid_events()[:-1]]
+        turn_before_thread = [
+            {"type": "turn.started"},
+            {"thread_id": "thread-1", "type": "thread.started"},
+            *valid_events(),
+        ]
         wrong_event = valid_events()
         wrong_event[4] = {**wrong_event[4], "type": "item.started"}
         extra_key = valid_events()
         extra_key[4]["item"]["status"] = "completed"  # type: ignore[index]
         no_id = valid_events()
         del no_id[4]["item"]["id"]  # type: ignore[index]
-        for events in (missing, multiple, pre_read, wrong_event, extra_key, no_id):
+        for events in (
+            missing,
+            multiple,
+            pre_read,
+            turn_before_thread,
+            wrong_event,
+            extra_key,
+            no_id,
+        ):
             with self.subTest(events=events):
                 self.assert_rejected(events)
 
@@ -1233,6 +1246,20 @@ class ClosedDisclosureParserTests(unittest.TestCase):
             },
         )
         self.assertEqual(OWNER_NAME, self.parse(events).reference_name)
+
+        pending_reasoning = valid_events()
+        pending_reasoning.insert(
+            1,
+            {
+                "type": "item.completed",
+                "item": {
+                    "id": "reasoning-1",
+                    "text": "interleaved with a pending command",
+                    "type": "reasoning",
+                },
+            },
+        )
+        self.assert_rejected(pending_reasoning)
 
 
 class HostIdentityTests(unittest.TestCase):
