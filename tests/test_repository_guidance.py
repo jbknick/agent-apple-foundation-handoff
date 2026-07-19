@@ -42,6 +42,17 @@ WORKFLOW_SKILLS = (
 )
 ROUTER_SKILL = "route-apple-foundation-models-handoff"
 ALL_CAPABILITIES = (*WORKFLOW_SKILLS, ROUTER_SKILL)
+ROUTER_FIRST_GUIDANCE_CONTRACTS = (
+    "Before selecting any positive workflow, resolve non-positive pre-selection "
+    "in this order: `domain = out_of_domain`, `domain = ambiguous`, then a "
+    "confirmed implementation request missing an approved architecture or exact "
+    "change boundary.",
+    f"For any of those cases, select only `{ROUTER_SKILL}`, return its "
+    "non-positive result before any inspection or tool use, and do not select a "
+    "positive workflow.",
+    "Otherwise select exactly one matching positive workflow; once selected, it "
+    "remains the only workflow owner for the request.",
+)
 STALE_WORKFLOW_CLAIMS = (
     "remain unimplemented",
     "must not be advertised as active",
@@ -63,6 +74,7 @@ WORKFLOW_GUIDANCE_CONTRACTS = (
     "Structural integration alone is not a pass",
     "Discovery, file presence, and installation are structural prerequisites and "
     "cannot prove behavioral or capability activation",
+    *ROUTER_FIRST_GUIDANCE_CONTRACTS,
 )
 SKILL_OWNED_SECTION_HEADINGS = (
     "Routing and Inspection",
@@ -170,6 +182,14 @@ def assert_workflow_guidance_contract(
             contract in normalized_text,
             f"missing workflow guidance contract: {contract}",
         )
+    positions = tuple(
+        normalized_text.index(contract) for contract in ROUTER_FIRST_GUIDANCE_CONTRACTS
+    )
+    test_case.assertEqual(
+        tuple(sorted(positions)),
+        positions,
+        "router-owned branches must resolve before positive workflow selection",
+    )
 
 
 def assert_guidance_does_not_duplicate_skill_sections(
@@ -664,6 +684,13 @@ class RepositoryGuidanceTests(unittest.TestCase):
             with self.subTest(guide=text[:12]):
                 assert_workflow_guidance_contract(self, text)
 
+    def test_guidance_resolves_non_positive_router_before_workflow_selection(self):
+        for path in (CANONICAL, GENERATED):
+            with self.subTest(path=path.name):
+                assert_workflow_guidance_contract(
+                    self, path.read_text(encoding="utf-8")
+                )
+
     def test_guidance_oracle_rejects_removed_truthfulness_contract(self):
         valid = " ".join((*WORKFLOW_SKILLS, *WORKFLOW_GUIDANCE_CONTRACTS))
 
@@ -691,6 +718,20 @@ class RepositoryGuidanceTests(unittest.TestCase):
         ):
             with self.subTest(claim=claim), self.assertRaises(AssertionError):
                 assert_workflow_guidance_contract(self, f"{valid} {claim}")
+
+    def test_guidance_oracle_rejects_late_router_preselection(self):
+        prefix = " ".join((*WORKFLOW_SKILLS, *WORKFLOW_GUIDANCE_CONTRACTS[:-3]))
+        reordered = " ".join(
+            (
+                prefix,
+                ROUTER_FIRST_GUIDANCE_CONTRACTS[2],
+                ROUTER_FIRST_GUIDANCE_CONTRACTS[0],
+                ROUTER_FIRST_GUIDANCE_CONTRACTS[1],
+            )
+        )
+
+        with self.assertRaises(AssertionError):
+            assert_workflow_guidance_contract(self, reordered)
 
     def test_guidance_does_not_duplicate_skill_owned_contract_sections(self):
         for path in (CANONICAL, GENERATED):

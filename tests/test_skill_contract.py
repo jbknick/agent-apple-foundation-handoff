@@ -335,7 +335,25 @@ ROUTER_PROHIBITIONS = (
     "Never add explanatory prose before or after the result fence.",
 )
 
+ROUTER_FINAL_RESPONSE_GATE_SENTENCES = (
+    "When this router activates, resolve the branch directly from the user "
+    "request without inspection or tool use.",
+    "Make the final response exactly one fenced `text` block copied from the "
+    "matching branch below, with nothing before or after the fence.",
+)
+
+POSITIVE_FINAL_RESPONSE_GATE_SENTENCES = (
+    "Once this positive workflow activates, it remains the only workflow owner; "
+    "never select, invoke, or switch to another skill.",
+    "Make the first character of the final response the opening backtick of the "
+    "exact 21-line result-envelope `text` fence under Output Contract; emit no "
+    "prose before it.",
+    "Close that fence immediately after its 21st line, then emit only the exact "
+    "required headings, each once and in their listed order.",
+)
+
 CORE_SEMANTIC_SECTION_TITLES = (
+    "Final Response Gate",
     "Routing and Inspection",
     "Common Workflow Protocol",
     "Output Contract",
@@ -690,6 +708,35 @@ def assert_single_owned_phrase(
     )
 
 
+def assert_final_response_gate(
+    test_case: unittest.TestCase,
+    text: str,
+    sections: tuple[MarkdownSection, ...],
+    expected_sentences: tuple[str, ...],
+) -> MarkdownSection:
+    gate = semantic_section(test_case, sections, "final", "response", "gate")
+    level_two_sections = tuple(section for section in sections if section.level == 2)
+    test_case.assertEqual(
+        gate,
+        level_two_sections[0],
+        "Final Response Gate must be the first executable level-two section",
+    )
+    test_case.assertEqual(
+        " ".join(expected_sentences),
+        re.sub(r"\s+", " ", gate.direct_body),
+        "Final Response Gate must contain only its owner-specific serialization rules",
+    )
+    for index, sentence in enumerate(expected_sentences, start=1):
+        assert_single_owned_phrase(
+            test_case,
+            text,
+            gate,
+            sentence,
+            f"final response gate rule {index}",
+        )
+    return gate
+
+
 def output_serialization_sentences(skill: str) -> tuple[tuple[str, str], ...]:
     return tuple(
         (label, sentence.replace("{skill}", skill))
@@ -851,6 +898,7 @@ def assert_exclusive_section_ownership(
     test_case: unittest.TestCase,
     text: str,
     sections: tuple[MarkdownSection, ...],
+    final_response_gate: MarkdownSection,
     routing: MarkdownSection,
     protocol: MarkdownSection,
     output: MarkdownSection,
@@ -861,7 +909,14 @@ def assert_exclusive_section_ownership(
     core_owners = dict(
         zip(
             CORE_SEMANTIC_SECTION_TITLES,
-            (routing, protocol, output, references, guardrails),
+            (
+                final_response_gate,
+                routing,
+                protocol,
+                output,
+                references,
+                guardrails,
+            ),
             strict=True,
         )
     )
@@ -1018,12 +1073,18 @@ def assert_structured_skill_contract(
     test_case: unittest.TestCase, text: str, skill: str
 ) -> None:
     sections = parse_markdown_sections(text)
+    final_response_gate = assert_final_response_gate(
+        test_case,
+        text,
+        sections,
+        POSITIVE_FINAL_RESPONSE_GATE_SENTENCES,
+    )
     routing = semantic_section(test_case, sections, "routing", "inspection")
     protocol = semantic_section(test_case, sections, "workflow", "protocol")
     output = semantic_section(test_case, sections, "output", "contract")
     references = semantic_section(test_case, sections, "reference")
     guardrails = semantic_section(test_case, sections, "guardrail")
-    ordered = (routing, protocol, output, references, guardrails)
+    ordered = (final_response_gate, routing, protocol, output, references, guardrails)
     test_case.assertEqual(
         sorted(section.heading_start for section in ordered),
         [section.heading_start for section in ordered],
@@ -1100,6 +1161,7 @@ def assert_structured_skill_contract(
         test_case,
         text,
         sections,
+        final_response_gate,
         routing,
         protocol,
         output,
@@ -1191,6 +1253,9 @@ def build_valid_skill_fixture(skill: str) -> str:
     )
     return (
         f"---\nname: {skill}\ndescription: {description}\n---\n\n"
+        "## Final Response Gate\n"
+        + "\n".join(POSITIVE_FINAL_RESPONSE_GATE_SENTENCES)
+        + "\n\n"
         "## Routing and Inspection\n"
         + "\n".join(router_lines)
         + "\nChoose exactly one primary workflow. For compound review and fix, run review "
@@ -1239,6 +1304,9 @@ def build_valid_router_fixture() -> str:
     return (
         f"---\nname: {ROUTER_SKILL}\ndescription: '{ROUTER_DESCRIPTION}'\n---\n\n"
         "# Route Apple Foundation Models Handoff\n\n"
+        "## Final Response Gate\n\n"
+        + "\n".join(ROUTER_FINAL_RESPONSE_GATE_SENTENCES)
+        + "\n\n"
         "## Decision Procedure\n\n"
         + "\n".join(router_lines)
         + "\n\n"
@@ -1275,13 +1343,29 @@ def assert_router_contract(test_case: unittest.TestCase, text: str) -> None:
         "router frontmatter name and approved description must be verbatim",
     )
     sections = parse_markdown_sections(text)
+    final_response_gate = assert_final_response_gate(
+        test_case,
+        text,
+        sections,
+        ROUTER_FINAL_RESPONSE_GATE_SENTENCES,
+    )
     decision = semantic_section(test_case, sections, "decision", "procedure")
     output = semantic_section(test_case, sections, "output", "contract")
     prohibitions = semantic_section(test_case, sections, "prohibition")
     test_case.assertEqual(
-        [decision.heading_start, output.heading_start, prohibitions.heading_start],
+        [
+            final_response_gate.heading_start,
+            decision.heading_start,
+            output.heading_start,
+            prohibitions.heading_start,
+        ],
         sorted(
-            (decision.heading_start, output.heading_start, prohibitions.heading_start)
+            (
+                final_response_gate.heading_start,
+                decision.heading_start,
+                output.heading_start,
+                prohibitions.heading_start,
+            )
         ),
     )
 
@@ -1490,6 +1574,24 @@ class SkillContractTests(unittest.TestCase):
                 with self.subTest(skill=skill, requirement=label):
                     assert_single_owned_phrase(self, text, output, sentence, label)
 
+    def test_router_and_positive_response_gates_are_early_and_distinct(self) -> None:
+        router_text = self.require_skill_text(ROUTER_SKILL)
+        assert_final_response_gate(
+            self,
+            router_text,
+            parse_markdown_sections(router_text),
+            ROUTER_FINAL_RESPONSE_GATE_SENTENCES,
+        )
+        for skill in WORKFLOW_SKILLS:
+            with self.subTest(skill=skill):
+                text = self.require_skill_text(skill)
+                assert_final_response_gate(
+                    self,
+                    text,
+                    parse_markdown_sections(text),
+                    POSITIVE_FINAL_RESPONSE_GATE_SENTENCES,
+                )
+
     def test_each_skill_owns_non_recursive_outer_harness_guardrails(self) -> None:
         for skill in WORKFLOW_SKILLS:
             text = self.require_skill_text(skill)
@@ -1655,6 +1757,53 @@ class SkillContractMutationTests(unittest.TestCase):
             for mutation, candidate in mutations.items():
                 with self.subTest(skill=skill, mutation=mutation):
                     self.assert_skill_rejected(candidate, skill)
+
+    def test_final_response_gate_order_and_owner_conflation_are_rejected(self) -> None:
+        positive_fixture = build_valid_skill_fixture(self.skill)
+        positive_gate = (
+            "## Final Response Gate\n"
+            + "\n".join(POSITIVE_FINAL_RESPONSE_GATE_SENTENCES)
+            + "\n\n"
+        )
+        positive_mutations = (
+            positive_fixture.replace(positive_gate, "", 1),
+            positive_fixture.replace(positive_gate, "", 1).replace(
+                "## Common Workflow Protocol\n",
+                positive_gate + "## Common Workflow Protocol\n",
+                1,
+            ),
+            positive_fixture.replace(
+                "\n".join(POSITIVE_FINAL_RESPONSE_GATE_SENTENCES),
+                "\n".join(ROUTER_FINAL_RESPONSE_GATE_SENTENCES),
+                1,
+            ),
+        )
+        for candidate in positive_mutations:
+            with self.subTest(owner="positive"):
+                self.assert_rejected(candidate)
+
+        router_fixture = build_valid_router_fixture()
+        router_gate = (
+            "## Final Response Gate\n\n"
+            + "\n".join(ROUTER_FINAL_RESPONSE_GATE_SENTENCES)
+            + "\n\n"
+        )
+        router_mutations = (
+            router_fixture.replace(router_gate, "", 1),
+            router_fixture.replace(router_gate, "", 1).replace(
+                "## Output Contract\n",
+                router_gate + "## Output Contract\n",
+                1,
+            ),
+            router_fixture.replace(
+                "\n".join(ROUTER_FINAL_RESPONSE_GATE_SENTENCES),
+                "\n".join(POSITIVE_FINAL_RESPONSE_GATE_SENTENCES),
+                1,
+            ),
+        )
+        for candidate in router_mutations:
+            with self.subTest(owner="router"):
+                self.assert_router_rejected(candidate)
 
     def test_flat_token_dump_is_rejected(self) -> None:
         fixture = build_valid_skill_fixture(self.skill)
