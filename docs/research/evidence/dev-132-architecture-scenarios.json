@@ -1,0 +1,640 @@
+{
+  "schemaVersion": "1.0",
+  "evidenceKind": "design_scenario",
+  "sourceIssue": "DEV-132",
+  "designArtifact": "docs/superpowers/specs/2026-07-17-dev-132-mvp-architecture-design.md",
+  "designArtifactSha256": "33f64a6223290f582e65c2ce3c1fc317b255b0cd0bb4e2528b761011d1f816fa",
+  "workflowRoutingContract": {
+    "positiveWorkflowCount": 5,
+    "positivePromptBehavior": "bypass_non_positive_router_and_activate_exactly_one_workflow",
+    "nonPositiveRouterCount": 1,
+    "outcomes": [
+      "no_activation",
+      "clarification_required"
+    ],
+    "prohibited": [
+      "workflow_invocation",
+      "reference_loading",
+      "architectureResult_emission",
+      "tool_or_effect_use",
+      "Apple_capability_claim",
+      "command_agent_hook_or_broader_route_creation"
+    ]
+  },
+  "costRoutingContract": {
+    "trigger": "host_PostToolUse",
+    "action": "condense_diagnostic_output",
+    "eligibleResultClasses": [
+      "test",
+      "build",
+      "typecheck",
+      "lint"
+    ],
+    "policyOwner": "DEV-142",
+    "requiredPolicy": [
+      "versioned_exact_action_allowlist",
+      "versioned_exact_tool_allowlist",
+      "versioned_selected_command_classes",
+      "minimum_estimated_savings_threshold",
+      "conservative_maximum_Apple_payload",
+      "explicit_data_policy_permission",
+      "current_Apple_runtime_availability"
+    ],
+    "provider": "local_Apple_Foundation_Models_only",
+    "unknownPolicyBehavior": "fail_closed_preserve_original",
+    "declineBehavior": "preserve_original_without_original_tool_rerun",
+    "failureBehavior": "normalized_error_plus_original_without_original_tool_rerun",
+    "successBehavior": "validated_provenance_bound_result_may_replace_visible_result",
+    "parentUsageBoundary": "no_first_parent_turn_savings_claim_target_lower_subsequent_parent_consumption",
+    "acceptanceOwner": "DEV-142",
+    "acceptance": {
+      "minimumMedianTotalParentModelTokenReduction": 0.1,
+      "maximumCorrectnessRegressions": 0,
+      "maximumExtraParentModelTurns": 0,
+      "evidenceShape": "paired_null_capable_pluginOff_pluginOn_with_providerNormalizationVersion"
+    },
+    "liveRuntimeCostEvidence": {
+      "id": "E-RUNTIME-COST-001",
+      "status": "blocked",
+      "reasonCodes": [
+        "DEV142_benchmark_and_DEV143_145_runtime_chain_unavailable",
+        "paired_provider_usage_and_normalization_evidence_unavailable"
+      ],
+      "nonEvidence": [
+        "DEV132_architecture_scenarios",
+        "DEV128_compiled_fixtures",
+        "DEV130_deterministic_fixture",
+        "DEV138_repository_fixtures"
+      ]
+    },
+    "implementationOwners": {
+      "swiftBridge": "DEV-143",
+      "codexAdapter": "DEV-144",
+      "claudeAdapter": "DEV-145",
+      "integrations": [
+        "DEV-139",
+        "DEV-140",
+        "DEV-141"
+      ]
+    }
+  },
+  "status": "pass",
+  "limitations": [
+    "This normalized synthetic proof evaluates architecture contracts only; it did not invoke a Claude or Codex host, a model, a provider, or an Apple runtime.",
+    "SDK 26.5 labels refer to the checked DEV-128 fixture boundary, while OS and Xcode 27 beta surfaces remain locally unverified.",
+    "No external effect occurred; command, effect, replay, and recovery counts are deterministic expected outcomes.",
+    "DEV-138 fixtures are repository-only deterministic evidence and do not prove this production route, a live Apple response, or runtime savings."
+  ],
+  "scenarios": [
+    {
+      "id": "DEV132-SCENARIO-001",
+      "title": "New research-to-review baton-pass design",
+      "workflowSkill": "design-apple-foundation-models-handoff",
+      "inputClass": "synthetic_new_architecture_request",
+      "expectedPattern": "baton_pass",
+      "sourceProfile": "research",
+      "destinationProfile": "review",
+      "finalResponseOwner": "review",
+      "contextPolicy": {
+        "included": [
+          "research_findings",
+          "source_citations",
+          "decision_constraints"
+        ],
+        "excluded": [
+          "unrelated_task_context",
+          "C2_sensitive_fields",
+          "C3_never_transfer_fields"
+        ],
+        "classificationOutcome": "target_necessary_C0_C1_fields_selected_with_provenance"
+      },
+      "stateOutcome": {
+        "phase": "stable",
+        "commandCount": 1,
+        "effectCount": 0,
+        "reconciliationRequired": false
+      },
+      "safetyOutcomes": [
+        {
+          "id": "SINGLE_ACTIVE_OWNER",
+          "expected": "review_active_and_final_after_commit"
+        },
+        {
+          "id": "MODEL_AUTHORITY",
+          "expected": "proposal_only_reducer_authorizes_transition"
+        },
+        {
+          "id": "CONTEXT_BOUNDARY",
+          "expected": "target_necessary_fields_only"
+        },
+        {
+          "id": "APPLE_API_TRUTH",
+          "expected": "no_first_class_baton_pass_type_claimed"
+        }
+      ],
+      "verification": {
+        "requiredIds": [
+          "D-ROUTE-001",
+          "D-OWNER-001",
+          "D-TRANSITION-001",
+          "D-CONTEXT-001",
+          "D-CONTEXT-002",
+          "D-GRANT-001",
+          "D-EVIDENCE-001"
+        ],
+        "expectedResult": "pass"
+      },
+      "apiClaims": [
+        {
+          "surface": "LanguageModelSession_plus_Transcript_Codable_and_rehydration_mechanics",
+          "versionLabel": "compiled_sdk_26_5",
+          "localStatus": "compiled_fixture_shape_and_rehydration_only_not_baton_pass_or_selected_history_transform"
+        },
+        {
+          "surface": "LanguageModelSession_DynamicProfile_historyTransform_and_baton_pass_primitives",
+          "versionLabel": "official_os_xcode_27_beta_locally_unverified",
+          "localStatus": "official_surface_locally_unverified_and_blocked_by_missing_compatible_SDK_27_toolchain"
+        },
+        {
+          "surface": "application_owned_baton_pass_reducer",
+          "versionLabel": "pseudocode_deterministic_mock",
+          "localStatus": "synthetic_architecture_contract_only"
+        }
+      ],
+      "limitations": [
+        "The scenario proves expected routing, ownership, context, and reducer semantics, not probabilistic profile behavior.",
+        "The one command is an application transition command; no Apple model request or external effect ran."
+      ]
+    },
+    {
+      "id": "DEV132-SCENARIO-002",
+      "title": "Review of a flawed baton-pass reducer",
+      "workflowSkill": "review-apple-foundation-models-handoff",
+      "inputClass": "synthetic_invalid_existing_implementation",
+      "expectedPattern": "baton_pass",
+      "sourceProfile": "research",
+      "destinationProfile": "review",
+      "finalResponseOwner": "ambiguous",
+      "contextPolicy": {
+        "included": [
+          "whole_transcript"
+        ],
+        "excluded": [
+          "nothing_declared"
+        ],
+        "classificationOutcome": "fail_missing_inclusion_exclusion_policy_and_unbounded_transcript_copy"
+      },
+      "stateOutcome": {
+        "phase": "stable",
+        "commandCount": 0,
+        "effectCount": 0,
+        "reconciliationRequired": false
+      },
+      "safetyOutcomes": [
+        {
+          "id": "FINAL_OWNER",
+          "expected": "rejected_ambiguous_owner"
+        },
+        {
+          "id": "TRANSITION_BUDGET",
+          "expected": "rejected_unlimited_transitions"
+        },
+        {
+          "id": "CONTEXT_INCLUSION",
+          "expected": "rejected_missing_required_field_policy"
+        },
+        {
+          "id": "CONTEXT_EXCLUSION",
+          "expected": "rejected_whole_transcript_copy"
+        }
+      ],
+      "verification": {
+        "requiredIds": [
+          "D-OWNER-001",
+          "D-TRANSITION-001",
+          "D-CONTEXT-001",
+          "D-CONTEXT-002"
+        ],
+        "expectedResult": "fail"
+      },
+      "apiClaims": [
+        {
+          "surface": "Transcript_Codable_and_session_rehydration_mechanics",
+          "versionLabel": "compiled_sdk_26_5",
+          "localStatus": "compiled_mechanics_do_not_authorize_whole_transcript_transfer"
+        },
+        {
+          "surface": "dynamic_profile_baton_pass_integration",
+          "versionLabel": "official_os_xcode_27_beta_locally_unverified",
+          "localStatus": "blocked_by_missing_compatible_SDK_27_toolchain"
+        },
+        {
+          "surface": "flawed_application_reducer",
+          "versionLabel": "pseudocode_deterministic_mock",
+          "localStatus": "synthetic_negative_review_case"
+        }
+      ],
+      "limitations": [
+        "The expected failure is a design-level oracle, not evidence that an application binary or host task ran.",
+        "Additional independent-version, phase, tool, effect, recovery, fallback, and evidence checks remain required for a full implementation review."
+      ]
+    },
+    {
+      "id": "DEV132-SCENARIO-003",
+      "title": "Parent-owned isolated specialist consultation",
+      "workflowSkill": "design-apple-foundation-models-handoff",
+      "inputClass": "synthetic_pattern_selection_request",
+      "expectedPattern": "isolated_consultation",
+      "sourceProfile": "parent",
+      "destinationProfile": "specialist_child",
+      "finalResponseOwner": "parent",
+      "contextPolicy": {
+        "included": [
+          "narrow_question",
+          "required_public_facts",
+          "typed_result_contract"
+        ],
+        "excluded": [
+          "parent_transcript",
+          "unrelated_task_context",
+          "C2_sensitive_fields",
+          "C3_never_transfer_fields"
+        ],
+        "classificationOutcome": "minimized_child_envelope_with_independent_transcript"
+      },
+      "stateOutcome": {
+        "phase": "stable",
+        "commandCount": 0,
+        "effectCount": 0,
+        "reconciliationRequired": false
+      },
+      "safetyOutcomes": [
+        {
+          "id": "PARENT_OWNER",
+          "expected": "parent_retains_control_and_final_response"
+        },
+        {
+          "id": "CHILD_TRANSCRIPT",
+          "expected": "isolated_no_parent_transcript_copy"
+        },
+        {
+          "id": "CHILD_FAILURE",
+          "expected": "typed_failure_returns_without_ownership_transfer"
+        },
+        {
+          "id": "CHILD_AUTHORITY",
+          "expected": "no_unauthorized_tool_or_effect"
+        }
+      ],
+      "verification": {
+        "requiredIds": [
+          "D-ROUTE-001",
+          "D-OWNER-001",
+          "D-CONTEXT-001",
+          "D-CONTEXT-002",
+          "D-TOOL-001",
+          "D-GRANT-001"
+        ],
+        "expectedResult": "pass"
+      },
+      "apiClaims": [
+        {
+          "surface": "independent_LanguageModelSession_construction",
+          "versionLabel": "compiled_sdk_26_5",
+          "localStatus": "session_isolation_fixture_passes_without_generation"
+        },
+        {
+          "surface": "parent_child_consultation_orchestration",
+          "versionLabel": "pseudocode_deterministic_mock",
+          "localStatus": "synthetic_architecture_contract_only"
+        },
+        {
+          "surface": "optional_dynamic_profile_configuration",
+          "versionLabel": "official_os_xcode_27_beta_locally_unverified",
+          "localStatus": "not_required_by_default_and_not_run_locally"
+        }
+      ],
+      "limitations": [
+        "Session construction isolation does not prove model-selected consultation behavior or authorization.",
+        "No child model, tool, provider, or effect ran in this synthetic scenario."
+      ]
+    },
+    {
+      "id": "DEV132-SCENARIO-004",
+      "title": "Blocked C3 provider transfer with a separate uncertain allowed effect",
+      "workflowSkill": "debug-apple-foundation-models-handoff",
+      "inputClass": "synthetic_security_and_recovery_failure",
+      "expectedPattern": "baton_pass",
+      "sourceProfile": "research",
+      "destinationProfile": "custom_provider_review",
+      "finalResponseOwner": "research",
+      "contextPolicy": {
+        "included": [
+          "synthetic_effect_identifier",
+          "boundary_classification",
+          "reconciliation_status"
+        ],
+        "excluded": [
+          "C3_never_transfer_field",
+          "custom_provider_payload",
+          "classified_field_values",
+          "live_trace_content"
+        ],
+        "classificationOutcome": "C3_envelope_rejected_atomically_and_separate_allowed_effect_recorded_as_metadata"
+      },
+      "stateOutcome": {
+        "phase": "recoveryRequired",
+        "commandCount": 1,
+        "effectCount": 1,
+        "reconciliationRequired": true
+      },
+      "safetyOutcomes": [
+        {
+          "id": "C3_PROVIDER_ENVELOPE",
+          "expected": "blocked_zero_commands"
+        },
+        {
+          "id": "UNCERTAIN_ALLOWED_EFFECT",
+          "expected": "one_effect_one_command"
+        },
+        {
+          "id": "ALLOWED_EFFECT_TOOL_GATE",
+          "expected": "passed_current_actor_tool_allowlist_schema_semantic_arguments_recipient_resource_versions_authority_authentication_permissions_bound_confirmation_effect_budget_and_provenance_before_dispatch"
+        },
+        {
+          "id": "REPLAY",
+          "expected": "zero_additional_commands"
+        },
+        {
+          "id": "RETRY",
+          "expected": "blocked_until_reconciled"
+        },
+        {
+          "id": "LATE_OR_REPLAYED_EVENT",
+          "expected": "no_state_or_authority_mutation"
+        },
+        {
+          "id": "NO_SAFE_RECONCILIATION",
+          "expected": "repair_blocked_remain_recovery_required"
+        },
+        {
+          "id": "RECOVERY_FACTS",
+          "expected": "phase_authority_pending_checkpoint_counts_ledger_and_repair_facts_preserved"
+        },
+        {
+          "id": "FALLBACK",
+          "expected": "no_custom_provider_without_matching_grant"
+        }
+      ],
+      "verification": {
+        "requiredIds": [
+          "D-CONTEXT-002",
+          "D-GRANT-001",
+          "D-TOOL-001",
+          "D-PHASE-001",
+          "D-EFFECT-001",
+          "D-EFFECT-002",
+          "D-FALLBACK-001",
+          "D-EVIDENCE-001"
+        ],
+        "expectedResult": "pass"
+      },
+      "apiClaims": [
+        {
+          "surface": "custom_LanguageModel_provider_boundary",
+          "versionLabel": "official_os_xcode_27_beta_locally_unverified",
+          "localStatus": "not_run_no_provider_or_network_required"
+        },
+        {
+          "surface": "transcript_error_handling_policy",
+          "versionLabel": "official_os_xcode_27_beta_locally_unverified",
+          "localStatus": "not_run_and_never_claimed_as_external_effect_rollback"
+        },
+        {
+          "surface": "application_effect_ledger_and_recovery_reducer",
+          "versionLabel": "pseudocode_deterministic_mock",
+          "localStatus": "synthetic_expected_state_and_counts_only"
+        }
+      ],
+      "limitations": [
+        "The blocked C3 branch emitted zero commands; the one recorded command and effect belong only to the separate allowed-effect branch.",
+        "The scenario claims application-controlled at-most-once command emission plus reconciliation, not exactly-once external delivery or rollback.",
+        "No safe reconciliation leaves recoveryRequired unchanged and returns an explicit repair-blocked or unavailable result until external truth is established."
+      ]
+    },
+    {
+      "id": "DEV132-SCENARIO-005",
+      "title": "Out-of-domain request does not activate",
+      "workflowSkill": "none",
+      "inputClass": "synthetic_out_of_domain_request",
+      "expectedPattern": "deterministic_routing",
+      "sourceProfile": "host_preselection",
+      "destinationProfile": "none",
+      "finalResponseOwner": "host",
+      "contextPolicy": {
+        "included": [
+          "normalized_domain_classification"
+        ],
+        "excluded": [
+          "request_content",
+          "workflow_references",
+          "architecture_result",
+          "Apple_runtime_claims"
+        ],
+        "classificationOutcome": "out_of_domain"
+      },
+      "stateOutcome": {
+        "phase": "stable",
+        "commandCount": 0,
+        "effectCount": 0,
+        "reconciliationRequired": false
+      },
+      "safetyOutcomes": [
+        {
+          "id": "NON_POSITIVE_OUTCOME",
+          "expected": "no_activation"
+        },
+        {
+          "id": "NON_POSITIVE_SIDE_EFFECTS",
+          "expected": "no_workflow_reference_architectureResult_tool_effect_command_agent_hook_or_Apple_claim"
+        }
+      ],
+      "verification": {
+        "requiredIds": [
+          "D-ROUTE-001",
+          "D-OWNER-001",
+          "D-EVIDENCE-001"
+        ],
+        "expectedResult": "pass"
+      },
+      "apiClaims": [
+        {
+          "surface": "bounded_non_positive_preselection",
+          "versionLabel": "pseudocode_deterministic_mock",
+          "localStatus": "synthetic_architecture_contract_only"
+        }
+      ],
+      "limitations": [
+        "This case records a normalized expected route only; it did not run a host or inspect request content."
+      ]
+    },
+    {
+      "id": "DEV132-SCENARIO-006",
+      "title": "Ambiguous request asks one bounded clarification",
+      "workflowSkill": "none",
+      "inputClass": "synthetic_ambiguous_domain_or_contract_request",
+      "expectedPattern": "deterministic_routing",
+      "sourceProfile": "host_preselection",
+      "destinationProfile": "none",
+      "finalResponseOwner": "host",
+      "contextPolicy": {
+        "included": [
+          "normalized_ambiguity_class"
+        ],
+        "excluded": [
+          "request_content",
+          "workflow_references",
+          "architecture_result",
+          "Apple_runtime_claims"
+        ],
+        "classificationOutcome": "domain_or_approved_contract_ambiguous"
+      },
+      "stateOutcome": {
+        "phase": "stable",
+        "commandCount": 0,
+        "effectCount": 0,
+        "reconciliationRequired": false
+      },
+      "safetyOutcomes": [
+        {
+          "id": "NON_POSITIVE_OUTCOME",
+          "expected": "clarification_required"
+        },
+        {
+          "id": "CLARIFICATION_BOUNDARY",
+          "expected": "one_bounded_question_then_fresh_classification"
+        },
+        {
+          "id": "NON_POSITIVE_SIDE_EFFECTS",
+          "expected": "no_workflow_reference_architectureResult_tool_effect_command_agent_hook_or_Apple_claim"
+        }
+      ],
+      "verification": {
+        "requiredIds": [
+          "D-ROUTE-001",
+          "D-OWNER-001",
+          "D-EVIDENCE-001"
+        ],
+        "expectedResult": "pass"
+      },
+      "apiClaims": [
+        {
+          "surface": "bounded_non_positive_preselection",
+          "versionLabel": "pseudocode_deterministic_mock",
+          "localStatus": "synthetic_architecture_contract_only"
+        }
+      ],
+      "limitations": [
+        "This case proves the expected envelope only; no host conversation or hidden routing state ran."
+      ]
+    },
+    {
+      "id": "DEV132-SCENARIO-007",
+      "title": "Apple-first diagnostic condensation preserves fallback and no rerun",
+      "workflowSkill": "none",
+      "inputClass": "synthetic_post_tool_diagnostic_result",
+      "expectedPattern": "deterministic_routing",
+      "sourceProfile": "host_parent",
+      "destinationProfile": "local_Apple_bridge",
+      "finalResponseOwner": "host_parent",
+      "contextPolicy": {
+        "included": [
+          "synthetic_result_binding",
+          "allowlisted_trusted_local_diagnostic_fields",
+          "versioned_policy_identifiers",
+          "eligibility_metadata"
+        ],
+        "excluded": [
+          "unallowlisted_fields",
+          "non_local_fields",
+          "credentials",
+          "raw_live_diagnostic_content",
+          "provider_or_host_private_data"
+        ],
+        "classificationOutcome": "fail_closed_exact_policy_and_provenance_gate"
+      },
+      "stateOutcome": {
+        "phase": "stable",
+        "commandCount": 1,
+        "effectCount": 0,
+        "reconciliationRequired": false
+      },
+      "safetyOutcomes": [
+        {
+          "id": "DIAGNOSTIC_ACTION",
+          "expected": "condense_diagnostic_output"
+        },
+        {
+          "id": "ELIGIBILITY",
+          "expected": "all_DEV142_versioned_allowlists_bounds_permission_provenance_and_Apple_availability_required"
+        },
+        {
+          "id": "ORIGINAL_TOOL_EXECUTION",
+          "expected": "one_before_PostToolUse"
+        },
+        {
+          "id": "ORIGINAL_TOOL_RERUN",
+          "expected": "zero_for_every_route_outcome"
+        },
+        {
+          "id": "DECLINE_OR_UNAVAILABLE",
+          "expected": "original_result_unchanged"
+        },
+        {
+          "id": "APPLE_FAILURE",
+          "expected": "normalized_error_plus_original_result"
+        },
+        {
+          "id": "VALID_APPLE_RESULT",
+          "expected": "provenance_bound_schema_valid_result_may_replace_visible_result"
+        },
+        {
+          "id": "PARENT_USAGE_BOUNDARY",
+          "expected": "no_first_turn_savings_claim_lower_subsequent_consumption_target"
+        },
+        {
+          "id": "LIVE_ACCEPTANCE",
+          "expected": "blocked_pending_DEV142_benchmark_DEV143_145_runtime_and_paired_provider_usage_evidence"
+        }
+      ],
+      "verification": {
+        "requiredIds": [
+          "D-ROUTE-001",
+          "D-OWNER-001",
+          "D-TOOL-001",
+          "D-CONTEXT-001",
+          "D-CONTEXT-002",
+          "D-FALLBACK-001",
+          "D-EVIDENCE-001"
+        ],
+        "expectedResult": "pass"
+      },
+      "apiClaims": [
+        {
+          "surface": "DEV128_SDK_26_5_fixture_regression_boundary",
+          "versionLabel": "compiled_sdk_26_5",
+          "localStatus": "six_fixture_regression_boundary_only_no_live_bridge_or_generation"
+        },
+        {
+          "surface": "host_PostToolUse_cost_router_and_bridge_chain",
+          "versionLabel": "pseudocode_deterministic_mock",
+          "localStatus": "synthetic_architecture_contract_only_downstream_implementation_required"
+        }
+      ],
+      "limitations": [
+        "The one command is a synthetic bridge-attempt expectation, not an original-tool rerun or external effect.",
+        "No host hook, bridge, model, provider, or paired runtime-cost row ran; DEV-138 fixtures cannot satisfy that proof."
+      ]
+    }
+  ]
+}
