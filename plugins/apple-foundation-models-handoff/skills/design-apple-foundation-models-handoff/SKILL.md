@@ -15,6 +15,11 @@ workflow finding. Serialize the exact four normalized values from the source
 request in the shown field order; never use inspection, execution, evidence
 results, or drafted output to infer or revise a value. This serialization neither
 invokes nor emulates the router and has no branch or ownership effect.
+For an explicit Apple Foundation Models design request with no user-supplied or
+user-described artifact or evidence, freeze the exact tuple
+`foundation_models_handoff/design/absent/missing`: `domain =
+foundation_models_handoff`, `requestedOperation = design`, `artifactState = absent`,
+and `evidenceState = missing` before inspection or non-skill tool use.
 Once this positive workflow activates, it remains the only workflow owner; never
 select, invoke, or switch to another skill.
 Make the first character of the final response the opening backtick of the exact
@@ -43,8 +48,8 @@ and name a separate authorized follow-on boundary. Do not invoke another skill.
 
 ## Common Workflow Protocol
 
-1. Inspect the repository, relevant artifacts, and installed SDK interfaces before asserting implementation facts.
-2. Resolve the router inputs and state the selected workflow.
+1. Freeze the source-request router inputs and state the selected workflow before inspection or non-skill tool use.
+2. Only after pre-selection, inspect the repository, relevant artifacts, and installed SDK interfaces for workflow facts.
 3. Establish the current owner, next owner, trust boundary, and effect authority.
 4. Separate control-plane state from model context and minimize transferred data.
 5. Distinguish consultation from ownership transfer.

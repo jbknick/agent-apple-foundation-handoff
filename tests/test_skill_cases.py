@@ -528,19 +528,19 @@ NON_POSITIVE_SCORER_SHA256 = (
 )
 APPROVED_SKILL_PAYLOAD_SHA256 = {
     "design-apple-foundation-models-handoff": (
-        "b7ac4732f113ef568d055fade91573cda443c8d62370f544a080dbf3b56155bf"
+        "5db3ec8adb5672cf4f4978db589a36145c1c468b6435aca0afb1256dd5019970"
     ),
     "implement-apple-foundation-models-handoff": (
-        "4f56dd1872d022700e7ca9dccfe0ddf06a60c65b57b5a60d855e587f73416324"
+        "e02f6a36d061e871c1e3b55a7ed60e2cd353d5b8e3abb7a4c1d79c43bfa774ca"
     ),
     "review-apple-foundation-models-handoff": (
-        "997496f08c3d4af8c14fe16f65cc3b1807fe35e3c2518f46163963a3165646ae"
+        "cc0890dffc0be4362a423440c04f2f5fb0603a8a16dc0ed80050dd450249971c"
     ),
     "debug-apple-foundation-models-handoff": (
-        "cf3fb614113f7c399c87b4e057d1093e11b278d812fa2127d0984972dd047b92"
+        "f2385562d98b4a1e8dae87867f43a09aebfa398cf725e2b5ad2f76b7fc4f7671"
     ),
     "validate-apple-foundation-models-handoff": (
-        "0761a009e0307cf4130310459319b5a9f5a9f5e1eaa9d5393a1f20a56b86af38"
+        "52ab881674d70e5c0af20551c8a77a9c9cf59565c7b72172cef819f50fce10ed"
     ),
     "route-apple-foundation-models-handoff": (
         "461b83873f481c1f9d11fe81dd388453cc0d81e9863ba29a1cbb1c854ce310e9"

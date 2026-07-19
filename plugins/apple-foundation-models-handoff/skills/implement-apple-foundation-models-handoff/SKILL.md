@@ -43,8 +43,8 @@ and name a separate authorized follow-on boundary. Do not invoke another skill.
 
 ## Common Workflow Protocol
 
-1. Inspect the repository, relevant artifacts, and installed SDK interfaces before asserting implementation facts.
-2. Resolve the router inputs and state the selected workflow.
+1. Freeze the source-request router inputs and state the selected workflow before inspection or non-skill tool use.
+2. Only after pre-selection, inspect the repository, relevant artifacts, and installed SDK interfaces for workflow facts.
 3. Establish the current owner, next owner, trust boundary, and effect authority.
 4. Separate control-plane state from model context and minimize transferred data.
 5. Distinguish consultation from ownership transfer.
