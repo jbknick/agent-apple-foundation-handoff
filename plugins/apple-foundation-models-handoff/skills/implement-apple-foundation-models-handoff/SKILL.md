@@ -5,6 +5,15 @@ description: Implement an Apple Foundation Models handoff architecture when an a
 
 # Implement Apple Foundation Models Handoff
 
+## Final Response Gate
+
+Once this positive workflow activates, it remains the only workflow owner; never
+select, invoke, or switch to another skill.
+Make the first character of the final response the opening backtick of the exact
+21-line result-envelope `text` fence under Output Contract; emit no prose before it.
+Close that fence immediately after its 21st line, then emit only the exact required
+headings, each once and in their listed order.
+
 ## Routing and Inspection
 
 Normalize these router inputs in order:

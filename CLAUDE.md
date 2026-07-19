@@ -16,13 +16,12 @@ Never edit `AGENTS.md` directly; update `CLAUDE.md`, then use `scripts/sync_gene
   it is not generic Apple Intelligence education.
 - DEV-135 installed the metadata scaffold. The package exposes five workflows plus one non-positive router. The five production workflows are implemented: `design-apple-foundation-models-handoff`, `implement-apple-foundation-models-handoff`,
   `review-apple-foundation-models-handoff`, `debug-apple-foundation-models-handoff`, and `validate-apple-foundation-models-handoff`. `route-apple-foundation-models-handoff` is the non-positive router; it is not a workflow.
-- Select the one skill matching the request, then progressively disclose only
-  the directly linked reference needed for that concern. Do not copy complete
-  workflows into guidance, duplicate the reference corpus, or add a plugin-local
-  worker.
-- One bounded non-positive preselection router may only clarify, decline, or hand off
-  other requests once implemented. It is not a sixth positive workflow and is distinct
-  from the DEV-142 through DEV-145 cost router, `PostToolUse` hooks, and Swift bridge chain.
+- Before selecting any positive workflow, resolve non-positive pre-selection in this order: `domain = out_of_domain`, `domain = ambiguous`, then a confirmed implementation request missing an approved architecture or exact change boundary.
+- For any of those cases, select only `route-apple-foundation-models-handoff`, return its non-positive result before any inspection or tool use, and do not select a positive workflow.
+- The bounded non-positive preselection router may only clarify, decline, or hand off
+  those requests. It is not a sixth positive workflow and is distinct from the
+  DEV-142 through DEV-145 cost router, `PostToolUse` hooks, and Swift bridge chain.
+- Otherwise select exactly one matching positive workflow; once selected, it remains the only workflow owner for the request. Progressively disclose only the directly linked reference needed for that concern. Do not copy complete workflows into guidance, duplicate the reference corpus, or add a plugin-local worker.
 - Foundation Models handoff, coding-session handoff, Apple Handoff, App Intents,
   Claude/Codex Agent Skills, and Foundation Models runtime Skills are distinct.
 

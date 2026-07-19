@@ -5,6 +5,13 @@ description: 'Route a non-positive Apple Foundation Models handoff request befor
 
 # Route Apple Foundation Models Handoff
 
+## Final Response Gate
+
+When this router activates, resolve the branch directly from the user request without
+inspection or tool use.
+Make the final response exactly one fenced `text` block copied from the matching
+branch below, with nothing before or after the fence.
+
 ## Decision Procedure
 
 domain = foundation_models_handoff | out_of_domain | ambiguous

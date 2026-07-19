@@ -696,7 +696,7 @@ class RepositoryGuidanceTests(unittest.TestCase):
 
         assert_workflow_guidance_contract(self, valid)
         for contract in WORKFLOW_GUIDANCE_CONTRACTS:
-            mutation = valid.replace(contract, "", 1)
+            mutation = valid.replace(contract, "")
             with self.subTest(contract=contract), self.assertRaises(AssertionError):
                 assert_workflow_guidance_contract(self, mutation)
 
