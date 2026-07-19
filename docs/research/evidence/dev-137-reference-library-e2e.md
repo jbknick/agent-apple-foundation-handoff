@@ -2,14 +2,14 @@
 
 ## Scope and claim boundary
 
-This record binds the Round 1 offline correction proof to one source commit and
+This record binds the Round 2 offline simplification proof to one source commit and
 retains older structural Codex and explicitly directed reference-selection
 outcomes as historical evidence only. It is not workflow-triggered activation,
 does not satisfy `E-CODEX-ACTIVATE-001` or
 `DEV137-CODEX-PROGRESSIVE-001`, and cannot complete DEV-137.
 
-- Final Round 1 source commit: `b0bcfa91336f1d6dba9a6638f71ee6d199748fe5`
-- Final Round 1 source tree: `fb60f0e3572bff39cb13bf32d02e43b0d1364c77`
+- Final Round 2 source commit: `6391619163c8f1afed1c76fd5dd024e170b161c9`
+- Final Round 2 source tree: `78c118b036e3a2074b2c45612bbd7cfe9117b210`
 - Deterministic verification date: `2026-07-20`
 - Current live Codex/model/network run: not invoked
 - Historical host candidate commit: `d27cc16d62fd0e23e5e62441d17122d622c09492`
@@ -56,21 +56,31 @@ Additional pinned identities:
 | Approved official sources | pass offline, 30 unique links; opt-in network resolution skipped |
 | Swift labels | pass, 4 blocks with exactly one allowed visible label each |
 | `compiled_sdk_26_5` | pass, 1/1 block type-checked against SDK 26.5 |
-| Focused disclosure module | pass, 46/46, including pending-command reasoning and turn-before-thread rejection |
+| Focused disclosure module | pass, 28/28: 19 closed-parser, 4 probe-boundary, and 5 disclosure-host tests |
 | Host identity group | pass, 10/10 |
-| Focused reference group | pass, 13/13 |
-| Focused plugin group | pass, 15/15 |
-| Guidance and plugin regression | pass, 33/33; generated adapter exactly 90 lines |
+| Focused reference group | pass, 14 total with 13 executed/pass and 1 opt-in network skip |
+| Guidance and plugin regression | pass, 38/38; generated adapter exactly 90 lines |
 | Direct-script blocked-PATH proof | pass, 2/2 exact normalized result dictionaries; both exits `2` |
-| Repository unit suite | pass, 155 tests with 154 executed/pass and 1 opt-in network skip |
-| E2E helper compilation | pass, 2/2 modules |
+| Repository unit suite | pass, 137 tests with 136 executed/pass and 1 opt-in network skip |
+| Python compilation | pass, 3/3 verification modules |
 | Generated synchronization | pass |
 | DEV-128 inherited regression | pass, 6/6 positives and 2/2 exact expected blockers |
 | DEV-130 inherited regression | pass, compile/golden/repeat and 8/8 scenarios; golden includes one additional `SUMMARY` line |
 | DEV-131 inherited regression | pass, 26/26; corpus 11/11; 8 evidence files |
 | DEV-138 inherited regression | pass, 36/36 tests and exact 43-row oracle |
 | BATS | pass, 3/3 |
-| Diff/scope/cache hygiene | pass; 15-path contract correction plus exact 2-path lifecycle follow-up, no repo Python cache, no untracked paths |
+| Diff/scope/cache hygiene | pass; source commit changes exactly 3 authorized paths, branch delta remains 16 paths, no repo Python cache, no untracked paths |
+
+Round 2 removed only superseded verification machinery. Static AST and `rg`
+reachability found no repository consumer of the deleted generic/recursive
+parser symbols; `run_case` uses `parse_disclosure_events` as its sole parser.
+The authoritative size reductions are:
+
+| File | Before | After | Reduction |
+| --- | ---: | ---: | ---: |
+| `tests/e2e/codex_reference_disclosure.py` | 3,642 lines | 845 lines | 2,797 lines |
+| `tests/test_codex_reference_disclosure.py` | 1,447 lines | 689 lines | 758 lines |
+| `docs/superpowers/plans/2026-07-17-dev-137-progressive-disclosure-reference-library.md` | 1,732 lines | 262 lines | 1,470 lines |
 
 ## Codex structural result
 
