@@ -198,7 +198,7 @@ codex-cli 0.144.5
 Exit status: `0`.
 
 ```console
-$ swift --version
+$ swiftc --version
 Apple Swift version 6.3.2
 Target: arm64-apple-macosx26.0
 ```
@@ -247,7 +247,7 @@ $ xcode-select -p
 $ swift --version
 swift-driver version: 1.148.6 Apple Swift version 6.3.3 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)
 Target: arm64-apple-macosx26.0
-$ xcrun --show-sdk-version
+$ xcrun --sdk macosx --show-sdk-version
 26.5
 ```
 
