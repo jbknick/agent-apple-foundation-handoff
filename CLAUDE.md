@@ -22,15 +22,11 @@ changes to the shared contract belong here.
 - Treat pre-selection as one closed compilation transaction: resolve and freeze `domain`, `requestedOperation`, `artifactState`, and `evidenceState` exactly once; emit a router-owned outcome immediately before positive selection, or pass the same frozen tuple to the one selected positive workflow for unchanged serialization without re-inference.
 - On positive activation, `routerInput` is an immutable pre-selection record, not a workflow finding. Serialize the exact four normalized values from the source request in the shown field order; never use inspection, execution, evidence results, or drafted output to infer or revise a value. This serialization neither invokes nor emulates the router and has no branch or ownership effect.
 - Treat a request asking only about Swift actors, actor isolation, or a Swift example as `domain = out_of_domain` even when it asks for implementation; select only `route-apple-foundation-models-handoff` and return its `no_activation` result before positive selection.
-- Otherwise select exactly one matching positive workflow; once selected, it remains the only workflow owner for the request. Load only its needed linked reference.
+- Otherwise select exactly one matching positive workflow; once selected, it remains the only workflow owner for the request. Load one needed reference; never copy workflows or reference corpora or add a plugin-local worker.
 
 ### Canonical and generated paths
-- Root canonical inputs are `CLAUDE.md`, `.claude-plugin/marketplace.json`, and
-  `metadata/codex-marketplace.json`. Plugin-local canonical inputs are
-  `plugins/apple-foundation-models-handoff/.claude-plugin/plugin.json` and
-  `plugins/apple-foundation-models-handoff/metadata/codex-interface.json`.
-  `skills/**` and `references/**` are current plugin-local canonical inputs.
-  DEV-137 references are integrated and link-resolved.
+- Canonical inputs: `CLAUDE.md`, `.claude-plugin/marketplace.json`, `metadata/codex-marketplace.json`, `plugins/apple-foundation-models-handoff/.claude-plugin/plugin.json`, and `plugins/apple-foundation-models-handoff/metadata/codex-interface.json`.
+  `skills/**` and `references/**` are current plugin-local canonical inputs. DEV-137 references are integrated and link-resolved.
 - `AGENTS.md`, `.agents/plugins/marketplace.json`, and `plugins/apple-foundation-models-handoff/.codex-plugin/plugin.json`
   are generated, non-editable outputs.
 - DEV-135 selects conventional source `./plugins/apple-foundation-models-handoff`; the package must not use external symlinks.
