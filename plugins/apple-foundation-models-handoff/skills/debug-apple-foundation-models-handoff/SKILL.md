@@ -10,6 +10,11 @@ description: Debug an Apple Foundation Models handoff when an observed routing, 
 Before drafting, freeze normalized `domain`, `requestedOperation`, `artifactState`,
 and `evidenceState`, then copy that same tuple unchanged into `routerInput`; use no
 synonyms and do not reclassify later.
+On positive activation, `routerInput` is an immutable pre-selection record, not a
+workflow finding. Serialize the exact four normalized values from the source
+request in the shown field order; never use inspection, execution, evidence
+results, or drafted output to infer or revise a value. This serialization neither
+invokes nor emulates the router and has no branch or ownership effect.
 Once this positive workflow activates, it remains the only workflow owner; never
 select, invoke, or switch to another skill.
 Make the first character of the final response the opening backtick of the exact

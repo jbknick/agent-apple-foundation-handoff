@@ -7,6 +7,12 @@ description: 'Route a non-positive Apple Foundation Models handoff request befor
 
 ## Final Response Gate
 
+Classify explicit Apple Foundation Models session, profile, or provider coordination
+as `domain = foundation_models_handoff`; classify bare `Apple handoff` wording without
+that boundary as `domain = ambiguous`; classify App Intents or Shortcuts, Apple
+Handoff or NSUserActivity, generic Swift or actors, generic Core ML, coding-session
+handoff, Agent Skills, and Foundation Models runtime Skills as
+`domain = out_of_domain`.
 Freeze `domain`, `requestedOperation`, `artifactState`, and `evidenceState` exactly
 once; emit the matching router-owned branch immediately, and never let a requested
 operation, artifact, or evidence cue override `domain = ambiguous`.

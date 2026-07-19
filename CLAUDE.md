@@ -7,23 +7,22 @@ changes to the shared contract belong here.
 <!-- BEGIN GENERATED AGENTS ADAPTER -->
 ## Repository contract
 
-`CLAUDE.md` is the only authored canonical guide; `AGENTS.md` is generated from this section.
-Never edit `AGENTS.md` directly; update `CLAUDE.md`, then use `scripts/sync_generated_artifacts.py`.
+`CLAUDE.md` is the only authored canonical guide; `AGENTS.md` is generated. Never edit `AGENTS.md` directly; update `CLAUDE.md`, then run `scripts/sync_generated_artifacts.py`.
 
 ### Scope and capability ownership
-- Plugin ID `apple-foundation-models-handoff` supports five Apple Foundation Models handoff workflows; it is not generic Apple Intelligence education.
+
 - DEV-135 installed the metadata scaffold. The package exposes five workflows plus one non-positive router. The five production workflows are implemented: `design-apple-foundation-models-handoff`, `implement-apple-foundation-models-handoff`,
   `review-apple-foundation-models-handoff`, `debug-apple-foundation-models-handoff`, and `validate-apple-foundation-models-handoff`. `route-apple-foundation-models-handoff` is the non-positive router; it is not a workflow.
 - Before selecting any positive workflow, resolve non-positive pre-selection in this order: `domain = out_of_domain`, `domain = ambiguous`, then a confirmed implementation request missing an approved architecture or exact change boundary.
+- Classify explicit Apple Foundation Models session, profile, or provider coordination as `domain = foundation_models_handoff`; classify bare `Apple handoff` wording without that boundary as `domain = ambiguous`; classify App Intents or Shortcuts, Apple Handoff or NSUserActivity, generic Swift or actors, generic Core ML, coding-session handoff, Agent Skills, and Foundation Models runtime Skills as `domain = out_of_domain`.
 - For any of those cases, select only `route-apple-foundation-models-handoff`, return its non-positive result before any inspection or tool use, and do not select a positive workflow.
 - The bounded non-positive preselection router may only clarify, decline, or hand off
   those requests. It is not a sixth positive workflow and is distinct from the
   DEV-142 through DEV-145 cost router, `PostToolUse` hooks, and Swift bridge chain.
 - Treat pre-selection as one closed compilation transaction: resolve and freeze `domain`, `requestedOperation`, `artifactState`, and `evidenceState` exactly once; emit a router-owned outcome immediately before positive selection, or pass the same frozen tuple to the one selected positive workflow for unchanged serialization without re-inference.
+- On positive activation, `routerInput` is an immutable pre-selection record, not a workflow finding. Serialize the exact four normalized values from the source request in the shown field order; never use inspection, execution, evidence results, or drafted output to infer or revise a value. This serialization neither invokes nor emulates the router and has no branch or ownership effect.
 - Treat a request asking only about Swift actors, actor isolation, or a Swift example as `domain = out_of_domain` even when it asks for implementation; select only `route-apple-foundation-models-handoff` and return its `no_activation` result before positive selection.
-- Otherwise select exactly one matching positive workflow; once selected, it remains the only workflow owner for the request. Progressively disclose only the directly linked reference needed for that concern. Do not copy complete workflows into guidance, duplicate the reference corpus, or add a plugin-local worker.
-- Foundation Models handoff, coding-session handoff, Apple Handoff, App Intents,
-  Claude/Codex Agent Skills, and Foundation Models runtime Skills are distinct.
+- Otherwise select exactly one matching positive workflow; once selected, it remains the only workflow owner for the request. Load only its needed linked reference.
 
 ### Canonical and generated paths
 - Root canonical inputs are `CLAUDE.md`, `.claude-plugin/marketplace.json`, and
@@ -32,24 +31,18 @@ Never edit `AGENTS.md` directly; update `CLAUDE.md`, then use `scripts/sync_gene
   `plugins/apple-foundation-models-handoff/metadata/codex-interface.json`.
   `skills/**` and `references/**` are current plugin-local canonical inputs.
   DEV-137 references are integrated and link-resolved.
-- `AGENTS.md`, `.agents/plugins/marketplace.json`, and
-  `plugins/apple-foundation-models-handoff/.codex-plugin/plugin.json` are generated,
-  non-editable outputs of the shared synchronization entry point.
-- DEV-135 selects conventional source `./plugins/apple-foundation-models-handoff`;
-  the package must not use external symlinks.
-- The effective cached plugin payload must exclude repository-only docs, research,
-  fixtures, tests, and private state; none may appear as plugin capabilities.
+- `AGENTS.md`, `.agents/plugins/marketplace.json`, and `plugins/apple-foundation-models-handoff/.codex-plugin/plugin.json`
+  are generated, non-editable outputs.
+- DEV-135 selects conventional source `./plugins/apple-foundation-models-handoff`; the package must not use external symlinks.
+- The effective cached plugin payload must exclude repository-only docs, research, fixtures, tests, and private state;
+  none may appear as plugin capabilities.
 
 ### Apple API and validation truth
-- Apple API claims use only current official docs, installed SDK interfaces, WWDC
-  material, and Apple-owned repositories; production references are not authority.
-- Executed evidence labels are `compiled_sdk_26_5` and `interface_verified_sdk_26_5`.
-  “SDK 26.x” is an architecture-family boundary, never an executed label.
-- Compile-check supported Swift; otherwise mark `blocked`. Label pseudocode and
-  unsupported or beta APIs; add no Apple tutorials or unapproved examples here.
-- Default tests require no PCC, custom provider, credentials, paid service, network,
-  live model generation, entitlement, device hardware, or full Xcode. Missing prerequisites
-  are explicit blockers, never false passes.
+
+- Apple API claims use only current official docs, installed SDK interfaces, WWDC material, and Apple-owned repositories; production references are not authority.
+- Executed evidence labels are `compiled_sdk_26_5` and `interface_verified_sdk_26_5`; “SDK 26.x” is an architecture-family boundary, never an executed label.
+- Compile-check supported Swift; otherwise mark `blocked`. Label pseudocode and unsupported or beta APIs; add no Apple tutorials or unapproved examples.
+- Default tests require no PCC, custom provider, credentials, paid service, network, live model generation, entitlement, device hardware, or full Xcode. Missing prerequisites are blockers, never passes.
 
 ### Host, security, and evidence boundaries
 - Capture one explicit executable before each host row, invoke only it, and recheck resolution and version afterward.
@@ -90,9 +83,7 @@ python3 scripts/sync_generated_artifacts.py --check
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-Treat generation drift, test failure, unsafe evidence, or a missing required host/SDK
-prerequisite as fail or blocked; never weaken an expectation to pass. Push, merge,
-tag, publish, or release only when a separate issue authorizes it.
+Generation drift, test failure, unsafe evidence, or missing prerequisites are fail or blocked; never weaken expectations. Push, merge, tag, publish, or release only when separately authorized.
 
 Architecture decisions live in the
 [canonical architecture](docs/superpowers/specs/2026-07-17-dev-132-mvp-architecture-design.md)
