@@ -13,9 +13,9 @@ credential, or private configuration.
 
 - Issue base: `27c7ce6b8d47541711184ceae06b2eecbdc4be8e`
 - Exact tested source commit:
-  `24b70d0db2ddd2fa783da01c6d0ec636e1c66c3b`
+  `fb38672f2b65d449f262710bf55249e32ae994c2`
 - Exact tested source tree:
-  `ab5d0f50d474cbe29002bedf6f0f124f04367f99`
+  `2599ae23e617ca22dac45ca0dfc4e22e38600463`
 - Branch: `codex/dev-138-deterministic-swift-fixtures`
 - The follow-up evidence commit changes only this transcript; it does not change
   the tested source tree above.
@@ -68,6 +68,7 @@ The July 19 review round captured the current defects before correction:
 | Deterministic request expiry and typed applied/not-applied reconciliation | Two tests exited `1` with missing-type/member compile failures |
 | Unique unresolved ledger/command binding | One test emitted `false` and exited `1` |
 | Ambiguous call identity and missing originating command | Two focused tests emitted their final `false` values and exited `1` |
+| Forged retry authority without reconciled ledger/command provenance | One focused test emitted `false|false|false|true` and exited `1`; the valid fourth path already worked |
 
 The corresponding focused GREEN set passed before the full matrix. The source
 commit above contains the tests and smallest reducer correction; no historical
@@ -99,7 +100,7 @@ Normalized result:
 
 | Gate | Exit | Result |
 | --- | ---: | --- |
-| DEV-138 unit module | `0` | `35/35` tests passed; no skip |
+| DEV-138 unit module | `0` | `36/36` tests passed; no skip |
 | Fixture compile | `0` | `pseudocode_deterministic_mock` |
 | Canonical cases | `0` | `43` unique sorted cases |
 | Passing fixtures | `0` | `15` |
@@ -220,7 +221,7 @@ git diff --exit-code -- AGENTS.md .agents/plugins/marketplace.json \
 
 | Gate | Exit | Result |
 | --- | ---: | --- |
-| Repository discovery | `0` | `92/92` tests passed |
+| Repository discovery | `0` | `93/93` tests passed |
 | DEV-131 unit suite | `0` | `26/26` tests passed |
 | DEV-131 proof runner | `0` | `11/11` executed cases matched the oracle; top-level status `pass` |
 | DEV-131 compileall | `0` | `pass` |
@@ -244,8 +245,9 @@ Result: exit `0`; `3/3` tests passed.
 
 - The DEV-134 prototype remains exactly `6` positive, `6` negative, and `3`
   ambiguous identities with stable guardrails, `7` `direct_workflow` owners,
-  and `8` `non_positive_router` owners. Owner metadata is absent from exact
-  emitted envelopes.
+  and `8` `non_positive_router` owners. Tests read both canonical contract
+  documents and match all six positive/rejection/clarification text blocks
+  exactly; owner metadata is absent from every emitted envelope block.
 - The exact baton, consultation, flawed-reducer, recovery, and review-first
   mappings resolve only to deterministic DEV-138 invariant cases.
 - The mapping does not prove router activation, review-first/no-edit behavior,
