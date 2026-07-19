@@ -516,9 +516,9 @@ The executed output contains eight PASS scenario lines and
 `SUMMARY passed=8 failed=0`; repeated runs are byte-identical. The fixture also
 asserts separate state/policy versions, grant mismatch cases, proposal phase
 gating, late-event immunity, uncertain replay, diagnostic name-and-origin
-filtering, strict Apple-response binding, original-result preservation, and no rerun. It
-does not invoke a model, Apple callbacks, the production bridge, a provider,
-Instruments, Evaluations, or an external effect.
+filtering, strict Apple-response binding, original-result preservation, and no
+rerun. It does not invoke a model, Apple callbacks, the production bridge, a
+provider, Instruments, Evaluations, or an external effect.
 
 ## Downstream decision contract
 

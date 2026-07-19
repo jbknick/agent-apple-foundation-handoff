@@ -10,9 +10,8 @@ This transcript records the installed SDK/interface checks, current official
 Apple primary-source review, the original fixture RED diagnostic class, the
 initial diagnostic-route RED, the locality review-correction RED, the final
 deterministic GREEN and repeated-run comparison, the complete DEV-128 matrix,
-report
-semantic/source gates, current structural host passes, and narrow host blockers
-for DEV-130.
+report semantic/source gates, current structural host passes, and narrow host
+blockers for DEV-130.
 
 Evidence labels match the threat model:
 

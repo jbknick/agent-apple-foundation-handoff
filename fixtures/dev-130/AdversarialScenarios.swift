@@ -274,13 +274,16 @@ struct AdversarialScenarios {
                 condensedResult: "wrong type"
             ),
         ]
-        for invalidResponse in invalidResponses {
+        let invalidDecisions = invalidResponses.map {
+            DiagnosticResultRoutingPolicy.resolve(
+                result: diagnosticResult,
+                context: diagnosticContext,
+                outcome: .response($0)
+            )
+        }
+        for invalidDecision in invalidDecisions {
             expectDiagnosticFallback(
-                DiagnosticResultRoutingPolicy.resolve(
-                    result: diagnosticResult,
-                    context: diagnosticContext,
-                    outcome: .response(invalidResponse)
-                ),
+                invalidDecision,
                 originalResult: rawDiagnostic,
                 normalizedError: "diagnostic_bridge_invalid_response",
                 "invalid diagnostic response"
@@ -296,35 +299,30 @@ struct AdversarialScenarios {
             (.timedOut, "diagnostic_bridge_timeout", "timeout"),
             (.cancelled, "diagnostic_bridge_cancelled", "cancellation"),
         ]
-        for (outcome, normalizedError, label) in failedOutcomes {
-            expectDiagnosticFallback(
-                DiagnosticResultRoutingPolicy.resolve(
+        let failedDecisions = failedOutcomes.map { outcome, normalizedError, label in
+            (
+                decision: DiagnosticResultRoutingPolicy.resolve(
                     result: diagnosticResult,
                     context: diagnosticContext,
                     outcome: outcome
                 ),
-                originalResult: rawDiagnostic,
                 normalizedError: normalizedError,
-                "diagnostic \(label)"
+                label: label
+            )
+        }
+        for failedDecision in failedDecisions {
+            expectDiagnosticFallback(
+                failedDecision.decision,
+                originalResult: rawDiagnostic,
+                normalizedError: failedDecision.normalizedError,
+                "diagnostic \(failedDecision.label)"
             )
         }
 
         let diagnosticEvidence = (
             [declinedDiagnostic, acceptedDiagnostic]
-                + invalidResponses.map {
-                    DiagnosticResultRoutingPolicy.resolve(
-                        result: diagnosticResult,
-                        context: diagnosticContext,
-                        outcome: .response($0)
-                    )
-                }
-                + failedOutcomes.map {
-                    DiagnosticResultRoutingPolicy.resolve(
-                        result: diagnosticResult,
-                        context: diagnosticContext,
-                        outcome: $0.0
-                    )
-                }
+                + invalidDecisions
+                + failedDecisions.map(\.decision)
         ).flatMap(\.audit).joined(separator: "\n")
         expect(!diagnosticEvidence.contains(rawDiagnostic), "raw diagnostic leaked to audit")
         expect(!diagnosticEvidence.contains(remoteDiagnostic), "remote diagnostic leaked to audit")
