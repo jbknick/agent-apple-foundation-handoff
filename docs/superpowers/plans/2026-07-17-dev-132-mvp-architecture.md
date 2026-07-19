@@ -314,12 +314,50 @@ Run exactly:
 
 ```bash
 python3 - <<'PY'
-import json
 import hashlib
+import json
+import re
 from pathlib import Path
 
 p = Path('docs/research/evidence/dev-132-architecture-scenarios.json')
 d = json.loads(p.read_text())
+top_level_keys = {
+    'schemaVersion', 'evidenceKind', 'sourceIssue', 'designArtifact',
+    'designArtifactSha256', 'workflowRoutingContract',
+    'costRoutingContract', 'status', 'limitations', 'scenarios',
+}
+prohibited_structured_keys = {
+    'apikey', 'accesstoken', 'password', 'secret', 'credential',
+    'authorization', 'hiddenreasoning', 'chainofthought',
+    'instrumentstrace', 'tracecontent', 'tracedata', 'hostname',
+    'homepath', 'username', 'userdata', 'realuserdata', 'hostconfiguration',
+    'privatehostconfiguration', 'machineconfiguration',
+    'userconfiguration', 'authenticationstate', 'hardwareuuid',
+    'serialnumber', 'provisioningidentifier',
+}
+private_key_marker = re.compile(
+    r'-----BEGIN (?:RSA |OPENSSH |EC )?PRIVATE KEY-----', re.IGNORECASE
+)
+literal_local_path = re.compile(r'/(?:Users|home)/[^\s\"\'<>]+', re.IGNORECASE)
+
+
+def assert_evidence_safe(value):
+    if isinstance(value, dict):
+        for key, item in value.items():
+            normalized = re.sub(r'[^a-z0-9]', '', str(key).lower())
+            assert normalized not in prohibited_structured_keys
+            assert not normalized.startswith('raw')
+            assert_evidence_safe(item)
+    elif isinstance(value, list):
+        for item in value:
+            assert_evidence_safe(item)
+    elif isinstance(value, str):
+        assert not private_key_marker.search(value)
+        assert not literal_local_path.search(value)
+
+
+assert set(d) == top_level_keys
+assert_evidence_safe(d)
 assert d['schemaVersion'] == '1.0'
 assert d['evidenceKind'] == 'design_scenario'
 assert d['sourceIssue'] == 'DEV-132'
@@ -331,6 +369,10 @@ assert d['designArtifactSha256'] == hashlib.sha256(
     design_path.read_bytes()
 ).hexdigest()
 workflow_route = d['workflowRoutingContract']
+assert set(workflow_route) == {
+    'positiveWorkflowCount', 'positivePromptBehavior',
+    'nonPositiveRouterCount', 'outcomes', 'prohibited',
+}
 assert workflow_route['positiveWorkflowCount'] == 5
 assert workflow_route['positivePromptBehavior'] == (
     'bypass_non_positive_router_and_activate_exactly_one_workflow'
@@ -339,17 +381,55 @@ assert workflow_route['nonPositiveRouterCount'] == 1
 assert workflow_route['outcomes'] == [
     'no_activation', 'clarification_required'
 ]
+assert workflow_route['prohibited'] == [
+    'workflow_invocation',
+    'reference_loading',
+    'architectureResult_emission',
+    'tool_or_effect_use',
+    'Apple_capability_claim',
+    'command_agent_hook_or_broader_route_creation',
+]
 cost_route = d['costRoutingContract']
+assert set(cost_route) == {
+    'trigger', 'action', 'eligibleResultClasses', 'policyOwner',
+    'requiredPolicy', 'provider', 'unknownPolicyBehavior',
+    'declineBehavior', 'failureBehavior', 'successBehavior',
+    'parentUsageBoundary', 'acceptanceOwner', 'acceptance',
+    'liveRuntimeCostEvidence', 'implementationOwners',
+}
 assert cost_route['trigger'] == 'host_PostToolUse'
 assert cost_route['action'] == 'condense_diagnostic_output'
 assert cost_route['eligibleResultClasses'] == [
     'test', 'build', 'typecheck', 'lint'
 ]
 assert cost_route['policyOwner'] == 'DEV-142'
+assert cost_route['requiredPolicy'] == [
+    'versioned_exact_action_allowlist',
+    'versioned_exact_tool_allowlist',
+    'versioned_selected_command_classes',
+    'minimum_estimated_savings_threshold',
+    'conservative_maximum_Apple_payload',
+    'explicit_data_policy_permission',
+    'current_Apple_runtime_availability',
+]
 assert cost_route['provider'] == 'local_Apple_Foundation_Models_only'
 assert cost_route['unknownPolicyBehavior'] == (
     'fail_closed_preserve_original'
 )
+assert cost_route['declineBehavior'] == (
+    'preserve_original_without_original_tool_rerun'
+)
+assert cost_route['failureBehavior'] == (
+    'normalized_error_plus_original_without_original_tool_rerun'
+)
+assert cost_route['successBehavior'] == (
+    'validated_provenance_bound_result_may_replace_visible_result'
+)
+assert cost_route['parentUsageBoundary'] == (
+    'no_first_parent_turn_savings_claim_target_lower_subsequent_parent_'
+    'consumption'
+)
+assert cost_route['acceptanceOwner'] == 'DEV-142'
 assert cost_route['acceptance'] == {
     'minimumMedianTotalParentModelTokenReduction': 0.1,
     'maximumCorrectnessRegressions': 0,
@@ -372,6 +452,12 @@ assert cost_route['liveRuntimeCostEvidence'] == {
         'DEV130_deterministic_fixture',
         'DEV138_repository_fixtures',
     ],
+}
+assert cost_route['implementationOwners'] == {
+    'swiftBridge': 'DEV-143',
+    'codexAdapter': 'DEV-144',
+    'claudeAdapter': 'DEV-145',
+    'integrations': ['DEV-139', 'DEV-140', 'DEV-141'],
 }
 assert d['status'] == 'pass'
 assert isinstance(d['limitations'], list) and d['limitations']
@@ -399,10 +485,23 @@ assert all(set(s['contextPolicy']) == {
 assert all(set(s['stateOutcome']) == {
     'phase', 'commandCount', 'effectCount', 'reconciliationRequired'
 } for s in scenarios)
-assert all(s['safetyOutcomes'] for s in scenarios)
-assert all(s['verification']['requiredIds'] for s in scenarios)
-assert all(s['apiClaims'] for s in scenarios)
-assert all(s['limitations'] for s in scenarios)
+for scenario in scenarios:
+    assert set(scenario['verification']) == {
+        'requiredIds', 'expectedResult'
+    }
+    assert scenario['safetyOutcomes']
+    assert all(set(outcome) == {'id', 'expected'}
+               for outcome in scenario['safetyOutcomes'])
+    safety_ids = [outcome['id'] for outcome in scenario['safetyOutcomes']]
+    assert len(safety_ids) == len(set(safety_ids))
+    required_ids = scenario['verification']['requiredIds']
+    assert required_ids and len(required_ids) == len(set(required_ids))
+    assert scenario['apiClaims']
+    assert all(set(claim) == {'surface', 'versionLabel', 'localStatus'}
+               for claim in scenario['apiClaims'])
+    api_surfaces = [claim['surface'] for claim in scenario['apiClaims']]
+    assert len(api_surfaces) == len(set(api_surfaces))
+    assert scenario['limitations']
 
 s1, s2, s3, s4, s5, s6, s7 = scenarios
 assert s1['workflowSkill'] == 'design-apple-foundation-models-handoff'
@@ -456,17 +555,29 @@ for scenario, outcome in (
         'no_workflow_reference_architectureResult_tool_effect_command_'
         'agent_hook_or_Apple_claim'
     )
+assert {
+    o['id']: o['expected'] for o in s6['safetyOutcomes']
+}['CLARIFICATION_BOUNDARY'] == (
+    'one_bounded_question_then_fresh_classification'
+)
 
 assert s7['workflowSkill'] == 'none'
 assert s7['expectedPattern'] == 'deterministic_routing'
 assert s7['finalResponseOwner'] == 'host_parent'
 cost_outcomes = {o['id']: o['expected'] for o in s7['safetyOutcomes']}
 assert cost_outcomes['DIAGNOSTIC_ACTION'] == 'condense_diagnostic_output'
+assert cost_outcomes['ELIGIBILITY'] == (
+    'all_DEV142_versioned_allowlists_bounds_permission_provenance_and_'
+    'Apple_availability_required'
+)
 assert cost_outcomes['ORIGINAL_TOOL_EXECUTION'] == 'one_before_PostToolUse'
 assert cost_outcomes['ORIGINAL_TOOL_RERUN'] == 'zero_for_every_route_outcome'
 assert cost_outcomes['DECLINE_OR_UNAVAILABLE'] == 'original_result_unchanged'
 assert cost_outcomes['APPLE_FAILURE'] == (
     'normalized_error_plus_original_result'
+)
+assert cost_outcomes['VALID_APPLE_RESULT'] == (
+    'provenance_bound_schema_valid_result_may_replace_visible_result'
 )
 assert cost_outcomes['PARENT_USAGE_BOUNDARY'] == (
     'no_first_turn_savings_claim_lower_subsequent_consumption_target'
