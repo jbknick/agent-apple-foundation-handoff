@@ -9,12 +9,13 @@
 and design-prototype verification contract without implementing production
 skills or plugin artifacts.
 
-**Architecture:** One canonical design defines action-plus-artifact-state
-routing for the five exact DEV-132 skills. A compact architecture contract
-gives downstream authors stable names, sections, and routing rules, while a
-hash-bound JSON artifact executes exactly 15 synthetic activation cases against
-identical Claude/Codex design expectations. Real host activation remains
-blocked until the production candidate exists.
+**Architecture:** One canonical design defines direct positive preselection for
+the five exact DEV-132 skills plus one bounded non-positive router that can only
+decline or clarify. A compact architecture contract gives downstream authors
+stable names, sections, and routing rules, while a hash-bound JSON artifact
+executes exactly 15 synthetic activation cases against identical Claude/Codex
+design expectations. Real host activation remains blocked until the production
+candidate exists.
 
 **Tech Stack:** Markdown, JSON, Python 3 standard library, Git, Linear, Swift
 6.3.2 regression fixtures, macOS SDK 26.5, Claude Code 2.1.91 prerequisite, and
@@ -22,18 +23,26 @@ Codex CLI 0.144.5 prerequisite.
 
 ## Global Constraints
 
-- Work on `codex/dev-134-skill-architecture` from exact parent
-  `ca767a0c50e1b527fed5c87e0922bf51cf655295` (DEV-132 / PR #6).
-- Root will later rebase this independent branch onto the final DEV-133 head;
-  DEV-134 does not edit repository guidance or generated adapters.
+- Work on `codex/dev-134-skill-architecture` from merged `main`
+  `6134d4f40ab802b9f292e2b631177561f2b5e25d` (through DEV-133 / PR #7).
+- DEV-134 does not edit repository guidance or generated adapters.
 - Do not push, open or edit a pull request, merge, tag, release, publish, or
   move DEV-134 beyond `In Progress`.
 - Apply repository changes with `apply_patch`; keep commits single-purpose.
 - Do not add production `SKILL.md`, manifests, marketplaces, schemas, scripts,
   Swift fixtures, agents, hooks, commands, MCP servers, apps, dependencies, or
   runtime packages.
-- Preserve exactly five skill names and one physical provider-neutral skill and
-  reference corpus. No skill invokes another skill.
+- Preserve exactly five direct positive workflow names and one physical
+  provider-neutral skill/reference corpus. No skill invokes another skill.
+- One bounded non-positive router may return only `no_activation` or
+  `clarification_required` for out-of-domain, ambiguous-domain, or
+  missing-approved-contract input. It is not a sixth workflow; positive input
+  bypasses it, including compound review-first.
+- The non-positive router cannot select or invoke a workflow, load references,
+  emit `architectureResult`, or use tools, effects, commands, agents, hooks,
+  MCP, apps, scripts, dependencies, or runtime, and makes no Apple/host claim.
+  The DEV-142 through DEV-145 cost router, `PostToolUse` hook, and Swift bridge
+  chain are separate later runtime.
 - Preserve DEV-132's five concern-owned reference filenames unchanged. A
   reference has one concern owner and every skill-to-reference edge is direct.
 - No plugin-local worker is approved. Per-skill `agents/openai.yaml` remains
@@ -86,12 +95,16 @@ separate single-purpose commit.
 
 **Interfaces:**
 
-- Consumes: DEV-134 Linear decision comment
-  `e90f2a39-d887-48b6-a8ce-17a2fa56e0a3` and DEV-132 schema/state/security
-  contracts.
-- Produces: the authoritative DEV-134 catalog, activation router, common output
-  sections, workflow-specific contracts, reference-routing matrix, 15 case
-  identities, and two full walkthrough expectations.
+- Consumes: governing DEV-134 Linear comments
+  `3213d6cd-2fae-4168-aeeb-5a124f9af937`,
+  `5d3d7021-a125-4e08-9d58-d8797b36af09`, and
+  `ceceacdc-ad41-4f11-94a2-beca1026e369`, with original decision
+  `e90f2a39-d887-48b6-a8ce-17a2fa56e0a3` as historical context, plus the
+  merged DEV-132/DEV-133 contracts.
+- Produces: the authoritative DEV-134 catalog, direct positive preselection,
+  bounded non-positive router, common output sections, workflow-specific
+  contracts, reference-routing matrix, 15 case identities, and two full
+  walkthrough expectations.
 
 - [ ] **Step 1: Assign one fresh SDD implementer**
 
@@ -113,7 +126,7 @@ separate single-purpose commit.
       'Purpose and authority' \
       'Resolved approaches' \
       'MVP scope and non-goals' \
-      'Activation router' \
+      'Preselection contract' \
       'Common result contracts' \
       'Exact skill catalog' \
       'Progressive-disclosure routing' \
@@ -137,14 +150,16 @@ separate single-purpose commit.
 
   Use `apply_patch`. The design must:
 
-  1. cite exact reviewed DEV-128 through DEV-132 heads and distinguish Apple
+  1. cite exact merged DEV-128 through DEV-133 inputs and distinguish Apple
      primary-source authority from structural references;
-  2. compare the selected five-skill router with duplicated-workflow and
-     collapsed/provider-specific alternatives;
+  2. compare the selected five direct workflows plus bounded non-positive
+     router with duplicated-workflow and collapsed/provider-specific
+     alternatives;
   3. state every in-scope deliverable and every issue exclusion;
-  4. define domain-first routing by `requestedOperation`, `artifactState`, and
-     `evidenceState`, plus one bounded clarification and the review-first
-     compound default;
+  4. define direct positive preselection by `requestedOperation`,
+     `artifactState`, and `evidenceState`; define the bounded non-positive
+     router, its two-only result set and prohibitions, and the direct
+     review-first compound default;
   5. define positive, no-activation, and clarification result shapes;
   6. give every exact skill its purpose, exact what-and-when activation
      description, positive triggers, non-triggers, required inputs, ordered
@@ -177,7 +192,7 @@ separate single-purpose commit.
     'Purpose and authority' \
     'Resolved approaches' \
     'MVP scope and non-goals' \
-    'Activation router' \
+      'Preselection contract' \
     'Common result contracts' \
     'Exact skill catalog' \
     'Progressive-disclosure routing' \
@@ -194,6 +209,8 @@ separate single-purpose commit.
     'review-apple-foundation-models-handoff' \
     'debug-apple-foundation-models-handoff' \
     'validate-apple-foundation-models-handoff' \
+    'activationOwner = direct_workflow' \
+    'activationOwner = non_positive_router' \
     'requestedOperation' 'artifactState' 'evidenceState' \
     'architectureSchemaVersion' 'stateVersion' 'policyVersion' \
     'recoveryRequired' 'compiled_sdk_26_5' \
@@ -250,7 +267,7 @@ separate single-purpose commit.
 
 **Interfaces:**
 
-- Consumes: the exact catalog, router, outputs, reference routes, and case IDs
+- Consumes: the exact catalog, preselection, outputs, reference routes, and case IDs
   from Task 1.
 - Produces: a concise non-authoritative downstream index that DEV-135 through
   DEV-141 can consume without duplicating the canonical design.
@@ -272,7 +289,7 @@ separate single-purpose commit.
   (
     for section in \
       'Contract authority' \
-      'Router schema' \
+      'Positive preselection and bounded non-positive router' \
       'Exact catalog' \
       'Common positive result' \
       'Non-positive activation result' \
@@ -296,8 +313,10 @@ separate single-purpose commit.
   Use `apply_patch`. Include:
 
   - canonical-design and Linear-decision pointers;
-  - the normalized domain/operation/artifact/evidence router;
+  - normalized direct-positive and bounded non-positive preselection;
   - exact positive/no-activation/clarification result fields;
+  - direct-positive versus non-positive-router ownership and the router's
+    two-result/prohibited-power boundary;
   - one row per skill with ownership, input gate, direct references, output
     additions, and failure boundary;
   - one row per reference with sole concern and direct consumer skills;
@@ -319,7 +338,7 @@ separate single-purpose commit.
   test -s "$contract"
   for section in \
     'Contract authority' \
-    'Router schema' \
+    'Positive preselection and bounded non-positive router' \
     'Exact catalog' \
     'Common positive result' \
     'Non-positive activation result' \
@@ -399,7 +418,7 @@ separate single-purpose commit.
   prompts, responses, reasoning, tool arguments/results, credentials, paths,
   host identity, real user data, `.trace`, or `.xcresult`.
 
-- [ ] **Step 2: Prove the JSON prototype is RED**
+- [ ] **Step 2: Prove activation ownership is RED**
 
   Run:
 
@@ -411,15 +430,22 @@ separate single-purpose commit.
 
   artifact = Path('docs/research/evidence/dev-134-activation-prototype.json')
   data = json.loads(artifact.read_text())
-  assert data['schemaVersion'] == '1.0'
-  assert len(data['cases']) == 15
+  for case in data['cases']:
+      expected_owner = (
+          'direct_workflow'
+          if case['category'] == 'positive'
+          or case['id'] == 'DEV134-AMB-003'
+          else 'non_positive_router'
+      )
+      assert case['activationOwner'] == expected_owner
   PY
   red_rc=$?
   set -e
   test "$red_rc" -ne 0
   ```
 
-  Expected: nonzero because the JSON does not exist.
+  Expected during the amendment: nonzero because the prior 15-case artifact
+  cannot distinguish direct positive ownership from non-positive routing.
 
 - [ ] **Step 3: Create the normalized prototype evidence**
 
@@ -448,6 +474,7 @@ separate single-purpose commit.
   ```text
   id
   category = positive | negative | ambiguous
+  activationOwner = direct_workflow | non_positive_router
   inputClass
   requestedOperation
   artifactState
@@ -469,23 +496,23 @@ separate single-purpose commit.
 
   Case outcomes are:
 
-  | ID | Expected activation | Resolution |
-  | --- | --- | --- |
-  | `DEV134-POS-001` | design skill | new baton-pass design, full walkthrough |
-  | `DEV134-POS-002` | review skill | flawed reducer review, full walkthrough |
-  | `DEV134-POS-003` | implement skill | approved contract change |
-  | `DEV134-POS-004` | debug skill | observed uncertain-effect failure |
-  | `DEV134-POS-005` | validate skill | proof-only evidence matrix |
-  | `DEV134-POS-006` | design skill | isolated-consultation selection |
-  | `DEV134-NEG-001` | no activation | App Intents |
-  | `DEV134-NEG-002` | no activation | Apple Handoff |
-  | `DEV134-NEG-003` | no activation | generic Swift |
-  | `DEV134-NEG-004` | no activation | generic Core ML/Foundation Models education |
-  | `DEV134-NEG-005` | no activation | coding-session handoff |
-  | `DEV134-NEG-006` | no activation | Foundation Models runtime Skills alone |
-  | `DEV134-AMB-001` | clarification required | “Apple handoff” domain ambiguity |
-  | `DEV134-AMB-002` | clarification required | implementation lacks approved contract |
-  | `DEV134-AMB-003` | review skill | documented review-first compound default |
+  | ID | Owner | Expected activation | Resolution |
+  | --- | --- | --- | --- |
+  | `DEV134-POS-001` | direct workflow | design skill | new baton-pass design, full walkthrough |
+  | `DEV134-POS-002` | direct workflow | review skill | flawed reducer review, full walkthrough |
+  | `DEV134-POS-003` | direct workflow | implement skill | approved contract change |
+  | `DEV134-POS-004` | direct workflow | debug skill | observed uncertain-effect failure |
+  | `DEV134-POS-005` | direct workflow | validate skill | proof-only evidence matrix |
+  | `DEV134-POS-006` | direct workflow | design skill | isolated-consultation selection |
+  | `DEV134-NEG-001` | non-positive router | no activation | App Intents |
+  | `DEV134-NEG-002` | non-positive router | no activation | Apple Handoff |
+  | `DEV134-NEG-003` | non-positive router | no activation | generic Swift |
+  | `DEV134-NEG-004` | non-positive router | no activation | generic Core ML/Foundation Models education |
+  | `DEV134-NEG-005` | non-positive router | no activation | coding-session handoff |
+  | `DEV134-NEG-006` | non-positive router | no activation | Foundation Models runtime Skills alone |
+  | `DEV134-AMB-001` | non-positive router | clarification required | “Apple handoff” domain ambiguity |
+  | `DEV134-AMB-002` | non-positive router | clarification required | implementation lacks approved contract |
+  | `DEV134-AMB-003` | direct workflow | review skill | documented review-first compound default |
 
 - [ ] **Step 4: Run the complete semantic oracle**
 
@@ -599,58 +626,71 @@ separate single-purpose commit.
       'D-TOOL-001', 'D-EFFECT-001', 'D-EFFECT-002',
   ]
   SPECS = [
-      ('DEV134-POS-001', 'positive', 'new_baton_pass_architecture',
+      ('DEV134-POS-001', 'positive', 'direct_workflow',
+       'new_baton_pass_architecture',
        'design', 'absent', 'missing',
        'design-apple-foundation-models-handoff', 'all', 'design',
        'full_design',
        POS1_NOT_APPLICABLE, True, 'baton_pass_destination_owner_selected'),
-      ('DEV134-POS-002', 'positive', 'flawed_reducer_findings_review',
+      ('DEV134-POS-002', 'positive', 'direct_workflow',
+       'flawed_reducer_findings_review',
        'review', 'implementation', 'failing',
        'review-apple-foundation-models-handoff', 'all', 'review', 'review',
        [], True, 'reject_flawed_reducer_with_findings'),
-      ('DEV134-POS-003', 'positive', 'approved_bounded_contract_change',
+      ('DEV134-POS-003', 'positive', 'direct_workflow',
+       'approved_bounded_contract_change',
        'implement', 'approved_contract', 'available',
        'implement-apple-foundation-models-handoff', 'all', 'implement',
        'implement', [], False, 'bounded_approved_contract_change'),
-      ('DEV134-POS-004', 'positive', 'uncertain_effect_recovery_failure',
+      ('DEV134-POS-004', 'positive', 'direct_workflow',
+       'uncertain_effect_recovery_failure',
        'debug', 'implementation', 'failing',
        'debug-apple-foundation-models-handoff', 'debug', 'debug', 'debug',
        [], False, 'recovery_required_reconciliation_without_replay'),
-      ('DEV134-POS-005', 'positive', 'proof_only_evidence_matrix',
+      ('DEV134-POS-005', 'positive', 'direct_workflow',
+       'proof_only_evidence_matrix',
        'validate', 'evidence_bundle', 'available',
        'validate-apple-foundation-models-handoff', 'all', 'validate',
        'validate', [], False, 'proof_matrix_without_edits'),
-      ('DEV134-POS-006', 'positive', 'isolated_consultation_architecture',
+      ('DEV134-POS-006', 'positive', 'direct_workflow',
+       'isolated_consultation_architecture',
        'design', 'absent', 'missing',
        'design-apple-foundation-models-handoff', 'all', 'design', 'design',
        [], False, 'isolated_consultation_parent_owner_selected'),
-      ('DEV134-NEG-001', 'negative', 'app_intents_request', 'unspecified',
+      ('DEV134-NEG-001', 'negative', 'non_positive_router',
+       'app_intents_request', 'unspecified',
        'unknown', 'unknown', 'no_activation', 'none', 'none', 'route', [],
        False, 'reject_out_of_domain'),
-      ('DEV134-NEG-002', 'negative', 'apple_handoff_request', 'unspecified',
+      ('DEV134-NEG-002', 'negative', 'non_positive_router',
+       'apple_handoff_request', 'unspecified',
        'unknown', 'unknown', 'no_activation', 'none', 'none', 'route', [],
        False, 'reject_out_of_domain'),
-      ('DEV134-NEG-003', 'negative', 'generic_swift_request', 'unspecified',
+      ('DEV134-NEG-003', 'negative', 'non_positive_router',
+       'generic_swift_request', 'unspecified',
        'unknown', 'unknown', 'no_activation', 'none', 'none', 'route', [],
        False, 'reject_out_of_domain'),
-      ('DEV134-NEG-004', 'negative', 'generic_foundation_models_education',
+      ('DEV134-NEG-004', 'negative', 'non_positive_router',
+       'generic_foundation_models_education',
        'unspecified', 'unknown', 'unknown', 'no_activation', 'none', 'none',
        'route', [], False, 'reject_out_of_domain'),
-      ('DEV134-NEG-005', 'negative', 'coding_session_handoff_request',
+      ('DEV134-NEG-005', 'negative', 'non_positive_router',
+       'coding_session_handoff_request',
        'unspecified', 'unknown', 'unknown', 'no_activation', 'none', 'none',
        'route', [], False, 'reject_out_of_domain'),
-      ('DEV134-NEG-006', 'negative',
+      ('DEV134-NEG-006', 'negative', 'non_positive_router',
        'foundation_models_runtime_skills_request', 'unspecified', 'unknown',
        'unknown', 'no_activation', 'none', 'none', 'route', [], False,
        'reject_out_of_domain'),
-      ('DEV134-AMB-001', 'ambiguous', 'ambiguous_apple_handoff_domain',
+      ('DEV134-AMB-001', 'ambiguous', 'non_positive_router',
+       'ambiguous_apple_handoff_domain',
        'unspecified', 'unknown', 'unknown', 'clarification_required', 'none',
        'none', 'route', [], False, 'bounded_domain_clarification'),
-      ('DEV134-AMB-002', 'ambiguous',
+      ('DEV134-AMB-002', 'ambiguous', 'non_positive_router',
        'implementation_without_approved_contract', 'implement', 'unknown',
        'missing', 'clarification_required', 'none', 'none', 'route', [],
        False, 'bounded_contract_clarification'),
-      ('DEV134-AMB-003', 'ambiguous', 'compound_review_and_fix',
+      ('DEV134-AMB-003', 'ambiguous', 'direct_workflow',
+       'compound_review_and_fix',
        'compound_review_fix', 'implementation', 'failing',
        'review-apple-foundation-models-handoff', 'all', 'review',
        'compound_review', [], False, 'documented_default_review_first'),
@@ -659,12 +699,13 @@ separate single-purpose commit.
   def expected_cases():
       built = []
       for spec in SPECS:
-          (case_id, category, input_class, operation, artifact_state,
-           evidence_state, activation, refs, outputs, guards, not_applicable,
-           full, resolution) = spec
+          (case_id, category, activation_owner, input_class, operation,
+           artifact_state, evidence_state, activation, refs, outputs, guards,
+           not_applicable, full, resolution) = spec
           built.append({
               'id': case_id,
               'category': category,
+              'activationOwner': activation_owner,
               'inputClass': input_class,
               'requestedOperation': operation,
               'artifactState': artifact_state,
@@ -731,6 +772,9 @@ separate single-purpose commit.
       }
       assert candidate['cases'] == expected_cases()
       for case in candidate['cases']:
+          assert case['activationOwner'] in {
+              'direct_workflow', 'non_positive_router',
+          }
           statuses = case['expectedGuardrails']
           assert set(statuses) == {'applicable', 'not_applicable'}
           assert not set(statuses['applicable']) & set(
@@ -756,6 +800,18 @@ separate single-purpose commit.
           return
       raise AssertionError(f'mutation accepted: {name}')
 
+  assert_rejected(
+      'positive_routed_through_router',
+      lambda d: case(d, 'DEV134-POS-001').update(
+          activationOwner='non_positive_router'
+      ),
+  )
+  assert_rejected(
+      'non_positive_bypasses_router',
+      lambda d: case(d, 'DEV134-NEG-001').update(
+          activationOwner='direct_workflow'
+      ),
+  )
   assert_rejected(
       'implementation_absent_contract',
       lambda d: case(d, 'DEV134-POS-003').update(
@@ -833,7 +889,7 @@ separate single-purpose commit.
           'docs/../README.md'
       ),
   )
-  print('DEV134_ACTIVATION_MUTATION_PASS rejected=10')
+  print('DEV134_ACTIVATION_MUTATION_PASS rejected=12')
   PY
   ```
 
@@ -841,7 +897,7 @@ separate single-purpose commit.
 
   ```text
   DEV134_ACTIVATION_PROTOTYPE_PASS total=15 positive=6 negative=6 ambiguous=3 full=2 hosts=blocked oracle=exact
-  DEV134_ACTIVATION_MUTATION_PASS rejected=10
+  DEV134_ACTIVATION_MUTATION_PASS rejected=12
   ```
 
 - [ ] **Step 5: Run DEV-131 safety scanners against the JSON**
@@ -916,7 +972,7 @@ separate single-purpose commit.
 
   ```bash
   set -e
-  base=ca767a0c50e1b527fed5c87e0922bf51cf655295
+  base=6134d4f40ab802b9f292e2b631177561f2b5e25d
   git merge-base --is-ancestor "$base" HEAD
   test "$(git rev-parse "$base")" = "$base"
   git diff --check "$base"..HEAD
@@ -954,16 +1010,14 @@ separate single-purpose commit.
   mac_user_root='/'"Users/"
   linux_home_root='/'"home/"
   temp_root='/'"tmp/"
-  private_user='joseph''knickerbocker'
   if rg -n -F \
     -e "$mac_user_root" \
     -e "$linux_home_root" \
     -e "$temp_root" \
-    -e "$private_user" \
     "$design" "$plan" "$contract" "$evidence"; then
     exit 1
   fi
-  git diff --check ca767a0c50e1b527fed5c87e0922bf51cf655295..HEAD
+  git diff --check 6134d4f40ab802b9f292e2b631177561f2b5e25d..HEAD
   ```
 
 - [ ] **Step 3: Rerun inherited deterministic regressions**
@@ -997,7 +1051,7 @@ separate single-purpose commit.
   diff -u fixtures/dev-130/expected-output.txt "$artifact_dir/first.out"
   "$artifact_dir/dev130-adversarial" > "$artifact_dir/second.out"
   cmp "$artifact_dir/first.out" "$artifact_dir/second.out"
-  rg -q '^SUMMARY passed=7 failed=0$' "$artifact_dir/first.out"
+  rg -q '^SUMMARY passed=8 failed=0$' "$artifact_dir/first.out"
   ```
 
   Run DEV-128:
@@ -1009,6 +1063,8 @@ separate single-purpose commit.
   TARGET=arm64-apple-macos26.0
   swiftc -warnings-as-errors -typecheck -target "$TARGET" -sdk "$SDK" \
     fixtures/dev-128/compiled/stable-surface.swift
+  swiftc -warnings-as-errors -typecheck -target "$TARGET" -sdk "$SDK" \
+    fixtures/dev-128/compiled/generable-macro.swift
   swiftc -warnings-as-errors -parse-as-library -target "$TARGET" -sdk "$SDK" \
     fixtures/dev-128/compiled/availability-probe.swift \
     -o "$artifact_dir/availability"
@@ -1032,9 +1088,31 @@ separate single-purpose commit.
     -o "$artifact_dir/baton"
   test "$("$artifact_dir/baton")" = \
     'source=research destination=review active=review finalOwner=review transferred=true'
+  set +e
+  swiftc -warnings-as-errors -typecheck -target arm64-apple-macos27.0 \
+    -sdk "$SDK" fixtures/dev-128/blocked/os-27-beta-surface.swift \
+    > "$artifact_dir/beta.out" 2>&1
+  beta_rc=$?
+  set -e
+  test "$beta_rc" -ne 0
+  rg -q "DynamicProfile.*not a member type|has no member 'Profile'" \
+    "$artifact_dir/beta.out"
+  rg -q "extra arguments at positions #1, #2 in call" \
+    "$artifact_dir/beta.out"
+  rg -q "extra argument 'toolCallingMode' in call" \
+    "$artifact_dir/beta.out"
+  set +e
+  swiftc -warnings-as-errors -typecheck -target arm64-apple-macos27.0 \
+    -sdk "$SDK" fixtures/dev-128/blocked/evaluations-import.swift \
+    > "$artifact_dir/evaluations.out" 2>&1
+  evaluations_rc=$?
+  set -e
+  test "$evaluations_rc" -ne 0
+  rg -q "no such module 'Evaluations'" "$artifact_dir/evaluations.out"
   ```
 
-  Expected: exact SDK 26.5 matrix 5/5 passes.
+  Expected: exact SDK 26.5 matrix six positive gates and two strict,
+  diagnostic-specific expected blockers pass.
 
 - [ ] **Step 4: Record honest host prerequisites and capability blockers**
 
@@ -1056,23 +1134,22 @@ separate single-purpose commit.
 
 - [ ] **Step 5: Verify durable Linear propagation**
 
-  Read DEV-134 and DEV-135 through DEV-141. Require the current decision comment
-  and the seven issue-specific propagation comments:
+  Read DEV-134 and DEV-135 through DEV-141 immediately before acceptance.
+  Require the current governing chain:
 
   ```text
-  DEV-134 e90f2a39-d887-48b6-a8ce-17a2fa56e0a3
-  DEV-135 6b282bbf-288a-4582-8bd2-13c1719df5e1
-  DEV-136 bb357f9f-679d-4433-8d51-9ae87d224aca
-  DEV-137 345a6d29-124d-4af4-a62d-cd6d572c4d0b
-  DEV-138 c1ba1445-e61f-4930-8cbb-12967bf99897
-  DEV-139 d4eb842d-261f-4a8d-bc93-f6a822ea4549
-  DEV-140 45d66203-53a2-43ea-85e7-ef9ab04b1a3f
-  DEV-141 090f7959-846f-426a-b994-845e259f8ece
+  original: e90f2a39-d887-48b6-a8ce-17a2fa56e0a3
+  bounded router: 5d3d7021-a125-4e08-9d58-d8797b36af09
+  separate cost router: ceceacdc-ad41-4f11-94a2-beca1026e369
+  latest amendment: 3213d6cd-2fae-4168-aeeb-5a124f9af937
   ```
 
-  Every comment must include source, decision, rationale, and issue-specific
-  impact. Correct a durable decision in DEV-134 first, then update every
-  affected downstream comment before continuing.
+  Require a newer issue-specific propagation comment on every affected
+  downstream issue. Each must include source, decision, rationale, direct
+  positive versus bounded non-positive ownership, separate cost routing, and
+  issue-specific impact. Pre-amendment propagation is not sufficient. Correct
+  DEV-134 first, then update every affected downstream comment before
+  continuing.
 
 - [ ] **Step 6: Obtain final independent whole-issue review**
 
@@ -1086,7 +1163,7 @@ separate single-purpose commit.
   claim, make the narrow correction in a separate commit, rerun all affected
   and full gates, and obtain a fresh final verdict.
 
-- [ ] **Step 7: Attach durable Linear evidence without changing final status**
+- [ ] **Step 7: Attach durable Linear evidence**
 
   Add one DEV-134 comment with:
 
@@ -1101,5 +1178,6 @@ separate single-purpose commit.
   - propagation comment IDs; and
   - every nonclaim and deferred capability.
 
-  Leave DEV-134 `In Progress`. Root owns later rebase, re-verification, push,
-  stacked PR creation, and status transition.
+  The main PR-review agent owns re-verification, push, merge, evidence
+  propagation, and any status transition. Change issue status only when the
+  current issue-level completion contract is satisfied.

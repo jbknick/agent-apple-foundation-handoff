@@ -3,9 +3,9 @@
   "evidenceKind": "design_contract_prototype",
   "sourceIssue": "DEV-134",
   "designArtifact": "docs/superpowers/specs/2026-07-17-dev-134-agent-skill-catalog-design.md",
-  "designArtifactSha256": "2c1de02302007dc59c4c3d19380e9d7311b72aa28eb0d1ea44edeb7897903aa3",
+  "designArtifactSha256": "ca8ef0e9631cbda7605481055b1331d681776c14434b6dd3ccd8d4575047b8c8",
   "contractArtifact": "docs/architecture/apple-foundation-models-handoff-skill-contract.md",
-  "contractArtifactSha256": "ea7f32feee8a3e99e71000b73f453c1f67417d2afe71b6dffb0803d6694ebe02",
+  "contractArtifactSha256": "519aa6b18e05ca5ec00cf069c211e46034de25079862cdd90e1cc0a0ccbb59a3",
   "executionLayer": "design_contract_prototype",
   "status": "pass",
   "realHostRows": {
@@ -32,6 +32,7 @@
     {
       "id": "DEV134-POS-001",
       "category": "positive",
+      "activationOwner": "direct_workflow",
       "inputClass": "new_baton_pass_architecture",
       "requestedOperation": "design",
       "artifactState": "absent",
@@ -90,6 +91,7 @@
     {
       "id": "DEV134-POS-002",
       "category": "positive",
+      "activationOwner": "direct_workflow",
       "inputClass": "flawed_reducer_findings_review",
       "requestedOperation": "review",
       "artifactState": "implementation",
@@ -144,6 +146,7 @@
     {
       "id": "DEV134-POS-003",
       "category": "positive",
+      "activationOwner": "direct_workflow",
       "inputClass": "approved_bounded_contract_change",
       "requestedOperation": "implement",
       "artifactState": "approved_contract",
@@ -198,6 +201,7 @@
     {
       "id": "DEV134-POS-004",
       "category": "positive",
+      "activationOwner": "direct_workflow",
       "inputClass": "uncertain_effect_recovery_failure",
       "requestedOperation": "debug",
       "artifactState": "implementation",
@@ -254,6 +258,7 @@
     {
       "id": "DEV134-POS-005",
       "category": "positive",
+      "activationOwner": "direct_workflow",
       "inputClass": "proof_only_evidence_matrix",
       "requestedOperation": "validate",
       "artifactState": "evidence_bundle",
@@ -312,6 +317,7 @@
     {
       "id": "DEV134-POS-006",
       "category": "positive",
+      "activationOwner": "direct_workflow",
       "inputClass": "isolated_consultation_architecture",
       "requestedOperation": "design",
       "artifactState": "absent",
@@ -365,6 +371,7 @@
     {
       "id": "DEV134-NEG-001",
       "category": "negative",
+      "activationOwner": "non_positive_router",
       "inputClass": "app_intents_request",
       "requestedOperation": "unspecified",
       "artifactState": "unknown",
@@ -388,6 +395,7 @@
     {
       "id": "DEV134-NEG-002",
       "category": "negative",
+      "activationOwner": "non_positive_router",
       "inputClass": "apple_handoff_request",
       "requestedOperation": "unspecified",
       "artifactState": "unknown",
@@ -411,6 +419,7 @@
     {
       "id": "DEV134-NEG-003",
       "category": "negative",
+      "activationOwner": "non_positive_router",
       "inputClass": "generic_swift_request",
       "requestedOperation": "unspecified",
       "artifactState": "unknown",
@@ -434,6 +443,7 @@
     {
       "id": "DEV134-NEG-004",
       "category": "negative",
+      "activationOwner": "non_positive_router",
       "inputClass": "generic_foundation_models_education",
       "requestedOperation": "unspecified",
       "artifactState": "unknown",
@@ -457,6 +467,7 @@
     {
       "id": "DEV134-NEG-005",
       "category": "negative",
+      "activationOwner": "non_positive_router",
       "inputClass": "coding_session_handoff_request",
       "requestedOperation": "unspecified",
       "artifactState": "unknown",
@@ -480,6 +491,7 @@
     {
       "id": "DEV134-NEG-006",
       "category": "negative",
+      "activationOwner": "non_positive_router",
       "inputClass": "foundation_models_runtime_skills_request",
       "requestedOperation": "unspecified",
       "artifactState": "unknown",
@@ -503,6 +515,7 @@
     {
       "id": "DEV134-AMB-001",
       "category": "ambiguous",
+      "activationOwner": "non_positive_router",
       "inputClass": "ambiguous_apple_handoff_domain",
       "requestedOperation": "unspecified",
       "artifactState": "unknown",
@@ -526,6 +539,7 @@
     {
       "id": "DEV134-AMB-002",
       "category": "ambiguous",
+      "activationOwner": "non_positive_router",
       "inputClass": "implementation_without_approved_contract",
       "requestedOperation": "implement",
       "artifactState": "unknown",
@@ -549,6 +563,7 @@
     {
       "id": "DEV134-AMB-003",
       "category": "ambiguous",
+      "activationOwner": "direct_workflow",
       "inputClass": "compound_review_and_fix",
       "requestedOperation": "compound_review_fix",
       "artifactState": "implementation",

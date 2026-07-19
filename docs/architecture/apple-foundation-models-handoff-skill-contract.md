@@ -4,18 +4,21 @@
 
 This is a compact, non-authoritative downstream index. The
 [canonical DEV-134 design](../superpowers/specs/2026-07-17-dev-134-agent-skill-catalog-design.md)
-at accepted head `72f883f04c45d2d0430988e86fb9bd2c4d40ad79` controls detailed
-semantics and rationale. The durable Linear decision is DEV-134 comment
-`e90f2a39-d887-48b6-a8ce-17a2fa56e0a3`. A conflict must be resolved in those
-authorities and propagated before this index changes.
+controls detailed semantics and rationale. DEV-134 comments
+`3213d6cd-2fae-4168-aeeb-5a124f9af937` and
+`5d3d7021-a125-4e08-9d58-d8797b36af09` govern the amended preselection
+contract; `ceceacdc-ad41-4f11-94a2-beca1026e369` keeps cost routing separate.
+The original decision `e90f2a39-d887-48b6-a8ce-17a2fa56e0a3` remains
+historical context. A conflict must be resolved in those authorities and
+propagated before this index changes.
 
 The plugin supplies guidance and proof contracts. The application remains the
 authority for reducer state, authorization, tool/effect execution, external
 truth, recovery, and fallback.
 
-## Router schema
+## Positive preselection and bounded non-positive router
 
-Normalize and evaluate these fields in order:
+Normalize these preselection fields:
 
 ```text
 domain = foundation_models_handoff | out_of_domain | ambiguous
@@ -24,14 +27,20 @@ artifactState = absent | proposal | approved_contract | implementation | evidenc
 evidenceState = not_requested | missing | available | failing | blocked | unknown
 ```
 
-Classify the Foundation Models handoff domain first. Then prefer the explicit
-operation, inspect artifact state, inspect evidence state, resolve compound
-review-and-fix as review first, and select at most one result. Implementation
-requires an approved contract and exact change boundary. Findings select
-review; unexplained observed divergence plus diagnosis selects debug; proof-only
-execution selects validate. An out-of-domain request rejects, and an ambiguous
-domain or missing approved implementation contract asks exactly one bounded
-question without starting a workflow.
+An in-domain positive request bypasses the non-positive router and directly
+activates exactly one workflow from the explicit operation, artifact state, and
+evidence state. Compound review-and-fix activates review first. Implementation
+requires an approved contract and exact change boundary; without them the
+request is not positive.
+
+The bounded non-positive router owns only out-of-domain rejection, ambiguous
+domain clarification, and missing-approved-contract clarification. It returns
+only `no_activation` or `clarification_required`. It is not a sixth workflow
+and may not select or invoke a workflow, load a reference, emit
+`architectureResult`, or use tools, effects, commands, agents, hooks, MCP,
+apps, scripts, dependencies, or runtime. It makes no Apple or host-capability
+claim. The DEV-142 through DEV-145 cost router, `PostToolUse` hook, and Swift
+bridge chain are separate later runtime and are not implemented here.
 
 ## Exact catalog
 
@@ -52,8 +61,9 @@ Every positive activation has exactly this outer envelope:
 
 ```text
 activationStatus = activated
+activationOwner = direct_workflow
 selectedSkill
-routerInput = { domain, requestedOperation, artifactState, evidenceState }
+preselectionInput = { domain, requestedOperation, artifactState, evidenceState }
 architectureResult
 ```
 
@@ -93,6 +103,7 @@ Out-of-domain rejection contains exactly:
 
 ```text
 activationStatus = no_activation
+activationOwner = non_positive_router
 reasonCode = out_of_domain
 domain
 requestedOperation
@@ -102,6 +113,7 @@ Bounded clarification contains exactly:
 
 ```text
 activationStatus = clarification_required
+activationOwner = non_positive_router
 clarificationKind = domain | approved_contract
 missingInput
 question
@@ -109,7 +121,8 @@ question
 
 Neither shape contains `architectureResult`, workflow-specific sections,
 loaded references, fabricated Apple claims, or production-host activation
-evidence.
+evidence. The router performs no tools, effects, commands, agents, hooks, MCP,
+apps, scripts, dependency, runtime, or cost-routing work.
 
 ## Skill contracts
 
@@ -139,23 +152,23 @@ skill; a reference never invokes a skill.
 
 ## Activation prototype IDs
 
-| Case ID | Expected activation |
-| --- | --- |
-| `DEV134-POS-001` | `design-apple-foundation-models-handoff` |
-| `DEV134-POS-002` | `review-apple-foundation-models-handoff` |
-| `DEV134-POS-003` | `implement-apple-foundation-models-handoff` |
-| `DEV134-POS-004` | `debug-apple-foundation-models-handoff` |
-| `DEV134-POS-005` | `validate-apple-foundation-models-handoff` |
-| `DEV134-POS-006` | `design-apple-foundation-models-handoff` |
-| `DEV134-NEG-001` | `no_activation` |
-| `DEV134-NEG-002` | `no_activation` |
-| `DEV134-NEG-003` | `no_activation` |
-| `DEV134-NEG-004` | `no_activation` |
-| `DEV134-NEG-005` | `no_activation` |
-| `DEV134-NEG-006` | `no_activation` |
-| `DEV134-AMB-001` | `clarification_required` |
-| `DEV134-AMB-002` | `clarification_required` |
-| `DEV134-AMB-003` | `review-apple-foundation-models-handoff` |
+| Case IDs | Activation owner | Expected activation |
+| --- | --- | --- |
+| `DEV134-POS-001` | `direct_workflow` | `design-apple-foundation-models-handoff` |
+| `DEV134-POS-002` | `direct_workflow` | `review-apple-foundation-models-handoff` |
+| `DEV134-POS-003` | `direct_workflow` | `implement-apple-foundation-models-handoff` |
+| `DEV134-POS-004` | `direct_workflow` | `debug-apple-foundation-models-handoff` |
+| `DEV134-POS-005` | `direct_workflow` | `validate-apple-foundation-models-handoff` |
+| `DEV134-POS-006` | `direct_workflow` | `design-apple-foundation-models-handoff` |
+| `DEV134-NEG-001` | `non_positive_router` | `no_activation` |
+| `DEV134-NEG-002` | `non_positive_router` | `no_activation` |
+| `DEV134-NEG-003` | `non_positive_router` | `no_activation` |
+| `DEV134-NEG-004` | `non_positive_router` | `no_activation` |
+| `DEV134-NEG-005` | `non_positive_router` | `no_activation` |
+| `DEV134-NEG-006` | `non_positive_router` | `no_activation` |
+| `DEV134-AMB-001` | `non_positive_router` | `clarification_required` |
+| `DEV134-AMB-002` | `non_positive_router` | `clarification_required` |
+| `DEV134-AMB-003` | `direct_workflow` | `review-apple-foundation-models-handoff` |
 
 These are `design_contract_prototype` consistency cases with identical
 normalized Claude and Codex expectations. They do not establish a production
@@ -188,8 +201,8 @@ diagnostic only and cannot substitute for the selected host row.
 
 | Issue | Required inheritance and owned work |
 | --- | --- |
-| DEV-135 | Scaffold exactly five names, one corpus, and generated ownership; optional per-skill YAML is presentation-only and requires a demonstrated need; structural loading is not activation |
-| DEV-136 | Author the five workflows with these activation, ordered-workflow, common-result, output-addition, failure, and non-goal contracts; guidance is not runtime enforcement |
+| DEV-135 | Scaffold exactly five positive names plus the bounded non-positive router, one corpus, and generated ownership; the router is not a sixth workflow; optional per-skill YAML is presentation-only and requires a demonstrated need; structural loading is not activation |
+| DEV-136 | Author the five direct positive workflows and bounded non-positive router with these activation, ordered-workflow, common-result, output-addition, failure, and non-goal contracts; guidance is not runtime enforcement |
 | DEV-137 | Author the five unchanged sole-owner references and direct routes; volatile Apple detail and exact error payload signatures stay with the Apple owner; fixture code is not capability content |
 | DEV-138 | Map stable D identities plus adversarial state/security/recovery cases to deterministic offline fixtures and exact repeated output; preserve oracle separation and safe synthetic evidence |
 | DEV-139 | Turn all 15 identities and the two canonical walkthroughs into fresh per-host activation/reference/output/rejection evidence; preserve payload isolation, executable integrity, blockers, and the no-structural-only-pass rule |

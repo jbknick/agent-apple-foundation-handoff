@@ -4,10 +4,13 @@ Issue: [DEV-134](https://linear.app/devprentice/issue/DEV-134/d3-design-the-agen
 
 Decision date: `2026-07-17`
 
-Durable decision: Linear comment
-`e90f2a39-d887-48b6-a8ce-17a2fa56e0a3`
+Governing amendments: Linear comments
+`3213d6cd-2fae-4168-aeeb-5a124f9af937`,
+`5d3d7021-a125-4e08-9d58-d8797b36af09`, and
+`ceceacdc-ad41-4f11-94a2-beca1026e369`. The original decision
+`e90f2a39-d887-48b6-a8ce-17a2fa56e0a3` is superseded where it conflicts.
 
-Stack input: `ca767a0c50e1b527fed5c87e0922bf51cf655295`
+Current merged input: `6134d4f40ab802b9f292e2b631177561f2b5e25d`
 
 ## Purpose and authority
 
@@ -18,15 +21,16 @@ workflow ownership, result shapes, progressive-disclosure routes, synthetic
 design-prototype cases, and downstream contracts. It does not create a
 production skill or claim that either host can activate one yet.
 
-The reviewed issue heads below are binding inputs:
+The merged issue commits below are binding inputs:
 
-| Issue | Reviewed head | Authority consumed here |
+| Issue | Merged commit | Authority consumed here |
 | --- | --- | --- |
-| DEV-128 | `4f0b66ef7061d842f333e2749e74614f5331c915` | Installed SDK 26.5 interface and compiled-fixture boundary; official OS/Xcode 27 beta inventory; handoff-pattern and Apple runtime Skills distinctions. |
-| DEV-129 | `3db33eb957326b4d22ebe482c21925dd23b03af0` | One physical provider-neutral capability corpus, narrow what-and-when skills, progressive disclosure, generated Codex ownership, and host-specific structural workflows. |
-| DEV-130 | `5e27a1c81a4c45199c912a5cbb750a30a8c7bf17` | Deterministic reducer authority, C0-C3 context policy, grants, confirmation, provenance, effect ledger, recovery, fallback, and metadata-only live evidence. |
-| DEV-131 | `3792e8c98a387b7f9c48bd210d25938b40cdd5fe` | Stable D/E identities, deterministic/rubric/host evidence separation, safe synthetic evidence, status meanings, and zero-denominator behavior. |
-| DEV-132 | `ca767a0c50e1b527fed5c87e0922bf51cf655295` | Exact five-skill catalog, `architectureSchemaVersion: "1.0"`, common state/security/evidence contract, five concern-owned references, no-worker decision, and conditional package placement. |
+| DEV-128 | `e290dfe46a39d1f11042298d4ad07d41893033d6` | Installed SDK 26.5 interface and compiled-fixture boundary; official OS/Xcode 27 beta inventory; handoff-pattern and Apple runtime Skills distinctions. |
+| DEV-129 | `461fb670ba876304179d5c49b8c29bbc41ebfd2b` | One physical provider-neutral capability corpus, narrow what-and-when skills, progressive disclosure, generated Codex ownership, and host-specific structural workflows. |
+| DEV-130 | `a1269ffed6d1525cf58b4fa91b9fc3981451b04e` | Deterministic reducer authority, C0-C3 context policy, grants, confirmation, provenance, effect ledger, recovery, fallback, and metadata-only live evidence. |
+| DEV-131 | `6992d57cc4b6882f7c644141852cddad23e77d2a` | Stable D/E identities, deterministic/rubric/host evidence separation, safe synthetic evidence, status meanings, and zero-denominator behavior. |
+| DEV-132 | `829d5f71ac5cb9609f96dde4a7ae73c32f42e3cd` | Exact five-skill catalog, `architectureSchemaVersion: "1.0"`, common state/security/evidence contract, five concern-owned references, no-worker decision, and conditional package placement. |
+| DEV-133 | `6134d4f40ab802b9f292e2b631177561f2b5e25d` | Five direct positive workflows, one bounded non-positive preselection router, canonical guidance ownership, generated adapter integrity, and guidance-only runtime boundary. |
 
 The source reports are
 [`dev-128-foundation-models-api-map.md`](../../research/dev-128-foundation-models-api-map.md),
@@ -49,13 +53,18 @@ and the catalog must be corrected.
 
 ## Resolved approaches
 
-### Selected: five exact workflows behind one domain-first router
+### Selected: five direct workflows plus one bounded non-positive router
 
-Keep the five exact DEV-132 skill names and route by handoff domain,
-`requestedOperation`, `artifactState`, and `evidenceState`. Every entry owns one
-workflow, consumes the same versioned architecture contract, and links directly
-to the same concern-owned reference corpus. This preserves reviewable ownership
-without duplicating volatile domain rules.
+Keep the five exact DEV-132 skill names. Positive preselection activates one of
+them directly from the handoff domain, `requestedOperation`, `artifactState`,
+and `evidenceState`; it never passes through the non-positive router. Every
+entry owns one workflow, consumes the same versioned architecture contract,
+and links directly to the same concern-owned reference corpus.
+
+One bounded non-positive router handles only out-of-domain rejection, ambiguous
+domain clarification, and missing-approved-contract clarification. It is not a
+sixth workflow and can return only `no_activation` or
+`clarification_required`. The later cost router is separate.
 
 ### Rejected: five duplicated workflow copies
 
@@ -109,11 +118,11 @@ The plugin supplies guidance and reviewable proof contracts. It never becomes
 the application's reducer, authorization boundary, effect executor, external
 truth source, or runtime enforcement layer.
 
-## Activation router
+## Preselection contract
 
-### Normalized router input
+### Normalized input
 
-The router evaluates these fields in order:
+Preselection evaluates these fields:
 
 ```text
 domain = foundation_models_handoff | out_of_domain | ambiguous
@@ -128,43 +137,49 @@ baton-pass, isolated consultation, deterministic routing, transcript transfer,
 or a related state/context/tool/recovery boundary. A mere occurrence of the
 words “Apple,” “model,” “agent,” “skill,” or “handoff” is insufficient.
 
-### Decision procedure
+### Direct positive preselection
 
-1. **Classify the domain first.** `out_of_domain` returns `no_activation`.
-   `ambiguous` asks one bounded domain question and does not select a skill.
-2. **Normalize the requested operation.** Prefer the user's explicit action.
-   Infer from the requested deliverable only when the action is unambiguous.
-3. **Inspect artifact state.** Implementation requires an approved architecture
-   or decision reference and an exact change boundary. Review/debug require an
-   existing artifact or observed behavior respectively.
-4. **Inspect evidence state.** Proof-only execution selects validate. A failing
-   proof plus an unexplained observed divergence selects debug when root-cause
-   analysis is requested; findings-only inspection remains review.
-5. **Resolve compound authority.** “Review and fix” defaults to review first.
-   The review may name a bounded follow-on implementation but must not invoke a
-   second skill or edit the artifact.
-6. **Select at most one result.** A request never activates two skills. Each
-   selected skill loads its own direct references.
+An in-domain positive request bypasses the non-positive router and directly
+activates exactly one workflow:
 
-### Router table
-
-| Domain and normalized state | Outcome |
+| Normalized positive request | Direct workflow |
 | --- | --- |
-| Handoff; new/revised topology, pattern, state, or boundary | `design-apple-foundation-models-handoff` |
-| Handoff; code change; `artifactState=approved_contract` | `implement-apple-foundation-models-handoff` |
-| Handoff; existing proposal/code/fixture/evidence; findings requested | `review-apple-foundation-models-handoff` |
-| Handoff; observed unexplained routing/ownership/context/tool/recovery/availability divergence | `debug-apple-foundation-models-handoff` |
-| Handoff; proof-only deterministic/compile/schema/generation/evidence/host matrix | `validate-apple-foundation-models-handoff` |
-| Handoff; compound review and fix | `review-apple-foundation-models-handoff`, with a documented follow-on boundary only |
-| Handoff; implementation requested without an approved contract/change boundary | `clarification_required` with one approved-contract question |
-| Ambiguous “Apple handoff” domain | `clarification_required` with one domain question |
-| Out-of-domain concept | `no_activation` |
+| New/revised topology, pattern, state, or trust boundary | `design-apple-foundation-models-handoff` |
+| Code change with `artifactState=approved_contract` and an exact boundary | `implement-apple-foundation-models-handoff` |
+| Existing proposal/code/fixture/evidence with findings requested | `review-apple-foundation-models-handoff` |
+| Observed unexplained routing/ownership/context/tool/recovery/availability divergence | `debug-apple-foundation-models-handoff` |
+| Proof-only deterministic/compile/schema/generation/evidence/host matrix | `validate-apple-foundation-models-handoff` |
+| Compound review and fix | `review-apple-foundation-models-handoff`, with a documented follow-on boundary only |
 
-One bounded clarification means exactly one concise question that names the
-single missing discriminator. It must not gather implementation detail, start a
-workflow, emit a positive result, or loop through multiple questions. If the
-answer does not establish the domain or approved contract, the result stays
+Prefer the explicit operation and infer only when the requested deliverable is
+unambiguous. Review/debug require an existing artifact or observed behavior.
+Proof-only execution selects validate. “Review and fix” activates review
+directly; review may name a follow-on implementation boundary but may not invoke
+a second skill or edit the artifact. The selected skill alone loads its direct
+references.
+
+### Bounded non-positive router
+
+Only these inputs reach the router:
+
+| Non-positive input | Only permitted result |
+| --- | --- |
+| Out-of-domain request | `no_activation` |
+| Ambiguous Foundation Models handoff domain | `clarification_required` for `domain` |
+| Implementation request missing an approved contract or exact boundary | `clarification_required` for `approved_contract` |
+
+One clarification is one concise question naming the single missing
+discriminator. It does not gather implementation detail or loop. If the answer
+does not establish the domain or approved contract, the result stays
 non-positive.
+
+The router is not a sixth workflow. It returns only `no_activation` or
+`clarification_required`; it cannot select or invoke a workflow, load a
+reference, emit `architectureResult`, use tools or effects, issue commands,
+create agents, run hooks, MCP, apps, scripts, dependencies, or runtime, or claim
+Apple or host capability. The DEV-142 through DEV-145 cost router,
+`PostToolUse` hook, and Swift bridge chain are distinct later runtime and remain
+outside DEV-134.
 
 ## Common result contracts
 
@@ -174,8 +189,9 @@ Every positive activation has this normalized outer shape:
 
 ```text
 activationStatus = activated
+activationOwner = direct_workflow
 selectedSkill
-routerInput = { domain, requestedOperation, artifactState, evidenceState }
+preselectionInput = { domain, requestedOperation, artifactState, evidenceState }
 architectureResult
 ```
 
@@ -335,6 +351,7 @@ architecture:
 
 ```text
 activationStatus = no_activation
+activationOwner = non_positive_router
 reasonCode = out_of_domain
 domain
 requestedOperation
@@ -344,6 +361,7 @@ A clarification result is likewise bounded:
 
 ```text
 activationStatus = clarification_required
+activationOwner = non_positive_router
 clarificationKind = domain | approved_contract
 missingInput
 question
@@ -351,7 +369,8 @@ question
 
 Neither non-positive shape contains `architectureResult`, workflow-specific
 sections, loaded references, a fabricated Apple claim, or evidence that a host
-activated a production skill.
+activated a production skill. Neither shape performs tools, effects, commands,
+agents, hooks, MCP, apps, scripts, dependencies, runtime, or cost routing.
 
 ## Exact skill catalog
 
@@ -382,7 +401,7 @@ explicit assumption or limitation, not fabricated authority.
 
 **Ordered workflow:**
 
-1. confirm the Foundation Models handoff domain and normalize the router input;
+1. confirm the Foundation Models handoff domain and normalize preselection;
 2. inspect current architecture, repository, installed SDK, and cited Apple
    evidence without treating structural references as API authority;
 3. compare baton-pass, isolated consultation, deterministic routing, and
@@ -656,7 +675,9 @@ such YAML.
 ## Design-prototype E2E suite
 
 These 15 synthetic cases define normalized design expectations, not production
-host capability. For every case,
+host capability. `activationOwner` is exactly `direct_workflow` for the six
+positive cases and `DEV134-AMB-003`; it is `non_positive_router` for the six
+negative cases and the other two ambiguous cases. For every case,
 `hostExpectations.claude == hostExpectations.codex == expectedActivation`.
 Positive cases use the `1.0` result; negative and clarification cases use only
 their non-positive shape.
@@ -665,7 +686,7 @@ their non-positive shape.
 
 - Representative synthetic request: “Design a new Apple Foundation Models baton-pass architecture where a research profile transfers control and final-answer ownership to a review profile.”
 - Input class: new architecture request.
-- Router: `design`, `absent`, `missing`.
+- Direct preselection: `design`, `absent`, `missing`.
 - Expected activation: `design-apple-foundation-models-handoff`.
 - Direct references: all five concern owners.
 - Full walkthrough: yes; detailed below.
@@ -676,7 +697,7 @@ their non-positive shape.
 
 - Representative synthetic request: “Review the supplied synthetic Foundation Models handoff reducer against the approved architecture contract, return findings, and make no edits.”
 - Input class: existing implementation findings request.
-- Router: `review`, `implementation`, `failing`.
+- Direct preselection: `review`, `implementation`, `failing`.
 - Expected activation: `review-apple-foundation-models-handoff`.
 - Direct references: all five concern owners.
 - Full walkthrough: yes; detailed below.
@@ -707,7 +728,7 @@ artifact presented to the reviewer.
 
 - Representative synthetic request: “Use the embedded approved synthetic contract input and implement only its named transition-budget change in the two affected synthetic paths.”
 - Input class: bounded application change tied to an approved decision.
-- Router: `implement`, `approved_contract`, `available`.
+- Direct preselection: `implement`, `approved_contract`, `available`.
 - Expected activation: `implement-apple-foundation-models-handoff`.
 - References: architecture/state, approved pattern, Apple availability,
   security/recovery, and evaluation proof loaded directly.
@@ -731,7 +752,7 @@ artifact presented to the reviewer.
 
 - Representative synthetic request: “Debug why a dispatched synthetic handoff effect timed out and the reducer attempted to replay the same effect before reconciliation.”
 - Input class: dispatched effect timed out and replay was proposed.
-- Router: `debug`, `implementation`, `failing`.
+- Direct preselection: `debug`, `implementation`, `failing`.
 - Expected activation: `debug-apple-foundation-models-handoff`.
 - References: architecture/state, security/recovery, and evaluation always;
   pattern/API references when the observed route or API is implicated.
@@ -742,7 +763,7 @@ artifact presented to the reviewer.
 
 - Representative synthetic request: “Validate the handoff's deterministic, SDK compile, evidence-safety, and Claude/Codex host matrix, report blockers, and do not edit anything to obtain a pass.”
 - Input class: deterministic/compile/evidence/cross-host validation request.
-- Router: `validate`, `evidence_bundle`, `available`.
+- Direct preselection: `validate`, `evidence_bundle`, `available`.
 - Expected activation: `validate-apple-foundation-models-handoff`.
 - References: evaluation plus every owner exercised by the matrix.
 - Resolution: report exact pass/fail/blocked/not_applicable rows, hashes,
@@ -752,7 +773,7 @@ artifact presented to the reviewer.
 
 - Representative synthetic request: “Design an Apple Foundation Models consultation where the parent session asks a narrow specialist question, keeps control, and writes the final answer.”
 - Input class: parent asks a specialist a narrow question but retains control.
-- Router: `design`, `absent`, `missing`.
+- Direct preselection: `design`, `absent`, `missing`.
 - Expected activation: `design-apple-foundation-models-handoff`.
 - References: all five concern owners.
 - Resolution: choose an isolated child transcript and minimized envelope;
@@ -761,49 +782,49 @@ artifact presented to the reviewer.
 ### DEV134-NEG-001: App Intents
 
 - Representative synthetic request: “Show me how to expose an App Intent for a Shortcuts action.”
-- Router domain: `out_of_domain`.
+- Non-positive router: `out_of_domain`.
 - Expected activation: `no_activation`.
 - Resolution: `reject_out_of_domain`; no references or positive sections.
 
 ### DEV134-NEG-002: Apple Handoff
 
 - Representative synthetic request: “Explain how to continue activity between my iPhone and Mac with Apple Handoff and NSUserActivity.”
-- Router domain: `out_of_domain`.
+- Non-positive router: `out_of_domain`.
 - Expected activation: `no_activation`.
 - Resolution: `reject_out_of_domain`; no references or positive sections.
 
 ### DEV134-NEG-003: generic Swift
 
 - Representative synthetic request: “How do Swift actors isolate mutable state?”
-- Router domain: `out_of_domain`.
+- Non-positive router: `out_of_domain`.
 - Expected activation: `no_activation`.
 - Resolution: `reject_out_of_domain`; no references or positive sections.
 
 ### DEV134-NEG-004: generic Core ML or Foundation Models education
 
 - Representative synthetic request: “Give me a beginner overview of Core ML model deployment.”
-- Router domain: `out_of_domain`.
+- Non-positive router: `out_of_domain`.
 - Expected activation: `no_activation`.
 - Resolution: `reject_out_of_domain`; no references or positive sections.
 
 ### DEV134-NEG-005: coding-session handoff
 
 - Representative synthetic request: “How should I hand a coding session from Claude Code to Codex?”
-- Router domain: `out_of_domain`.
+- Non-positive router: `out_of_domain`.
 - Expected activation: `no_activation`.
 - Resolution: `reject_out_of_domain`; no references or positive sections.
 
 ### DEV134-NEG-006: Foundation Models runtime Skills alone
 
 - Representative synthetic request: “Explain how Foundation Models runtime Skills activate tool calling inside one model session.”
-- Router domain: `out_of_domain`.
+- Non-positive router: `out_of_domain`.
 - Expected activation: `no_activation`.
 - Resolution: `reject_out_of_domain`; no references or positive sections.
 
 ### DEV134-AMB-001: ambiguous “Apple handoff”
 
 - Representative synthetic request: “Help me design an Apple handoff.”
-- Router: `ambiguous`, `unspecified`, `unknown`, `unknown`.
+- Non-positive router: `ambiguous`, `unspecified`, `unknown`, `unknown`.
 - Expected activation: `clarification_required`.
 - Resolution: `bounded_domain_clarification` asking whether the request concerns
   Foundation Models session/profile/provider orchestration rather than Apple
@@ -812,7 +833,7 @@ artifact presented to the reviewer.
 ### DEV134-AMB-002: implementation without an approved contract
 
 - Representative synthetic request: “Implement the Apple Foundation Models handoff for my app.”
-- Router: handoff, `implement`, `unknown`, `missing`.
+- Non-positive router: handoff, `implement`, `unknown`, `missing`.
 - Expected activation: `clarification_required`.
 - Resolution: `bounded_contract_clarification` asking for the approved
   architecture/decision reference and exact change boundary; no speculative
@@ -821,7 +842,8 @@ artifact presented to the reviewer.
 ### DEV134-AMB-003: compound review and fix
 
 - Representative synthetic request: “Review and fix this Apple Foundation Models handoff implementation.”
-- Router: handoff, `compound_review_fix`, `implementation`, `failing`.
+- Direct preselection: handoff, `compound_review_fix`, `implementation`,
+  `failing`; the non-positive router is bypassed.
 - Expected activation: `review-apple-foundation-models-handoff`.
 - Resolution: `documented_default_review_first`; return findings and a bounded
   follow-on change boundary, with no edit and no second skill invocation.
@@ -833,7 +855,7 @@ research profile gathers evidence and a review profile takes over and answers.
 
 | Required section | Expected content and guardrail |
 | --- | --- |
-| Activation and Scope | Router selects design only; Foundation Models handoff domain and exclusions are explicit. `D-SCHEMA-001`, `D-ROUTE-001`. |
+| Activation and Scope | Direct preselection activates design only and bypasses the non-positive router; Foundation Models handoff domain and exclusions are explicit. `D-SCHEMA-001`, `D-ROUTE-001`. |
 | Pattern and Ownership | Compare all four patterns, select `baton_pass`, source `research`, destination `review`, destination final owner. `D-OWNER-001`, `D-TRANSITION-001`. |
 | Apple API Availability | Stable transcript mechanics use exact SDK 26.5 labels; dynamic profiles remain OS/Xcode 27 beta locally unverified; no fictional `BatonPass` type. |
 | State and Lifecycle | Independent versions, `stable -> transitioning -> stable`, valid edge, one active owner, finite budgets, checkpoint, and persistent recovery. `D-PHASE-001`. |
@@ -866,7 +888,7 @@ architecture contract, return findings, and make no edits.
 
 | Required section | Expected content and finding |
 | --- | --- |
-| Activation and Scope | Router selects review only, freezes edits, and identifies the existing flawed artifact. `D-SCHEMA-001`, `D-ROUTE-001`. |
+| Activation and Scope | Direct preselection activates review only and bypasses the non-positive router, freezes edits, and identifies the existing flawed artifact. `D-SCHEMA-001`, `D-ROUTE-001`. |
 | Pattern and Ownership | Reconstruct intended baton-pass and report Important `D-OWNER-001` for ambiguous final owner plus `D-TRANSITION-001` for no finite budget. |
 | Apple API Availability | The supplied artifact is classified `pseudocode_deterministic_mock`; `state.activeProfiles` is application-owned pseudocode and is not `LanguageModelSession.DynamicProfile`. It contains no Apple API, version, or error claim, so no Apple API finding is emitted and this scenario's API-claim assessment is `not_applicable`; stable SDK 26.5 and OS/Xcode 27 beta boundaries remain reviewer rules for any future actual Apple claim. |
 | State and Lifecycle | Report phase/version/termination drift: uncertain external truth cannot become `terminated`; require persistent `recoveryRequired`. `D-PHASE-001`. |
@@ -889,7 +911,7 @@ review performs no edit.
 ## Host capability boundary
 
 This design and its 15-case oracle are `design_contract_prototype` evidence.
-They prove that the written router and result expectations are internally
+They prove that the written preselection and result expectations are internally
 machine-checkable; they do not prove production loading, reference loading,
 model-backed activation, output behavior, or cross-host equivalence.
 
@@ -920,8 +942,8 @@ diagnostic only.
 
 | Issue | Inherited DEV-134 contract and scope boundary |
 | --- | --- |
-| DEV-135 | Scaffold exactly five names and optional presentation-only per-skill YAML only if proven necessary; preserve one corpus and generated ownership. Structural loading cannot claim activation. |
-| DEV-136 | Author the five production workflows with these activation, ordered workflow, common result, workflow additions, failure, and non-goal contracts. Do not turn guidance into runtime enforcement. |
+| DEV-135 | Scaffold exactly five positive names plus the bounded non-positive router and optional presentation-only per-skill YAML only if proven necessary; the router is not a sixth workflow; preserve one corpus and generated ownership. Structural loading cannot claim activation. |
+| DEV-136 | Author the five direct production workflows and bounded non-positive router with these activation, ordered workflow, common result, workflow additions, failure, and non-goal contracts. Do not turn guidance into runtime enforcement. |
 | DEV-137 | Author the five unchanged sole-owner references and direct links. Keep volatile Apple detail and exact error payload signatures in the Apple owner; do not copy fixture code into capability content. |
 | DEV-138 | Map the stable D catalog and adversarial state/security/recovery cases to deterministic offline fixtures and exact repeated output, preserving oracle separation and safe synthetic evidence. |
 | DEV-139 | Convert the 15 identities and both full walkthroughs into fresh Claude/Codex activation/reference/output/rejection evidence; preserve per-host blockers, payload isolation, executable integrity, and no structural-only pass. |
@@ -938,8 +960,10 @@ DEV-134's design is complete only when:
 
 - all five exact names have non-overlapping what-and-when activation,
   inputs/workflow/references/output/failure/non-goal contracts;
-- the router is domain-first and deterministically resolves positive,
-  no-activation, one-question clarification, and compound review-first cases;
+- direct positive preselection bypasses the router and deterministically
+  activates one workflow, including compound review-first;
+- the bounded non-positive router returns only no-activation or one-question
+  clarification and has none of the prohibited workflow/runtime powers;
 - positive outputs retain the complete `architectureSchemaVersion: "1.0"`
   state, security, Apple availability, recovery, fallback, evidence, and
   limitation contract;
