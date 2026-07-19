@@ -62,10 +62,19 @@ router, bridge, or runtime behavior.
 - The prototype is exactly 6 positive, 6 negative, and 3 ambiguous cases.
   `DEV134-POS-001` and `DEV134-POS-002` are the two full walkthroughs. Seven
   cases have `direct_workflow` ownership and eight have
-  `non_positive_router` ownership. Claude and Codex expectations are identical.
+  `non_positive_router` ownership. Those `activationOwner` values are prototype
+  evidence metadata, not emitted envelope fields. Claude and Codex expectations
+  are identical.
+- Canonical shared metadata remains authored from Claude-side inputs. Codex
+  artifacts are generated or regenerated from those inputs and are never
+  hand-edited. DEV-134 creates neither.
 - Real production activation stays `blocked` for both hosts with
   `production_skill_not_implemented`. Structural checks, an alternate model,
   retries, or a fabricated host task cannot establish capability.
+- Dependent non-positive and ambiguous completion remains gated on reviewed
+  DEV-136 affected-subset evidence and the full 25-case Codex `0.144.5` matrix
+  on the combined tip; Claude execution remains deferred. That downstream gate
+  did not run here and does not block this design-prototype verification.
 
 ## Verification ladder
 
@@ -156,6 +165,62 @@ rg -q -F 'architectureSchemaVersion: "1.0"' "$contract_file"
 rg -q -F 'no_activation' "$contract_file"
 rg -q -F 'clarification_required' "$contract_file"
 rg -q -F 'DEV-142 through DEV-145 cost router' "$contract_file"
+
+PYTHONDONTWRITEBYTECODE=1 python3 - <<'PY'
+import re
+from pathlib import Path
+
+contract = Path(
+    'docs/architecture/apple-foundation-models-handoff-skill-contract.md'
+)
+design = Path(
+    'docs/superpowers/specs/'
+    '2026-07-17-dev-134-agent-skill-catalog-design.md'
+)
+positive = (
+    'activationStatus = activated',
+    'selectedSkill',
+    'preselectionInput = { domain, requestedOperation, artifactState, evidenceState }',
+    'architectureResult',
+)
+no_activation = (
+    'activationStatus = no_activation',
+    'reasonCode = out_of_domain',
+    'domain',
+    'requestedOperation',
+)
+clarification = (
+    'activationStatus = clarification_required',
+    'clarificationKind = domain | approved_contract',
+    'missingInput',
+    'question',
+)
+checks = (
+    (contract, '## Common positive result', 0, positive),
+    (contract, '## Non-positive activation result', 0, no_activation),
+    (contract, '## Non-positive activation result', 1, clarification),
+    (design, '### Positive activation envelope', 0, positive),
+    (design, '### Non-positive activation results', 0, no_activation),
+    (design, '### Non-positive activation results', 1, clarification),
+)
+
+for source, heading, block_index, expected_lines in checks:
+    text = source.read_text()
+    start = text.index(heading)
+    level = len(heading) - len(heading.lstrip('#'))
+    tail = text[start + len(heading):]
+    boundary = re.search(rf'^#{{1,{level}}} ', tail, re.MULTILINE)
+    section = tail[:boundary.start()] if boundary else tail
+    blocks = re.findall(r'```text\n(.*?)```', section, re.DOTALL)
+    actual_lines = tuple(blocks[block_index].strip().splitlines())
+    assert actual_lines == expected_lines, (source, heading, block_index)
+    assert all('activationOwner' not in line for line in actual_lines)
+
+print(
+    'DEV134_EMITTED_ENVELOPE_SHAPE_PASS '
+    'positive=2 no_activation=2 clarification=2'
+)
+PY
 ```
 
 ### 2. Independent hard activation oracle
@@ -179,12 +244,12 @@ ARTIFACTS = {
     'designArtifact': (
         'docs/superpowers/specs/'
         '2026-07-17-dev-134-agent-skill-catalog-design.md',
-        'ca8ef0e9631cbda7605481055b1331d681776c14434b6dd3ccd8d4575047b8c8',
+        '07541f46a0de721498e7526723769f6f69be3912c9e7d858097e685a72156ca7',
     ),
     'contractArtifact': (
         'docs/architecture/'
         'apple-foundation-models-handoff-skill-contract.md',
-        '519aa6b18e05ca5ec00cf069c211e46034de25079862cdd90e1cc0a0ccbb59a3',
+        '0b492a9702fa338bc714d5da182ab92509f3166fc3e8b554f0ca64c06d4ef094',
     ),
 }
 TOP_KEYS = {
@@ -628,6 +693,17 @@ fi
 
 for artifact_file in \
   "$contract_file" "$evidence_file" "$plan_file" "$design_file"; do
+  test -f "$artifact_file"
+  test ! -L "$artifact_file"
+  artifact_resolved="$(python3 -c \
+    'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve(strict=True))' \
+    "$artifact_file")"
+  case "$artifact_resolved" in
+    "$(pwd -P)"/*) ;;
+    *) exit 1 ;;
+  esac
+  test "$(git ls-files --stage -- "$artifact_file" | awk '{print $1}')" = \
+    100644
   test -s "$artifact_file"
   shasum -a 256 "$artifact_file"
 done
@@ -674,12 +750,18 @@ rationale, direct-positive versus bounded-non-positive ownership, separate
 cost-routing boundary, and that issue's exact impact. Do not relabel deferred
 host evidence as passed.
 
+Dependent non-positive and ambiguous completion is not a pass until DEV-136
+publishes reviewed affected-subset evidence and the full 25-case Codex `0.144.5`
+matrix on the combined tip. Claude execution remains deferred. Do not claim
+that matrix ran in DEV-134 or use its absence to fail this design-prototype
+verification.
+
 Final evidence records the base and reviewed head, the four paths and SHA-256
-values, all three DEV-134 pass lines, 6/6/3 cases with two walkthroughs and
+values, all four DEV-134 pass lines, 6/6/3 cases with two walkthroughs and
 7/8 ownership, DEV-131 26 tests and 11/11 proof, DEV-130 8/0 exact repeat,
 DEV-128 six positives and two strict blockers, 23 repository tests, generator
 sync, clean privacy/cache/diff results, honest host blockers, and propagation
-comment IDs. A focused local commit contains only this plan correction. The
+comment IDs. A focused local commit contains only these bounded corrections. The
 main PR-review agent owns final re-verification, exact-leased publication,
 merge, Linear evidence, and any status transition allowed by the current
 issue-level completion contract.

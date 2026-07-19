@@ -16,6 +16,11 @@ The plugin supplies guidance and proof contracts. The application remains the
 authority for reducer state, authorization, tool/effect execution, external
 truth, recovery, and fallback.
 
+Canonical shared metadata remains authored from Claude-side inputs. Any Codex
+artifacts are generated or regenerated from those inputs and are never
+hand-edited. DEV-134 creates neither the metadata inputs nor generated
+artifacts.
+
 ## Positive preselection and bounded non-positive router
 
 Normalize these preselection fields:
@@ -61,11 +66,14 @@ Every positive activation has exactly this outer envelope:
 
 ```text
 activationStatus = activated
-activationOwner = direct_workflow
 selectedSkill
 preselectionInput = { domain, requestedOperation, artifactState, evidenceState }
 architectureResult
 ```
+
+Case-level `activationOwner = direct_workflow` and
+`activationOwner = non_positive_router` values are prototype evidence metadata
+used to prove preselection ownership. They are not emitted envelope fields.
 
 `architectureResult` contains `architectureSchemaVersion: "1.0"` and all of:
 
@@ -103,7 +111,6 @@ Out-of-domain rejection contains exactly:
 
 ```text
 activationStatus = no_activation
-activationOwner = non_positive_router
 reasonCode = out_of_domain
 domain
 requestedOperation
@@ -113,7 +120,6 @@ Bounded clarification contains exactly:
 
 ```text
 activationStatus = clarification_required
-activationOwner = non_positive_router
 clarificationKind = domain | approved_contract
 missingInput
 question
@@ -208,6 +214,12 @@ diagnostic only and cannot substitute for the selected host row.
 | DEV-139 | Turn all 15 identities and the two canonical walkthroughs into fresh per-host activation/reference/output/rejection evidence; preserve payload isolation, executable integrity, blockers, and the no-structural-only-pass rule |
 | DEV-140 | Document exact triggers, non-triggers, result sections, pattern/API distinctions, proven placement, and actual blockers without advertising prototype or blocked behavior as shipped |
 | DEV-141 | Reject acceptance for catalog overlap, missing fields, reference duplication, state/security/recovery drift, unsafe evidence, oracle drift, false host pass, or missing required real-capability proof |
+
+Dependent non-positive and ambiguous completion cannot pass until DEV-136
+publishes reviewed affected-subset evidence and the full 25-case Codex `0.144.5`
+matrix on the combined tip. Claude execution remains deferred. That downstream
+completion gate did not run here and does not block DEV-134's design-prototype
+verification.
 
 Detailed examples, walkthroughs, alternatives analysis, option comparison, and
 design rationale remain only in the canonical design.

@@ -118,6 +118,11 @@ The plugin supplies guidance and reviewable proof contracts. It never becomes
 the application's reducer, authorization boundary, effect executor, external
 truth source, or runtime enforcement layer.
 
+Canonical shared metadata remains authored from Claude-side inputs. Any Codex
+artifacts are generated or regenerated from those inputs and are never
+hand-edited. DEV-134 creates neither the metadata inputs nor generated
+artifacts.
+
 ## Preselection contract
 
 ### Normalized input
@@ -189,11 +194,14 @@ Every positive activation has this normalized outer shape:
 
 ```text
 activationStatus = activated
-activationOwner = direct_workflow
 selectedSkill
 preselectionInput = { domain, requestedOperation, artifactState, evidenceState }
 architectureResult
 ```
+
+Case-level `activationOwner = direct_workflow` and
+`activationOwner = non_positive_router` values are prototype evidence metadata
+used to prove preselection ownership. They are not emitted envelope fields.
 
 `architectureResult` always has `architectureSchemaVersion: "1.0"` and the
 complete common machine-readable contract:
@@ -351,7 +359,6 @@ architecture:
 
 ```text
 activationStatus = no_activation
-activationOwner = non_positive_router
 reasonCode = out_of_domain
 domain
 requestedOperation
@@ -361,7 +368,6 @@ A clarification result is likewise bounded:
 
 ```text
 activationStatus = clarification_required
-activationOwner = non_positive_router
 clarificationKind = domain | approved_contract
 missingInput
 question
@@ -953,6 +959,12 @@ diagnostic only.
 These are contract handoffs, not implementation moved into DEV-134. A downstream
 decision change must be recorded in its owning issue and propagated through the
 durable Linear chain before work that depends on it starts.
+
+Dependent non-positive and ambiguous completion cannot pass until DEV-136
+publishes reviewed affected-subset evidence and the full 25-case Codex `0.144.5`
+matrix on the combined tip. Claude execution remains deferred. That downstream
+completion gate did not run here and does not block DEV-134's design-prototype
+verification.
 
 ## Completion criteria
 

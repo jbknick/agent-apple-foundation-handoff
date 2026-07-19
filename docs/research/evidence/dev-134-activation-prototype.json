@@ -3,9 +3,9 @@
   "evidenceKind": "design_contract_prototype",
   "sourceIssue": "DEV-134",
   "designArtifact": "docs/superpowers/specs/2026-07-17-dev-134-agent-skill-catalog-design.md",
-  "designArtifactSha256": "ca8ef0e9631cbda7605481055b1331d681776c14434b6dd3ccd8d4575047b8c8",
+  "designArtifactSha256": "07541f46a0de721498e7526723769f6f69be3912c9e7d858097e685a72156ca7",
   "contractArtifact": "docs/architecture/apple-foundation-models-handoff-skill-contract.md",
-  "contractArtifactSha256": "519aa6b18e05ca5ec00cf069c211e46034de25079862cdd90e1cc0a0ccbb59a3",
+  "contractArtifactSha256": "0b492a9702fa338bc714d5da182ab92509f3166fc3e8b554f0ca64c06d4ef094",
   "executionLayer": "design_contract_prototype",
   "status": "pass",
   "realHostRows": {
