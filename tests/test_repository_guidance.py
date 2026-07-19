@@ -183,6 +183,7 @@ class RepositoryGuidanceTests(unittest.TestCase):
     def test_synchronize_normalizes_invalid_canonical_input(self):
         with tempfile.TemporaryDirectory() as directory:
             isolated_root = Path(directory)
+            self._copy_canonical_inputs(isolated_root)
             (isolated_root / "CLAUDE.md").write_text(
                 "invalid canonical guide\n", encoding="utf-8", newline="\n"
             )
@@ -195,7 +196,7 @@ class RepositoryGuidanceTests(unittest.TestCase):
 
             self.assertFalse(synchronized)
             self.assertEqual(
-                "CLAUDE.md: invalid canonical adapter input\n",
+                "CLAUDE.md: invalid canonical metadata input\n",
                 diagnostic.getvalue(),
             )
 
@@ -299,7 +300,7 @@ class RepositoryGuidanceTests(unittest.TestCase):
     ):
         with tempfile.TemporaryDirectory() as directory:
             isolated_root = Path(directory)
-            shutil.copyfile(CANONICAL, isolated_root / "CLAUDE.md")
+            self._copy_canonical_inputs(isolated_root)
             self.assertTrue(sync_generated_artifacts.synchronize(isolated_root, True))
             target = isolated_root / target_name
 
@@ -333,7 +334,7 @@ class RepositoryGuidanceTests(unittest.TestCase):
                 self._assert_post_read_change_is_rejected(
                     "CLAUDE.md",
                     1,
-                    "CLAUDE.md: invalid canonical adapter input\n",
+                    "CLAUDE.md: invalid canonical metadata input\n",
                     change,
                 )
 
@@ -342,7 +343,7 @@ class RepositoryGuidanceTests(unittest.TestCase):
             with self.subTest(change=change):
                 self._assert_post_read_change_is_rejected(
                     "AGENTS.md",
-                    2,
+                    6,
                     "AGENTS.md: unsafe or unwritable generated output\n",
                     change,
                 )
@@ -444,31 +445,36 @@ class RepositoryGuidanceTests(unittest.TestCase):
             self.assertIn("Never edit `AGENTS.md` directly", text)
             self.assertIn("`scripts/sync_generated_artifacts.py`", text)
 
-    def test_guidance_distinguishes_current_artifacts_from_planned_payloads(self):
+    def test_guidance_distinguishes_metadata_from_planned_capabilities(self):
         for guide in (CANONICAL, GENERATED):
             text = normalized_guide(guide)
 
             self.assertIn(
-                "Today the repository-guidance artifact set is exactly authored "
-                "canonical `CLAUDE.md` and generated root `AGENTS.md`",
+                "Root canonical inputs are `CLAUDE.md`, "
+                "`.claude-plugin/marketplace.json`, and "
+                "`metadata/codex-marketplace.json`",
                 text,
             )
             self.assertIn(
-                "no plugin metadata, skill/reference payload, or generated manifest "
-                "is present under DEV-133",
+                "Plugin-local canonical inputs are "
+                "`plugins/apple-foundation-models-handoff/.claude-plugin/plugin.json`",
                 text,
             )
             self.assertIn(
-                "DEV-135 owns planned plugin metadata inputs and generated manifest "
-                "outputs",
+                "`AGENTS.md`, `.agents/plugins/marketplace.json`, and "
+                "`plugins/apple-foundation-models-handoff/.codex-plugin/plugin.json` "
+                "are generated",
                 text,
             )
             self.assertIn(
-                "remain absent until it implements them through the shared "
-                "synchronization entry point",
+                "metadata-only scaffold with zero capabilities",
                 text,
             )
-            self.assertNotIn("Authored canonical inputs include", text)
+            self.assertIn(
+                "Skills, references, hooks, commands, agents, MCP servers, scripts, "
+                "dependencies, and runtime code are absent",
+                text,
+            )
 
     def test_guidance_bounds_positive_workflows_and_non_positive_routing(self):
         for guide in (CANONICAL, GENERATED):
@@ -483,16 +489,13 @@ class RepositoryGuidanceTests(unittest.TestCase):
                 "may only clarify, decline, or hand off other requests",
                 text,
             )
-            self.assertIn("not a sixth positive skill", text)
+            self.assertIn("not a sixth positive workflow", text)
             self.assertIn(
-                "distinct from the later DEV-142 through DEV-145 cost "
-                "router, `PostToolUse` hook, and Swift bridge chain",
+                "distinct from the DEV-142 through DEV-145 cost router, "
+                "`PostToolUse` hooks, and Swift bridge chain",
                 text,
             )
-            self.assertIn(
-                "DEV-133 is guidance-only and implements no runtime",
-                text,
-            )
+            self.assertIn("runtime code are absent", text)
             self.assertNotIn("Keep exactly five narrow skills", text)
             self.assertNotIn("Select the one skill matching the request", text)
 

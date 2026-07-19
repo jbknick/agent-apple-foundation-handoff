@@ -16,9 +16,9 @@ Never edit `AGENTS.md` directly; update `CLAUDE.md`, then use `scripts/sync_gene
 - Later issues own five positive workflows: design, implement, review, debug, and
   validate Foundation Models handoff architectures. Positive requests select one
   workflow directly and progressively disclose only its linked reference.
-- One bounded non-positive preselection router may later clarify, decline, or hand off
-  other requests. It is not a sixth positive workflow and is distinct from the DEV-142
-  through DEV-145 cost router, `PostToolUse` hooks, and Swift bridge chain.
+- One bounded non-positive preselection router may only clarify, decline, or hand off
+  other requests once implemented. It is not a sixth positive workflow and is distinct
+  from the DEV-142 through DEV-145 cost router, `PostToolUse` hooks, and Swift bridge chain.
 - Skills, references, hooks, commands, agents, MCP servers, scripts, dependencies, and
   runtime code are absent. Foundation Models handoff, coding-session handoff, Apple
   Handoff, App Intents, Agent Skills, and Foundation Models runtime Skills are distinct.
