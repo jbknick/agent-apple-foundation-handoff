@@ -11,8 +11,9 @@ approved Claude-authored/Codex-generated metadata boundary without advertising
 production skills before those skills exist.
 
 DEV-135 proves deterministic generation, contract validation, packaging, and
-Codex structural discovery. It does not implement or claim the five handoff
-workflows, which remain owned by DEV-136 and DEV-137.
+Codex structural discovery. It does not implement or claim the five future
+direct positive handoff workflows or the bounded non-positive preselection
+router, which remain owned by DEV-136 and DEV-137.
 
 ## Inputs and constraints
 
@@ -25,7 +26,10 @@ This design inherits:
   package layouts from DEV-132;
 - the generated root guidance adapter and hardened Python standard-library
   sync entry point from DEV-133;
-- the exact five-skill topology and no-plugin-worker decision from DEV-134;
+- the five direct positive workflows, bounded non-positive preselection router,
+  and no-plugin-worker decision from DEV-134; the preselection router is not a
+  sixth positive workflow and is separate from the DEV-142 through DEV-145
+  cost router, `PostToolUse` hooks, and Swift bridge chain;
 - the owner-approved Codex-first validation policy recorded on DEV-133 and
   propagated to DEV-135; and
 - the owner-approved DEV-135 decisions recorded in Linear comment
@@ -106,7 +110,8 @@ omissions are intentional and test-enforced.
 
 An empty capabilities array is the only truthful value in DEV-135. The
 installed current validator accepts the array while requiring the field to be
-present. DEV-136 updates this input only when the five real skills exist.
+present. Neither the five future direct positive workflows nor the bounded
+non-positive preselection router is implemented or advertised here.
 
 ### Marketplace identities
 
@@ -271,8 +276,9 @@ An isolated `CODEX_HOME` test will:
 
 Because DEV-135 contains no production skills, this test proves structural
 discovery and installation only. It must not be cited as evidence that a
-design, implement, review, debug, or validate workflow activated. DEV-139 owns
-fresh-task activation evidence after DEV-136 and DEV-137.
+design, implement, review, debug, or validate workflow activated or that the
+bounded non-positive preselection router ran. DEV-139 owns fresh-task
+activation evidence after DEV-136 and DEV-137.
 
 ### Deferred rows
 
@@ -324,16 +330,17 @@ DEV-135 reruns:
 
 - all repository unit tests;
 - generator check and repeated generation;
-- DEV-130 seven-scenario golden validation;
+- DEV-130 eight-scenario golden validation with exact `8/0` output;
 - DEV-131 26-test evaluation suite and 11-case proof;
-- DEV-128 SDK 26.5 compile matrix when the installed SDK remains available;
+- DEV-128 six-positive/two-strict-blocker SDK 26.5 matrix when the installed
+  SDK remains available;
 - privacy/security scanners and clean-diff checks; and
 - the current official Codex plugin validator against the built package.
 
 ## Atomic review and PR boundary
 
-DEV-135 is one stacked PR based on DEV-134. Its intended reviewable commits
-are:
+DEV-135 is one PR based directly on current main
+`c749d14129888c643b66646158735bf58e6fc603`. Its intended reviewable commits are:
 
 1. **Design contract:** this approved design document only.
 2. **Metadata and generation:** canonical inputs, schemas, generated outputs,

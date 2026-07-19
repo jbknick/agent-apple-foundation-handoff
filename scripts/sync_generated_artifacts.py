@@ -62,7 +62,7 @@ class GeneratedOutputError(Exception):
 
 
 class UnexpectedGeneratedPath(Exception):
-    """A reserved generated namespace contains an unowned file."""
+    """A reserved generated namespace contains an unowned path."""
 
 
 @dataclass
@@ -730,17 +730,7 @@ def _scan_directory(
         with os.scandir(parent_fd) as entries:
             for entry in entries:
                 candidate = relative / entry.name
-                if entry.is_dir(follow_symlinks=False):
-                    child_fd: int | None = None
-                    try:
-                        child_fd = os.open(
-                            entry.name, _directory_flags(), dir_fd=parent_fd
-                        )
-                        _scan_directory(child_fd, candidate, allowed)
-                    finally:
-                        if child_fd is not None:
-                            os.close(child_fd)
-                elif candidate not in allowed:
+                if candidate not in allowed:
                     raise UnexpectedGeneratedPath
     except UnexpectedGeneratedPath:
         raise

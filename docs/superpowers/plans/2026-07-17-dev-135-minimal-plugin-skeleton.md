@@ -10,16 +10,16 @@
 
 ## Global Constraints
 
-- Work only on `codex/dev-135-minimal-plugin-skeleton`, stacked on DEV-134 commit `759013caf4d6c2662fb3266046e6b29c399a0098`.
+- Work only on `codex/dev-135-minimal-plugin-skeleton`, based directly on current main commit `c749d14129888c643b66646158735bf58e6fc603`.
 - Use plugin ID `apple-foundation-models-handoff`, display name `Apple Foundation Models Handoff`, version `0.1.0`, and package root `plugins/apple-foundation-models-handoff`.
 - Use marketplace `agent-apple-foundation-handoff`, source `./plugins/apple-foundation-models-handoff`, both category values `Developer Tools`, installation `AVAILABLE`, and authentication `ON_INSTALL`.
 - Canonical inputs are `CLAUDE.md`, root `.claude-plugin/marketplace.json`, root `metadata/codex-marketplace.json`, plugin `.claude-plugin/plugin.json`, and plugin `metadata/codex-interface.json`.
 - Generated outputs are only root `AGENTS.md`, root `.agents/plugins/marketplace.json`, and plugin `.codex-plugin/plugin.json`; never hand-edit them.
 - Create no `skills/`, `references/`, hooks, MCP servers, commands, agents, plugin-local scripts, runtime dependencies, assets, or plugin-local README.
-- Keep `skills` absent and `capabilities` equal to `[]` until DEV-136 creates complete production skills.
+- Keep `skills` absent and `capabilities` equal to `[]`: neither the five future direct positive workflows nor the bounded non-positive preselection router is implemented or advertised here. The router is not a sixth positive workflow and is separate from the DEV-142 through DEV-145 cost router, `PostToolUse` hooks, and Swift bridge chain.
 - Use Python 3 standard library only. Default checks require no network, credentials, PCC, paid provider, model generation, or hardware entitlement.
 - Active host proof is Codex CLI `0.144.5`. Claude Code `2.1.91`, `pre-commit`, and `markdownlint` remain `blocked/deferred_by_owner`.
-- `bats` is absent at planning time. Add the required BATS file, but record `blocked/missing_binary` unless that exact runner becomes available. Do not install or vendor a runner without approval.
+- Bats `1.13.0` is present; run the exact tracked BATS suite and require all three tests to pass. Do not install, vendor, or substitute another runner without approval.
 - Do not weaken an oracle, hide a prerequisite, publish, merge, tag, or release.
 
 ## File responsibility map
@@ -449,7 +449,7 @@ Add subprocess cases that copy all canonical inputs and the sync script into iso
 - a later `.agents` obstruction prevents an earlier stale `AGENTS.md` from changing;
 - a symlinked nested parent cannot mutate its external target;
 - a generated output symlink cannot mutate its target;
-- an unexpected file below `.agents/plugins` or plugin `.codex-plugin` fails check;
+- an unexpected file or directory below `.agents/plugins` or plugin `.codex-plugin` fails check;
 - missing nested parents are clean drift in check mode and are safely created in write mode;
 - temporary swap and atomic replace failures remain normalized and clean all temporary files.
 
@@ -476,7 +476,7 @@ No path-based temporary creation is allowed for nested outputs. No absolute path
 Batch order must be exact:
 
 1. render and validate all expected artifacts;
-2. scan the two reserved generated namespaces for non-directory entries outside `GENERATED_PATHS`;
+2. scan the two reserved generated namespaces for any entry outside `GENERATED_PATHS`;
 3. preflight every existing parent and output before any write;
 4. if checking, report every missing/changed output as relative drift and write nothing;
 5. if writing, create missing parents only after full preflight;
@@ -495,7 +495,7 @@ generated artifacts: unexpected generated path
 
 - [ ] **Step 4: Update repository guidance to selected present state**
 
-Patch `CLAUDE.md` so canonical manifest/interface/future skill/reference paths are plugin-local, root marketplace inputs remain root paths, conventional placement is selected, and DEV-135 structural installation is present. State that the five production workflows remain unimplemented until DEV-136/137 and structural evidence cannot prove capability activation.
+Patch `CLAUDE.md` so canonical manifest/interface/future skill/reference paths are plugin-local, root marketplace inputs remain root paths, conventional placement is selected, and DEV-135 structural installation is present. State that the five future direct positive workflows and one bounded non-positive preselection router remain unimplemented until DEV-136/137 and structural evidence cannot prove capability activation or router execution.
 
 Update `tests/test_repository_guidance.py` expected strings without weakening private-path, evidence, host-drift, or capability-proof checks. Change every isolated helper to copy all five canonical inputs.
 
@@ -582,7 +582,7 @@ else
 fi
 ```
 
-Expected at planning time: repository/validator gates pass; BATS exits 2 blocked. Do not substitute another runner or claim pass.
+Current expectation: repository/validator gates pass and Bats `1.13.0` passes 3 of 3. Do not substitute another runner or claim pass without the exact execution.
 
 - [ ] **Step 8: Commit the synchronized package**
 
@@ -701,7 +701,7 @@ Use `apply_patch` to create `docs/research/evidence/dev-135-plugin-skeleton-e2e.
 - exact cache file allowlist and verified source/cache hash equality;
 - `E-CODEX-ACTIVATE-001 blocked production_skill_not_implemented`;
 - `E-CLAUDE-LOAD-001 blocked deferred_by_owner` with no Claude invocation;
-- `BATS blocked missing_binary` unless BATS actually ran;
+- `BATS pass` with Bats `1.13.0` and the exact `3/3` count when the current rerun succeeds; otherwise record the actual fail or blocker;
 - `pre-commit blocked deferred_by_owner` and `markdownlint blocked deferred_by_owner`; and
 - a statement that structural discovery/installation is not capability proof.
 
@@ -730,7 +730,7 @@ git commit -m "test(DEV-135): prove isolated Codex plugin installation"
 
 ---
 
-### Task 5: Run final verification, attach evidence, and open the stacked PR
+### Task 5: Run final verification, attach evidence, and update the main-based PR
 
 **Files:**
 - Verify: every DEV-135 path
@@ -738,7 +738,7 @@ git commit -m "test(DEV-135): prove isolated Codex plugin installation"
 
 **Interfaces:**
 - Consumes: all DEV-135 commits and gate catalog.
-- Produces: final SHA, normalized matrix, Linear evidence, and a stacked review PR. It does not merge or release.
+- Produces: final SHA, normalized matrix, Linear evidence, and a main-based review PR. It does not merge or release.
 
 - [ ] **Step 1: Run generation, repository, schema, validator, and Codex gates**
 
@@ -771,7 +771,7 @@ else
 fi
 ```
 
-If this remains blocked, DEV-135 cannot be marked Done under its current Definition of Done. The PR may be opened for review with the blocker stated.
+Current expectation: Bats `1.13.0` is available and the tracked suite passes 3 of 3. Any contrary execution remains a named failure or blocker.
 
 - [ ] **Step 3: Rerun DEV-131 deterministic evaluation**
 
@@ -801,12 +801,12 @@ swiftc -warnings-as-errors -parse-as-library \
 diff -u fixtures/dev-130/expected-output.txt "$artifact_dir/first.out"
 "$artifact_dir/dev130-adversarial" > "$artifact_dir/second.out"
 cmp "$artifact_dir/first.out" "$artifact_dir/second.out"
-rg -q '^SUMMARY passed=7 failed=0$' "$artifact_dir/first.out"
+rg -q '^SUMMARY passed=8 failed=0$' "$artifact_dir/first.out"
 ```
 
-Expected: seven pass, zero fail, repeated output byte-identical.
+Expected: eight pass, zero fail, repeated output byte-identical.
 
-- [ ] **Step 5: Rerun DEV-128 compiled SDK 26.5 matrix**
+- [ ] **Step 5: Rerun DEV-128 six-positive/two-strict-blocker SDK 26.5 matrix**
 
 ```bash
 set -e
@@ -815,6 +815,8 @@ SDK="$(xcrun --sdk macosx --show-sdk-path)"
 TARGET=arm64-apple-macos26.0
 swiftc -warnings-as-errors -typecheck -target "$TARGET" -sdk "$SDK" \
   fixtures/dev-128/compiled/stable-surface.swift
+swiftc -warnings-as-errors -typecheck -target "$TARGET" -sdk "$SDK" \
+  fixtures/dev-128/compiled/generable-macro.swift
 swiftc -warnings-as-errors -parse-as-library -target "$TARGET" -sdk "$SDK" \
   fixtures/dev-128/compiled/availability-probe.swift -o "$artifact_dir/availability"
 "$artifact_dir/availability" > "$artifact_dir/availability.out"
@@ -832,15 +834,35 @@ swiftc -warnings-as-errors -parse-as-library -target "$TARGET" -sdk "$SDK" \
   fixtures/dev-128/compiled/baton-pass-state.swift -o "$artifact_dir/baton"
 test "$("$artifact_dir/baton")" = \
   'source=research destination=review active=review finalOwner=review transferred=true'
+set +e
+swiftc -warnings-as-errors -typecheck -target arm64-apple-macos27.0 -sdk "$SDK" \
+  fixtures/dev-128/blocked/os-27-beta-surface.swift \
+  > "$artifact_dir/beta.out" 2>&1
+beta_rc=$?
+set -e
+test "$beta_rc" -ne 0
+rg -q "DynamicProfile.*not a member type|has no member 'Profile'" \
+  "$artifact_dir/beta.out"
+rg -q "extra arguments at positions #1, #2 in call" "$artifact_dir/beta.out"
+rg -q "extra argument 'toolCallingMode' in call" "$artifact_dir/beta.out"
+set +e
+swiftc -warnings-as-errors -typecheck -target arm64-apple-macos27.0 -sdk "$SDK" \
+  fixtures/dev-128/blocked/evaluations-import.swift \
+  > "$artifact_dir/evaluations.out" 2>&1
+evaluations_rc=$?
+set -e
+test "$evaluations_rc" -ne 0
+rg -q "no such module 'Evaluations'" "$artifact_dir/evaluations.out"
 ```
 
-Expected: five compiled checks pass.
+Expected: six positive gates pass and both expected blockers fail with their
+exact capability-specific diagnostics.
 
 - [ ] **Step 6: Run privacy, cache, generated-boundary, and scope checks**
 
 ```bash
 set -e
-git diff --check 759013caf4d6c2662fb3266046e6b29c399a0098..HEAD
+git diff --check c749d14129888c643b66646158735bf58e6fc603..HEAD
 test -z "$(find . -type d -name '__pycache__' -print -quit)"
 test -z "$(find . -type f -name '*.pyc' -print -quit)"
 test -z "$(find . -type f \( -name '*.trace' -o -name '*.xcresult' \) -print -quit)"
@@ -858,9 +880,9 @@ Read and follow `superpowers:verification-before-completion`. Re-run its require
 
 Expected: no review findings remain. BATS stays a named blocker if absent; Claude Code, `pre-commit`, and `markdownlint` stay owner-deferred.
 
-- [ ] **Step 8: Push and open the stacked PR without merging**
+- [ ] **Step 8: Update the main-based PR without merging**
 
-Push `codex/dev-135-minimal-plugin-skeleton` and open a PR targeting `codex/dev-134-skill-architecture`. Title it `DEV-135: scaffold generated cross-host plugin metadata`.
+Only when separately authorized, push `codex/dev-135-minimal-plugin-skeleton` and update its PR targeting `main`. Title it `DEV-135: scaffold generated cross-host plugin metadata`.
 
 The PR body must list conventional placement, canonical/generated ownership, commits, exact gate counts, zero skills/capabilities, structural-not-activation boundary, owner-deferred rows, and BATS missing-binary blocker if unresolved. Do not merge, tag, publish, or release.
 

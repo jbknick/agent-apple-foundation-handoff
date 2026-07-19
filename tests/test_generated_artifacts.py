@@ -455,6 +455,32 @@ class GeneratedArtifactTests(unittest.TestCase):
                     "generated artifacts: unexpected generated path\n", result.stderr
                 )
 
+    def test_unexpected_empty_generated_directory_is_rejected(self):
+        unexpected_paths = (
+            Path(".agents/plugins/unowned-empty-directory"),
+            Path(
+                "plugins/apple-foundation-models-handoff/"
+                ".codex-plugin/unowned-empty-directory"
+            ),
+        )
+        for unexpected in unexpected_paths:
+            with self.subTest(
+                unexpected=unexpected
+            ), tempfile.TemporaryDirectory() as directory:
+                isolated_root = Path(directory)
+                self._copy_canonical_inputs(isolated_root)
+                written = self._run_isolated_cli(isolated_root, "--write")
+                self.assertEqual(0, written.returncode, written.stderr)
+                (isolated_root / unexpected).mkdir()
+
+                result = self._run_isolated_cli(isolated_root, "--check")
+
+                self.assertEqual(1, result.returncode)
+                self.assertEqual("", result.stdout)
+                self.assertEqual(
+                    "generated artifacts: unexpected generated path\n", result.stderr
+                )
+
     def test_root_agents_staging_name_is_rejected_in_check_and_write_modes(self):
         unrelated_names = (
             ".AGENTS.md.not-a-generator-token.tmp",
