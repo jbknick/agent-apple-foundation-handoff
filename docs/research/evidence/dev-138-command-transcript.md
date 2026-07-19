@@ -13,9 +13,9 @@ credential, or private configuration.
 
 - Issue base: `27c7ce6b8d47541711184ceae06b2eecbdc4be8e`
 - Exact tested source commit:
-  `d139c2a82adc822eb98dd3dc36d7d042a8960d71`
+  `d9461767cb9ae804f8de56dbd4fc5484642deae5`
 - Exact tested source tree:
-  `73b61ed264338588d594269f2148237ba18ad13b`
+  `7511eab03747d31e77954a72e873e6b3dfc6a4a4`
 - Branch: `codex/dev-138-deterministic-swift-fixtures`
 - The follow-up evidence commit changes only this transcript; it does not change
   the tested source tree above.
@@ -80,6 +80,16 @@ the immediately preceding source:
 | Total ledger cardinality at result/recovery/reconciliation/retry boundaries | The result probe ended in `false`; mixed-row recovery and retry probes emitted their new `false` values and exited `1`. |
 | Validator command/ledger, truth/checkpoint, budget, and recovery coherence | The three baseline assertions emitted `true`; all twelve new adversarial expectations emitted `false`, and the focused test exited `1`. |
 | Retry lineage across renewed uncertainty | Mixed reconciliation/retry, renewed uncertainty, later reconciliation, and forged lineage emitted `false` in the lifecycle probe; a subsequent lone-retry RED emitted only its new ninth value as `false`. |
+
+The final main-inspection follow-up captured these REDs against the prior
+reviewed head:
+
+| Focused RED | Observed result before fix |
+| --- | --- |
+| Historical ledger and pending-proposal coherence | In the validator probe, historical consultation followed by baton commit, orphan/mismatched/reverse-orphan repair facts, and independently stale or disallowed pending proposal fields emitted their new `false` values. |
+| Retry completion and monotonic recovery | In the 17-value lifecycle probe, accepted retry completion, late-original refusal, preserved/incremented attempt counts, second confirmed-not-applied authority denial, and forged-basis repair coherence emitted `false`. |
+| Typed retry basis | The focused probe failed compilation because `retryBasis` was `String?` and had no typed `confirmedNotApplied` member. |
+| Stable repair command binding | After the preceding corrections, the commandless reconciled-repair mutation was the sole `false` value in its updated validator position. |
 
 The corresponding focused GREEN set passed before the full matrix. The source
 commit above contains the tests and smallest reducer correction; no historical
