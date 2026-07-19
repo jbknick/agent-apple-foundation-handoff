@@ -7,877 +7,13 @@ import shlex
 import tempfile
 import unittest
 from unittest import mock
-from typing import Any
-
 from tests.e2e import codex_plugin_load as plugin_probe
 from tests.e2e import codex_reference_disclosure as probe
 
 
 TASK_ID = "synthetic-case"
-OWNER = f"{probe.REFERENCE_ROOT_RELATIVE}/apple-api-availability.md"
-
-
-def command_events(
-    command: str,
-    *,
-    identifier: str,
-    cwd: str | None = None,
-) -> list[dict[str, Any]]:
-    inputs: dict[str, Any] = {"command": command}
-    if cwd is not None:
-        inputs["cwd"] = cwd
-    return [
-        {
-            "type": "item.started",
-            "item": {
-                **inputs,
-                "aggregated_output": "",
-                "exit_code": None,
-                "id": identifier,
-                "status": "in_progress",
-                "type": "command_execution",
-            },
-        },
-        {
-            "type": "item.completed",
-            "item": {
-                **inputs,
-                "aggregated_output": "synthetic command output",
-                "exit_code": 0,
-                "id": identifier,
-                "status": "completed",
-                "type": "command_execution",
-            },
-        },
-    ]
-
-
-def tool_events(
-    inputs: dict[str, Any],
-    *,
-    identifier: str = "tool-1",
-) -> list[dict[str, Any]]:
-    common = {
-        "id": identifier,
-        "type": "mcp_tool_call",
-        **inputs,
-    }
-    return [
-        {
-            "type": "item.started",
-            "item": {**common, "status": "in_progress"},
-        },
-        {
-            "type": "item.completed",
-            "item": {**common, "status": "completed"},
-        },
-    ]
-
-
-class ReferenceAccessSequenceTests(unittest.TestCase):
-    def test_one_tool_item_cannot_own_discovery_and_content_read(self) -> None:
-        events = tool_events(
-            {
-                "arguments": {
-                    "first": {
-                        "command": (
-                            f"rg --files {probe.REFERENCE_ROOT_RELATIVE}"
-                        ),
-                        "cwd": str(probe.ROOT),
-                    },
-                    "second": {
-                        "command": f"rg -n needle {OWNER}",
-                        "cwd": str(probe.ROOT),
-                    },
-                }
-            }
-        )
-
-        with self.assertRaises(probe.ProbeFailure) as raised:
-            probe.observed_reference_reads(events, TASK_ID)
-
-        self.assertEqual(
-            "bulk_reference_content_read",
-            raised.exception.reason,
-        )
-
-
-class ReferenceCommandGrammarTests(unittest.TestCase):
-    def test_env_prefixed_repository_search_fails_closed(self) -> None:
-        events = command_events(
-            "env rg Apple .",
-            identifier="hidden-search-1",
-            cwd=str(probe.ROOT),
-        )
-
-        with self.assertRaises(probe.ProbeFailure) as raised:
-            probe.observed_reference_reads(events, TASK_ID)
-
-        self.assertEqual("ambiguous_reference_read", raised.exception.reason)
-
-    def test_reference_cwd_glob_read_fails_closed(self) -> None:
-        events = command_events(
-            "cat *.md",
-            identifier="hidden-read-1",
-            cwd=str(probe.REFERENCE_ROOT),
-        )
-
-        with self.assertRaises(probe.ProbeFailure) as raised:
-            probe.observed_reference_reads(events, TASK_ID)
-
-        self.assertEqual(
-            "bulk_reference_content_read",
-            raised.exception.reason,
-        )
-
-    def test_structured_command_array_fails_closed(self) -> None:
-        events = tool_events(
-            {
-                "arguments": {
-                    "payload": {
-                        "command": ["rg", "needle", OWNER, "."],
-                        "cwd": str(probe.ROOT),
-                    }
-                }
-            }
-        )
-
-        with self.assertRaises(probe.ProbeFailure) as raised:
-            probe.observed_reference_reads(events, TASK_ID)
-
-        self.assertEqual("invalid_tool_event", raised.exception.reason)
-
-
-class ReferenceToolPayloadTests(unittest.TestCase):
-    def test_explicit_paths_ownership_remains_supported(self) -> None:
-        controls = {
-            "direct": {"label": "selected", "paths": [OWNER]},
-            "nested passive metadata": {
-                "metadata": {"label": "selected", "paths": [OWNER]}
-            },
-        }
-        expected = ({OWNER.rsplit("/", 1)[-1]}, 1)
-
-        for surface, arguments in controls.items():
-            with self.subTest(surface=surface):
-                try:
-                    observed = probe.mapping_reference_reads(
-                        arguments,
-                        probe.ROOT,
-                        TASK_ID,
-                    )
-                except probe.ProbeFailure as failure:
-                    self.fail(
-                        f"valid explicit paths record rejected: {failure.reason}"
-                    )
-
-                self.assertEqual(expected, observed)
-
-    def test_unowned_split_reference_branches_fail_closed(self) -> None:
-        compact = f'{{"program":["sort"],"args":["{OWNER}"]}}'
-        rejected = {
-            "list siblings": {"program": ["sort"], "args": [OWNER]},
-            "split nested mappings": {
-                "left": {"program": ["sort"]},
-                "right": {"args": [OWNER]},
-            },
-            "compact JSON": compact,
-        }
-
-        for surface, arguments in rejected.items():
-            with self.subTest(surface=surface):
-                with self.assertRaises(probe.ProbeFailure) as raised:
-                    probe.mapping_reference_reads(
-                        arguments,
-                        probe.ROOT,
-                        TASK_ID,
-                    )
-
-                self.assertEqual(
-                    "invalid_tool_event",
-                    raised.exception.reason,
-                )
-
-    def test_path_collections_are_data_only_at_mapping_and_observed_boundaries(
-        self,
-    ) -> None:
-        rejected: dict[str, tuple[object, dict[str, Any]]] = {
-            "bare top-level owner": (OWNER, {"arguments": OWNER}),
-            "bare input owner": ({"input": OWNER}, {"input": OWNER}),
-            "top-level command string list": (
-                [f"cat {OWNER}"],
-                {"arguments": [f"cat {OWNER}"]},
-            ),
-            "paths duplicate command string": (
-                {"paths": [f"cat {OWNER} {OWNER}"]},
-                {
-                    "arguments": {
-                        "paths": [f"cat {OWNER} {OWNER}"]
-                    }
-                },
-            ),
-            "paths command mapping": (
-                {"paths": {"command": f"cat {OWNER}"}},
-                {
-                    "arguments": {
-                        "paths": {"command": f"cat {OWNER}"}
-                    }
-                },
-            ),
-            "paths list-wrapped command mapping": (
-                {"paths": [{"command": f"cat {OWNER}"}]},
-                {
-                    "arguments": {
-                        "paths": [{"command": f"cat {OWNER}"}]
-                    }
-                },
-            ),
-        }
-
-        for surface, (mapping_payload, observed_inputs) in rejected.items():
-            with self.subTest(surface=surface, boundary="mapping"):
-                with self.assertRaises(probe.ProbeFailure) as raised:
-                    probe.mapping_reference_reads(
-                        mapping_payload,
-                        probe.ROOT,
-                        TASK_ID,
-                    )
-
-                self.assertEqual(
-                    "invalid_tool_event",
-                    raised.exception.reason,
-                )
-
-            with self.subTest(surface=surface, boundary="observed"):
-                with self.assertRaises(probe.ProbeFailure) as raised:
-                    probe.observed_reference_reads(
-                        tool_events(observed_inputs),
-                        TASK_ID,
-                    )
-
-                self.assertEqual(
-                    "invalid_tool_event",
-                    raised.exception.reason,
-                )
-
-    def test_unowned_explicit_path_records_under_command_branches_fail_closed(
-        self,
-    ) -> None:
-        rejected = {
-            "program container and args path": {
-                "program": ["sort"],
-                "args": {"path": OWNER},
-            },
-            "program container and args paths": {
-                "program": ["sort"],
-                "args": {"paths": [OWNER]},
-            },
-            "split nested mappings with path": {
-                "left": {"program": ["sort"]},
-                "right": {"args": {"path": OWNER}},
-            },
-            "split nested mappings with paths": {
-                "left": {"program": ["sort"]},
-                "right": {"args": {"paths": [OWNER]}},
-            },
-            "serialized args path": (
-                f'{{"program":["sort"],"args":{{"path":"{OWNER}"}}}}'
-            ),
-            "serialized args paths": (
-                f'{{"program":["sort"],"args":{{"paths":["{OWNER}"]}}}}'
-            ),
-        }
-
-        for surface, arguments in rejected.items():
-            with self.subTest(surface=surface, boundary="mapping"):
-                with self.assertRaises(probe.ProbeFailure) as raised:
-                    probe.mapping_reference_reads(
-                        arguments,
-                        probe.ROOT,
-                        TASK_ID,
-                    )
-
-                self.assertEqual(
-                    "invalid_tool_event",
-                    raised.exception.reason,
-                )
-
-            with self.subTest(surface=surface, boundary="observed"):
-                with self.assertRaises(probe.ProbeFailure) as raised:
-                    probe.observed_reference_reads(
-                        tool_events({"arguments": arguments}),
-                        TASK_ID,
-                    )
-
-                self.assertEqual(
-                    "invalid_tool_event",
-                    raised.exception.reason,
-                )
-
-    def test_ambiguous_structural_siblings_fail_closed_at_both_boundaries(
-        self,
-    ) -> None:
-        rejected = {
-            # Independently observed scalar and serialized program gaps.
-            "program scalar with args path": {
-                "program": "sort",
-                "args": {"path": OWNER},
-            },
-            "program scalar with args paths": {
-                "program": "sort",
-                "args": {"paths": [OWNER]},
-            },
-            "program scalar split with args path": {
-                "left": {"program": "sort"},
-                "right": {"args": {"path": OWNER}},
-            },
-            "program serialized value with args path": {
-                "program": '["sort"]',
-                "args": {"path": OWNER},
-            },
-            "program serialized envelope with args path": (
-                f'{{"program":"sort","args":{{"path":"{OWNER}"}}}}'
-            ),
-            # List and mapping values keep the matrix independent of shape.
-            "program list with args path": {
-                "program": ["sort"],
-                "args": {"path": OWNER},
-            },
-            "program mapping with args paths": {
-                "program": {"name": "sort"},
-                "args": {"paths": [OWNER]},
-            },
-            "executable scalar with args path": {
-                "executable": "sort",
-                "args": {"path": OWNER},
-            },
-            "executable list with args paths": {
-                "executable": ["sort"],
-                "args": {"paths": [OWNER]},
-            },
-            "executable mapping with args path": {
-                "executable": {"name": "sort"},
-                "args": {"path": OWNER},
-            },
-            "executable split with args paths": {
-                "left": {"executable": "sort"},
-                "right": {"args": {"paths": [OWNER]}},
-            },
-            "executable serialized with args path": (
-                f'{{"executable":"sort","args":{{"path":"{OWNER}"}}}}'
-            ),
-            "binary scalar with args paths": {
-                "binary": "sort",
-                "args": {"paths": [OWNER]},
-            },
-            "binary list with args path": {
-                "binary": ["sort"],
-                "args": {"path": OWNER},
-            },
-            "binary mapping with args paths": {
-                "binary": {"name": "sort"},
-                "args": {"paths": [OWNER]},
-            },
-            "binary split with args path": {
-                "left": {"binary": "sort"},
-                "right": {"args": {"path": OWNER}},
-            },
-            "binary serialized with args paths": (
-                f'{{"binary":"sort","args":{{"paths":["{OWNER}"]}}}}'
-            ),
-            "arbitrary scalar aliases with path": {
-                "alpha": "sort",
-                "omega": {"path": OWNER},
-            },
-            "arbitrary list aliases with paths": {
-                "alpha": ["sort"],
-                "omega": {"paths": [OWNER]},
-            },
-            "arbitrary mapping aliases with path": {
-                "alpha": {"name": "sort"},
-                "omega": {"path": OWNER},
-            },
-            "arbitrary split aliases with paths": {
-                "left": {"alpha": "sort"},
-                "right": {"omega": {"paths": [OWNER]}},
-            },
-            "arbitrary serialized aliases with path": (
-                f'{{"alpha":"sort","omega":{{"path":"{OWNER}"}}}}'
-            ),
-        }
-
-        for surface, arguments in rejected.items():
-            with self.subTest(surface=surface, boundary="mapping"):
-                with self.assertRaises(probe.ProbeFailure) as raised:
-                    probe.mapping_reference_reads(
-                        arguments,
-                        probe.ROOT,
-                        TASK_ID,
-                    )
-
-                self.assertEqual(
-                    "invalid_tool_event",
-                    raised.exception.reason,
-                )
-
-            with self.subTest(surface=surface, boundary="observed"):
-                with self.assertRaises(probe.ProbeFailure) as raised:
-                    probe.observed_reference_reads(
-                        tool_events({"arguments": arguments}),
-                        TASK_ID,
-                    )
-
-                self.assertEqual(
-                    "invalid_tool_event",
-                    raised.exception.reason,
-                )
-
-    def test_structural_sibling_positive_controls_remain_supported(
-        self,
-    ) -> None:
-        expected_owner = ({OWNER.rsplit("/", 1)[-1]}, 1)
-        controls = {
-            "direct path record with passive metadata": (
-                {
-                    "path": OWNER,
-                    "label": "primary",
-                    "line": 12,
-                    "kind": "reference",
-                },
-                expected_owner,
-                True,
-            ),
-            "direct label and paths": (
-                {"label": "selected", "paths": [OWNER]},
-                expected_owner,
-                True,
-            ),
-            "single passive wrapper around direct owner": (
-                {"metadata": {"path": OWNER, "label": "wrapped"}},
-                expected_owner,
-                True,
-            ),
-            "top-level data-only reference list": (
-                [OWNER],
-                expected_owner,
-                False,
-            ),
-            "mapping with no reference-bearing children": (
-                {"program": "sort", "args": {"label": "synthetic"}},
-                (set(), 0),
-                True,
-            ),
-        }
-
-        for surface, (
-            arguments,
-            expected_mapping,
-            has_observed_form,
-        ) in controls.items():
-            with self.subTest(surface=surface, boundary="mapping"):
-                self.assertEqual(
-                    expected_mapping,
-                    probe.mapping_reference_reads(
-                        arguments,
-                        probe.ROOT,
-                        TASK_ID,
-                    ),
-                )
-
-            if not has_observed_form:
-                continue
-            with self.subTest(surface=surface, boundary="observed"):
-                self.assertEqual(
-                    expected_mapping[0],
-                    probe.observed_reference_reads(
-                        tool_events({"arguments": arguments}),
-                        TASK_ID,
-                    ),
-                )
-
-    def test_duplicate_path_data_preserves_occurrence_count_and_is_bulk(
-        self,
-    ) -> None:
-        duplicates = {
-            "clean path strings": {"paths": [OWNER, OWNER]},
-            "explicit path records": {
-                "paths": [
-                    {"path": OWNER, "label": "first"},
-                    {"path": OWNER, "label": "second"},
-                ]
-            },
-        }
-        expected = ({OWNER.rsplit("/", 1)[-1]}, 2)
-
-        for surface, arguments in duplicates.items():
-            with self.subTest(surface=surface, boundary="mapping"):
-                self.assertEqual(
-                    expected,
-                    probe.mapping_reference_reads(
-                        arguments,
-                        probe.ROOT,
-                        TASK_ID,
-                    ),
-                )
-
-            with self.subTest(surface=surface, boundary="observed"):
-                with self.assertRaises(probe.ProbeFailure) as raised:
-                    probe.observed_reference_reads(
-                        tool_events({"arguments": arguments}),
-                        TASK_ID,
-                    )
-
-                self.assertEqual(
-                    "bulk_reference_content_read",
-                    raised.exception.reason,
-                )
-
-    def test_duplicate_command_operands_preserve_count_and_are_bulk(
-        self,
-    ) -> None:
-        duplicate = f"cat {OWNER} {OWNER}"
-        commands = {
-            "direct command": {"command": duplicate},
-            "syntactic input command": {"input": duplicate},
-        }
-        expected = ({OWNER.rsplit("/", 1)[-1]}, 2)
-
-        for surface, arguments in commands.items():
-            with self.subTest(surface=surface, boundary="mapping"):
-                self.assertEqual(
-                    expected,
-                    probe.mapping_reference_reads(
-                        arguments,
-                        probe.ROOT,
-                        TASK_ID,
-                    ),
-                )
-
-            with self.subTest(surface=surface, boundary="observed"):
-                with self.assertRaises(probe.ProbeFailure) as raised:
-                    probe.observed_reference_reads(
-                        tool_events(arguments),
-                        TASK_ID,
-                    )
-
-                self.assertEqual(
-                    "bulk_reference_content_read",
-                    raised.exception.reason,
-                )
-
-    def test_single_owner_command_inputs_remain_supported(self) -> None:
-        command = f"cat {OWNER}"
-        controls = {
-            "direct command": {"command": command},
-            "syntactic input command": {"input": command},
-        }
-        expected_mapping = ({OWNER.rsplit("/", 1)[-1]}, 1)
-        expected_observed = {OWNER.rsplit("/", 1)[-1]}
-
-        for surface, arguments in controls.items():
-            with self.subTest(surface=surface, boundary="mapping"):
-                self.assertEqual(
-                    expected_mapping,
-                    probe.mapping_reference_reads(
-                        arguments,
-                        probe.ROOT,
-                        TASK_ID,
-                    ),
-                )
-
-            with self.subTest(surface=surface, boundary="observed"):
-                self.assertEqual(
-                    expected_observed,
-                    probe.observed_reference_reads(
-                        tool_events(arguments),
-                        TASK_ID,
-                    ),
-                )
-
-    def test_command_like_structured_payloads_are_not_inferred_as_reads(self) -> None:
-        rejected = {
-            "unknown argv list": {"argv": ["cat", OWNER]},
-            "structured input list": {"input": ["cat", OWNER]},
-            "structured input object": {
-                "input": {"command": f"cat {OWNER}"}
-            },
-            "JSON-string command envelope": {
-                "payload": f'{{"command":"cat {OWNER}"}}'
-            },
-        }
-
-        for surface, arguments in rejected.items():
-            with self.subTest(surface=surface):
-                with self.assertRaises(probe.ProbeFailure) as raised:
-                    probe.mapping_reference_reads(
-                        arguments,
-                        probe.ROOT,
-                        TASK_ID,
-                    )
-
-                self.assertEqual(
-                    "invalid_tool_event",
-                    raised.exception.reason,
-                )
-
-    def test_argv_arrays_are_not_inferred_as_targeted_reads(self) -> None:
-        compact_argv = f'["cat","{OWNER}"]'
-        rejected = {
-            "direct arguments": ["cat", OWNER],
-            "JSON-encoded arguments": compact_argv,
-            "unknown metadata list": {
-                "metadata": {"values": ["cat", OWNER]}
-            },
-            "unknown metadata JSON string": {
-                "metadata": {"values": compact_argv}
-            },
-            "compact input JSON array": {"input": compact_argv},
-        }
-
-        for surface, arguments in rejected.items():
-            with self.subTest(surface=surface):
-                with self.assertRaises(probe.ProbeFailure) as raised:
-                    probe.mapping_reference_reads(
-                        arguments,
-                        probe.ROOT,
-                        TASK_ID,
-                    )
-
-                self.assertEqual(
-                    "invalid_tool_event",
-                    raised.exception.reason,
-                )
-
-    def test_mixed_reference_scalar_arrays_fail_closed(self) -> None:
-        compact_sort = f'["sort","{OWNER}"]'
-        rejected = {
-            "unknown sort": ["sort", OWNER],
-            "unknown strings": ["strings", OWNER],
-            "unknown dd": ["dd", OWNER],
-            "unknown cp": ["cp", OWNER],
-            "unknown fish": ["fish", OWNER],
-            "unknown busybox": ["busybox", OWNER],
-            "leading flag": ["--stable", OWNER],
-            "leading environment assignment": ["MODE=synthetic", OWNER],
-            "deep nested": {
-                "metadata": {"details": {"values": ["sort", OWNER]}}
-            },
-            "compact JSON": compact_sort,
-            "reversed": [OWNER, "sort"],
-        }
-
-        for surface, arguments in rejected.items():
-            with self.subTest(surface=surface):
-                with self.assertRaises(probe.ProbeFailure) as raised:
-                    probe.mapping_reference_reads(
-                        arguments,
-                        probe.ROOT,
-                        TASK_ID,
-                    )
-
-                self.assertEqual(
-                    "invalid_tool_event",
-                    raised.exception.reason,
-                )
-
-    def test_nested_split_command_containers_fail_closed(self) -> None:
-        compact = f'["sort",{{"path":"{OWNER}"}}]'
-        rejected = {
-            "non-reference then nested reference": ["sort", [OWNER]],
-            "nested reference then non-reference": [[OWNER], "sort"],
-            "non-reference then path mapping": ["sort", {"path": OWNER}],
-            "compact JSON": compact,
-            "deep nested": {
-                "a": {"b": ["sort", {"c": [OWNER]}]}
-            },
-            "executable and args siblings": {
-                "executable": "sort",
-                "args": [OWNER],
-            },
-            "executable and argv siblings": {
-                "executable": "sort",
-                "argv": [OWNER],
-            },
-        }
-
-        for surface, arguments in rejected.items():
-            with self.subTest(surface=surface):
-                with self.assertRaises(probe.ProbeFailure) as raised:
-                    probe.mapping_reference_reads(
-                        arguments,
-                        probe.ROOT,
-                        TASK_ID,
-                    )
-
-                self.assertEqual(
-                    "invalid_tool_event",
-                    raised.exception.reason,
-                )
-
-    def test_ordinary_nested_metadata_and_paths_remain_supported(self) -> None:
-        other_owner = (
-            f"{probe.REFERENCE_ROOT_RELATIVE}/architecture-and-state.md"
-        )
-        metadata = probe.mapping_reference_reads(
-            {
-                "metadata": {
-                    "groups": [["synthetic"], {"labels": ["control"]}]
-                }
-            },
-            probe.ROOT,
-            TASK_ID,
-        )
-        paths = probe.mapping_reference_reads(
-            {
-                "metadata": {
-                    "paths": [[OWNER], {"path": other_owner}]
-                }
-            },
-            probe.ROOT,
-            TASK_ID,
-        )
-
-        self.assertEqual((set(), 0), metadata)
-        self.assertEqual(
-            ({OWNER.rsplit("/", 1)[-1], "architecture-and-state.md"}, 2),
-            paths,
-        )
-
-    def test_direct_path_records_with_metadata_remain_supported(self) -> None:
-        other_owner = (
-            f"{probe.REFERENCE_ROOT_RELATIVE}/architecture-and-state.md"
-        )
-        records = {
-            "path": {
-                "path": OWNER,
-                "label": "primary",
-                "line": 12,
-                "kind": "reference",
-                "score": 0.9,
-            },
-            "file_path": {
-                "file_path": other_owner,
-                "label": "secondary",
-                "line": 24,
-                "kind": "reference",
-                "score": 0.8,
-            },
-        }
-        expected = {
-            "path": ({OWNER.rsplit("/", 1)[-1]}, 1),
-            "file_path": ({"architecture-and-state.md"}, 1),
-        }
-
-        for field, record in records.items():
-            with self.subTest(field=field):
-                standalone = probe.mapping_reference_reads(
-                    record,
-                    probe.ROOT,
-                    TASK_ID,
-                )
-                try:
-                    list_wrapped = probe.mapping_reference_reads(
-                        [record],
-                        probe.ROOT,
-                        TASK_ID,
-                    )
-                except probe.ProbeFailure as failure:
-                    self.fail(
-                        f"valid {field} metadata record rejected: "
-                        f"{failure.reason}"
-                    )
-
-                self.assertEqual(expected[field], standalone)
-                self.assertEqual(standalone, list_wrapped)
-
-    def test_alias_independent_structural_siblings_fail_closed(self) -> None:
-        compact = (
-            f'{{"binary":"sort","parameters":{{"values":["{OWNER}"]}}}}'
-        )
-        rejected = {
-            "executable and arguments": {
-                "executable": "sort",
-                "arguments": [OWNER],
-            },
-            "program and args": {"program": "sort", "args": [OWNER]},
-            "exe and params": {"exe": "sort", "params": [OWNER]},
-            "binary and parameters": {
-                "binary": "sort",
-                "parameters": [OWNER],
-            },
-            "arbitrary aliases": {"alpha": "sort", "omega": [OWNER]},
-            "nested aliases": {
-                "metadata": {"program": "sort", "args": [OWNER]}
-            },
-            "compact JSON aliases": compact,
-        }
-
-        for surface, arguments in rejected.items():
-            with self.subTest(surface=surface):
-                with self.assertRaises(probe.ProbeFailure) as raised:
-                    probe.mapping_reference_reads(
-                        arguments,
-                        probe.ROOT,
-                        TASK_ID,
-                    )
-
-                self.assertEqual(
-                    "invalid_tool_event",
-                    raised.exception.reason,
-                )
-
-    def test_ordinary_metadata_and_path_lists_remain_supported(self) -> None:
-        other_owner = (
-            f"{probe.REFERENCE_ROOT_RELATIVE}/architecture-and-state.md"
-        )
-        metadata = probe.mapping_reference_reads(
-            {"metadata": ["synthetic", "control"]},
-            probe.ROOT,
-            TASK_ID,
-        )
-        paths = probe.mapping_reference_reads(
-            {"paths": [OWNER]},
-            probe.ROOT,
-            TASK_ID,
-        )
-        all_reference_paths = probe.mapping_reference_reads(
-            [OWNER, other_owner],
-            probe.ROOT,
-            TASK_ID,
-        )
-        no_reference_paths = probe.mapping_reference_reads(
-            ["sort", "MODE=synthetic", "--stable"],
-            probe.ROOT,
-            TASK_ID,
-        )
-
-        self.assertEqual((set(), 0), metadata)
-        self.assertEqual(({OWNER.rsplit("/", 1)[-1]}, 1), paths)
-        self.assertEqual(
-            ({OWNER.rsplit("/", 1)[-1], "architecture-and-state.md"}, 2),
-            all_reference_paths,
-        )
-        self.assertEqual((set(), 0), no_reference_paths)
-
-    def test_malformed_json_is_normalized(self) -> None:
-        arguments = f'{{"path":"{OWNER}"'
-
-        with self.assertRaises(probe.ProbeFailure) as raised:
-            probe.mapping_reference_reads(arguments, probe.ROOT, TASK_ID)
-
-        self.assertEqual("invalid_tool_event", raised.exception.reason)
-
-    def test_duplicate_key_json_is_normalized(self) -> None:
-        arguments = f'{{"path":"{OWNER}","path":"{OWNER}"}}'
-
-        with self.assertRaises(probe.ProbeFailure) as raised:
-            probe.mapping_reference_reads(arguments, probe.ROOT, TASK_ID)
-
-        self.assertEqual("invalid_tool_event", raised.exception.reason)
-
-
 OWNER_NAME = "apple-api-availability.md"
-OWNER = f"{probe.REFERENCE_ROOT_RELATIVE}/{OWNER_NAME}"
+OWNER = f"{probe.REFERENCE_ROOT_RELATIVE}/apple-api-availability.md"
 DISCOVERY = f"rg --files {probe.REFERENCE_ROOT_RELATIVE}"
 DISCOVERY_PATHS = tuple(
     f"{probe.REFERENCE_ROOT_RELATIVE}/{name}"
@@ -1025,6 +161,22 @@ class ClosedDisclosureParserTests(unittest.TestCase):
                     else f"{wrapper} {shlex.quote(DISCOVERY)}"
                 )
                 self.assert_rejected(valid_events(discovery_command=command))
+
+    def test_exact_command_grammar_and_path_containment_fail_closed(self) -> None:
+        rejected = (
+            ("discovery", f"ls {probe.REFERENCE_ROOT_RELATIVE}"),
+            ("discovery", f"rg needle {probe.REFERENCE_ROOT_RELATIVE}"),
+            ("discovery", DISCOVERY + " && true"),
+            ("read", f"cat {OWNER} {OWNER}"),
+            ("read", f"cat {probe.REFERENCE_ROOT_RELATIVE}/*.md"),
+            ("read", f"cat {probe.REFERENCE_ROOT_RELATIVE}/../CLAUDE.md"),
+            ("read", f"cat {probe.ROOT.parent}/references/{OWNER_NAME}"),
+            ("read", f"rg needle {OWNER}"),
+        )
+        for position, command in rejected:
+            with self.subTest(position=position, command=command):
+                kwargs = {f"{position}_command": command}
+                self.assert_rejected(valid_events(**kwargs))  # type: ignore[arg-type]
 
     def test_discovery_output_must_be_exactly_the_five_canonical_paths(self) -> None:
         invalid = (
@@ -1260,6 +412,96 @@ class ClosedDisclosureParserTests(unittest.TestCase):
             },
         )
         self.assert_rejected(pending_reasoning)
+
+
+class ProbeBoundaryTests(unittest.TestCase):
+    def test_jsonl_and_owner_neutral_prompt_are_closed(self) -> None:
+        invalid = (b"", b"\xff", b"[]\n", b'{"x":1,"x":2}\n', b'{"x":NaN}\n')
+        for payload in invalid:
+            with self.subTest(payload=payload), self.assertRaises(probe.ProbeFailure):
+                probe.decode_json_lines(payload, TASK_ID)
+
+        case = probe.CASES["sdk-26-5-transcript"]
+        prompt = probe.build_prompt("sdk-26-5-transcript", case)
+        self.assertIn(f"run exactly `rg --files {probe.REFERENCE_ROOT_RELATIVE}`", prompt)
+        self.assertIn("run exactly `cat <one-approved-owner-path>`", prompt)
+        self.assertNotIn(case["expectedReferences"][0], prompt)
+        self.assertIn("Do not combine", prompt)
+
+    def test_closed_blocker_normalization_rejects_generic_words(self) -> None:
+        blockers = (
+            b'{"error":{"code":"not_authenticated"}}',
+            b'{"error":{"code":"model_unavailable"}}',
+            b"429 Too Many Requests",
+            b"error sending request for url",
+        )
+        ordinary = (b"model selected", b"connection ready", b"feature unavailable")
+        for payload in blockers:
+            with self.subTest(payload=payload):
+                self.assertTrue(probe.execution_is_unavailable(payload, b""))
+        for payload in ordinary:
+            with self.subTest(payload=payload):
+                self.assertFalse(probe.execution_is_unavailable(payload, b""))
+
+    def test_run_case_uses_closed_parser_and_normalizes_execution_failures(self) -> None:
+        unavailable = mock.Mock(returncode=1, stdout=b"", stderr=b"401 Unauthorized")
+        unknown = mock.Mock(returncode=1, stdout=b"", stderr=b"synthetic failure")
+        for completed, exception in (
+            (unavailable, probe.ProbeBlocked),
+            (unknown, probe.ProbeFailure),
+        ):
+            with self.subTest(returncode=completed.returncode), mock.patch.object(
+                probe.subprocess, "run", return_value=completed
+            ), self.assertRaises(exception):
+                probe.run_case("codex", {}, TASK_ID, probe.CASES["sdk-26-5-transcript"])
+
+        parsed = probe.ParsedDisclosure(
+            reference_name=OWNER_NAME,
+            reference_sha256="a" * 64,
+            result="get_only_interface_verified_sdk_26_5",
+            result_sha256="b" * 64,
+        )
+        completed = mock.Mock(returncode=0, stdout=b"{}\n", stderr=b"")
+        with (
+            mock.patch.object(probe.subprocess, "run", return_value=completed),
+            mock.patch.object(probe, "decode_json_lines", return_value=[{}]),
+            mock.patch.object(
+                probe, "parse_disclosure_events", return_value=parsed
+            ) as parser,
+        ):
+            probe.run_case("codex", {}, TASK_ID, probe.CASES["sdk-26-5-transcript"])
+        parser.assert_called_once_with([{}], TASK_ID)
+        for removed in ("observed_reference_reads", "mapping_reference_reads",
+                        "parse_bounded_result", "exact_reference_reads"):
+            self.assertFalse(hasattr(probe, removed), removed)
+
+    def test_isolated_plugin_checks_source_cache_before_and_after_yield(self) -> None:
+        calls: list[str] = []
+        with (
+            mock.patch.object(
+                probe,
+                "require_unchanged_host",
+                side_effect=lambda *_args: calls.append("host"),
+            ),
+            mock.patch.object(
+                plugin_probe,
+                "install_isolated_plugin",
+                side_effect=lambda *_args: calls.append("install") or Path("cache"),
+            ),
+            mock.patch.object(
+                plugin_probe,
+                "require_source_cache_identity",
+                side_effect=lambda *_args: calls.append("identity"),
+            ),
+        ):
+            with probe.prepare_isolated_plugin(
+                "codex", Path("codex"), Path("codex"), (1, 2, 3, 4, 5, 6, 7), {"PATH": ""}
+            ) as environment:
+                self.assertIn("CODEX_HOME", environment)
+                self.assertEqual(["host", "install", "host", "identity"], calls)
+        self.assertEqual(
+            ["host", "install", "host", "identity", "identity", "host"], calls
+        )
 
 
 class HostIdentityTests(unittest.TestCase):
