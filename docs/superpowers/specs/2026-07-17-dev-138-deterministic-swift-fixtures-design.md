@@ -125,7 +125,9 @@ Only typed trusted events enter the reducer. Prompt, model, repository,
 retrieved, summary, and tool text remain untrusted data. Phase validation occurs
 before budget or authority mutation. A valid proposal snapshots the active
 profile/provider plus independent state and policy versions. Both proposal and
-commit boundaries reject either version drifting before the baton commits. A
+commit boundaries reject either version drifting before the baton commits.
+Transitioning-state validation also requires the exact pending baton marker,
+current source, allowed edge, and an unvisited destination. A
 committed baton-pass activates the destination and transfers final ownership; a
 consultation returns to the parent and never transfers final ownership.
 
@@ -136,7 +138,9 @@ confirmed-not-applied external truth. Confirmed-applied effects cannot retry;
 confirmed-not-applied effects authorize at most one retry. No-safe reconciliation
 remains repair-blocked in `recoveryRequired`. Late/replayed events preserve
 authority, phase, pending/checkpoint state, counts, ledger, and repair facts and
-emit no command. Ordinary budget termination is `stable`-only.
+emit no command. Reconciliation attempts increase monotonically for the same
+effect, and confirmed-not-applied truth cannot restore retry authority after the
+one retry was consumed. Ordinary budget termination is `stable`-only.
 
 Context fields bind class, source, subject, purpose, destination, retention,
 and redaction. C3 and unknown data never cross a model boundary. A disallowed
@@ -147,13 +151,19 @@ exceptional C2 permission,
 `stateVersion`, and `policyVersion`. Accepted tool results bind call ID,
 tool/version/provider, result type, the exact originating command state, and one
 total unresolved ledger record for the effect; accepting a result consumes that
-record once. Every command maps to one ledger effect/state/executor identity.
+record once. A retried effect accepts only the retry command's call/result; a
+late original result cannot close it. Every command maps to one ledger
+effect/state/executor identity. Historical command/record version pairs remain
+valid after a later state transition, but mismatched or future versions fail.
 The ledger stays within its effect budget and admits only the committed
-checkpoint and declared truth/reconciliation combinations.
+checkpoint and declared truth/reconciliation combinations. Stable resolved
+ledger truth and repair facts must cross-bind one effect, command lifecycle,
+truth, positive attempt count, and retry authority.
 
 The effect guarantee is application-controlled at-most-once command emission
 plus reconciliation. The fixture never claims exactly-once delivery or
-external-effect rollback. A retry command preserves its confirmed-not-applied
+external-effect rollback. A retry command preserves a typed
+confirmed-not-applied
 reconciliation basis, so renewed uncertainty and later reconciliation do not
 erase valid lineage. A retry without that lineage remains a replay violation.
 Fallback may only use an already authorized
@@ -211,7 +221,7 @@ catalog:
 | `D-CONTEXT-002` | Forbidden, C3, unknown, or unredacted disallowed context is absent. |
 | `D-GRANT-001` | Every grant binding, including independent versions, matches. |
 | `D-PHASE-001` | Event phase, checkpoint, cancellation, coherent repair facts, and bound recovery persistence are valid. |
-| `D-EFFECT-001` | Each command has one budgeted, current, well-formed ledger identity. |
+| `D-EFFECT-001` | Each command has one budgeted, non-future, exactly paired ledger identity. |
 | `D-EFFECT-002` | Replay emits no command and retry carries confirmed-not-applied lineage. |
 | `D-FALLBACK-001` | Fallback does not expand trust or authority. |
 | `D-EVIDENCE-001` | Case-normalized path/content/type checks and original-content hash binding are safe. |

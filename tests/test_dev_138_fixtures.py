@@ -1417,6 +1417,16 @@ struct Probe {
             kind: originalCommand.kind
         )
 
+        var futureVersion = executed
+        futureVersion.ledger[0].stateVersion += 1
+        futureVersion.commandHistory[0] = ExecutorCommand(
+            effectID: originalCommand.effectID,
+            callID: originalCommand.callID,
+            binding: originalCommand.binding,
+            stateVersion: originalCommand.stateVersion + 1,
+            kind: originalCommand.kind
+        )
+
         var forgedBinding = executed
         var otherVersion = originalCommand.binding
         otherVersion.version = "2.0"
@@ -1458,6 +1468,57 @@ struct Probe {
         recoveryWithoutEffect.executorCommandCount = 0
         recoveryWithoutEffect.ledger = []
 
+        let consultation = HandoffReducer.reduce(.initial, event: .completeConsultation)
+        let consultationProposal = HandoffReducer.reduce(
+            consultation.state,
+            event: .proposeBaton(
+                proposal: HandoffProposal.fixture(from: consultation.state)
+            )
+        )
+        let consultationCommitted = HandoffReducer.reduce(
+            consultationProposal.state,
+            event: .commitBaton
+        ).state
+        let consultationRequest = ExecutionRequest.fixture(state: consultationCommitted)
+
+        var orphanRepair = HandoffState.initial
+        orphanRepair.repairFacts = RepairFacts(
+            effectID: "orphan-effect",
+            lastKnownTruth: "confirmedNotApplied",
+            disposition: .reconciled,
+            reconciliationAttempts: 1,
+            retryAuthority: .authorized
+        )
+        let orphanRequest = ExecutionRequest.fixture(state: orphanRepair)
+
+        let confirmedApplied = HandoffReducer.reduce(
+            recovery,
+            event: .reconcileSucceeded(truth: .confirmedApplied)
+        ).state
+        var mismatchedStableRepair = confirmedApplied
+        mismatchedStableRepair.repairFacts.effectID = "effect-002"
+        var resolvedWithoutRepair = confirmedApplied
+        resolvedWithoutRepair.repairFacts = .none
+        var zeroReconciliationAttempts = confirmedApplied
+        zeroReconciliationAttempts.repairFacts.reconciliationAttempts = 0
+        var reconciledWithoutCommand = confirmedApplied
+        reconciledWithoutCommand.commandHistory = []
+        reconciledWithoutCommand.executorCommandCount = 0
+
+        let pending = HandoffReducer.reduce(
+            .initial,
+            event: .proposeBaton(proposal: HandoffProposal.fixture(from: .initial))
+        ).state
+        let pendingRequest = ExecutionRequest.fixture(state: pending)
+        var stalePendingState = pending
+        stalePendingState.pendingProposal!.stateVersion -= 1
+        var stalePendingPolicy = pending
+        stalePendingPolicy.pendingProposal!.policyVersion -= 1
+        var wrongPendingTransition = pending
+        wrongPendingTransition.pendingTransition = "other-transition"
+        var disallowedPendingProposal = pending
+        disallowedPendingProposal.pendingProposal!.destinationProvider = "other-provider"
+
         let values = [
             violations(committed, request: request, context: duplicatedContext)
                 .contains("D-CONTEXT-002"),
@@ -1468,6 +1529,7 @@ struct Probe {
             violations(mismatchedCommand, request: request) == ["D-EFFECT-001"],
             violations(staleLedger, request: request) == ["D-EFFECT-001"],
             violations(staleCommand, request: request) == ["D-EFFECT-001"],
+            violations(futureVersion, request: request) == ["D-EFFECT-001"],
             violations(forgedBinding, request: request) == ["D-TOOL-001"],
             violations(fabricatedTruth, request: request) == ["D-EFFECT-001"],
             violations(badCheckpoint, request: request) == ["D-EFFECT-001"],
@@ -1475,6 +1537,18 @@ struct Probe {
             violations(stableAwaiting, request: request) == ["D-PHASE-001"],
             violations(mismatchedRecovery, request: request) == ["D-PHASE-001"],
             violations(recoveryWithoutEffect, request: request) == ["D-PHASE-001"],
+            violations(consultationCommitted, request: consultationRequest).isEmpty,
+            violations(orphanRepair, request: orphanRequest) == ["D-PHASE-001"],
+            violations(mismatchedStableRepair, request: request) == ["D-PHASE-001"],
+            violations(resolvedWithoutRepair, request: request) == ["D-PHASE-001"],
+            violations(zeroReconciliationAttempts, request: request) == ["D-PHASE-001"],
+            violations(reconciledWithoutCommand, request: request)
+                == ["D-EFFECT-001", "D-PHASE-001"],
+            violations(pending, request: pendingRequest).isEmpty,
+            violations(stalePendingState, request: pendingRequest) == ["D-PHASE-001"],
+            violations(stalePendingPolicy, request: pendingRequest) == ["D-PHASE-001"],
+            violations(wrongPendingTransition, request: pendingRequest) == ["D-PHASE-001"],
+            violations(disallowedPendingProposal, request: pendingRequest) == ["D-PHASE-001"],
         ]
         print(values.map(String.init).joined(separator: "|"))
     }
@@ -1483,7 +1557,7 @@ struct Probe {
         )
         self.assertEqual(
             output,
-            "true|true|true|true|true|true|true|true|true|true|true|true|true|true|true\n",
+            "true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true\n",
         )
 
     def test_execution_grant_expiry_uses_the_request_time_inclusively(self):
@@ -1579,6 +1653,38 @@ struct Probe {
             retry.state,
             event: .retryReconciled(effectID: "effect-001")
         )
+        let retryCommand = retry.command!
+        let retryAuthorization = ToolAuthorization(
+            actorProfile: retry.state.activeProfile,
+            callID: retryCommand.callID,
+            binding: retryCommand.binding,
+            stateVersion: retryCommand.stateVersion,
+            policyVersion: retry.state.policyVersion
+        )
+        let retryResult = ToolResult(
+            callID: retryCommand.callID,
+            binding: retryCommand.binding,
+            stateVersion: retryCommand.stateVersion
+        )
+        let acceptedRetry = HandoffReducer.reduce(
+            retry.state,
+            event: .acceptToolResult(
+                result: retryResult,
+                authorization: retryAuthorization
+            )
+        )
+        let lateOriginalResult = ToolResult(
+            callID: request.authorization.callID,
+            binding: request.authorization.binding,
+            stateVersion: retry.state.stateVersion
+        )
+        let lateOriginal = HandoffReducer.reduce(
+            retry.state,
+            event: .acceptToolResult(
+                result: lateOriginalResult,
+                authorization: request.authorization
+            )
+        )
 
         var mixedRecovery = recoveryState(executed)
         var resolvedRecord = mixedRecovery.ledger[0]
@@ -1609,6 +1715,10 @@ struct Probe {
             renewedUncertainty.state,
             event: .reconcileSucceeded(truth: .confirmedApplied)
         )
+        let laterNotApplied = HandoffReducer.reduce(
+            renewedUncertainty.state,
+            event: .reconcileSucceeded(truth: .confirmedNotApplied)
+        )
 
         var forgedRetry = notApplied.state
         forgedRetry.commandHistory.append(
@@ -1623,6 +1733,21 @@ struct Probe {
         forgedRetry.executorCommandCount += 1
         forgedRetry.ledger[0].truth = "retryIssued"
         forgedRetry.repairFacts.retryAuthority = .denied
+
+        var forgedBasisRetry = notApplied.state
+        forgedBasisRetry.commandHistory.append(
+            ExecutorCommand(
+                effectID: "effect-001",
+                callID: "forged-basis-retry",
+                binding: request.authorization.binding,
+                stateVersion: forgedBasisRetry.stateVersion,
+                kind: .retry,
+                retryBasis: .confirmedNotApplied
+            )
+        )
+        forgedBasisRetry.executorCommandCount += 1
+        forgedBasisRetry.ledger[0].truth = "retryIssued"
+        forgedBasisRetry.repairFacts = .none
 
         var loneRetry = retry.state
         loneRetry.commandHistory.removeFirst()
@@ -1648,10 +1773,29 @@ struct Probe {
                 && forbiddenRetry.command == nil,
             notApplied.state.repairFacts.lastKnownTruth == "confirmedNotApplied"
                 && retry.command?.kind == .retry
+                && retryCommand.retryBasis == .confirmedNotApplied
                 && retry.state.executorCommandCount == 2,
             repeatedRetry.state == retry.state
                 && repeatedRetry.command == nil
                 && repeatedRetry.disposition == .refusedReplay,
+            HandoffReducer.validate(
+                observation(state: applied.state, request: request)
+            ).isEmpty,
+            HandoffReducer.validate(
+                observation(state: notApplied.state, request: request)
+            ).isEmpty,
+            HandoffReducer.validate(
+                observation(state: retry.state, request: request)
+            ).isEmpty,
+            acceptedRetry.disposition == .applied
+                && acceptedRetry.state.ledger[0].truth == "resultAccepted"
+                && acceptedRetry.state.ledger[0].reconciled
+                && HandoffReducer.validate(
+                    observation(state: acceptedRetry.state, request: request)
+                ).isEmpty,
+            lateOriginal.state == retry.state
+                && lateOriginal.command == nil
+                && lateOriginal.disposition == .refusedPolicy,
             mixedReconciliation.state == mixedRecovery
                 && mixedReconciliation.command == nil
                 && mixedReconciliation.disposition == .refusedPolicy,
@@ -1659,16 +1803,27 @@ struct Probe {
                 && mixedRetry.command == nil
                 && mixedRetry.disposition == .refusedPolicy,
             renewedUncertainty.disposition == .applied
+                && renewedUncertainty.state.repairFacts.reconciliationAttempts == 1
                 && HandoffReducer.validate(
                     observation(state: renewedUncertainty.state, request: request)
                 ).isEmpty,
             laterReconciliation.disposition == .applied
+                && laterReconciliation.state.repairFacts.reconciliationAttempts == 2
                 && HandoffReducer.validate(
                     observation(state: laterReconciliation.state, request: request)
+                ).isEmpty,
+            laterNotApplied.disposition == .applied
+                && laterNotApplied.state.repairFacts.reconciliationAttempts == 2
+                && laterNotApplied.state.repairFacts.retryAuthority == .denied
+                && HandoffReducer.validate(
+                    observation(state: laterNotApplied.state, request: request)
                 ).isEmpty,
             HandoffReducer.validate(
                 observation(state: forgedRetry, request: request)
             ) == ["D-EFFECT-002"],
+            HandoffReducer.validate(
+                observation(state: forgedBasisRetry, request: request)
+            ) == ["D-PHASE-001"],
             HandoffReducer.validate(
                 observation(state: loneRetry, request: request)
             ) == ["D-EFFECT-002"],
@@ -1683,7 +1838,7 @@ struct Probe {
         )
         self.assertEqual(
             output,
-            "true|true|true|true|true|true|true|true|true|true\n",
+            "true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true\n",
         )
 
     def test_recovery_requires_one_matching_unresolved_ledger_record(self):

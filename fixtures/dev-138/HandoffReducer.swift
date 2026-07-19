@@ -153,6 +153,11 @@ struct ExecutionRequest: Equatable {
     }
 }
 
+enum ReconciliationTruth: String, Equatable {
+    case confirmedApplied
+    case confirmedNotApplied
+}
+
 enum CommandKind: String, Codable, Equatable {
     case initial
     case consultation
@@ -165,7 +170,7 @@ struct ExecutorCommand: Equatable {
     let binding: ToolBinding
     let stateVersion: Int
     let kind: CommandKind
-    var retryBasis: String? = nil
+    var retryBasis: ReconciliationTruth? = nil
 }
 
 struct EffectRecord: Equatable {
@@ -293,11 +298,6 @@ struct HandoffState: Equatable {
 enum ModelAvailability: Equatable {
     case degraded(candidate: TrustBoundary)
     case unavailable
-}
-
-enum ReconciliationTruth: String, Equatable {
-    case confirmedApplied
-    case confirmedNotApplied
 }
 
 enum TrustedEvent: Equatable {
@@ -738,6 +738,11 @@ enum HandoffReducer {
             else {
                 return refused(state, disposition: .refusedReplay, audit: "tool-result:refused-replay")
             }
+            guard (state.ledger[recordIndex].truth == "retryIssued")
+                == (command.kind == .retry)
+            else {
+                return refused(state, disposition: .refusedPolicy, audit: "tool-result:refused-provenance")
+            }
             next.ledger[recordIndex].truth = "resultAccepted"
             next.auditEvents.append("tool-result:accepted")
             return applied(next, audit: ["tool-result:accepted"])
@@ -776,7 +781,9 @@ enum HandoffReducer {
                 effectID: effectID,
                 lastKnownTruth: "possibleCommit",
                 disposition: .awaitingReconciliation,
-                reconciliationAttempts: 0,
+                reconciliationAttempts: state.repairFacts.effectID == effectID
+                    ? state.repairFacts.reconciliationAttempts
+                    : 0,
                 retryAuthority: .denied
             )
             next.auditEvents.append(contentsOf: [
@@ -824,7 +831,13 @@ enum HandoffReducer {
             next.repairFacts.disposition = .reconciled
             next.repairFacts.lastKnownTruth = truth.rawValue
             next.repairFacts.reconciliationAttempts += 1
-            next.repairFacts.retryAuthority = truth == .confirmedNotApplied ? .authorized : .denied
+            let retryAlreadyIssued = state.commandHistory.contains {
+                $0.effectID == state.repairFacts.effectID && $0.kind == .retry
+            }
+            next.repairFacts.retryAuthority = truth == .confirmedNotApplied
+                && !retryAlreadyIssued
+                ? .authorized
+                : .denied
             next.ledger = next.ledger.map { record in
                 guard record.effectID == state.repairFacts.effectID else { return record }
                 var reconciled = record
@@ -867,7 +880,7 @@ enum HandoffReducer {
                 binding: executorBinding,
                 stateVersion: state.stateVersion,
                 kind: .retry,
-                retryBasis: ReconciliationTruth.confirmedNotApplied.rawValue
+                retryBasis: .confirmedNotApplied
             )
             next.executorCommandCount += 1
             next.commandHistory.append(command)
@@ -1251,15 +1264,22 @@ enum HandoffReducer {
             if state.pendingTransition != nil
                 || state.pendingProposal != nil
                 || state.pendingEffectID != nil
-                || state.repairFacts.disposition == .awaitingReconciliation
+                || !stableRepairFactsAreValid(state)
             {
                 return false
             }
         case .transitioning:
-            if state.pendingTransition == nil
-                || state.pendingProposal == nil
-                || state.pendingEffectID != nil
-            {
+            guard state.pendingTransition == "baton-pass",
+                  let proposal = state.pendingProposal,
+                  state.pendingEffectID == nil,
+                  proposal.sourceProfile == state.activeProfile,
+                  proposal.sourceProvider == state.activeProvider,
+                  proposal.stateVersion == state.stateVersion,
+                  proposal.policyVersion == state.policyVersion,
+                  let edge = transitionEdge(for: proposal),
+                  state.allowedEdges.contains(edge),
+                  !state.visitedProfiles.contains(proposal.destinationProfile)
+            else {
                 return false
             }
         case .recoveryRequired:
@@ -1307,6 +1327,43 @@ enum HandoffReducer {
         return true
     }
 
+    private static func stableRepairFactsAreValid(_ state: HandoffState) -> Bool {
+        let facts = state.repairFacts
+        switch facts.disposition {
+        case .none:
+            return facts == .none && !state.ledger.contains(where: \.reconciled)
+        case .awaitingReconciliation:
+            return false
+        case .reconciled:
+            guard facts.reconciliationAttempts >= 1,
+                  facts.effectID != RepairFacts.none.effectID,
+                  let recordIndex = soleEffectRecordIndex(for: facts.effectID, in: state),
+                  state.ledger[recordIndex].reconciled,
+                  hasBoundCommand(for: state.ledger[recordIndex], in: state)
+            else {
+                return false
+            }
+            let record = state.ledger[recordIndex]
+            let hasRetry = state.commandHistory.contains {
+                $0.effectID == facts.effectID && $0.kind == .retry
+            }
+            switch facts.lastKnownTruth {
+            case ReconciliationTruth.confirmedApplied.rawValue:
+                return record.truth == facts.lastKnownTruth
+                    && facts.retryAuthority == .denied
+            case ReconciliationTruth.confirmedNotApplied.rawValue:
+                if record.truth == facts.lastKnownTruth {
+                    return facts.retryAuthority == (hasRetry ? .denied : .authorized)
+                }
+                return hasRetry
+                    && ["retryIssued", "resultAccepted"].contains(record.truth)
+                    && facts.retryAuthority == .denied
+            default:
+                return false
+            }
+        }
+    }
+
     private static func recoveryCancellationErasedLedger(_ observation: ScenarioObservation) -> Bool {
         guard let baseline = observation.recoveryBaseline,
               baseline.phase == .recoveryRequired,
@@ -1328,12 +1385,12 @@ enum HandoffReducer {
             guard commands.count == 2,
                   commands.first?.kind == .initial,
                   commands.last?.kind == .retry,
-                  commands.last?.retryBasis
-                      == ReconciliationTruth.confirmedNotApplied.rawValue,
+                  commands.last?.retryBasis == .confirmedNotApplied,
                   let recordIndex = soleEffectRecordIndex(for: effectID, in: state),
                   state.ledger[recordIndex].reconciled,
                   [
                       "retryIssued",
+                      "resultAccepted",
                       ReconciliationTruth.confirmedApplied.rawValue,
                       ReconciliationTruth.confirmedNotApplied.rawValue,
                   ].contains(state.ledger[recordIndex].truth)
@@ -1357,10 +1414,11 @@ enum HandoffReducer {
         return state.ledger.allSatisfy { record in
             let commands = state.commandHistory.filter { $0.effectID == record.effectID }
             return !commands.isEmpty
-                && record.stateVersion == state.stateVersion
+                && record.stateVersion > 0
+                && record.stateVersion <= state.stateVersion
                 && record.command == executorBinding.name
                 && record.checkpoint == "committed"
-                && effectRecordTruthIsValid(record)
+                && effectRecordTruthIsValid(record, commands: commands)
                 && commands.allSatisfy {
                     $0.stateVersion == record.stateVersion
                         && $0.binding.name == record.command
@@ -1368,13 +1426,21 @@ enum HandoffReducer {
         }
     }
 
-    private static func effectRecordTruthIsValid(_ record: EffectRecord) -> Bool {
-        switch (record.truth, record.reconciled) {
-        case ("commandIssued", false), ("resultAccepted", false),
-             ("retryIssued", true),
-             (ReconciliationTruth.confirmedApplied.rawValue, true),
-             (ReconciliationTruth.confirmedNotApplied.rawValue, true):
-            return true
+    private static func effectRecordTruthIsValid(
+        _ record: EffectRecord,
+        commands: [ExecutorCommand]
+    ) -> Bool {
+        let hasRetry = commands.contains { $0.kind == .retry }
+        switch record.truth {
+        case "commandIssued":
+            return !record.reconciled
+        case "resultAccepted":
+            return record.reconciled == hasRetry
+        case "retryIssued":
+            return record.reconciled && hasRetry
+        case ReconciliationTruth.confirmedApplied.rawValue,
+             ReconciliationTruth.confirmedNotApplied.rawValue:
+            return record.reconciled
         default:
             return false
         }
