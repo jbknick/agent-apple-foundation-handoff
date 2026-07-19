@@ -1,100 +1,108 @@
-# DEV-133 repository-guidance E2E evidence
+# DEV-133 repository-guidance review evidence
 
-## Evidence identity
+## Current evidence identity
 
 - Issue: `DEV-133`
 - Branch: `codex/dev-133-repository-guidance`
-- Reviewed base: `ca767a0c50e1b527fed5c87e0922bf51cf655295`
-- Tested source head: `0ed96ba9c65f645dc796061caacc413556926257`
-- Execution date: `2026-07-17`
+- Reviewed main: `829d5f71ac5cb9609f96dde4a7ae73c32f42e3cd`
+- Exact tested source commit: `cf5f03c0621cc574fa7abbdeb4f2b7ea27eeaab8`
+- Deterministic execution date: `2026-07-19`
 - Repository identity: `<repo>`
-- Host identity: `<host-path>` for each captured executable
+- Host identity: `<host-path>` for each executable candidate
 
-The same answer-free, seven-field semantic contract was used for both fresh
-host rows. Host inputs, transport envelopes, event streams, last messages, and
-diagnostics remained transient. The validator compared machine-readable host
-fields with the tracked repository guidance after each invocation.
+The current review ran deterministic repository checks against the exact source
+commit above. It did not run a new model-backed semantic session. The earlier
+host rows are retained below only as dated historical evidence and do not prove
+the corrected current guidance.
 
-## Source artifact hashes
+## Current source artifact hashes
 
 | Artifact | SHA-256 |
 | --- | --- |
-| `CLAUDE.md` | `74880413e9a7e2be2c743b362094147780f9a6971d2770585b5ce5e7cff81474` |
-| `AGENTS.md` | `0fadd0ed908fb05fb486116fa9c4335b21d7c11e575c1f7321ceccd0729ad992` |
-| `scripts/sync_generated_artifacts.py` | `d7ed3a0ce419a615f32150d412146de687661dabbfb83f0eda7fae39f767e8b4` |
-| `tests/test_repository_guidance.py` | `66e3e964b4835498de2808b2026e78cd4de0e73ba619f8b729d7e02e252cf05f` |
+| `CLAUDE.md` | `9ac057b3b9e2d5409d06d6d6c62a50211cda00f4a38f0489ec13b61b492cc8cb` |
+| `AGENTS.md` | `aad4b711f0e9f49958715715bddc6ff0864c73963c003680fe2ceaeba7dbd078` |
+| `scripts/sync_generated_artifacts.py` | `b1212533c7a1234a2d65787f1301a9702af089b7e3c84365cffd7e0ed7f26c2d` |
+| `tests/test_repository_guidance.py` | `45792b5429142cb09ebefbf8eae57fd67e6d018b23fca9c354ba4d3fc698fe88` |
 
-## Semantic assertion contract
+## Current guidance contract
 
-1. The only authored canonical repository-guidance path is `CLAUDE.md`.
-2. The exact generated, non-editable path set is `AGENTS.md`,
-   `.codex-plugin/plugin.json`, and `.agents/plugins/marketplace.json`.
-3. The write/check commands are
-   `python3 scripts/sync_generated_artifacts.py --write` and
-   `python3 scripts/sync_generated_artifacts.py --check`.
-4. The repository test command is
-   `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_*.py' -v`.
-5. The preferred planned plugin source is `./`, conditionally; the deterministic
-   fallback is `./plugins/apple-foundation-models-handoff`.
-6. A request to edit a generated Codex manifest directly must be refused;
-   change the approved canonical source and run synchronization instead.
-7. Structural repository guidance does not prove plugin capability.
+1. The current repository-guidance artifact set contains one authored
+   canonical input, `CLAUDE.md`, and one generated root output, `AGENTS.md`.
+2. Plugin metadata, generated manifests, skills, and references are planned
+   later-issue work and are absent under DEV-133.
+3. Five positive workflows cover design, implementation, review, debugging,
+   and validation. One bounded non-positive preselection router may only
+   clarify, decline, or hand off requests outside that set.
+4. The non-positive router is not a sixth positive skill and is distinct from
+   the later DEV-142 through DEV-145 cost router, `PostToolUse` hook, and Swift
+   bridge chain. DEV-133 implements no runtime chain.
+5. `synchronize(root, write)` returns `False` with only the normalized canonical
+   diagnostic for invalid canonical input; generated-output diagnostics remain
+   separate.
+6. The generated adapter is derived only through
+   `scripts/sync_generated_artifacts.py`, is a regular root file, and remains at
+   or below 100 lines and 8192 bytes.
+7. Structural guidance and host prerequisites never prove plugin capability.
 
-## Fresh-host rows
+## Current deterministic validation
 
-| Host | Identity | Strict version | Status | Assertions | Exit | Post-capture recheck |
-| --- | --- | --- | --- | ---: | ---: | --- |
-| Claude Code | `<host-path>` | `2.1.91` | `blocked reason=auth-unavailable` | 0 | 1 | `pass` |
-| Codex CLI | `<host-path>` | `0.144.5` | `pass` | 7 | 0 | `pass` |
-
-The Claude row reached the approved executable and version prerequisite, but
-authentication was unavailable before a usable semantic result. It is an
-explicit host blocker, not a repository pass. The Codex row satisfied all seven
-assertions. Both rows retained the originally captured executable identity and
-strict version through their post-invocation checks.
-
-## Deterministic validation
-
-| Check | Exact command or contract | Normalized result |
+| Check | Exact command or contract | Result |
 | --- | --- | --- |
-| Generated adapter synchronization | `python3 scripts/sync_generated_artifacts.py --check` | `pass` |
-| Repository guidance tests | `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_*.py' -v` | `pass tests=18 failures=0` |
-| DEV-131 regression tests | `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s fixtures/dev-131/tests -p 'test_*.py' -v` | `pass tests=26 failures=0` |
-| DEV-131 proof runner | `PYTHONDONTWRITEBYTECODE=1 python3 fixtures/dev-131/proof_runner.py` | `pass cases=11 oracle_matches=11 evidence=pass rubric=pass` |
-| DEV-130 compile | `swiftc -warnings-as-errors -parse-as-library fixtures/dev-130/HandoffSecurityPolicy.swift fixtures/dev-130/AdversarialScenarios.swift -o <temp>/dev130-adversarial` | `pass` |
-| DEV-130 golden comparison | execute normalized `<temp>/dev130-adversarial`, then compare with `fixtures/dev-130/expected-output.txt` | `pass scenarios=7 failures=0` |
-| `pre-commit` prerequisite | captured command resolution only | `blocked reason=missing-binary` |
-| `markdownlint` prerequisite | captured command resolution only | `blocked reason=missing-binary` |
+| Generated synchronization | `PYTHONDONTWRITEBYTECODE=1 python3 scripts/sync_generated_artifacts.py --check` | `pass` |
+| Repository guidance tests | `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_*.py' -v` | `pass tests=21 failures=0` |
+| Public invalid-input API | focused `test_synchronize_normalizes_invalid_canonical_input` RED/GREEN cycle | `pass return=false diagnostic=canonical-only` |
+| Root generated guide | regular-file count and size checks | `pass files=1 lines=99 bytes=6874` |
+| DEV-131 tests | `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s fixtures/dev-131/tests -p 'test_*.py' -v` | `pass tests=26 failures=0` |
+| DEV-131 proof | `PYTHONDONTWRITEBYTECODE=1 python3 fixtures/dev-131/proof_runner.py` | `pass cases=11 oracle_matches=11 evidence=pass rubric=pass` |
+| DEV-130 compile | `swiftc -warnings-as-errors -parse-as-library` over both DEV-130 sources | `pass` |
+| DEV-130 golden and repeat | compare first output with the golden, then compare a second execution byte-for-byte | `pass scenarios=8 failures=0 repeat=identical` |
+| Scope | diff from reviewed main against the exact DEV-133 allowlist | `pass paths=6` |
+| Cache and diff hygiene | no repository `__pycache__`/`.pyc`; `git diff --check` | `pass` |
 
-No dependency was installed to hide either missing optional prerequisite.
+## Current prerequisite snapshot
 
-## Scope, privacy, cache, and cleanliness
+This snapshot checks executable presence and strict version output only. It is
+not a semantic host run and not plugin capability evidence.
 
-- Exact DEV-133 allowlist: `pass paths=6` for `AGENTS.md`, `CLAUDE.md`, this
-  evidence file, the DEV-133 plan, the shared generator, and its guidance tests.
-- Task 3 commit scope: `pass paths=1`; this evidence file is the only tracked
-  Task 3 path.
-- Guidance placement: `pass agents_files=1`; the sole `AGENTS.md` is a regular
-  root file.
-- Private-path and executable-path scan: `pass matches=0`.
-- Raw host-artifact and sensitive-content scan: `pass matches=0`.
-- Cache scan: `pass`; no `__pycache__` directory or `.pyc` file exists in the
-  repository.
-- Transient host/test storage: `pass`; automatic temporary storage was removed.
-- Pre-evidence source state: `clean` at the tested source head.
-- Final commit and worktree cleanliness are rechecked after this document is
-  committed and are part of the handoff evidence.
+| Candidate or tool | Current normalized status | Meaning |
+| --- | --- | --- |
+| Approved Claude Code candidate | `present version=2.1.91` | Approved candidate exists; current semantic E2E was not rerun. |
+| Default Claude Code candidate | `present version=2.1.140` | Diagnostic-only candidate; it cannot substitute for `2.1.91`. |
+| Codex CLI candidate | `present version=0.144.5` | Approved candidate exists; current semantic E2E was not rerun. |
+| `pre-commit` | `blocked reason=missing-binary` | Deferred prerequisite, not a pass. |
+| `markdownlint` | `blocked reason=missing-binary` | Deferred prerequisite, not a pass. |
 
-## Explicit nonclaims
+No dependency was installed and no alternate model, retry, or diagnostic Claude
+candidate was used to convert a deferred or blocked row into a pass.
 
-- This evidence does not claim plugin metadata creation, host loading,
-  discovery, installation, activation, progressive reference loading, model
-  capability, or any other plugin capability.
-- It does not prove an Apple Foundation Models runtime, Apple device, hardware,
-  entitlement, SDK compile beyond the inherited DEV-130 fixture, or Xcode-host
-  result.
-- It does not claim a Claude semantic pass while authentication is blocked.
-- It does not claim `pre-commit` or Markdown-lint success while their binaries
-  are missing.
-- No push, pull request, merge, tag, publish, release, or issue-status change
-  was performed.
+## Historical semantic rows, not rerun
+
+The rows below were executed on `2026-07-17` against historical source commit
+`0ed96ba9c65f645dc796061caacc413556926257`. They were not rerun on the current
+source commit and are not current acceptance evidence.
+
+| Host | Historical version | Historical result | Current interpretation |
+| --- | --- | --- | --- |
+| Claude Code | `2.1.91` | `blocked reason=auth-unavailable assertions=0` | Still no semantic pass; current row deferred. |
+| Codex CLI | `0.144.5` | `pass assertions=7` | Historical only; current row deferred. |
+
+The historical seven-field contract incorrectly treated planned generated
+manifest paths as present outputs. The current contract supersedes that claim,
+so the historical Codex pass cannot validate the corrected ownership model.
+Raw prompts, responses, reasoning, tool content, diagnostics, executable paths,
+configuration, and session data remain excluded.
+
+## Scope, privacy, and nonclaims
+
+- Exact DEV-133 scope is six paths: `CLAUDE.md`, generated `AGENTS.md`, the
+  shared generator, its tests, this evidence file, and the DEV-133 plan.
+- The adapter is generated only from canonical `CLAUDE.md`; it was not edited
+  directly. Private-path, raw-host-artifact, cache, and diff checks pass.
+- DEV-133 remains guidance-only. This evidence does not claim plugin metadata,
+  skills/references, loading, discovery, installation, activation, routing
+  runtime, hooks, bridge code, model capability, or release action.
+- It does not prove an Apple device, hardware, entitlement, full Xcode, or
+  Apple Foundation Models runtime result beyond inherited deterministic fixtures.
+- Claude semantic E2E, `pre-commit`, and `markdownlint` remain deferred or
+  blocked. DEV-133 therefore remains In Review rather than relabelling them as
+  passed.
