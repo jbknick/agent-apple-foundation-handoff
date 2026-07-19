@@ -3,11 +3,13 @@
 ## Candidate identity
 
 - Candidate branch: `codex/dev-135-minimal-plugin-skeleton`
-- Exact tested implementation parent:
-  `030ca996d646e591ef6d79f9919506793ea918e9`
-- Tested candidate tree: the exact parent above plus
-  `tests/e2e/codex_plugin_load.py`. This evidence document was assembled in the
-  same uncommitted Task 4 tree; it does not invent or claim its own commit SHA.
+- Base: main `c749d14129888c643b66646158735bf58e6fc603`
+- Exact tested source commit:
+  `67d4be3e6e477f1d8aea1c66cd3ddf907b846f36`
+- Exact tested source tree:
+  `57454cf56ba821ea6cd57ed14b1c614807140fdb`
+- The follow-up commit changes only this evidence document; it does not change
+  the tested source tree above.
 
 ## Deterministic generation and contract checks
 
@@ -17,9 +19,15 @@ reported `generated artifacts are synchronized`. The bytes of all three
 generated outputs were identical before the first write, after the first
 write, and after the second write.
 
-The repository suite passed 46 of 46 tests. It included 20 generated-artifact
+The repository suite passed 52 of 52 tests. It included 21 generated-artifact
 test methods and 38 isolated canonical-mutation cases. The current Codex plugin
 validator also passed the metadata-only package.
+
+The empty-directory regression was observed RED for both reserved generated
+namespaces: each synchronized isolated check incorrectly exited `0`. GREEN
+rejected both paths with the normalized `generated artifacts: unexpected
+generated path` diagnostic while the existing unexpected-file, nested-parent
+symlink, and generated-output symlink checks remained passing.
 
 Canonical and generated metadata retained these exact values:
 
@@ -35,6 +43,8 @@ Canonical and generated metadata retained these exact values:
 | Authentication policy | `ON_INSTALL` | pass |
 | Canonical/generated capabilities | `[]` | pass |
 | Skills | absent | pass |
+| Five future direct positive workflows | absent | pass |
+| Bounded non-positive preselection router | absent | pass |
 
 ## Codex structural load
 
@@ -59,8 +69,18 @@ cached SHA-256 exactly equalled its source SHA-256:
 | `.codex-plugin/plugin.json` | `2cf94a87d9e25e687435e423d3e1f11bf848e5fac3b1ae1399e83c70085047b8` |
 | `metadata/codex-interface.json` | `d6a9fa8f1b4932d5976905e6da28b80e9759c71a17a77b601b0e945f0e09f035` |
 
-The missing-Codex prerequisite path was also exercised separately and emitted
-the exact normalized blocked result at exit `2`.
+The historical missing-Codex prerequisite path was exercised separately and
+emitted the exact normalized blocked result at exit `2`.
+
+## Inherited regression gates
+
+- DEV-131 passed 26 of 26 unit tests and the 11 of 11 proof matrix; its zero
+  denominator remained `not_applicable`.
+- DEV-130 compiled with warnings as errors, matched the exact golden output
+  `SUMMARY passed=8 failed=0`, and repeated byte-identically.
+- DEV-128 ran against installed SDK `26.5`: all six positive gates passed and
+  both strict expected blockers failed with their required capability-specific
+  diagnostics.
 
 ## Status matrix
 
@@ -70,12 +90,19 @@ the exact normalized blocked result at exit `2`.
 | `E-CODEX-ACTIVATE-001` | blocked | `production_skill_not_implemented` |
 | `E-CLAUDE-LOAD-001` | blocked | `deferred_by_owner`; Claude was not invoked |
 | `BATS` | pass | Bats `1.13.0`; `tests/plugin_skeleton.bats` passed 3 of 3 |
+| `DEV-131` | pass | 26 of 26 unit tests and 11 of 11 proof cases |
+| `DEV-130` | pass | exact 8 of 8 golden cases; zero failures; repeat byte-identical |
+| `DEV-128` | pass | SDK 26.5 six positive gates and two strict expected blockers |
 | `pre-commit` | blocked | `deferred_by_owner` |
 | `markdownlint` | blocked | `deferred_by_owner` |
 
 This is structural discovery and installation evidence only. It is not
-capability proof: no design, implementation, review, debug, or validation
-workflow exists in DEV-135, and no capability activation is claimed.
+capability proof: none of the five future direct positive design, implement,
+review, debug, or validate workflows exists in DEV-135, the bounded
+non-positive preselection router is also absent, and no activation or router
+execution is claimed. That preselection boundary is not a sixth positive
+workflow and is separate from the DEV-142 through DEV-145 cost router,
+`PostToolUse` hooks, and Swift bridge chain.
 
 The BATS row was rerun after the approved `bats-core` installation. The exact
 tracked suite passed all three tests: synchronized artifacts, idempotent
