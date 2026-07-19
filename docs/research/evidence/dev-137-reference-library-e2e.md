@@ -8,8 +8,8 @@ outcomes as historical evidence only. It is not workflow-triggered activation,
 does not satisfy `E-CODEX-ACTIVATE-001` or
 `DEV137-CODEX-PROGRESSIVE-001`, and cannot complete DEV-137.
 
-- Round 1 source commit: `128a8991e143a4226897ff509adf8c23e20ec311`
-- Round 1 source tree: `25da4cd51b1f2f74281c2d9f4191a0e3fd330291`
+- Final Round 1 source commit: `b0bcfa91336f1d6dba9a6638f71ee6d199748fe5`
+- Final Round 1 source tree: `fb60f0e3572bff39cb13bf32d02e43b0d1364c77`
 - Deterministic verification date: `2026-07-20`
 - Current live Codex/model/network run: not invoked
 - Historical host candidate commit: `d27cc16d62fd0e23e5e62441d17122d622c09492`
@@ -56,7 +56,7 @@ Additional pinned identities:
 | Approved official sources | pass offline, 30 unique links; opt-in network resolution skipped |
 | Swift labels | pass, 4 blocks with exactly one allowed visible label each |
 | `compiled_sdk_26_5` | pass, 1/1 block type-checked against SDK 26.5 |
-| Disclosure parser group | pass, 41/41 |
+| Focused disclosure module | pass, 46/46, including pending-command reasoning and turn-before-thread rejection |
 | Host identity group | pass, 10/10 |
 | Focused reference group | pass, 13/13 |
 | Focused plugin group | pass, 15/15 |
@@ -70,7 +70,7 @@ Additional pinned identities:
 | DEV-131 inherited regression | pass, 26/26; corpus 11/11; 8 evidence files |
 | DEV-138 inherited regression | pass, 36/36 tests and exact 43-row oracle |
 | BATS | pass, 3/3 |
-| Diff/scope/cache hygiene | pass; 15 authorized source paths, no repo Python cache, no untracked paths |
+| Diff/scope/cache hygiene | pass; 15-path contract correction plus exact 2-path lifecycle follow-up, no repo Python cache, no untracked paths |
 
 ## Codex structural result
 
