@@ -6,7 +6,7 @@
 **Goal:** Verify pinned production Claude Code/Codex structures and publish an
 evidence-backed adopt/adapt/reject decision matrix for this fork.
 
-**Stack base:** `origin/codex/dev-128-apple-api-research`
+**Integration base:** `origin/main`
 
 **Design:**
 `docs/superpowers/specs/2026-07-17-dev-129-production-patterns-design.md`
@@ -16,6 +16,15 @@ files, skills, agents, guidance adapters, generators, dependencies, or runtime
 code. Do not claim capability E2E from validation/install/discovery. Use
 isolated host configuration directories.
 
+**Binding amendment (2026-07-18):** The DEV-136 no-worker/no-hook decision
+applies only to that original guidance/catalog slice. It is superseded as a
+project-wide rule by the approved runtime sequence: DEV-142 contract → DEV-143
+Apple bridge → DEV-144 Codex PostToolUse adapter → DEV-145 Claude PostToolUse
+adapter → DEV-139 E2E. This DEV-129 plan still designs no runtime surface;
+later runtime work must reverify current official Codex and Claude plugin/hook
+contracts rather than treating pinned structural references as runtime-contract
+or Apple API authority.
+
 ## Commit boundaries
 
 1. `docs(DEV-129): design production pattern research`
@@ -23,8 +32,9 @@ isolated host configuration directories.
 3. `docs(DEV-129): record production reference evidence`
 4. `docs(DEV-129): compare cross-host production patterns`
 
-Review corrections use narrow follow-up commits. Do not squash a branch that
-has downstream dependents.
+The four listed paths are one atomic documentation delta. Integration uses
+exactly three main-agent review/fix rounds, then records the exact final
+reviewed remote head before a head-locked squash merge.
 
 ## Task 1: Record pinned reference and host-workflow evidence
 
@@ -334,13 +344,13 @@ After task reviews and corrections:
 
 ```bash
 set -e
-git diff --check origin/codex/dev-128-apple-api-research...HEAD
+git diff --check origin/main...HEAD
 expected_paths="$(printf '%s\n' \
   'docs/research/dev-129-production-pattern-comparison.md' \
   'docs/research/evidence/dev-129-reference-command-transcript.md' \
   'docs/superpowers/plans/2026-07-17-dev-129-production-patterns.md' \
   'docs/superpowers/specs/2026-07-17-dev-129-production-patterns-design.md' | sort)"
-actual_paths="$(git diff --name-only origin/codex/dev-128-apple-api-research...HEAD | sort)"
+actual_paths="$(git diff --name-only origin/main...HEAD | sort)"
 test "$actual_paths" = "$expected_paths"
 test -z "$(git status --porcelain)"
 ```
@@ -350,10 +360,13 @@ semantics, source links, and a clean detached-worktree gate from the exact
 final head. A missing binary, dependency, credential, or network requirement
 must be an explicit blocker, never a false pass.
 
-## Linear and stacked PR handoff
+## Sequential integration handoff
 
-1. Attach report, transcript, exact commits, validation output, review verdict,
-   and blockers to DEV-129.
-2. Push `codex/dev-129-production-patterns`.
-3. Open a ready PR targeting `codex/dev-128-apple-api-research` and link PR #2.
-4. Move DEV-129 to `In Review`; do not merge the stack.
+1. Keep the four-path delta atomic against `origin/main`; complete exactly
+   three main-agent review/fix rounds.
+2. Push and record the exact final reviewed remote head; require the squash
+   merge to be locked to that head.
+3. After merge, run the merged-tree smoke check.
+4. Attach report, transcript, exact commits, validation output, three review
+   verdicts, remote-head evidence, merged-tree smoke, and blockers to DEV-129;
+   update final Linear evidence/status only when the Definition of Done holds.

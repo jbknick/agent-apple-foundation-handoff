@@ -15,6 +15,15 @@ This issue creates research documentation only. It does not add plugin
 metadata, skills, agents, guidance adapters, generators, dependencies, or
 runtime code.
 
+**Issue-boundary amendment (2026-07-18):** The earlier DEV-136 no-worker/no-
+hook decision remains valid only for its original guidance/catalog scope; it is
+not a project-wide runtime prohibition. DEV-142 contract, DEV-143 Apple bridge,
+DEV-144 Codex PostToolUse adapter, DEV-145 Claude PostToolUse adapter, and
+DEV-139 E2E are separate approved runtime work. This design does not specify
+that runtime work; each later issue must reverify current official Codex and
+Claude plugin/hook contracts, because pinned structural references are neither
+current runtime-contract nor Apple API authority.
+
 ## Pinned references
 
 Evidence is tied to these immutable revisions:
@@ -144,7 +153,7 @@ The issue adds:
 - `docs/research/evidence/dev-129-reference-command-transcript.md`; and
 - `docs/research/dev-129-production-pattern-comparison.md`.
 
-Together with this design and its implementation plan, the stacked delta must
+Together with this design and its implementation plan, the atomic delta must
 contain exactly four DEV-129 documentation files.
 
 Completion requires pinned identities, exact reference paths, practical
@@ -153,4 +162,8 @@ non-claims, an adopt/adapt/reject matrix, downstream decisions, task reviews,
 whole-branch review, and fresh exact-head verification. Network is allowed for
 research clone/link checks, but no default future test may depend on it.
 
-The ready PR must target the DEV-128 branch and remain unmerged.
+Sequential integration is against `origin/main`: exactly three main-agent
+review/fix rounds must complete, the exact final reviewed remote head must be
+recorded, the squash merge must be head-locked to it, and a merged-tree smoke
+must pass before final Linear evidence/status is updated when the Definition of
+Done holds.

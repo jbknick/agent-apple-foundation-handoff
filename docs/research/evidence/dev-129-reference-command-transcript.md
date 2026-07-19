@@ -156,9 +156,14 @@ tree rather than an assumption.
   `.app.json` when capabilities are not explicitly redirected.
 
 This compatibility evidence describes the pinned Codex runtime. It does not
-replace explicit production Codex metadata or justify adding optional hooks,
-MCP servers, apps, or other runtime surface. It also leaves the final
-repository-root versus `plugins/<name>` production location open for DEV-132.
+replace explicit production Codex metadata or approve optional hooks, MCP
+servers, apps, or other runtime surface for the original DEV-136
+guidance/catalog slice. The later Linear approval for DEV-142–DEV-145 runtime
+work is separate evidence and must reverify current official Codex and Claude
+plugin/hook contracts. This transcript's pinned references remain structural
+patterns, not current runtime-contract or Apple API authority. It also leaves
+the final repository-root versus `plugins/<name>` production location open for
+DEV-132.
 
 ### Claude cache and symlink rules
 
@@ -358,8 +363,11 @@ credentials or paid provider.
   Passing or failing one must not be reported as passing or failing the other.
 - Claude documentation that postdates installed `2.1.91` does not establish
   that a newer-version-only feature is available on this host.
-- The presence of hooks, MCP, app, command, or agent loader surfaces does not
-  approve those capabilities for this project.
+- The presence of hooks, MCP, app, command, or agent loader surfaces did not
+  approve those capabilities for the original DEV-136 guidance/catalog slice.
+  The later Linear approval for DEV-142–DEV-145 runtime work is separate
+  evidence and requires current official Codex and Claude plugin/hook-contract
+  verification.
 - None of the five repositories establishes Apple Foundation Models API
   correctness, security semantics, SDK availability, or runtime behavior.
 - No network-dependent check in this research transcript is proposed as a
