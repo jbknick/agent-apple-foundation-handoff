@@ -518,26 +518,23 @@ def probe(
     initial_snapshot: HostSnapshot,
     base_environment: dict[str, str],
 ) -> dict[str, Any]:
+    host_identity = executable, locator, initial_resolution, initial_snapshot
     with tempfile.TemporaryDirectory() as temporary_home:
         codex_home = Path(temporary_home).resolve(strict=True)
         environment = dict(base_environment)
         environment["CODEX_HOME"] = str(codex_home)
 
+        require_stable_host(*host_identity, environment)
         installed_path = install_isolated_plugin(
             executable,
             environment,
             codex_home,
         )
 
-        require_stable_host(
-            executable,
-            locator,
-            initial_resolution,
-            initial_snapshot,
-            environment,
-        )
+        require_stable_host(*host_identity, environment)
 
         source_hashes = require_source_cache_identity(installed_path)
+        require_stable_host(*host_identity, environment)
 
         try:
             generated_manifest = json.loads(
@@ -554,7 +551,7 @@ def probe(
         assert isinstance(interface, dict)
         require(interface.get("capabilities") == [], "capabilities_not_empty")
 
-        return {
+        result = {
             "status": "pass",
             "evidenceId": EVIDENCE_ID,
             "host": "codex",
@@ -579,6 +576,9 @@ def probe(
             ],
             "capabilityActivation": "blocked/production_skills_not_integrated",
         }
+
+    require_stable_host(*host_identity, base_environment)
+    return result
 
 
 def main() -> int:
