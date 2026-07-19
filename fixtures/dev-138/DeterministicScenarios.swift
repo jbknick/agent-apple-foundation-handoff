@@ -505,6 +505,7 @@ enum DeterministicScenarios {
         )
         prematureRetryScenario.state.commandHistory.append(prematureRetry)
         prematureRetryScenario.state.executorCommandCount = 2
+        prematureRetryScenario.state.repairFacts.reconciliationAttempts = 1
         prematureRetryScenario.eventRecords = retryRecords
         prematureRetryScenario.auditFacts = ["effect:retry-before-reconcile", "pendingEffect=effect-001", "refusal:retry"]
         rebind(&prematureRetryScenario)

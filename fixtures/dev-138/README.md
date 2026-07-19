@@ -66,8 +66,10 @@ basis, consumes retry authority, accepts only its own result, and remains valid
 through renewed uncertainty and later reconciliation. Initial and consultation
 commands cannot carry retry provenance. After the event-phase gate, reducer
 admission reuses the validator's state-phase coherence check, so malformed
-same-phase state cannot be normalized by an event; recovery attempt counts are
-never negative.
+same-phase state cannot be normalized by an event. Awaiting-recovery attempts
+are exactly zero before a retry and one after the sole retry. Stable reconciled
+attempts are exactly one before and through retry result acceptance, then two
+only after post-retry reconciliation.
 
 Evidence extensions and prohibited content are compared case-insensitively.
 Fingerprint verification still hashes the original content exactly.

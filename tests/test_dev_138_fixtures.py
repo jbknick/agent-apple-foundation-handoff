@@ -1522,6 +1522,8 @@ struct Probe {
         resolvedWithoutRepair.repairFacts = .none
         var zeroReconciliationAttempts = confirmedApplied
         zeroReconciliationAttempts.repairFacts.reconciliationAttempts = 0
+        var inflatedReconciliationAttempts = confirmedApplied
+        inflatedReconciliationAttempts.repairFacts.reconciliationAttempts = 2
         var reconciledWithoutCommand = confirmedApplied
         reconciledWithoutCommand.commandHistory = []
         reconciledWithoutCommand.executorCommandCount = 0
@@ -1566,6 +1568,8 @@ struct Probe {
             violations(mismatchedStableRepair, request: request) == ["D-PHASE-001"],
             violations(resolvedWithoutRepair, request: request) == ["D-PHASE-001"],
             violations(zeroReconciliationAttempts, request: request) == ["D-PHASE-001"],
+            violations(inflatedReconciliationAttempts, request: request)
+                == ["D-PHASE-001"],
             violations(reconciledWithoutCommand, request: request)
                 == ["D-EFFECT-001", "D-PHASE-001"],
             violations(pending, request: pendingRequest).isEmpty,
@@ -1581,7 +1585,7 @@ struct Probe {
         )
         self.assertEqual(
             output,
-            "true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true\n",
+            "true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true\n",
         )
 
     def test_execution_grant_expiry_uses_the_request_time_inclusively(self):
@@ -1743,6 +1747,18 @@ struct Probe {
             renewedUncertainty.state,
             event: .reconcileSucceeded(truth: .confirmedNotApplied)
         )
+        var initialRecoveryWithPriorAttempt = recoveryState(executed)
+        initialRecoveryWithPriorAttempt.repairFacts.reconciliationAttempts = 1
+        var retryRecoveryWithZeroAttempts = renewedUncertainty.state
+        retryRecoveryWithZeroAttempts.repairFacts.reconciliationAttempts = 0
+        var retryRecoveryWithInflatedAttempts = renewedUncertainty.state
+        retryRecoveryWithInflatedAttempts.repairFacts.reconciliationAttempts = 2
+        var inflatedRetryIssued = retry.state
+        inflatedRetryIssued.repairFacts.reconciliationAttempts = 2
+        var inflatedRetryResult = acceptedRetry.state
+        inflatedRetryResult.repairFacts.reconciliationAttempts = 2
+        var inflatedResolvedRetry = laterReconciliation.state
+        inflatedResolvedRetry.repairFacts.reconciliationAttempts = 3
 
         var forgedRetry = notApplied.state
         forgedRetry.commandHistory.append(
@@ -1857,6 +1873,24 @@ struct Probe {
                     observation(state: laterNotApplied.state, request: request)
                 ).isEmpty,
             HandoffReducer.validate(
+                observation(state: initialRecoveryWithPriorAttempt, request: request)
+            ) == ["D-PHASE-001"],
+            HandoffReducer.validate(
+                observation(state: retryRecoveryWithZeroAttempts, request: request)
+            ) == ["D-PHASE-001"],
+            HandoffReducer.validate(
+                observation(state: retryRecoveryWithInflatedAttempts, request: request)
+            ) == ["D-PHASE-001"],
+            HandoffReducer.validate(
+                observation(state: inflatedRetryIssued, request: request)
+            ) == ["D-PHASE-001"],
+            HandoffReducer.validate(
+                observation(state: inflatedRetryResult, request: request)
+            ) == ["D-PHASE-001"],
+            HandoffReducer.validate(
+                observation(state: inflatedResolvedRetry, request: request)
+            ) == ["D-PHASE-001"],
+            HandoffReducer.validate(
                 observation(state: forgedRetry, request: request)
             ) == ["D-EFFECT-002"],
             HandoffReducer.validate(
@@ -1882,7 +1916,7 @@ struct Probe {
         )
         self.assertEqual(
             output,
-            "true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true\n",
+            "true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true|true\n",
         )
 
     def test_recovery_requires_one_matching_unresolved_ledger_record(self):

@@ -142,9 +142,12 @@ confirmed-not-applied effects authorize at most one retry. No-safe reconciliatio
 remains repair-blocked in `recoveryRequired`. Late/replayed events preserve
 authority, phase, pending/checkpoint state, counts, ledger, and repair facts and
 emit no command. Reconciliation attempts increase monotonically for the same
-effect and cannot be negative. Malformed recovery state cannot use a reducer
-event to self-heal. Confirmed-not-applied truth cannot restore retry authority
-after the one retry was consumed. Ordinary budget termination is `stable`-only.
+effect. Awaiting recovery records exactly zero attempts before a retry and one
+after the sole retry. Stable reconciled facts record exactly one attempt before
+and through retry result acceptance, then two only after post-retry
+reconciliation. Malformed recovery state cannot use a reducer event to
+self-heal. Confirmed-not-applied truth cannot restore retry authority after the
+one retry was consumed. Ordinary budget termination is `stable`-only.
 
 Context fields bind class, source, subject, purpose, destination, retention,
 and redaction. C3 and unknown data never cross a model boundary. A disallowed

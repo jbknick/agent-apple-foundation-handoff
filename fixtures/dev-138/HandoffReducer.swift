@@ -1312,12 +1312,16 @@ enum HandoffReducer {
                 return false
             }
             let record = state.ledger[recordIndex]
+            let hasRetry = state.commandHistory.contains {
+                $0.effectID == effectID && $0.kind == .retry
+            }
+            let expectedAttempts = hasRetry ? 1 : 0
             if state.pendingTransition != "effect-reconciliation"
                 || state.repairFacts.effectID != effectID
                 || state.lastCheckpoint != "uncertain"
                 || state.repairFacts.lastKnownTruth != "possibleCommit"
                 || state.repairFacts.disposition != .awaitingReconciliation
-                || state.repairFacts.reconciliationAttempts < 0
+                || state.repairFacts.reconciliationAttempts != expectedAttempts
                 || state.repairFacts.retryAuthority != .denied
                 || !effectRecordIsUnresolved(record)
                 || !hasBoundCommand(for: record, in: state)
@@ -1343,8 +1347,7 @@ enum HandoffReducer {
         case .awaitingReconciliation:
             return false
         case .reconciled:
-            guard facts.reconciliationAttempts >= 1,
-                  facts.effectID != RepairFacts.none.effectID,
+            guard facts.effectID != RepairFacts.none.effectID,
                   let recordIndex = soleEffectRecordIndex(for: facts.effectID, in: state),
                   state.ledger[recordIndex].reconciled,
                   hasBoundCommand(for: state.ledger[recordIndex], in: state)
@@ -1354,6 +1357,17 @@ enum HandoffReducer {
             let record = state.ledger[recordIndex]
             let hasRetry = state.commandHistory.contains {
                 $0.effectID == facts.effectID && $0.kind == .retry
+            }
+            let expectedAttempts: Int
+            if !hasRetry {
+                expectedAttempts = 1
+            } else if ["retryIssued", "resultAccepted"].contains(record.truth) {
+                expectedAttempts = 1
+            } else {
+                expectedAttempts = 2
+            }
+            guard facts.reconciliationAttempts == expectedAttempts else {
+                return false
             }
             switch facts.lastKnownTruth {
             case ReconciliationTruth.confirmedApplied.rawValue:
