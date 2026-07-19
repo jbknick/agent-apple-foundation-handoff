@@ -297,10 +297,16 @@ def scan_payload(root: Path, reason: str) -> set[str]:
     return observed_files
 
 
-def probe(executable: str, locator: Path, initial_resolution: Path) -> dict[str, Any]:
+def probe(
+    executable: str,
+    locator: Path,
+    initial_resolution: Path,
+    base_environment: dict[str, str],
+) -> dict[str, Any]:
     with tempfile.TemporaryDirectory() as temporary_home:
         codex_home = Path(temporary_home).resolve(strict=True)
-        environment = {"CODEX_HOME": str(codex_home)}
+        environment = dict(base_environment)
+        environment["CODEX_HOME"] = str(codex_home)
 
         marketplace_add = run_json(
             executable,
@@ -469,7 +475,11 @@ def probe(executable: str, locator: Path, initial_resolution: Path) -> dict[str,
 
 
 def main() -> int:
-    host = shutil.which("codex")
+    search_path = os.environ.get("PATH")
+    if search_path is None:
+        return blocked()
+    base_environment = {"PATH": search_path}
+    host = shutil.which("codex", path=search_path)
     if host is None:
         return blocked()
     locator = Path(host)
@@ -481,11 +491,11 @@ def main() -> int:
     if not stat.S_ISREG(initial_metadata.st_mode) or not os.access(locator, os.X_OK):
         return blocked()
     executable = str(initial_resolution)
-    if not exact_version(executable, {}):
+    if not exact_version(executable, base_environment):
         return blocked()
 
     try:
-        result = probe(executable, locator, initial_resolution)
+        result = probe(executable, locator, initial_resolution, base_environment)
     except ProbeFailure as failure:
         return failed(failure.reason)
     except Exception:
