@@ -1,0 +1,618 @@
+{
+  "schemaVersion": "1.0",
+  "evidenceKind": "design_contract_prototype",
+  "sourceIssue": "DEV-134",
+  "designArtifact": "docs/superpowers/specs/2026-07-17-dev-134-agent-skill-catalog-design.md",
+  "designArtifactSha256": "07541f46a0de721498e7526723769f6f69be3912c9e7d858097e685a72156ca7",
+  "contractArtifact": "docs/architecture/apple-foundation-models-handoff-skill-contract.md",
+  "contractArtifactSha256": "0b492a9702fa338bc714d5da182ab92509f3166fc3e8b554f0ca64c06d4ef094",
+  "executionLayer": "design_contract_prototype",
+  "status": "pass",
+  "realHostRows": {
+    "claude": {
+      "status": "blocked",
+      "reason": "production_skill_not_implemented",
+      "requiredEvidenceId": "E-CLAUDE-ACTIVATE-001"
+    },
+    "codex": {
+      "status": "blocked",
+      "reason": "production_skill_not_implemented",
+      "requiredEvidenceId": "E-CODEX-ACTIVATE-001"
+    }
+  },
+  "limitations": [
+    "Design-contract prototype only.",
+    "Production skills and concern references are not implemented.",
+    "Real Claude and Codex activation remains blocked.",
+    "No live model, PCC, custom provider, credentials, network, hardware, paid service, or host automation ran.",
+    "No Apple runtime enforcement, host capability, or release-readiness claim is made.",
+    "JSON validity, artifact hashes, and safety scans do not establish activation capability."
+  ],
+  "cases": [
+    {
+      "id": "DEV134-POS-001",
+      "category": "positive",
+      "activationOwner": "direct_workflow",
+      "inputClass": "new_baton_pass_architecture",
+      "requestedOperation": "design",
+      "artifactState": "absent",
+      "evidenceState": "missing",
+      "expectedActivation": "design-apple-foundation-models-handoff",
+      "hostExpectations": {
+        "claude": "design-apple-foundation-models-handoff",
+        "codex": "design-apple-foundation-models-handoff"
+      },
+      "expectedReferences": [
+        "state",
+        "patterns",
+        "apple-availability",
+        "security-recovery",
+        "evaluation"
+      ],
+      "expectedOutputSections": [
+        "Activation and Scope",
+        "Pattern and Ownership",
+        "Apple API Availability",
+        "State and Lifecycle",
+        "Trust and Model Boundaries",
+        "Context Policy",
+        "Tools Effects and Confirmation",
+        "Failure Recovery and Fallback",
+        "Verification and Evidence",
+        "Limitations",
+        "Alternatives",
+        "Decision Rationale",
+        "Proposed Components",
+        "Implementation and Test Plan"
+      ],
+      "expectedGuardrails": {
+        "applicable": [
+          "D-SCHEMA-001",
+          "D-ROUTE-001",
+          "D-OWNER-001",
+          "D-TRANSITION-001",
+          "D-CONTEXT-001",
+          "D-CONTEXT-002",
+          "D-GRANT-001",
+          "D-PHASE-001",
+          "D-FALLBACK-001",
+          "D-EVIDENCE-001",
+          "D-RUBRIC-001"
+        ],
+        "not_applicable": [
+          "D-TOOL-001",
+          "D-EFFECT-001",
+          "D-EFFECT-002"
+        ]
+      },
+      "fullWalkthrough": true,
+      "resolution": "baton_pass_destination_owner_selected"
+    },
+    {
+      "id": "DEV134-POS-002",
+      "category": "positive",
+      "activationOwner": "direct_workflow",
+      "inputClass": "flawed_reducer_findings_review",
+      "requestedOperation": "review",
+      "artifactState": "implementation",
+      "evidenceState": "failing",
+      "expectedActivation": "review-apple-foundation-models-handoff",
+      "hostExpectations": {
+        "claude": "review-apple-foundation-models-handoff",
+        "codex": "review-apple-foundation-models-handoff"
+      },
+      "expectedReferences": [
+        "state",
+        "patterns",
+        "apple-availability",
+        "security-recovery",
+        "evaluation"
+      ],
+      "expectedOutputSections": [
+        "Activation and Scope",
+        "Pattern and Ownership",
+        "Apple API Availability",
+        "State and Lifecycle",
+        "Trust and Model Boundaries",
+        "Context Policy",
+        "Tools Effects and Confirmation",
+        "Failure Recovery and Fallback",
+        "Verification and Evidence",
+        "Limitations",
+        "Findings"
+      ],
+      "expectedGuardrails": {
+        "applicable": [
+          "D-SCHEMA-001",
+          "D-ROUTE-001",
+          "D-OWNER-001",
+          "D-TRANSITION-001",
+          "D-TOOL-001",
+          "D-CONTEXT-001",
+          "D-CONTEXT-002",
+          "D-GRANT-001",
+          "D-PHASE-001",
+          "D-EFFECT-001",
+          "D-EFFECT-002",
+          "D-FALLBACK-001",
+          "D-EVIDENCE-001",
+          "D-RUBRIC-001"
+        ],
+        "not_applicable": []
+      },
+      "fullWalkthrough": true,
+      "resolution": "reject_flawed_reducer_with_findings"
+    },
+    {
+      "id": "DEV134-POS-003",
+      "category": "positive",
+      "activationOwner": "direct_workflow",
+      "inputClass": "approved_bounded_contract_change",
+      "requestedOperation": "implement",
+      "artifactState": "approved_contract",
+      "evidenceState": "available",
+      "expectedActivation": "implement-apple-foundation-models-handoff",
+      "hostExpectations": {
+        "claude": "implement-apple-foundation-models-handoff",
+        "codex": "implement-apple-foundation-models-handoff"
+      },
+      "expectedReferences": [
+        "state",
+        "patterns",
+        "apple-availability",
+        "security-recovery",
+        "evaluation"
+      ],
+      "expectedOutputSections": [
+        "Activation and Scope",
+        "Pattern and Ownership",
+        "Apple API Availability",
+        "State and Lifecycle",
+        "Trust and Model Boundaries",
+        "Context Policy",
+        "Tools Effects and Confirmation",
+        "Failure Recovery and Fallback",
+        "Verification and Evidence",
+        "Limitations",
+        "Approved Decision",
+        "Change Boundary",
+        "Changed Paths",
+        "Compilation and Regression Results"
+      ],
+      "expectedGuardrails": {
+        "applicable": [
+          "D-SCHEMA-001",
+          "D-ROUTE-001",
+          "D-OWNER-001",
+          "D-TRANSITION-001",
+          "D-CONTEXT-001",
+          "D-CONTEXT-002",
+          "D-GRANT-001",
+          "D-PHASE-001",
+          "D-FALLBACK-001",
+          "D-EVIDENCE-001",
+          "D-RUBRIC-001"
+        ],
+        "not_applicable": []
+      },
+      "fullWalkthrough": false,
+      "resolution": "bounded_approved_contract_change"
+    },
+    {
+      "id": "DEV134-POS-004",
+      "category": "positive",
+      "activationOwner": "direct_workflow",
+      "inputClass": "uncertain_effect_recovery_failure",
+      "requestedOperation": "debug",
+      "artifactState": "implementation",
+      "evidenceState": "failing",
+      "expectedActivation": "debug-apple-foundation-models-handoff",
+      "hostExpectations": {
+        "claude": "debug-apple-foundation-models-handoff",
+        "codex": "debug-apple-foundation-models-handoff"
+      },
+      "expectedReferences": [
+        "state",
+        "security-recovery",
+        "evaluation"
+      ],
+      "expectedOutputSections": [
+        "Activation and Scope",
+        "Pattern and Ownership",
+        "Apple API Availability",
+        "State and Lifecycle",
+        "Trust and Model Boundaries",
+        "Context Policy",
+        "Tools Effects and Confirmation",
+        "Failure Recovery and Fallback",
+        "Verification and Evidence",
+        "Limitations",
+        "Observed and Expected State",
+        "First Divergence",
+        "Root Cause",
+        "Correction",
+        "Regression Proof"
+      ],
+      "expectedGuardrails": {
+        "applicable": [
+          "D-SCHEMA-001",
+          "D-ROUTE-001",
+          "D-OWNER-001",
+          "D-TRANSITION-001",
+          "D-TOOL-001",
+          "D-CONTEXT-001",
+          "D-CONTEXT-002",
+          "D-GRANT-001",
+          "D-PHASE-001",
+          "D-EFFECT-001",
+          "D-EFFECT-002",
+          "D-FALLBACK-001",
+          "D-EVIDENCE-001",
+          "D-RUBRIC-001"
+        ],
+        "not_applicable": []
+      },
+      "fullWalkthrough": false,
+      "resolution": "recovery_required_reconciliation_without_replay"
+    },
+    {
+      "id": "DEV134-POS-005",
+      "category": "positive",
+      "activationOwner": "direct_workflow",
+      "inputClass": "proof_only_evidence_matrix",
+      "requestedOperation": "validate",
+      "artifactState": "evidence_bundle",
+      "evidenceState": "available",
+      "expectedActivation": "validate-apple-foundation-models-handoff",
+      "hostExpectations": {
+        "claude": "validate-apple-foundation-models-handoff",
+        "codex": "validate-apple-foundation-models-handoff"
+      },
+      "expectedReferences": [
+        "state",
+        "patterns",
+        "apple-availability",
+        "security-recovery",
+        "evaluation"
+      ],
+      "expectedOutputSections": [
+        "Activation and Scope",
+        "Pattern and Ownership",
+        "Apple API Availability",
+        "State and Lifecycle",
+        "Trust and Model Boundaries",
+        "Context Policy",
+        "Tools Effects and Confirmation",
+        "Failure Recovery and Fallback",
+        "Verification and Evidence",
+        "Limitations",
+        "Layer Matrix",
+        "Counts and Hashes",
+        "Rubric Result",
+        "Blockers and Skips",
+        "Release Implication"
+      ],
+      "expectedGuardrails": {
+        "applicable": [
+          "D-SCHEMA-001",
+          "D-ROUTE-001",
+          "D-OWNER-001",
+          "D-TRANSITION-001",
+          "D-TOOL-001",
+          "D-CONTEXT-001",
+          "D-CONTEXT-002",
+          "D-GRANT-001",
+          "D-PHASE-001",
+          "D-EFFECT-001",
+          "D-EFFECT-002",
+          "D-FALLBACK-001",
+          "D-EVIDENCE-001",
+          "D-RUBRIC-001"
+        ],
+        "not_applicable": []
+      },
+      "fullWalkthrough": false,
+      "resolution": "proof_matrix_without_edits"
+    },
+    {
+      "id": "DEV134-POS-006",
+      "category": "positive",
+      "activationOwner": "direct_workflow",
+      "inputClass": "isolated_consultation_architecture",
+      "requestedOperation": "design",
+      "artifactState": "absent",
+      "evidenceState": "missing",
+      "expectedActivation": "design-apple-foundation-models-handoff",
+      "hostExpectations": {
+        "claude": "design-apple-foundation-models-handoff",
+        "codex": "design-apple-foundation-models-handoff"
+      },
+      "expectedReferences": [
+        "state",
+        "patterns",
+        "apple-availability",
+        "security-recovery",
+        "evaluation"
+      ],
+      "expectedOutputSections": [
+        "Activation and Scope",
+        "Pattern and Ownership",
+        "Apple API Availability",
+        "State and Lifecycle",
+        "Trust and Model Boundaries",
+        "Context Policy",
+        "Tools Effects and Confirmation",
+        "Failure Recovery and Fallback",
+        "Verification and Evidence",
+        "Limitations",
+        "Alternatives",
+        "Decision Rationale",
+        "Proposed Components",
+        "Implementation and Test Plan"
+      ],
+      "expectedGuardrails": {
+        "applicable": [
+          "D-ROUTE-001",
+          "D-OWNER-001",
+          "D-TRANSITION-001",
+          "D-CONTEXT-001",
+          "D-CONTEXT-002",
+          "D-GRANT-001",
+          "D-PHASE-001",
+          "D-FALLBACK-001",
+          "D-EVIDENCE-001",
+          "D-RUBRIC-001"
+        ],
+        "not_applicable": []
+      },
+      "fullWalkthrough": false,
+      "resolution": "isolated_consultation_parent_owner_selected"
+    },
+    {
+      "id": "DEV134-NEG-001",
+      "category": "negative",
+      "activationOwner": "non_positive_router",
+      "inputClass": "app_intents_request",
+      "requestedOperation": "unspecified",
+      "artifactState": "unknown",
+      "evidenceState": "unknown",
+      "expectedActivation": "no_activation",
+      "hostExpectations": {
+        "claude": "no_activation",
+        "codex": "no_activation"
+      },
+      "expectedReferences": [],
+      "expectedOutputSections": [],
+      "expectedGuardrails": {
+        "applicable": [
+          "D-ROUTE-001"
+        ],
+        "not_applicable": []
+      },
+      "fullWalkthrough": false,
+      "resolution": "reject_out_of_domain"
+    },
+    {
+      "id": "DEV134-NEG-002",
+      "category": "negative",
+      "activationOwner": "non_positive_router",
+      "inputClass": "apple_handoff_request",
+      "requestedOperation": "unspecified",
+      "artifactState": "unknown",
+      "evidenceState": "unknown",
+      "expectedActivation": "no_activation",
+      "hostExpectations": {
+        "claude": "no_activation",
+        "codex": "no_activation"
+      },
+      "expectedReferences": [],
+      "expectedOutputSections": [],
+      "expectedGuardrails": {
+        "applicable": [
+          "D-ROUTE-001"
+        ],
+        "not_applicable": []
+      },
+      "fullWalkthrough": false,
+      "resolution": "reject_out_of_domain"
+    },
+    {
+      "id": "DEV134-NEG-003",
+      "category": "negative",
+      "activationOwner": "non_positive_router",
+      "inputClass": "generic_swift_request",
+      "requestedOperation": "unspecified",
+      "artifactState": "unknown",
+      "evidenceState": "unknown",
+      "expectedActivation": "no_activation",
+      "hostExpectations": {
+        "claude": "no_activation",
+        "codex": "no_activation"
+      },
+      "expectedReferences": [],
+      "expectedOutputSections": [],
+      "expectedGuardrails": {
+        "applicable": [
+          "D-ROUTE-001"
+        ],
+        "not_applicable": []
+      },
+      "fullWalkthrough": false,
+      "resolution": "reject_out_of_domain"
+    },
+    {
+      "id": "DEV134-NEG-004",
+      "category": "negative",
+      "activationOwner": "non_positive_router",
+      "inputClass": "generic_foundation_models_education",
+      "requestedOperation": "unspecified",
+      "artifactState": "unknown",
+      "evidenceState": "unknown",
+      "expectedActivation": "no_activation",
+      "hostExpectations": {
+        "claude": "no_activation",
+        "codex": "no_activation"
+      },
+      "expectedReferences": [],
+      "expectedOutputSections": [],
+      "expectedGuardrails": {
+        "applicable": [
+          "D-ROUTE-001"
+        ],
+        "not_applicable": []
+      },
+      "fullWalkthrough": false,
+      "resolution": "reject_out_of_domain"
+    },
+    {
+      "id": "DEV134-NEG-005",
+      "category": "negative",
+      "activationOwner": "non_positive_router",
+      "inputClass": "coding_session_handoff_request",
+      "requestedOperation": "unspecified",
+      "artifactState": "unknown",
+      "evidenceState": "unknown",
+      "expectedActivation": "no_activation",
+      "hostExpectations": {
+        "claude": "no_activation",
+        "codex": "no_activation"
+      },
+      "expectedReferences": [],
+      "expectedOutputSections": [],
+      "expectedGuardrails": {
+        "applicable": [
+          "D-ROUTE-001"
+        ],
+        "not_applicable": []
+      },
+      "fullWalkthrough": false,
+      "resolution": "reject_out_of_domain"
+    },
+    {
+      "id": "DEV134-NEG-006",
+      "category": "negative",
+      "activationOwner": "non_positive_router",
+      "inputClass": "foundation_models_runtime_skills_request",
+      "requestedOperation": "unspecified",
+      "artifactState": "unknown",
+      "evidenceState": "unknown",
+      "expectedActivation": "no_activation",
+      "hostExpectations": {
+        "claude": "no_activation",
+        "codex": "no_activation"
+      },
+      "expectedReferences": [],
+      "expectedOutputSections": [],
+      "expectedGuardrails": {
+        "applicable": [
+          "D-ROUTE-001"
+        ],
+        "not_applicable": []
+      },
+      "fullWalkthrough": false,
+      "resolution": "reject_out_of_domain"
+    },
+    {
+      "id": "DEV134-AMB-001",
+      "category": "ambiguous",
+      "activationOwner": "non_positive_router",
+      "inputClass": "ambiguous_apple_handoff_domain",
+      "requestedOperation": "unspecified",
+      "artifactState": "unknown",
+      "evidenceState": "unknown",
+      "expectedActivation": "clarification_required",
+      "hostExpectations": {
+        "claude": "clarification_required",
+        "codex": "clarification_required"
+      },
+      "expectedReferences": [],
+      "expectedOutputSections": [],
+      "expectedGuardrails": {
+        "applicable": [
+          "D-ROUTE-001"
+        ],
+        "not_applicable": []
+      },
+      "fullWalkthrough": false,
+      "resolution": "bounded_domain_clarification"
+    },
+    {
+      "id": "DEV134-AMB-002",
+      "category": "ambiguous",
+      "activationOwner": "non_positive_router",
+      "inputClass": "implementation_without_approved_contract",
+      "requestedOperation": "implement",
+      "artifactState": "unknown",
+      "evidenceState": "missing",
+      "expectedActivation": "clarification_required",
+      "hostExpectations": {
+        "claude": "clarification_required",
+        "codex": "clarification_required"
+      },
+      "expectedReferences": [],
+      "expectedOutputSections": [],
+      "expectedGuardrails": {
+        "applicable": [
+          "D-ROUTE-001"
+        ],
+        "not_applicable": []
+      },
+      "fullWalkthrough": false,
+      "resolution": "bounded_contract_clarification"
+    },
+    {
+      "id": "DEV134-AMB-003",
+      "category": "ambiguous",
+      "activationOwner": "direct_workflow",
+      "inputClass": "compound_review_and_fix",
+      "requestedOperation": "compound_review_fix",
+      "artifactState": "implementation",
+      "evidenceState": "failing",
+      "expectedActivation": "review-apple-foundation-models-handoff",
+      "hostExpectations": {
+        "claude": "review-apple-foundation-models-handoff",
+        "codex": "review-apple-foundation-models-handoff"
+      },
+      "expectedReferences": [
+        "state",
+        "patterns",
+        "apple-availability",
+        "security-recovery",
+        "evaluation"
+      ],
+      "expectedOutputSections": [
+        "Activation and Scope",
+        "Pattern and Ownership",
+        "Apple API Availability",
+        "State and Lifecycle",
+        "Trust and Model Boundaries",
+        "Context Policy",
+        "Tools Effects and Confirmation",
+        "Failure Recovery and Fallback",
+        "Verification and Evidence",
+        "Limitations",
+        "Findings"
+      ],
+      "expectedGuardrails": {
+        "applicable": [
+          "D-ROUTE-001",
+          "D-OWNER-001",
+          "D-TRANSITION-001",
+          "D-TOOL-001",
+          "D-CONTEXT-001",
+          "D-CONTEXT-002",
+          "D-GRANT-001",
+          "D-PHASE-001",
+          "D-EFFECT-001",
+          "D-EFFECT-002",
+          "D-FALLBACK-001",
+          "D-EVIDENCE-001",
+          "D-RUBRIC-001"
+        ],
+        "not_applicable": []
+      },
+      "fullWalkthrough": false,
+      "resolution": "documented_default_review_first"
+    }
+  ]
+}
