@@ -13,9 +13,9 @@ credential, or private configuration.
 
 - Issue base: `27c7ce6b8d47541711184ceae06b2eecbdc4be8e`
 - Exact tested source commit:
-  `e49be5c2640bd8401a12d91eebdcc84720a67f84`
+  `93cc77dcfac03528644f781eddcae6f62d6e1331`
 - Exact tested source tree:
-  `5eb008057be4b87db9ccab5954d9cd323414988a`
+  `5ffa60fc33d8185a91cc6fc01035ebb0ec8d8fb9`
 - Branch: `codex/dev-138-deterministic-swift-fixtures`
 - The follow-up evidence commit changes only this transcript; it does not change
   the tested source tree above.
@@ -93,6 +93,13 @@ reviewed head:
 | Non-retry provenance | In the 29-value validator probe, initial and consultation commands carrying a typed confirmed-not-applied retry basis were the two `false` values. |
 | Renewed uncertainty from incoherent retry state | In the 19-value lifecycle probe, a forged retry with erased repair lineage was normalized into recovery instead of being refused; its new expectation was `false`. |
 | Malformed recovery self-healing | In the same lifecycle probe, forged transition/checkpoint/truth facts and a negative attempt count were accepted by reconciliation instead of preserving/refusing the snapshot; its new expectation was `false`. |
+| Exact reconciliation counts | In the 30-value validator probe, the inflated no-retry count was the sole new `false`; in the 25-value lifecycle probe, all six new pre-retry, post-retry, retry-issued, result-accepted, and resolved count mutations were `false`. |
+
+The first full post-fix run then exposed one oracle-isolation regression: the
+synthetic retry-before-reconciliation case also emitted `D-PHASE-001`. Its
+awaiting-recovery counter was made phase-coherent so the case continued to
+isolate only its intended `D-EFFECT-002` retry-lineage defect. The canonical
+oracle was not edited.
 
 The corresponding focused GREEN set passed before the full matrix. The source
 commit above contains the tests and smallest reducer correction; no historical
