@@ -760,7 +760,7 @@ enum HandoffReducer {
             }
             guard unresolvedRecords.count == 1,
                   let unresolvedRecord = unresolvedRecords.first,
-                  hasOneCommandAwaitingResult(for: unresolvedRecord, in: state)
+                  hasOneBoundCommand(for: unresolvedRecord, in: state)
             else {
                 return refused(state, disposition: .refusedPolicy, audit: "recovery:refused-no-effect")
             }
@@ -810,7 +810,7 @@ enum HandoffReducer {
                   state.repairFacts.retryAuthority == .denied,
                   unresolvedRecords.count == 1,
                   let unresolvedRecord = unresolvedRecords.first,
-                  hasOneCommandAwaitingResult(for: unresolvedRecord, in: state)
+                  hasOneBoundCommand(for: unresolvedRecord, in: state)
             else {
                 return refused(state, disposition: .refusedPolicy, audit: "reconciliation:refused-binding")
             }
@@ -834,7 +834,16 @@ enum HandoffReducer {
             return applied(next, audit: [audit])
 
         case let .retryReconciled(effectID):
-            guard state.repairFacts.effectID == effectID,
+            let reconciledRecords = state.ledger.filter {
+                $0.effectID == effectID
+                    && $0.stateVersion == state.stateVersion
+                    && $0.truth == ReconciliationTruth.confirmedNotApplied.rawValue
+                    && $0.reconciled
+            }
+            guard reconciledRecords.count == 1,
+                  let reconciledRecord = reconciledRecords.first,
+                  hasOneBoundCommand(for: reconciledRecord, in: state),
+                  state.repairFacts.effectID == effectID,
                   state.repairFacts.disposition == .reconciled,
                   state.repairFacts.lastKnownTruth == ReconciliationTruth.confirmedNotApplied.rawValue,
                   state.repairFacts.retryAuthority == .authorized,
@@ -1315,14 +1324,15 @@ enum HandoffReducer {
         record.truth == "commandIssued" || record.truth == "retryIssued"
     }
 
-    private static func hasOneCommandAwaitingResult(
+    private static func hasOneBoundCommand(
         for record: EffectRecord,
         in state: HandoffState
     ) -> Bool {
         state.commandHistory.filter { command in
             command.effectID == record.effectID
                 && command.stateVersion == record.stateVersion
-                && command.binding.name == record.command
+                && command.binding == executorBinding
+                && record.command == executorBinding.name
                 && (record.truth == "retryIssued"
                     ? command.kind == .retry
                     : command.kind != .retry)

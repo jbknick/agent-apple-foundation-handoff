@@ -21,6 +21,28 @@ DEV128_ROOT = ROOT / "fixtures" / "dev-128"
 DEV134_PROTOTYPE = (
     ROOT / "docs" / "research" / "evidence" / "dev-134-activation-prototype.json"
 )
+ACTIVATION_CONTRACTS = (
+    ROOT / "docs" / "architecture" / "apple-foundation-models-handoff-skill-contract.md",
+    ROOT
+    / "docs"
+    / "superpowers"
+    / "specs"
+    / "2026-07-17-dev-134-agent-skill-catalog-design.md",
+)
+EXPECTED_ACTIVATION_ENVELOPES = (
+    "activationStatus = activated\n"
+    "selectedSkill\n"
+    "preselectionInput = { domain, requestedOperation, artifactState, evidenceState }\n"
+    "architectureResult",
+    "activationStatus = no_activation\n"
+    "reasonCode = out_of_domain\n"
+    "domain\n"
+    "requestedOperation",
+    "activationStatus = clarification_required\n"
+    "clarificationKind = domain | approved_contract\n"
+    "missingInput\n"
+    "question",
+)
 DEV134_FINDING_CASE_IDS = (
     "DEV138-SCHEMA-MISSING",
     "DEV138-ROUTE-DISALLOWED",
@@ -1448,6 +1470,107 @@ struct Probe {
         )
         self.assertEqual(output, "true\n")
 
+    def test_retry_requires_one_reconciled_record_and_originating_command(self):
+        output = self._run_reducer_probe(
+            r'''
+import Foundation
+
+func retryState() -> HandoffState {
+    var state = HandoffState.initial
+    state.repairFacts = RepairFacts(
+        effectID: "effect-001",
+        lastKnownTruth: "confirmedNotApplied",
+        disposition: .reconciled,
+        reconciliationAttempts: 1,
+        retryAuthority: .authorized
+    )
+    return state
+}
+
+func reconciledRecord() -> EffectRecord {
+    EffectRecord(
+        effectID: "effect-001",
+        stateVersion: 1,
+        command: "executor.run",
+        checkpoint: "committed",
+        truth: "confirmedNotApplied",
+        reconciled: true
+    )
+}
+
+func originatingCommand(callID: String) -> ExecutorCommand {
+    ExecutorCommand(
+        effectID: "effect-001",
+        callID: callID,
+        binding: ToolBinding(
+            name: "executor.run",
+            version: "1.0",
+            provider: "provider-b",
+            resultType: "ExecutionReceipt"
+        ),
+        stateVersion: 1,
+        kind: .initial
+    )
+}
+
+@main
+struct Probe {
+    static func main() {
+        let empty = retryState()
+        let emptyDecision = HandoffReducer.reduce(
+            empty,
+            event: .retryReconciled(effectID: "effect-001")
+        )
+
+        var missingCommand = retryState()
+        missingCommand.ledger = [reconciledRecord()]
+        let missingCommandDecision = HandoffReducer.reduce(
+            missingCommand,
+            event: .retryReconciled(effectID: "effect-001")
+        )
+
+        var duplicateCommands = missingCommand
+        duplicateCommands.toolBudget = 3
+        duplicateCommands.executorCommandCount = 2
+        duplicateCommands.commandHistory = [
+            originatingCommand(callID: "call-001"),
+            originatingCommand(callID: "call-002"),
+        ]
+        let duplicateDecision = HandoffReducer.reduce(
+            duplicateCommands,
+            event: .retryReconciled(effectID: "effect-001")
+        )
+
+        var valid = missingCommand
+        valid.executorCommandCount = 1
+        valid.commandHistory = [originatingCommand(callID: "call-001")]
+        let validDecision = HandoffReducer.reduce(
+            valid,
+            event: .retryReconciled(effectID: "effect-001")
+        )
+
+        let values = [
+            emptyDecision.state == empty
+                && emptyDecision.command == nil
+                && emptyDecision.disposition == .refusedPolicy,
+            missingCommandDecision.state == missingCommand
+                && missingCommandDecision.command == nil
+                && missingCommandDecision.disposition == .refusedPolicy,
+            duplicateDecision.state == duplicateCommands
+                && duplicateDecision.command == nil
+                && duplicateDecision.disposition == .refusedPolicy,
+            validDecision.command?.kind == .retry
+                && validDecision.state.ledger.count == 1
+                && validDecision.state.ledger[0].truth == "retryIssued"
+                && validDecision.state.repairFacts.retryAuthority == .denied,
+        ]
+        print(values.map(String.init).joined(separator: "|"))
+    }
+}
+'''
+        )
+        self.assertEqual(output, "true|true|true|true\n")
+
     def test_adversarial_matrix_records_refusal_and_command_suppression(self):
         by_case = {row["caseId"]: row for row in self._oracle_rows()}
         refused_without_execution = {
@@ -2102,6 +2225,13 @@ class Dev138ContractTests(unittest.TestCase):
     def _prototype():
         return json.loads(DEV134_PROTOTYPE.read_text())
 
+    @staticmethod
+    def _activation_envelopes(path):
+        blocks = re.findall(r"```text\n(.*?)\n```", path.read_text(), re.DOTALL)
+        return tuple(
+            block for block in blocks if block.startswith("activationStatus =")
+        )
+
     def test_activation_prototype_counts_guardrails_and_truth_boundary_are_stable(self):
         prototype = self._prototype()
         cases = prototype["cases"]
@@ -2128,19 +2258,10 @@ class Dev138ContractTests(unittest.TestCase):
             },
             {"direct_workflow": 7, "non_positive_router": 8},
         )
-        emitted_envelope_fields = {
-            "activationStatus",
-            "selectedSkill",
-            "preselectionInput",
-            "architectureResult",
-            "reasonCode",
-            "domain",
-            "requestedOperation",
-            "clarificationKind",
-            "missingInput",
-            "question",
-        }
-        self.assertNotIn("activationOwner", emitted_envelope_fields)
+        for contract in ACTIVATION_CONTRACTS:
+            envelopes = self._activation_envelopes(contract)
+            self.assertEqual(envelopes, EXPECTED_ACTIVATION_ENVELOPES, contract)
+            self.assertNotIn("activationOwner", "\n".join(envelopes), contract)
         for case in cases:
             applicable = case["expectedGuardrails"]["applicable"]
             not_applicable = case["expectedGuardrails"]["not_applicable"]
