@@ -91,6 +91,10 @@ PRESELECTION_GUIDANCE_CONTRACTS = (
     GENERIC_SWIFT_ACTOR_ROUTER_RECIPE,
     ROUTER_FIRST_GUIDANCE_CONTRACTS[2],
 )
+GUIDANCE_REUSE_GUARDRAIL = (
+    "Load one needed reference; never copy workflows or reference corpora or add "
+    "a plugin-local worker."
+)
 STALE_WORKFLOW_CLAIMS = (
     "remain unimplemented",
     "must not be advertised as active",
@@ -112,6 +116,7 @@ WORKFLOW_GUIDANCE_CONTRACTS = (
     "Structural integration alone is not a pass",
     "Discovery, file presence, and installation are structural prerequisites and "
     "cannot prove behavioral or capability activation",
+    GUIDANCE_REUSE_GUARDRAIL,
     *PRESELECTION_GUIDANCE_CONTRACTS,
 )
 SKILL_OWNED_SECTION_HEADINGS = (
@@ -239,6 +244,17 @@ def assert_guidance_does_not_duplicate_skill_sections(
             rf"(?mi)^#{{2,6}}\s+{re.escape(heading)}\s*$",
             f"root guidance must not duplicate skill-owned section: {heading}",
         )
+
+
+def assert_guidance_reuse_guardrail(
+    test_case: unittest.TestCase, text: str
+) -> None:
+    normalized_text = re.sub(r"\s+", " ", text)
+    test_case.assertIn(
+        GUIDANCE_REUSE_GUARDRAIL,
+        normalized_text,
+        "guidance must preserve workflow, reference-corpus, and worker guardrails",
+    )
 
 
 class RepositoryGuidanceTests(unittest.TestCase):
@@ -728,6 +744,36 @@ class RepositoryGuidanceTests(unittest.TestCase):
                 assert_workflow_guidance_contract(
                     self, path.read_text(encoding="utf-8")
                 )
+
+    def test_guidance_preserves_workflow_reference_and_worker_guardrails(self):
+        for path in (CANONICAL, GENERATED):
+            with self.subTest(path=path.name):
+                assert_guidance_reuse_guardrail(
+                    self, path.read_text(encoding="utf-8")
+                )
+
+        assert_guidance_reuse_guardrail(self, GUIDANCE_REUSE_GUARDRAIL)
+        mutations = {
+            "missing guardrail": "",
+            "workflow copy reversal": GUIDANCE_REUSE_GUARDRAIL.replace(
+                "never copy workflows",
+                "copy workflows",
+                1,
+            ),
+            "reference corpus removal": GUIDANCE_REUSE_GUARDRAIL.replace(
+                "reference corpora",
+                "reference snippets",
+                1,
+            ),
+            "worker addition reversal": GUIDANCE_REUSE_GUARDRAIL.replace(
+                "or add a plugin-local worker",
+                "and add a plugin-local worker",
+                1,
+            ),
+        }
+        for mutation, candidate in mutations.items():
+            with self.subTest(mutation=mutation), self.assertRaises(AssertionError):
+                assert_guidance_reuse_guardrail(self, candidate)
 
     def test_guidance_oracle_rejects_removed_truthfulness_contract(self):
         valid = " ".join((*WORKFLOW_SKILLS, *WORKFLOW_GUIDANCE_CONTRACTS))
