@@ -264,7 +264,7 @@ $ claude --version
 2.1.140 (Claude Code)
 
 $ claude --help | rg -- '--plugin-dir'
---plugin-dir <path>  Load plugins from a directory for this session only (repeatable: --plugin-dir A --plugin-dir B) (default: [])
+--plugin-dir <path>  Load a plugin from a directory or .zip for this session only (repeatable: --plugin-dir A --plugin-dir B.zip) (default: [])
 
 $ claude plugin --help
 install ...
