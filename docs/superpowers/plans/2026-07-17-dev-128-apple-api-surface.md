@@ -483,14 +483,23 @@ SDK 27, Evaluations, the Foundation Models xctrace template, legacy
 Xcode 26.6, iPhone SDK 26.5, `xctrace`, `simctl`, and macro compilation are
 current positive evidence and must not be reported as blockers.
 
-## Linear and stacked PR handoff
+## Sequential main integration handoff
 
-After task reviews, whole-branch review, and final verification:
+After the branch is rebased onto current `origin/main`:
 
-1. Attach a Linear completion comment with the API map, transcript, fixture
-   paths, exact commits, commands/results, blockers, and reviewer verdict.
-2. Push `codex/dev-128-apple-api-research`.
-3. Open a ready-for-review PR targeting
-   `codex/dev-127-repository-audit`, not `main`.
-4. State the stack dependency on PR #1 in the PR body.
-5. Move DEV-128 to `In Review`; do not merge either PR.
+1. Confirm the atomic DEV-128 PR targets `main` and its diff is exactly the
+   13-path allowlist above.
+2. Complete exactly three main-agent review/fix rounds. Each round reviews the
+   current whole PR head; any correction gets a narrow local commit and the
+   round's gates are rerun before the next review.
+3. After Round 3, record the exact reviewed PR-head SHA and rerun the complete
+   positive fixtures, strict blocker diagnostics, transcript/report semantics,
+   13-path scope, `git diff --check`, and clean-worktree gates.
+4. Push only the verified correction commits, then re-read the remote PR head.
+   Squash-merge into `main` only when that remote SHA exactly matches the final
+   reviewed and verified SHA and all required checks are current. Any head drift
+   invalidates the lock and requires review and final gates on the new head.
+5. After the squash merge, add final Linear evidence with the API map,
+   transcript, fixture paths, reviewed PR-head SHA, squash-merge commit,
+   commands/results, remaining blockers, and all three reviewer verdicts; then
+   update the issue to its completed state.

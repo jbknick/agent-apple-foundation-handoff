@@ -178,9 +178,12 @@ Completion requires:
 - a pinned installed-interface hash and Apple-utilities commit;
 - a complete API-family availability matrix;
 - explicit source URLs and retrieval dates;
-- a clean issue diff relative to the DEV-127 stack base;
-- task-level reviews and a fresh whole-branch review;
-- final verification from the exact pushed head.
+- the exact 13-path DEV-128 delta relative to current `origin/main`;
+- exactly three main-agent review/fix rounds;
+- final verification from the exact reviewed and pushed PR head.
 
-This issue can move to `In Review` only after its atomic PR targets the DEV-127
-branch. It must not be merged by this workflow.
+The current sequential integration workflow may squash-merge the atomic PR into
+`main` only after exactly three main-agent review/fix rounds and all final gates
+pass. The merge is head-locked: the exact remote PR head must equal the final
+reviewed and verified head, or review and verification must restart for the new
+head.
