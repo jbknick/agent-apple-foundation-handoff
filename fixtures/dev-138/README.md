@@ -52,6 +52,19 @@ provider request, credential lookup, paid-service call, entitlement operation,
 or hardware-dependent capability assertion. Availability output records mutable
 host state and is not a generation result.
 
+## Reducer invariants
+
+Baton proposals bind the active profile/provider and independent state/policy
+versions at proposal and commit. Effect lifecycle events require one total
+ledger row for the effect. Validator checks bind every command to one current,
+budgeted ledger identity with a declared checkpoint and truth state; recovery
+also requires coherent pending/repair facts and a matching unresolved effect.
+A retry records its confirmed-not-applied basis so renewed uncertainty and later
+reconciliation remain valid without allowing an unproven replay.
+
+Evidence extensions and prohibited content are compared case-insensitively.
+Fingerprint verification still hashes the original content exactly.
+
 ## Foundation-only deterministic commands
 
 Run from the repository root:

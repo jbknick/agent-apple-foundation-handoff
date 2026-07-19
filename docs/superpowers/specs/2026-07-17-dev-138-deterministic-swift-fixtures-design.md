@@ -123,10 +123,11 @@ fallback
 
 Only typed trusted events enter the reducer. Prompt, model, repository,
 retrieved, summary, and tool text remain untrusted data. Phase validation occurs
-before budget or authority mutation. A valid proposal snapshots stable state,
-enters `transitioning`, and may emit one command. A committed baton-pass
-activates the destination and transfers final ownership; a consultation returns
-to the parent and never transfers final ownership.
+before budget or authority mutation. A valid proposal snapshots the active
+profile/provider plus independent state and policy versions. Both proposal and
+commit boundaries reject either version drifting before the baton commits. A
+committed baton-pass activates the destination and transfers final ownership; a
+consultation returns to the parent and never transfers final ownership.
 
 Known pre-effect failure or cancellation restores the checkpoint. Possible or
 uncertain effect commit records one effect and remains `recoveryRequired` until
@@ -145,13 +146,22 @@ classes/fields/tools, retention, expiry at the deterministic request time,
 exceptional C2 permission,
 `stateVersion`, and `policyVersion`. Accepted tool results bind call ID,
 tool/version/provider, result type, the exact originating command state, and one
-unresolved ledger record; accepting a result consumes that record once.
+total unresolved ledger record for the effect; accepting a result consumes that
+record once. Every command maps to one ledger effect/state/executor identity.
+The ledger stays within its effect budget and admits only the committed
+checkpoint and declared truth/reconciliation combinations.
 
 The effect guarantee is application-controlled at-most-once command emission
 plus reconciliation. The fixture never claims exactly-once delivery or
-external-effect rollback. Fallback may only use an already authorized
+external-effect rollback. A retry command preserves its confirmed-not-applied
+reconciliation basis, so renewed uncertainty and later reconciliation do not
+erase valid lineage. A retry without that lineage remains a replay violation.
+Fallback may only use an already authorized
 equal-or-lower provider/context/retention/tool/effect boundary; otherwise the
 result is explicit unavailable/degraded.
+
+Evidence extension and prohibited-content checks are case-insensitive, while
+SHA-256 verification remains bound to the original, unmodified content bytes.
 
 ## Canonical executable output
 
@@ -196,15 +206,15 @@ catalog:
 | `D-ROUTE-001` | Expected and allowed destination/pattern route. |
 | `D-OWNER-001` | Exactly one correct final owner for baton-pass or consultation. |
 | `D-TRANSITION-001` | Valid edge, finite budget, and no revisited state. |
-| `D-TOOL-001` | Authorized actor/tool plus bound result provenance and budget. |
+| `D-TOOL-001` | Authorized actor/tool, exact command binding, bound result provenance, and budget. |
 | `D-CONTEXT-001` | Required minimized context is present. |
 | `D-CONTEXT-002` | Forbidden, C3, unknown, or unredacted disallowed context is absent. |
 | `D-GRANT-001` | Every grant binding, including independent versions, matches. |
-| `D-PHASE-001` | Event phase, checkpoint, cancellation, repair, and recovery persistence are valid. |
-| `D-EFFECT-001` | Each logical effect has exactly one stable ledger entry. |
-| `D-EFFECT-002` | Replay emits no command and retry follows reconciliation. |
+| `D-PHASE-001` | Event phase, checkpoint, cancellation, coherent repair facts, and bound recovery persistence are valid. |
+| `D-EFFECT-001` | Each command has one budgeted, current, well-formed ledger identity. |
+| `D-EFFECT-002` | Replay emits no command and retry carries confirmed-not-applied lineage. |
 | `D-FALLBACK-001` | Fallback does not expand trust or authority. |
-| `D-EVIDENCE-001` | Evidence path/content/classification/redaction/hash contract is safe. |
+| `D-EVIDENCE-001` | Case-normalized path/content/type checks and original-content hash binding are safe. |
 | `D-RUBRIC-001` | Remains owned and executed by the inherited DEV-131 rubric proof; Swift does not duplicate semantic scoring. |
 
 `docs/research/evidence/dev-134-activation-prototype.json` remains the sole

@@ -165,6 +165,7 @@ struct ExecutorCommand: Equatable {
     let binding: ToolBinding
     let stateVersion: Int
     let kind: CommandKind
+    var retryBasis: String? = nil
 }
 
 struct EffectRecord: Equatable {
@@ -208,13 +209,17 @@ struct HandoffProposal: Equatable {
     var sourceProvider: String
     var destinationProfile: String
     var destinationProvider: String
+    var stateVersion: Int
+    var policyVersion: Int
 
     static func fixture(from state: HandoffState) -> HandoffProposal {
         HandoffProposal(
             sourceProfile: state.activeProfile,
             sourceProvider: state.activeProvider,
             destinationProfile: "destination",
-            destinationProvider: "provider-b"
+            destinationProvider: "provider-b",
+            stateVersion: state.stateVersion,
+            policyVersion: state.policyVersion
         )
     }
 }
@@ -572,7 +577,9 @@ enum HandoffReducer {
         switch event {
         case let .proposeBaton(proposal):
             guard proposal.sourceProfile == state.activeProfile,
-                  proposal.sourceProvider == state.activeProvider
+                  proposal.sourceProvider == state.activeProvider,
+                  proposal.stateVersion == state.stateVersion,
+                  proposal.policyVersion == state.policyVersion
             else {
                 return refused(state, disposition: .refusedPolicy, audit: "transition:refused-source")
             }
@@ -600,6 +607,8 @@ enum HandoffReducer {
                   let proposal = state.pendingProposal,
                   proposal.sourceProfile == state.activeProfile,
                   proposal.sourceProvider == state.activeProvider,
+                  proposal.stateVersion == state.stateVersion,
+                  proposal.policyVersion == state.policyVersion,
                   let edge = transitionEdge(for: proposal),
                   state.allowedEdges.contains(edge),
                   !state.visitedProfiles.contains(proposal.destinationProfile)
@@ -716,14 +725,12 @@ enum HandoffReducer {
             else {
                 return refused(state, disposition: .refusedPolicy, audit: "tool-result:refused-provenance")
             }
-            let matchingRecordIndices = state.ledger.indices.filter { recordIndex in
-                let record = state.ledger[recordIndex]
-                return record.effectID == command.effectID
-                    && record.stateVersion == command.stateVersion
-                    && record.command == command.binding.name
-            }
-            guard matchingRecordIndices.count == 1,
-                  let recordIndex = matchingRecordIndices.first
+            guard let recordIndex = soleEffectRecordIndex(
+                for: command.effectID,
+                in: state
+            ),
+                  state.ledger[recordIndex].stateVersion == command.stateVersion,
+                  state.ledger[recordIndex].command == command.binding.name
             else {
                 return refused(state, disposition: .refusedPolicy, audit: "tool-result:refused-provenance")
             }
@@ -755,12 +762,9 @@ enum HandoffReducer {
             }
 
         case let .commandUncertain(effectID):
-            let unresolvedRecords = state.ledger.filter {
-                $0.effectID == effectID && effectRecordIsUnresolved($0)
-            }
-            guard unresolvedRecords.count == 1,
-                  let unresolvedRecord = unresolvedRecords.first,
-                  hasOneBoundCommand(for: unresolvedRecord, in: state)
+            guard let recordIndex = soleEffectRecordIndex(for: effectID, in: state),
+                  effectRecordIsUnresolved(state.ledger[recordIndex]),
+                  hasOneBoundCommand(for: state.ledger[recordIndex], in: state)
             else {
                 return refused(state, disposition: .refusedPolicy, audit: "recovery:refused-no-effect")
             }
@@ -801,16 +805,15 @@ enum HandoffReducer {
             )
 
         case let .reconcileSucceeded(truth):
-            let unresolvedRecords = state.ledger.filter {
-                $0.effectID == state.repairFacts.effectID
-                    && effectRecordIsUnresolved($0)
-            }
             guard state.pendingEffectID == state.repairFacts.effectID,
                   state.repairFacts.disposition == .awaitingReconciliation,
                   state.repairFacts.retryAuthority == .denied,
-                  unresolvedRecords.count == 1,
-                  let unresolvedRecord = unresolvedRecords.first,
-                  hasOneBoundCommand(for: unresolvedRecord, in: state)
+                  let recordIndex = soleEffectRecordIndex(
+                      for: state.repairFacts.effectID,
+                      in: state
+                  ),
+                  effectRecordIsUnresolved(state.ledger[recordIndex]),
+                  hasOneBoundCommand(for: state.ledger[recordIndex], in: state)
             else {
                 return refused(state, disposition: .refusedPolicy, audit: "reconciliation:refused-binding")
             }
@@ -834,15 +837,12 @@ enum HandoffReducer {
             return applied(next, audit: [audit])
 
         case let .retryReconciled(effectID):
-            let reconciledRecords = state.ledger.filter {
-                $0.effectID == effectID
-                    && $0.stateVersion == state.stateVersion
-                    && $0.truth == ReconciliationTruth.confirmedNotApplied.rawValue
-                    && $0.reconciled
-            }
-            guard reconciledRecords.count == 1,
-                  let reconciledRecord = reconciledRecords.first,
-                  hasOneBoundCommand(for: reconciledRecord, in: state),
+            guard let recordIndex = soleEffectRecordIndex(for: effectID, in: state),
+                  state.ledger[recordIndex].stateVersion == state.stateVersion,
+                  state.ledger[recordIndex].truth
+                      == ReconciliationTruth.confirmedNotApplied.rawValue,
+                  state.ledger[recordIndex].reconciled,
+                  hasOneBoundCommand(for: state.ledger[recordIndex], in: state),
                   state.repairFacts.effectID == effectID,
                   state.repairFacts.disposition == .reconciled,
                   state.repairFacts.lastKnownTruth == ReconciliationTruth.confirmedNotApplied.rawValue,
@@ -866,7 +866,8 @@ enum HandoffReducer {
                 callID: "call-001-retry",
                 binding: executorBinding,
                 stateVersion: state.stateVersion,
-                kind: .retry
+                kind: .retry,
+                retryBasis: ReconciliationTruth.confirmedNotApplied.rawValue
             )
             next.executorCommandCount += 1
             next.commandHistory.append(command)
@@ -998,8 +999,7 @@ enum HandoffReducer {
             violations.insert("D-PHASE-001")
         }
 
-        let effectIdentities = observation.state.ledger.map(\.effectID)
-        if Set(effectIdentities).count != effectIdentities.count
+        if !effectLedgerFactsAreValid(observation.state)
             || recoveryCancellationErasedLedger(observation)
         {
             violations.insert("D-EFFECT-001")
@@ -1230,7 +1230,10 @@ enum HandoffReducer {
               observation.state.executorCommandCount <= observation.state.toolBudget,
               observation.state.executorCommandCount == observation.state.commandHistory.count,
               Set(observation.state.commandHistory.map(\.callID)).count
-                  == observation.state.commandHistory.count
+                  == observation.state.commandHistory.count,
+              !observation.state.commandHistory.contains(where: {
+                  $0.binding != executorBinding
+              })
         else {
             return false
         }
@@ -1248,6 +1251,7 @@ enum HandoffReducer {
             if state.pendingTransition != nil
                 || state.pendingProposal != nil
                 || state.pendingEffectID != nil
+                || state.repairFacts.disposition == .awaitingReconciliation
             {
                 return false
             }
@@ -1259,10 +1263,20 @@ enum HandoffReducer {
                 return false
             }
         case .recoveryRequired:
-            if state.pendingEffectID == nil
-                || state.pendingTransition != "effect-reconciliation"
+            guard let effectID = state.pendingEffectID,
+                  let recordIndex = soleEffectRecordIndex(for: effectID, in: state)
+            else {
+                return false
+            }
+            let record = state.ledger[recordIndex]
+            if state.pendingTransition != "effect-reconciliation"
+                || state.repairFacts.effectID != effectID
                 || state.lastCheckpoint != "uncertain"
+                || state.repairFacts.lastKnownTruth != "possibleCommit"
                 || state.repairFacts.disposition != .awaitingReconciliation
+                || state.repairFacts.retryAuthority != .denied
+                || !effectRecordIsUnresolved(record)
+                || !hasBoundCommand(for: record, in: state)
             {
                 return false
             }
@@ -1306,18 +1320,64 @@ enum HandoffReducer {
 
     private static func commandHistoryViolatesReplayPolicy(_ state: HandoffState) -> Bool {
         let grouped = Dictionary(grouping: state.commandHistory, by: \.effectID)
-        for (effectID, commands) in grouped where commands.count > 1 {
+        for (effectID, commands) in grouped {
+            if commands.count == 1 {
+                if commands[0].kind == .retry { return true }
+                continue
+            }
             guard commands.count == 2,
+                  commands.first?.kind == .initial,
                   commands.last?.kind == .retry,
-                  state.repairFacts.effectID == effectID,
-                  state.repairFacts.disposition == .reconciled,
-                  state.repairFacts.lastKnownTruth
-                      == ReconciliationTruth.confirmedNotApplied.rawValue
+                  commands.last?.retryBasis
+                      == ReconciliationTruth.confirmedNotApplied.rawValue,
+                  let recordIndex = soleEffectRecordIndex(for: effectID, in: state),
+                  state.ledger[recordIndex].reconciled,
+                  [
+                      "retryIssued",
+                      ReconciliationTruth.confirmedApplied.rawValue,
+                      ReconciliationTruth.confirmedNotApplied.rawValue,
+                  ].contains(state.ledger[recordIndex].truth)
             else {
                 return true
             }
         }
         return false
+    }
+
+    private static func effectLedgerFactsAreValid(_ state: HandoffState) -> Bool {
+        let ledgerEffectIDs = state.ledger.map(\.effectID)
+        let commandEffectIDs = state.commandHistory.map(\.effectID)
+        guard state.ledger.count <= state.effectBudget,
+              Set(ledgerEffectIDs).count == ledgerEffectIDs.count,
+              Set(ledgerEffectIDs) == Set(commandEffectIDs)
+        else {
+            return false
+        }
+
+        return state.ledger.allSatisfy { record in
+            let commands = state.commandHistory.filter { $0.effectID == record.effectID }
+            return !commands.isEmpty
+                && record.stateVersion == state.stateVersion
+                && record.command == executorBinding.name
+                && record.checkpoint == "committed"
+                && effectRecordTruthIsValid(record)
+                && commands.allSatisfy {
+                    $0.stateVersion == record.stateVersion
+                        && $0.binding.name == record.command
+                }
+        }
+    }
+
+    private static func effectRecordTruthIsValid(_ record: EffectRecord) -> Bool {
+        switch (record.truth, record.reconciled) {
+        case ("commandIssued", false), ("resultAccepted", false),
+             ("retryIssued", true),
+             (ReconciliationTruth.confirmedApplied.rawValue, true),
+             (ReconciliationTruth.confirmedNotApplied.rawValue, true):
+            return true
+        default:
+            return false
+        }
     }
 
     private static func effectRecordIsUnresolved(_ record: EffectRecord) -> Bool {
@@ -1328,6 +1388,20 @@ enum HandoffReducer {
         for record: EffectRecord,
         in state: HandoffState
     ) -> Bool {
+        boundCommands(for: record, in: state).count == 1
+    }
+
+    private static func hasBoundCommand(
+        for record: EffectRecord,
+        in state: HandoffState
+    ) -> Bool {
+        !boundCommands(for: record, in: state).isEmpty
+    }
+
+    private static func boundCommands(
+        for record: EffectRecord,
+        in state: HandoffState
+    ) -> [ExecutorCommand] {
         state.commandHistory.filter { command in
             command.effectID == record.effectID
                 && command.stateVersion == record.stateVersion
@@ -1336,7 +1410,17 @@ enum HandoffReducer {
                 && (record.truth == "retryIssued"
                     ? command.kind == .retry
                     : command.kind != .retry)
-        }.count == 1
+        }
+    }
+
+    private static func soleEffectRecordIndex(
+        for effectID: String,
+        in state: HandoffState
+    ) -> Int? {
+        let indices = state.ledger.indices.filter {
+            state.ledger[$0].effectID == effectID
+        }
+        return indices.count == 1 ? indices[0] : nil
     }
 
     private static func transitionAttemptWasRefused(_ observation: ScenarioObservation) -> Bool {
@@ -1420,7 +1504,7 @@ enum HandoffReducer {
         let prohibitedContent = [
             "blocked-c3-sentinel",
             "synthetic-credential-sentinel",
-            "/Users/",
+            "/users/",
             "/home/",
             "session.trace",
             ".xcresult",
@@ -1428,16 +1512,18 @@ enum HandoffReducer {
         ]
         let hexadecimal = CharacterSet(charactersIn: "0123456789abcdef")
         let digest = String(record.fingerprint.dropFirst("sha256:".count))
+        let normalizedContent = record.content.lowercased()
+        let normalizedExtension = record.artifactExtension.lowercased()
         let digestIsWellFormed = record.fingerprint.hasPrefix("sha256:")
             && digest.count == 64
             && digest.unicodeScalars.allSatisfy(hexadecimal.contains)
 
         return record.classification == .metadataOnly
             && record.pathKind == .normalizedRelative
-            && record.artifactExtension != ".trace"
-            && record.artifactExtension != ".xcresult"
+            && normalizedExtension != ".trace"
+            && normalizedExtension != ".xcresult"
             && record.redaction == .redacted
-            && !prohibitedContent.contains(where: record.content.contains)
+            && !prohibitedContent.contains(where: normalizedContent.contains)
             && digestIsWellFormed
             && record.fingerprint == "sha256:" + SHA256.hexDigest(record.content)
     }

@@ -246,6 +246,55 @@ set -e
 test "$evaluations_rc" -ne 0
 rg -q "no such module 'Evaluations'" "$TMPDIR/evaluations.out"'''
 
+OBSERVATION_PROBE_HELPER = r'''
+func observation(
+    state: HandoffState,
+    request: ExecutionRequest,
+    context: [ContextField]? = nil
+) -> ScenarioObservation {
+    ScenarioObservation(
+        schemaVersion: 1,
+        caseID: "validator-probe",
+        pattern: .batonPass,
+        sourceProfile: "source",
+        sourceProvider: "provider-a",
+        destinationProfile: "destination",
+        destinationProvider: "provider-b",
+        personID: "person-001",
+        sessionID: "session-001",
+        purpose: "task-execution",
+        retention: "ephemeral",
+        route: RouteContract(
+            pattern: .batonPass,
+            destinationProfile: "destination",
+            destinationProvider: "provider-b",
+            allowedEdges: [.sourceToDestination]
+        ),
+        requiredContextNames: request.requiredContextNames,
+        context: context ?? request.context,
+        grant: request.grant,
+        clock: 100,
+        toolAuthorization: request.authorization,
+        toolResult: nil,
+        evidence: [],
+        state: state,
+        eventRecords: [],
+        recoveryBaseline: nil,
+        auditFacts: []
+    )
+}
+
+func violations(
+    _ state: HandoffState,
+    request: ExecutionRequest,
+    context: [ContextField]? = nil
+) -> [String] {
+    HandoffReducer.validate(
+        observation(state: state, request: request, context: context)
+    )
+}
+'''
+
 CHECK_IDS = {
     "D-SCHEMA-001",
     "D-ROUTE-001",
@@ -636,6 +685,19 @@ struct Probe {
             event: .proposeBaton(proposal: wrongDestinationProvider)
         )
 
+        var staleState = initial
+        staleState.stateVersion += 1
+        let staleStateProposal = HandoffReducer.reduce(
+            staleState,
+            event: .proposeBaton(proposal: valid)
+        )
+        var stalePolicy = initial
+        stalePolicy.policyVersion += 1
+        let stalePolicyProposal = HandoffReducer.reduce(
+            stalePolicy,
+            event: .proposeBaton(proposal: valid)
+        )
+
         let proposed = HandoffReducer.reduce(
             initial,
             event: .proposeBaton(proposal: valid)
@@ -645,11 +707,26 @@ struct Probe {
             event: .commitBaton
         ).state
 
+        var staleStateCommit = proposed.state
+        staleStateCommit.stateVersion += 1
+        let staleStateCommitDecision = HandoffReducer.reduce(
+            staleStateCommit,
+            event: .commitBaton
+        )
+        var stalePolicyCommit = proposed.state
+        stalePolicyCommit.policyVersion += 1
+        let stalePolicyCommitDecision = HandoffReducer.reduce(
+            stalePolicyCommit,
+            event: .commitBaton
+        )
+
         let revisit = HandoffProposal(
             sourceProfile: committed.activeProfile,
             sourceProvider: committed.activeProvider,
             destinationProfile: "source",
-            destinationProvider: "provider-a"
+            destinationProvider: "provider-a",
+            stateVersion: committed.stateVersion,
+            policyVersion: committed.policyVersion
         )
         let repeated = HandoffReducer.reduce(
             committed,
@@ -678,7 +755,21 @@ struct Probe {
             wrongDestinationDecision.state == initial
                 && wrongDestinationDecision.command == nil
                 && wrongDestinationDecision.disposition == .refusedPolicy,
+            valid.stateVersion == initial.stateVersion
+                && valid.policyVersion == initial.policyVersion,
+            staleStateProposal.state == staleState
+                && staleStateProposal.command == nil
+                && staleStateProposal.disposition == .refusedPolicy,
+            stalePolicyProposal.state == stalePolicy
+                && stalePolicyProposal.command == nil
+                && stalePolicyProposal.disposition == .refusedPolicy,
             proposed.state.pendingProposal == valid && proposed.state.phase == .transitioning,
+            staleStateCommitDecision.state == staleStateCommit
+                && staleStateCommitDecision.command == nil
+                && staleStateCommitDecision.disposition == .refusedPolicy,
+            stalePolicyCommitDecision.state == stalePolicyCommit
+                && stalePolicyCommitDecision.command == nil
+                && stalePolicyCommitDecision.disposition == .refusedPolicy,
             committed.activeProfile == valid.destinationProfile && committed.activeProvider == valid.destinationProvider,
             repeated.state == committed && repeated.command == nil && repeated.disposition == .refusedPolicy,
             overBudget.state == exhausted && overBudget.command == nil && overBudget.disposition == .refusedBudget,
@@ -689,7 +780,10 @@ struct Probe {
 }
 '''
         )
-        self.assertEqual(output, "true|true|true|true|true|true|true|true\n")
+        self.assertEqual(
+            output,
+            "true|true|true|true|true|true|true|true|true|true|true|true|true\n",
+        )
 
     def test_model_availability_is_typed_reducer_owned_and_fail_closed(self):
         output = self._run_reducer_probe(
@@ -819,6 +913,22 @@ struct Probe {
         var homePath = valid
         homePath.content = "/home/fixture/private"
         homePath.fingerprint = "sha256:" + SHA256.hexDigest(homePath.content)
+        var uppercaseTraceExtension = valid
+        uppercaseTraceExtension.artifactExtension = ".TRACE"
+        var uppercaseResultExtension = valid
+        uppercaseResultExtension.artifactExtension = ".XCRESULT"
+        var lowercaseUserPath = valid
+        lowercaseUserPath.content = "/users/fixture/private"
+        lowercaseUserPath.fingerprint = "sha256:" + SHA256.hexDigest(lowercaseUserPath.content)
+        var uppercaseHomePath = valid
+        uppercaseHomePath.content = "/HOME/fixture/private"
+        uppercaseHomePath.fingerprint = "sha256:" + SHA256.hexDigest(uppercaseHomePath.content)
+        var uppercaseTraceContent = valid
+        uppercaseTraceContent.content = "SESSION.TRACE"
+        uppercaseTraceContent.fingerprint = "sha256:" + SHA256.hexDigest(uppercaseTraceContent.content)
+        var uppercaseRawPayload = valid
+        uppercaseRawPayload.content = "RAW-EVIDENCE-PAYLOAD"
+        uppercaseRawPayload.fingerprint = "sha256:" + SHA256.hexDigest(uppercaseRawPayload.content)
 
         let values = [
             SHA256.hexDigest("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
@@ -830,6 +940,12 @@ struct Probe {
             !HandoffReducer.evidenceRecordIsSafe(prohibitedExtension),
             !HandoffReducer.evidenceRecordIsSafe(rawRedaction),
             !HandoffReducer.evidenceRecordIsSafe(homePath),
+            !HandoffReducer.evidenceRecordIsSafe(uppercaseTraceExtension),
+            !HandoffReducer.evidenceRecordIsSafe(uppercaseResultExtension),
+            !HandoffReducer.evidenceRecordIsSafe(lowercaseUserPath),
+            !HandoffReducer.evidenceRecordIsSafe(uppercaseHomePath),
+            !HandoffReducer.evidenceRecordIsSafe(uppercaseTraceContent),
+            !HandoffReducer.evidenceRecordIsSafe(uppercaseRawPayload),
         ]
         print(values.map(String.init).joined(separator: "|"))
     }
@@ -838,7 +954,7 @@ struct Probe {
         )
         self.assertEqual(
             output,
-            "true|true|true|true|true|true|true|true|true\n",
+            "true|true|true|true|true|true|true|true|true|true|true|true|true|true|true\n",
         )
 
         for mutation in (
@@ -1120,6 +1236,21 @@ struct Probe {
             )
         )
 
+        var mixedLedger = executed
+        var resolvedStaleRecord = mixedLedger.ledger[0]
+        resolvedStaleRecord.stateVersion -= 1
+        resolvedStaleRecord.truth = "confirmedApplied"
+        resolvedStaleRecord.reconciled = true
+        mixedLedger.ledger.append(resolvedStaleRecord)
+        mixedLedger.effectBudget = 2
+        let mixedLedgerResult = HandoffReducer.reduce(
+            mixedLedger,
+            event: .acceptToolResult(
+                result: result,
+                authorization: request.authorization
+            )
+        )
+
         let values = [
             accepted.disposition == .applied
                 && accepted.state.ledger.first?.truth == "resultAccepted",
@@ -1132,13 +1263,16 @@ struct Probe {
             ambiguousOrigin.state == ambiguousCall
                 && ambiguousOrigin.command == nil
                 && ambiguousOrigin.disposition == .refusedPolicy,
+            mixedLedgerResult.state == mixedLedger
+                && mixedLedgerResult.command == nil
+                && mixedLedgerResult.disposition == .refusedPolicy,
         ]
         print(values.map(String.init).joined(separator: "|"))
     }
 }
 '''
         )
-        self.assertEqual(output, "true|true|true|true\n")
+        self.assertEqual(output, "true|true|true|true|true\n")
 
     def test_duplicate_context_names_fail_closed_before_serialization(self):
         output = self._run_reducer_probe(
@@ -1206,44 +1340,9 @@ struct Probe {
         output = self._run_reducer_probe(
             r'''
 import Foundation
-
-func observation(
-    state: HandoffState,
-    request: ExecutionRequest,
-    context: [ContextField]
-) -> ScenarioObservation {
-    ScenarioObservation(
-        schemaVersion: 1,
-        caseID: "identity-probe",
-        pattern: .batonPass,
-        sourceProfile: "source",
-        sourceProvider: "provider-a",
-        destinationProfile: "destination",
-        destinationProvider: "provider-b",
-        personID: "person-001",
-        sessionID: "session-001",
-        purpose: "task-execution",
-        retention: "ephemeral",
-        route: RouteContract(
-            pattern: .batonPass,
-            destinationProfile: "destination",
-            destinationProvider: "provider-b",
-            allowedEdges: [.sourceToDestination]
-        ),
-        requiredContextNames: request.requiredContextNames,
-        context: context,
-        grant: request.grant,
-        clock: 100,
-        toolAuthorization: request.authorization,
-        toolResult: nil,
-        evidence: [],
-        state: state,
-        eventRecords: [],
-        recoveryBaseline: nil,
-        auditFacts: []
-    )
-}
-
+'''
+            + OBSERVATION_PROBE_HELPER
+            + r'''
 @main
 struct Probe {
     static func main() {
@@ -1256,10 +1355,6 @@ struct Probe {
         let request = ExecutionRequest.fixture(state: committed)
         var duplicatedContext = request.context
         duplicatedContext.append(duplicatedContext[0])
-        let contextViolations = HandoffReducer.validate(
-            observation(state: committed, request: request, context: duplicatedContext)
-        )
-
         var duplicatedCall = HandoffReducer.reduce(
             committed,
             event: .execute(request: request)
@@ -1285,18 +1380,111 @@ struct Probe {
             )
         )
         duplicatedCall.executorCommandCount += 1
-        let callViolations = HandoffReducer.validate(
-            observation(state: duplicatedCall, request: request, context: request.context)
+
+        let executed = HandoffReducer.reduce(
+            committed,
+            event: .execute(request: request)
+        ).state
+
+        var missingLedger = executed
+        missingLedger.ledger = []
+
+        var extraLedger = executed
+        extraLedger.ledger.append(
+            EffectRecord(
+                effectID: "effect-002",
+                stateVersion: executed.stateVersion,
+                command: "executor.run",
+                checkpoint: "committed",
+                truth: "commandIssued",
+                reconciled: false
+            )
         )
-        print(
-            contextViolations.contains("D-CONTEXT-002")
-                && callViolations.contains("D-TOOL-001")
+
+        var mismatchedCommand = executed
+        mismatchedCommand.ledger[0].command = "other.executor"
+
+        var staleLedger = executed
+        staleLedger.ledger[0].stateVersion -= 1
+
+        var staleCommand = executed
+        let originalCommand = staleCommand.commandHistory[0]
+        staleCommand.commandHistory[0] = ExecutorCommand(
+            effectID: originalCommand.effectID,
+            callID: originalCommand.callID,
+            binding: originalCommand.binding,
+            stateVersion: originalCommand.stateVersion - 1,
+            kind: originalCommand.kind
         )
+
+        var forgedBinding = executed
+        var otherVersion = originalCommand.binding
+        otherVersion.version = "2.0"
+        forgedBinding.commandHistory[0] = ExecutorCommand(
+            effectID: originalCommand.effectID,
+            callID: originalCommand.callID,
+            binding: otherVersion,
+            stateVersion: originalCommand.stateVersion,
+            kind: originalCommand.kind
+        )
+
+        var fabricatedTruth = executed
+        fabricatedTruth.ledger[0].truth = "fabricated"
+
+        var badCheckpoint = executed
+        badCheckpoint.ledger[0].checkpoint = "not-committed"
+
+        var overEffectBudget = executed
+        overEffectBudget.effectBudget = 0
+
+        var stableAwaiting = executed
+        stableAwaiting.repairFacts = RepairFacts(
+            effectID: "effect-001",
+            lastKnownTruth: "possibleCommit",
+            disposition: .awaitingReconciliation,
+            reconciliationAttempts: 0,
+            retryAuthority: .denied
+        )
+
+        let recovery = HandoffReducer.reduce(
+            executed,
+            event: .commandUncertain(effectID: "effect-001")
+        ).state
+        var mismatchedRecovery = recovery
+        mismatchedRecovery.repairFacts.effectID = "effect-002"
+
+        var recoveryWithoutEffect = recovery
+        recoveryWithoutEffect.commandHistory = []
+        recoveryWithoutEffect.executorCommandCount = 0
+        recoveryWithoutEffect.ledger = []
+
+        let values = [
+            violations(committed, request: request, context: duplicatedContext)
+                .contains("D-CONTEXT-002"),
+            violations(duplicatedCall, request: request).contains("D-TOOL-001"),
+            violations(executed, request: request).isEmpty,
+            violations(missingLedger, request: request) == ["D-EFFECT-001"],
+            violations(extraLedger, request: request) == ["D-EFFECT-001"],
+            violations(mismatchedCommand, request: request) == ["D-EFFECT-001"],
+            violations(staleLedger, request: request) == ["D-EFFECT-001"],
+            violations(staleCommand, request: request) == ["D-EFFECT-001"],
+            violations(forgedBinding, request: request) == ["D-TOOL-001"],
+            violations(fabricatedTruth, request: request) == ["D-EFFECT-001"],
+            violations(badCheckpoint, request: request) == ["D-EFFECT-001"],
+            violations(overEffectBudget, request: request) == ["D-EFFECT-001"],
+            violations(stableAwaiting, request: request) == ["D-PHASE-001"],
+            violations(mismatchedRecovery, request: request) == ["D-PHASE-001"],
+            violations(recoveryWithoutEffect, request: request) == ["D-PHASE-001"],
+        ]
+        print(values.map(String.init).joined(separator: "|"))
     }
 }
 '''
         )
-        self.assertEqual(output, "true\n")
+        self.assertEqual(
+            output,
+            "true|true|true|true|true|true|true|true|true|true|true|true|true|true|true\n",
+        )
 
     def test_execution_grant_expiry_uses_the_request_time_inclusively(self):
         output = self._run_reducer_probe(
@@ -1363,7 +1551,9 @@ func recoveryState(_ executed: HandoffState) -> HandoffState {
         event: .commandUncertain(effectID: "effect-001")
     ).state
 }
-
+'''
+            + OBSERVATION_PROBE_HELPER
+            + r'''
 @main
 struct Probe {
     static func main() {
@@ -1390,6 +1580,54 @@ struct Probe {
             event: .retryReconciled(effectID: "effect-001")
         )
 
+        var mixedRecovery = recoveryState(executed)
+        var resolvedRecord = mixedRecovery.ledger[0]
+        resolvedRecord.truth = "confirmedApplied"
+        resolvedRecord.reconciled = true
+        mixedRecovery.ledger.append(resolvedRecord)
+        mixedRecovery.effectBudget = 2
+        let mixedReconciliation = HandoffReducer.reduce(
+            mixedRecovery,
+            event: .reconcileSucceeded(truth: .confirmedNotApplied)
+        )
+
+        var mixedRetryState = notApplied.state
+        var otherRecord = mixedRetryState.ledger[0]
+        otherRecord.truth = "confirmedApplied"
+        mixedRetryState.ledger.append(otherRecord)
+        mixedRetryState.effectBudget = 2
+        let mixedRetry = HandoffReducer.reduce(
+            mixedRetryState,
+            event: .retryReconciled(effectID: "effect-001")
+        )
+
+        let renewedUncertainty = HandoffReducer.reduce(
+            retry.state,
+            event: .commandUncertain(effectID: "effect-001")
+        )
+        let laterReconciliation = HandoffReducer.reduce(
+            renewedUncertainty.state,
+            event: .reconcileSucceeded(truth: .confirmedApplied)
+        )
+
+        var forgedRetry = notApplied.state
+        forgedRetry.commandHistory.append(
+            ExecutorCommand(
+                effectID: "effect-001",
+                callID: "forged-retry",
+                binding: request.authorization.binding,
+                stateVersion: forgedRetry.stateVersion,
+                kind: .retry
+            )
+        )
+        forgedRetry.executorCommandCount += 1
+        forgedRetry.ledger[0].truth = "retryIssued"
+        forgedRetry.repairFacts.retryAuthority = .denied
+
+        var loneRetry = retry.state
+        loneRetry.commandHistory.removeFirst()
+        loneRetry.executorCommandCount = 1
+
         let result = ToolResult(
             callID: request.authorization.callID,
             binding: request.authorization.binding,
@@ -1414,6 +1652,26 @@ struct Probe {
             repeatedRetry.state == retry.state
                 && repeatedRetry.command == nil
                 && repeatedRetry.disposition == .refusedReplay,
+            mixedReconciliation.state == mixedRecovery
+                && mixedReconciliation.command == nil
+                && mixedReconciliation.disposition == .refusedPolicy,
+            mixedRetry.state == mixedRetryState
+                && mixedRetry.command == nil
+                && mixedRetry.disposition == .refusedPolicy,
+            renewedUncertainty.disposition == .applied
+                && HandoffReducer.validate(
+                    observation(state: renewedUncertainty.state, request: request)
+                ).isEmpty,
+            laterReconciliation.disposition == .applied
+                && HandoffReducer.validate(
+                    observation(state: laterReconciliation.state, request: request)
+                ).isEmpty,
+            HandoffReducer.validate(
+                observation(state: forgedRetry, request: request)
+            ) == ["D-EFFECT-002"],
+            HandoffReducer.validate(
+                observation(state: loneRetry, request: request)
+            ) == ["D-EFFECT-002"],
             reopened.state == accepted.state
                 && reopened.command == nil
                 && reopened.disposition == .refusedPolicy,
@@ -1423,7 +1681,10 @@ struct Probe {
 }
 '''
         )
-        self.assertEqual(output, "true|true|true|true\n")
+        self.assertEqual(
+            output,
+            "true|true|true|true|true|true|true|true|true|true\n",
+        )
 
     def test_recovery_requires_one_matching_unresolved_ledger_record(self):
         output = self._run_reducer_probe(
@@ -1448,6 +1709,16 @@ struct Probe {
             duplicated,
             event: .commandUncertain(effectID: request.effectID)
         )
+        var mixed = duplicated
+        mixed.ledger.removeLast()
+        var resolved = mixed.ledger[0]
+        resolved.truth = "confirmedApplied"
+        resolved.reconciled = true
+        mixed.ledger.append(resolved)
+        let mixedDecision = HandoffReducer.reduce(
+            mixed,
+            event: .commandUncertain(effectID: request.effectID)
+        )
         var missingCommand = duplicated
         missingCommand.ledger.removeLast()
         missingCommand.commandHistory = []
@@ -1460,6 +1731,9 @@ struct Probe {
             decision.state == duplicated
                 && decision.command == nil
                 && decision.disposition == .refusedPolicy
+                && mixedDecision.state == mixed
+                && mixedDecision.command == nil
+                && mixedDecision.disposition == .refusedPolicy
                 && missingCommandDecision.state == missingCommand
                 && missingCommandDecision.command == nil
                 && missingCommandDecision.disposition == .refusedPolicy
@@ -1541,6 +1815,18 @@ struct Probe {
             event: .retryReconciled(effectID: "effect-001")
         )
 
+        var mixedRecords = missingCommand
+        var resolvedDuplicate = reconciledRecord()
+        resolvedDuplicate.truth = "confirmedApplied"
+        mixedRecords.ledger.append(resolvedDuplicate)
+        mixedRecords.effectBudget = 2
+        mixedRecords.executorCommandCount = 1
+        mixedRecords.commandHistory = [originatingCommand(callID: "call-001")]
+        let mixedRecordDecision = HandoffReducer.reduce(
+            mixedRecords,
+            event: .retryReconciled(effectID: "effect-001")
+        )
+
         var valid = missingCommand
         valid.executorCommandCount = 1
         valid.commandHistory = [originatingCommand(callID: "call-001")]
@@ -1559,6 +1845,9 @@ struct Probe {
             duplicateDecision.state == duplicateCommands
                 && duplicateDecision.command == nil
                 && duplicateDecision.disposition == .refusedPolicy,
+            mixedRecordDecision.state == mixedRecords
+                && mixedRecordDecision.command == nil
+                && mixedRecordDecision.disposition == .refusedPolicy,
             validDecision.command?.kind == .retry
                 && validDecision.state.ledger.count == 1
                 && validDecision.state.ledger[0].truth == "retryIssued"
@@ -1569,7 +1858,7 @@ struct Probe {
 }
 '''
         )
-        self.assertEqual(output, "true|true|true|true\n")
+        self.assertEqual(output, "true|true|true|true|true\n")
 
     def test_adversarial_matrix_records_refusal_and_command_suppression(self):
         by_case = {row["caseId"]: row for row in self._oracle_rows()}

@@ -606,7 +606,9 @@ enum DeterministicScenarios {
             sourceProfile: destinationState.activeProfile,
             sourceProvider: destinationState.activeProvider,
             destinationProfile: "source",
-            destinationProvider: "provider-a"
+            destinationProvider: "provider-a",
+            stateVersion: destinationState.stateVersion,
+            policyVersion: destinationState.policyVersion
         )
         let loopRefusal = event(
             destinationState,
