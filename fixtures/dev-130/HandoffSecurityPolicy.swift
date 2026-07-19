@@ -102,6 +102,188 @@ struct ReducerDecision: Equatable {
     let providerRequest: String?
 }
 
+struct DiagnosticField: Equatable {
+    let name: String
+    let value: String
+}
+
+struct DiagnosticToolResult: Equatable {
+    let originalResult: String
+    let resultType: String
+    let fields: [DiagnosticField]
+    let originalExecutionCount: Int
+}
+
+struct DiagnosticRouteContext: Equatable {
+    let callID: String
+    let toolName: String
+    let toolVersion: String
+    let stateVersion: Int
+}
+
+struct DiagnosticRouteBinding: Equatable {
+    let callID: String
+    let toolName: String
+    let toolVersion: String
+    let stateVersion: Int
+    let action: String
+    let originalResultType: String
+}
+
+enum DiagnosticBridgeDestination: Equatable {
+    case appleOnDevice
+}
+
+struct DiagnosticBridgeRequest: Equatable {
+    let trigger: String
+    let destination: DiagnosticBridgeDestination
+    let binding: DiagnosticRouteBinding
+    let fields: [DiagnosticField]
+}
+
+struct DiagnosticBridgeResponse: Equatable {
+    let schemaVersion: Int
+    let binding: DiagnosticRouteBinding
+    let resultType: String
+    let condensedResult: String
+}
+
+enum DiagnosticBridgeOutcome: Equatable {
+    case response(DiagnosticBridgeResponse)
+    case declined
+    case failed(reason: String)
+    case timedOut
+    case cancelled
+}
+
+struct DiagnosticRoutingDecision: Equatable {
+    let request: DiagnosticBridgeRequest
+    let visibleResult: String
+    let acceptedCondensation: Bool
+    let normalizedError: String?
+    let originalExecutionCount: Int
+    let rerunOriginalTool: Bool
+    let audit: [String]
+}
+
+/// Pure policy model for the host's diagnostic-result boundary. It neither
+/// invokes the original tool nor calls an Apple runtime.
+struct DiagnosticResultRoutingPolicy {
+    static let action = "condense_diagnostic_output"
+    static let approvedFieldNames: Set<String> = [
+        "severity", "code", "message", "file", "line", "column",
+    ]
+    static let responseSchemaVersion = 1
+    static let responseResultType = "diagnostic_condensation"
+
+    static func resolve(
+        result: DiagnosticToolResult,
+        context: DiagnosticRouteContext,
+        outcome: DiagnosticBridgeOutcome
+    ) -> DiagnosticRoutingDecision {
+        let binding = DiagnosticRouteBinding(
+            callID: context.callID,
+            toolName: context.toolName,
+            toolVersion: context.toolVersion,
+            stateVersion: context.stateVersion,
+            action: action,
+            originalResultType: result.resultType
+        )
+        let request = DiagnosticBridgeRequest(
+            trigger: "PostToolUse",
+            destination: .appleOnDevice,
+            binding: binding,
+            fields: result.fields.filter { approvedFieldNames.contains($0.name) }
+        )
+
+        switch outcome {
+        case let .response(response)
+            where response.schemaVersion == responseSchemaVersion
+                && response.binding == binding
+                && response.resultType == responseResultType:
+            return decision(
+                request: request,
+                result: result,
+                visibleResult: response.condensedResult,
+                accepted: true,
+                normalizedError: nil,
+                auditDecision: "accepted"
+            )
+
+        case .response:
+            return fallback(
+                request: request,
+                result: result,
+                normalizedError: "diagnostic_bridge_invalid_response"
+            )
+
+        case .declined:
+            return fallback(request: request, result: result, normalizedError: nil)
+
+        case .failed:
+            return fallback(
+                request: request,
+                result: result,
+                normalizedError: "diagnostic_bridge_failed"
+            )
+
+        case .timedOut:
+            return fallback(
+                request: request,
+                result: result,
+                normalizedError: "diagnostic_bridge_timeout"
+            )
+
+        case .cancelled:
+            return fallback(
+                request: request,
+                result: result,
+                normalizedError: "diagnostic_bridge_cancelled"
+            )
+        }
+    }
+
+    private static func fallback(
+        request: DiagnosticBridgeRequest,
+        result: DiagnosticToolResult,
+        normalizedError: String?
+    ) -> DiagnosticRoutingDecision {
+        decision(
+            request: request,
+            result: result,
+            visibleResult: result.originalResult,
+            accepted: false,
+            normalizedError: normalizedError,
+            auditDecision: normalizedError == nil ? "declined" : "preservedOriginal"
+        )
+    }
+
+    private static func decision(
+        request: DiagnosticBridgeRequest,
+        result: DiagnosticToolResult,
+        visibleResult: String,
+        accepted: Bool,
+        normalizedError: String?,
+        auditDecision: String
+    ) -> DiagnosticRoutingDecision {
+        let errorMetadata = normalizedError.map { " error=\($0)" } ?? ""
+        let audit = [
+            "event=PostToolUse action=\(action) destination=appleOnDevice "
+                + "decision=\(auditDecision) callID=\(request.binding.callID) "
+                + "fieldCount=\(request.fields.count)\(errorMetadata)"
+        ]
+        return DiagnosticRoutingDecision(
+            request: request,
+            visibleResult: visibleResult,
+            acceptedCondensation: accepted,
+            normalizedError: normalizedError,
+            originalExecutionCount: result.originalExecutionCount,
+            rerunOriginalTool: false,
+            audit: audit
+        )
+    }
+}
+
 struct HandoffSecurityPolicy {
     static func reduce(state: HandoffState, event: SecurityEvent) -> ReducerDecision {
         switch event {

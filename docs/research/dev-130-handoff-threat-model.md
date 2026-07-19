@@ -1,6 +1,8 @@
 # DEV-130 Handoff Security, Privacy, and Failure Threat Model
 
-Evidence retrieval date: `2026-07-17`
+Primary-source retrieval date: `2026-07-17`
+
+Host-evidence refresh: `2026-07-19`
 
 ## Scope, authority, and evidence labels
 
@@ -32,7 +34,7 @@ The following labels are intentionally non-interchangeable:
 - **Executed deterministic proof** means the checked-in framework-neutral Swift
   fixture ran offline with exact output. **Deterministic downstream
   requirement** means the scenario is specified here but was not executed by
-  Task 1.
+  the DEV-130 fixture.
 
 Prompts, retrieved content, tool output, model responses, summaries, repository
 text, generated code, and provider metadata remain untrusted data. Only a typed
@@ -48,20 +50,25 @@ The verified host baseline is:
 | Item | Observed value | Evidence boundary |
 | --- | --- | --- |
 | Host | arm64, macOS 26.5.1 (25F80) | Local command output |
-| Developer directory | `/Library/Developer/CommandLineTools` | Command Line Tools, not full Xcode |
-| Swift | Apple Swift 6.3.2 | Local compiler identity |
-| macOS SDK | 26.5 | Local `xcrun` result |
+| Xcode | 26.6 (17F113) | Local `xcodebuild` result |
+| Developer directory | `/Applications/Xcode.app/Contents/Developer` | Full Xcode 26.6 selected |
+| Swift | Apple Swift 6.3.3 (`swiftlang-6.3.3.1.3`), driver 1.148.6 | Local compiler identity |
+| macOS and iPhoneOS SDKs | 26.5 | Local `xcrun` results |
 | Installed interface SHA-256 | `ff2285670b0966addb9827dc895a3ee3c9db6e186baae62c034fed012632aacc` | Pins the installed Apple interface |
 | `LanguageModelSession.transcript` | get-only | Installed SDK 26.5 interface |
 | Stable session errors | `LanguageModelSession.GenerationError` and `LanguageModelSession.ToolCallError` | Installed SDK 26.5 interface |
 | Dynamic profiles, `.onToolCall`, `.historyTransform`, mutable transcript, transcript error policy | absent | Installed SDK 26.5 interface; present only in official Xcode 27 beta guidance reviewed below |
-| Full Xcode, iPhone SDK, `xctrace`, Instruments, Evaluations | unavailable on this host | Explicit blockers, not security passes |
+| `xctrace` and `simctl` | `xctrace` 16.0 (17F113); available simulators, including booted iPhone and iPad targets | Structural host evidence only; no live model/bridge proof |
+| Xcode/SDK 27 beta declarations, legacy `Instruments`, `Evaluations` | unavailable on this host | Exact blockers, not security passes |
 
 The installed interface contains the stable transcript, tool, session, and error
 shapes needed by the DEV-128 regression fixtures. It does not validate Apple’s
 Xcode 27 beta callbacks or mutable-history behavior. The production design must
 therefore keep its deterministic policy independent of those beta APIs and use
 them only as version-labelled integration points after compatible-host proof.
+The original `2026-07-17` structural collection used Command Line Tools and
+Swift 6.3.2. The `2026-07-19` refresh supersedes those host facts while retaining
+the unchanged SDK 26.5 interface hash and the original source-retrieval date.
 
 ## Official Apple fact ledger
 
@@ -160,6 +167,10 @@ over-sharing, or trace disclosure.
 11. **Generated guidance to execution:** generated Swift, shell, or configuration
     is untrusted until version-labelled, reviewed, compiled, tested, and
     explicitly executed.
+12. **Diagnostic tool result to local Apple bridge:** the host selects the
+    diagnostic route after the original tool returns, sends only allowlisted
+    local fields under exact action `condense_diagnostic_output`, and treats the
+    Apple response as untrusted until schema and provenance validation.
 
 ## Data classification and transfer policy
 
@@ -257,6 +268,28 @@ The guarantee is application-controlled **at-most-once** execution plus
 reconciliation, not exactly-once delivery. An external service can fail after
 commit or lack idempotency; transcript rollback cannot undo that effect.
 
+### Diagnostic-result routing contract
+
+The July 18 amendment binds the actual host boundary: selected diagnostic tool
+results enter a `PostToolUse` route to an Apple-first local Swift bridge using
+the exact action `condense_diagnostic_output`. The original tool has already
+run. The route builds a new bridge request from an explicit allowlist of local
+diagnostic fields and never reruns the original tool.
+
+Apple output remains untrusted until the application validates the exact
+response schema and request provenance: call ID, tool name and version, source
+state version, action, original result type, and response result type. A valid
+response may replace the visible result. A bridge decline returns the original
+result and no false error. Invalid output, bridge failure, timeout, or
+cancellation returns the original result plus a bounded normalized error and
+does not duplicate the original effect. Audit and committed evidence record
+only trigger/action, synthetic binding metadata, field count, decision, and
+normalized error class—never raw diagnostic or bridge content.
+
+DEV-130 implements only the pure policy model and deterministic fixture for
+this boundary. It neither installs the production `PostToolUse` hook nor calls
+the local Swift bridge or a live Foundation Models session.
+
 ## Mandatory testable invariants
 
 These are mandatory plugin/application policy, not Apple API guarantees:
@@ -287,11 +320,14 @@ These are mandatory plugin/application policy, not Apple API guarantees:
     for allowlist, schema and semantic arguments, recipient/resource, versions,
     authority, current auth/permissions, confirmation, and effect budget.
 11. **Tool-result provenance:** accepted results bind outstanding call ID,
-    expected tool/version/provider, current state, and result type. Model text or
-    mismatched output cannot close a call.
+    expected tool/version/provider, current state, action, schema, and result
+    types. The diagnostic route additionally permits only allowlisted local
+    fields. Model text or mismatched output cannot close a call or replace the
+    original result.
 12. **At-most-once effect:** each logical effect has a stable idempotency key and
     ledger entry. Retry reconciles the recorded result and emits no second
-    executor command.
+    executor command. Post-result condensation never reruns the original tool;
+    decline or bridge interruption preserves its first result.
 13. **Truthful recovery:** pre-commit rollback and uncertain external effect are
     separate. Any possible commit enters `recoveryRequired` until reconciled.
 14. **Cancellation:** pre-commit cancellation restores the checkpoint; uncertain
@@ -341,9 +377,9 @@ mandatory invariants:
 | Indirect prompt injection | Untrusted context to model and executor | Keep context as data; typed events only; deterministic reducer; tool and transition checks | Model behavior may still be influenced; prompt-level defenses are probabilistic. |
 | Data exfiltration | Private data plus outward tool/provider | C3 block, C2 default block, field-level envelopes, recipient/resource validation, effect confirmation | Classification/redaction can miss novel sensitive data. |
 | Over-sharing | Baton-pass, consultation, provider boundary | Target-necessary selection; isolated child envelope; atomic fail-closed transfer | Necessary context is task-specific and may be misclassified. |
-| Spoofed tool results / spoofing | Model/provider output to evidence state | Bind call ID, tool/version/provider, type, and current state; label opaque provider tools unknown | A compromised expected provider/tool can still lie within its authority. |
+| Spoofed tool results / spoofing | Model/provider output to evidence state | Bind call ID, tool/version/provider, action, schema, result types, and current state; accept diagnostic condensation only after an exact match; label opaque provider tools unknown | A compromised expected provider/tool can still lie within its authority. |
 | Authorization confusion | Prompt/summary/old approval to executor | Separate grants and effect confirmations; bind purpose, versions, recipient, expiry, and auth | Confirmation fatigue or deceptive UI can weaken human review. |
-| Duplicate effects | Retry across executor/external service | Stable idempotency key, application ledger, at-most-once command emission, reconciliation | External service may lack durable idempotency; exactly-once is not promised. |
+| Duplicate effects | Retry across executor/external service or post-result bridge | Stable idempotency key, application ledger, at-most-once command emission, reconciliation; condensation never reruns the original tool | External service may lack durable idempotency; exactly-once is not promised. |
 | Transition loops | Profile graph and tool loop | Valid graph, transition/turn/tool budgets, phase gate before budget, explicit termination | An allowed but poor transition can consume the finite budget. |
 | Partial failure | Transcript/state versus external effect | Separate not-committed from uncertain; checkpoint rollback only before commit; recovery ledger afterward | External truth may remain unavailable and require human repair. |
 | Cancellation | In-flight transition/effect | Restore pre-commit checkpoint; uncertain commit enters recovery; late cancellation ignored | User may see a cancelled response while the external effect exists. |
@@ -435,8 +471,11 @@ rules. Production logging being normally off does not make a trace safe.
 The deterministic fixture uses synthetic data, no network, no live model, no
 PCC/custom provider, no credentials, no entitlement, and no paid service.
 Evidence scanners check forbidden sentinel content and artifact extensions.
-Full Xcode 27, Instruments, Evaluations, or device absence is reported as a
-blocker rather than converted into a security pass.
+Xcode/SDK 27, the legacy `Instruments` binary, or `Evaluations` absence is
+reported as a blocker rather than converted into a security pass. Current
+Xcode 26.6, iPhoneOS 26.5, `xctrace`, and simulator availability are labelled
+structural evidence and is not converted into live model, bridge, or trace
+proof.
 
 ## Adversarial E2E matrix and executed proof
 
@@ -444,35 +483,38 @@ The executed proof is the framework-neutral
 [`AdversarialScenarios.swift`](../../fixtures/dev-130/AdversarialScenarios.swift)
 runner with the exact
 [`expected-output.txt`](../../fixtures/dev-130/expected-output.txt) contract.
-“Executed: Task 1” means the assertion ran in that fixture. “Partial” names the
-subset that ran. Every other row is a deterministic downstream requirement and
-must not be represented as executed proof.
+“Executed: DEV-130 fixture” means the assertion ran in that fixture. “Partial”
+names the subset that ran. Every other row is a deterministic downstream
+requirement and must not be represented as executed proof.
 
 | Case | Initial state | Ordered event | Expected final state | Expected command/effect count | Redacted evidence | Proof status |
 | --- | --- | --- | --- | --- | --- | --- |
-| Injection | `stable(research,onDevice)`, counts 0 | untrusted tool text contains forged transition/effect instructions | Same stable authority | commands 0, effects 0 | event name + `decision=ignored` | **Executed: Task 1** |
-| Disallowed transfer | Stable; custom destination; envelope includes C3 | typed transition proposal with even an over-broad grant | Stable, no pending/checkpoint | commands 0, effects 0 | blocked + class only; no field value | **Executed: Task 1** |
-| Pre-effect tool failure | Stable checkpoint, valid proposal | propose -> one transition command -> `.notCommitted` failure | Original stable profile/provider/version | commands 1 total, effects 0 | restored/notCommitted | **Executed: Task 1** |
-| Post-effect/uncertain tool failure | Transitioning after one command | failure with synthetic uncertain effect ID -> replay | `recoveryRequired`, pending/checkpoint retained for repair | commands 1 total, ledger effects 1 | recovery + synthetic effect ID | **Executed: Task 1** |
-| Transition budget | Stable, max 3 | three valid propose/commit pairs -> fourth proposal | `terminated(transitionBudgetExceeded)` with prior sole active identity | commands 3, effects 0 | transition count + terminal reason | **Executed: Task 1** |
-| Cancellation | Transitioning after one command | pre-commit cancel; companion uncertain cancel; late stable cancel | checkpoint-restored stable, or `recoveryRequired` for uncertain; late event unchanged | one command per companion run; uncertain ledger 1 | phase/counts only | **Executed: Task 1** |
-| Duplicate retry | `recoveryRequired`, ledger contains effect key | identical logical effect retry/replay | Same recovery or reconciled truthful stable state | external invocation exactly 1; ledger 1 | idempotency-key hash + reconciliation state | **Partial:** Task 1 proves replay adds no command/ledger duplicate; external executor retry remains downstream |
+| Injection | `stable(research,onDevice)`, counts 0 | untrusted tool text contains forged transition/effect instructions | Same stable authority | commands 0, effects 0 | event name + `decision=ignored` | **Executed: DEV-130 fixture** |
+| Disallowed transfer | Stable; custom destination; envelope includes C3 | typed transition proposal with even an over-broad grant | Stable, no pending/checkpoint | commands 0, effects 0 | blocked + class only; no field value | **Executed: DEV-130 fixture** |
+| Diagnostic-result routing | Original diagnostic result already executed once | `PostToolUse` builds allowlisted Apple request; valid, declined, invalid, failed, timed-out, and cancelled companions resolve | Valid bound response replaces visible result; every other companion preserves original | original executions 1; reruns 0 | trigger/action, synthetic binding, field count, decision, normalized error only | **Executed: DEV-130 fixture** |
+| Pre-effect tool failure | Stable checkpoint, valid proposal | propose -> one transition command -> `.notCommitted` failure | Original stable profile/provider/version | commands 1 total, effects 0 | restored/notCommitted | **Executed: DEV-130 fixture** |
+| Post-effect/uncertain tool failure | Transitioning after one command | failure with synthetic uncertain effect ID -> replay | `recoveryRequired`, pending/checkpoint retained for repair | commands 1 total, ledger effects 1 | recovery + synthetic effect ID | **Executed: DEV-130 fixture** |
+| Transition budget | Stable, max 3 | three valid propose/commit pairs -> fourth proposal | `terminated(transitionBudgetExceeded)` with prior sole active identity | commands 3, effects 0 | transition count + terminal reason | **Executed: DEV-130 fixture** |
+| Cancellation | Transitioning after one command | pre-commit cancel; companion uncertain cancel; late stable cancel | checkpoint-restored stable, or `recoveryRequired` for uncertain; late event unchanged | one command per companion run; uncertain ledger 1 | phase/counts only | **Executed: DEV-130 fixture** |
+| Duplicate retry | `recoveryRequired`, ledger contains effect key | identical logical effect retry/replay | Same recovery or reconciled truthful stable state | external invocation exactly 1; ledger 1 | idempotency-key hash + reconciliation state | **Partial:** fixture proves replay adds no command/ledger duplicate; external executor retry remains downstream |
 | Spoofed result | Executing effect with outstanding typed call | model text claims success -> wrong call/tool result -> matching typed result | Only matching result may close call | commands unchanged; one accepted result | call/tool synthetic IDs + rejection reasons | Deterministic downstream requirement |
 | Confirmation replay | Stable, grant/confirmation for PCC C0/C1 and recipient A | replay for custom C2 or recipient B | Stable; confirmation rejected | commands/effects 0 | binding mismatch names only | Deterministic downstream requirement |
 | Summary poisoning | Stable, no grant/effect | summary claims user approved custom provider/delete | Same grants, ledger, active state | commands/effects 0 | `source=summary decision=untrusted` | Deterministic downstream requirement |
 | Unsafe fallback | PCC unavailable/quota; custom configured | provider-unavailable event -> attempt custom fallback without grant | Explicit unavailable, or authorized on-device degraded state | provider/effect commands 0 unless equal/lower authorized on-device | availability class + selected safe outcome | Deterministic downstream requirement |
-| Stale concurrency | Stable version N; two proposals from N | accept first/in-flight -> second proposal; companion stale proposal | At most one transition; no dual active state | commands at most 1, effects 0 | phase/version mismatch only | **Executed: Task 1** for stale and in-flight proposal rejection |
+| Stale concurrency | Stable version N; two proposals from N | accept first/in-flight -> second proposal; companion stale proposal | At most one transition; no dual active state | commands at most 1, effects 0 | phase/version mismatch only | **Executed: DEV-130 fixture** for stale and in-flight proposal rejection |
 | Transcript repair | Preserved history with partial response/unmatched call | resume request -> validator repair/drop -> validate | Inference blocked until one valid stable/recovery state | effect commands 0 during repair | entry types/counts/provenance decisions | Deterministic downstream requirement |
 | Auth expiry | Confirmed while unlocked | auth expires -> immediate pre-execution revalidation | Stable blocked/awaiting fresh confirmation | effect commands 0 | auth-state class, no credential | Deterministic downstream requirement |
 | Opaque provider tools | Custom provider returns final text without typed tool trace | accept provider response metadata -> render disclosure | Response may continue, but tool activity is `unknown` | local tool count unknown, never asserted zero | provider ID + `toolVisibility=opaque` | Deterministic downstream requirement |
-| Trace leakage | Synthetic classified fields and reasoning markers | run default audit -> scan repository/log output | Stable; evidence contains metadata only | effects unchanged; leaked values 0 | classes, hashes, counts | Partial: Task 1 proves C3 field value absent from provider/audit; full trace scanner downstream |
+| Trace leakage | Synthetic classified fields and reasoning markers | run default audit -> scan repository/log output | Stable; evidence contains metadata only | effects unchanged; leaked values 0 | classes, hashes, counts | Partial: fixture proves C3 and raw diagnostic values absent from audit and fixture output; full trace scanner downstream |
 | Error/fallback mapping | Table-driven stable state for each installed/beta-labelled error class | context/refusal/decoding/rate/concurrent/tool/timeout/cancel event | Explicit stable, terminated, unavailable, or `recoveryRequired` mapping | no silent retry; effect count at most prior ledger | error class + mapped phase only | Deterministic downstream requirement |
 
-The executed output contains seven PASS scenario lines and
-`SUMMARY passed=7 failed=0`; repeated runs are byte-identical. The fixture also
+The executed output contains eight PASS scenario lines and
+`SUMMARY passed=8 failed=0`; repeated runs are byte-identical. The fixture also
 asserts separate state/policy versions, grant mismatch cases, proposal phase
-gating, late-event immunity, and uncertain replay. It does not invoke a model,
-Apple callbacks, a provider, Instruments, Evaluations, or an external effect.
+gating, late-event immunity, uncertain replay, diagnostic field filtering,
+strict Apple-response binding, original-result preservation, and no rerun. It
+does not invoke a model, Apple callbacks, the production bridge, a provider,
+Instruments, Evaluations, or an external effect.
 
 ## Downstream decision contract
 
@@ -482,9 +524,9 @@ These requirements bind the named follow-on issues:
 | --- | --- |
 | DEV-132 | Architecture must keep the deterministic reducer authoritative, model proposals untrusted, baton-pass distinct from isolated consultation, and one stable active profile/provider. |
 | DEV-134 | The skill design and output contract must require C0–C3 classification with provenance, atomic fail-closed envelopes, target-necessary baton-pass history, minimized isolated-consultation context, destination-bound grants, and truthful PCC/custom-provider labels. |
-| DEV-136 | The production `SKILL.md` workflow guidance must direct generated handoff work to specify semantic argument/recipient/resource checks, immediate bound confirmation, auth revalidation, provenance-valid results, idempotency, and application-controlled at-most-once behavior; it must not claim the skill itself provides an app runtime enforcement layer. |
+| DEV-136 | The production `SKILL.md` workflow guidance must direct generated handoff work to specify semantic argument/recipient/resource checks, immediate bound confirmation, auth revalidation, provenance-valid results, idempotency, and application-controlled at-most-once behavior. Its approved host `PostToolUse` diagnostic route must retain exact action `condense_diagnostic_output`, approved-field-only Apple input, strict response binding, original-result fallback, normalized interruption errors, and no original-tool rerun; DEV-130 does not claim the skill itself supplies that runtime. |
 | DEV-137 | The reference library must distinguish installed Apple facts, official Xcode 27 beta guidance, mandatory plugin policy, and recommendations while documenting independent `stateVersion`/`policyVersion`, phase-before-budget, single-active state, finite budgets, pre-commit rollback, uncertain-effect recovery, cancellation, transcript repair, and safe fallback. |
-| DEV-138 | The deterministic fixture suite must prove all downstream adversarial rows, retain exact output and repeated-run contracts, remain offline/synthetic, and never treat optional host blockers as passes. |
+| DEV-138 | The deterministic fixture suite must prove all downstream adversarial rows, retain exact output and repeated-run contracts including diagnostic-result routing, remain offline/synthetic, and never treat optional host blockers as passes. |
 | DEV-139 | The cross-host harness must assert the security contract through real Claude and Codex task invocations and evidence scans: metadata-only outputs, no forbidden sentinels or trace/result artifacts, honest executed-versus-blocked labels, and no silent loss of the documented confirmation, recovery, provider, and fallback rules. It does not own runtime transcript handling. |
 | DEV-141 | The final acceptance and release-readiness gate must reject release when source/version labels drift, deterministic or cross-host security assertions fail, downstream-only scenarios are claimed as executed, blockers are represented as passes, required policy/recovery behavior is absent, or evidence contains sensitive/raw trace material. |
 

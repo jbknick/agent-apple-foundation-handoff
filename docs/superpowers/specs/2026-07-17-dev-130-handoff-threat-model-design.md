@@ -2,7 +2,9 @@
 
 Issue: [DEV-130](https://linear.app/devprentice/issue/DEV-130/r4parallel-define-the-handoff-security-privacy-and-failure-threat)
 
-Evidence collection range: `2026-07-16` through `2026-07-17`
+Primary-source collection range: `2026-07-16` through `2026-07-17`
+
+Host-evidence refresh: `2026-07-19`
 
 ## Purpose
 
@@ -41,6 +43,13 @@ transcript error policies are official Xcode 27 beta guidance. The installed
 SDK 26.5 session transcript is get-only. These beta surfaces may illustrate
 controls but are not default-test prerequisites or locally verified APIs.
 
+The refreshed host uses Xcode 26.6 (17F113), Swift 6.3.3, and the macOS and
+iPhoneOS 26.5 SDKs. `xctrace` and `simctl` are available, while the legacy
+`Instruments` binary, SDK 27 declarations, and the `Evaluations` module remain
+blocked. The pinned Foundation Models interface hash is unchanged. Availability
+of those host tools is structural evidence only; no live model or bridge call
+was executed for DEV-130.
+
 ## Selected policy architecture
 
 The policy layer distinguishes model proposals from application authority.
@@ -63,6 +72,23 @@ The design promises application-controlled at-most-once execution plus
 reconciliation, not exactly-once delivery. Transcript rollback cannot undo an
 external effect. A timeout, cancellation, or error after a possible commit
 enters `recoveryRequired` until the ledger and external resource are reconciled.
+
+### Diagnostic-result routing boundary
+
+The July 18 host contract selects diagnostic tool results at `PostToolUse` and
+uses the exact action `condense_diagnostic_output` for an Apple-first local
+bridge. The host executes the original tool once, then constructs a request
+from an explicit diagnostic-field allowlist. The bridge is not allowed to
+trigger the tool again.
+
+The Apple response remains untrusted until its schema version, call ID, tool
+name and version, source state version, action, original result type, and
+response result type match the request. A valid response may replace the
+visible result. A decline preserves the original result without an error;
+invalid output, failure, timeout, or cancellation preserves the original,
+returns a bounded normalized error, and never duplicates the original effect.
+Audit evidence records metadata only. DEV-130 models this resolver as a pure
+repository fixture; it does not install or invoke the production hook or bridge.
 
 ## Data and confirmation policy
 
@@ -131,9 +157,12 @@ real user content, and `.trace` files. Explicit raw Instruments capture is kept
 outside the repository under separate retention and deletion controls.
 
 Default proof uses synthetic sentinels and no network, PCC, provider
-credential, paid service, model generation, hardware, or full-Xcode
-requirement. Missing Xcode 27, Instruments, Evaluations, or a compatible target
-is an explicit optional-host blocker, never a security pass.
+credential, paid service, model generation, hardware, or live Apple-runtime
+requirement. Missing Xcode/SDK 27, the legacy `Instruments` binary,
+`Evaluations`, or a compatible beta target is an explicit optional-host
+blocker, never a security pass. Xcode 26.6, iPhoneOS 26.5, `xctrace`, and
+`simctl` availability are reported as current structural passes, not runtime
+security proof.
 
 ## Deterministic fixture boundary
 
@@ -158,6 +187,10 @@ partial-failure cases into pre-commit and uncertain-commit variants:
 4. three transitions are allowed and the fourth is terminated by the budget;
 5. pre-commit cancellation restores the checkpoint, while cancellation after a
    possible effect enters recovery without duplication.
+6. selected diagnostic results route only approved fields through exact action
+   `condense_diagnostic_output`; only a schema- and provenance-bound Apple
+   response is accepted, while decline, failure, timeout, and cancellation
+   preserve the once-executed original result without rerun.
 
 The fixture validates application policy only. It does not invoke a model,
 prove Apple framework callbacks, exercise a provider, or claim exactly-once
@@ -165,7 +198,8 @@ external effects.
 
 ## Artifacts and commit boundaries
 
-The DEV-130 stacked delta contains exactly these seven files:
+The DEV-130 issue delta is based on current `origin/main` and contains exactly
+these seven files:
 
 - this design;
 - `docs/superpowers/plans/2026-07-17-dev-130-handoff-threat-model.md`;
@@ -175,7 +209,10 @@ The DEV-130 stacked delta contains exactly these seven files:
 - `fixtures/dev-130/AdversarialScenarios.swift`; and
 - `fixtures/dev-130/expected-output.txt`.
 
-Design, plan, mock policy, and report/evidence changes are committed separately
-so the issue remains reviewable. Review corrections use narrow follow-up
-commits. The branch remains local until the parent rebases it onto the final
-DEV-129 head; it is not pushed, merged, tagged, or released from this task.
+Historical implementation commits remain reviewable. Integration uses exactly
+three main-agent review/fix rounds; each round delegates named corrections to a
+fresh worker and re-verifies the resulting diff. After zero actionable findings
+and current gates, the reviewed head is force-pushed only with an exact lease,
+squash-merged to `main` with head-SHA protection, and checked for reviewed-tree
+identity plus a merged-result smoke run. Linear receives only completion-contract
+evidence and status propagation required by the issue definition of done.

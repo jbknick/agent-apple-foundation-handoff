@@ -93,6 +93,19 @@ struct AdversarialScenarios {
         expect(after.effectLedger == before.effectLedger, "\(message): effect ledger changed")
     }
 
+    static func expectDiagnosticFallback(
+        _ decision: DiagnosticRoutingDecision,
+        originalResult: String,
+        normalizedError: String?,
+        _ message: String
+    ) {
+        expect(decision.visibleResult == originalResult, "\(message): original result changed")
+        expect(!decision.acceptedCondensation, "\(message): condensation was accepted")
+        expect(decision.normalizedError == normalizedError, "\(message): wrong error")
+        expect(decision.originalExecutionCount == 1, "\(message): execution count changed")
+        expect(!decision.rerunOriginalTool, "\(message): original tool would rerun")
+    }
+
     static func main() {
         let injected = HandoffSecurityPolicy.reduce(
             state: baseState(),
@@ -153,6 +166,169 @@ struct AdversarialScenarios {
         print(
             "PASS sensitive-provider-transfer blocked=\(blocked.providerRequest == nil) "
                 + "sentinelLeaked=\(sentinelLeaked)"
+        )
+
+        let rawDiagnostic = "DEV130_DIAGNOSTIC_RAW_SENTINEL"
+        let diagnosticResult = DiagnosticToolResult(
+            originalResult: rawDiagnostic,
+            resultType: "compiler_diagnostics",
+            fields: [
+                DiagnosticField(name: "severity", value: "warning"),
+                DiagnosticField(name: "code", value: "synthetic-warning"),
+                DiagnosticField(name: "message", value: "synthetic diagnostic summary"),
+                DiagnosticField(name: "rawOutput", value: rawDiagnostic),
+            ],
+            originalExecutionCount: 1
+        )
+        let diagnosticContext = DiagnosticRouteContext(
+            callID: "synthetic-call-001",
+            toolName: "synthetic-compiler",
+            toolVersion: "1.0",
+            stateVersion: 1
+        )
+        let declinedDiagnostic = DiagnosticResultRoutingPolicy.resolve(
+            result: diagnosticResult,
+            context: diagnosticContext,
+            outcome: .declined
+        )
+        expect(
+            declinedDiagnostic.request.trigger == "PostToolUse",
+            "diagnostic route used the wrong trigger"
+        )
+        expect(
+            declinedDiagnostic.request.binding.action == "condense_diagnostic_output",
+            "diagnostic route used the wrong action"
+        )
+        expect(
+            declinedDiagnostic.request.destination == .appleOnDevice,
+            "diagnostic route was not Apple-first"
+        )
+        expect(
+            declinedDiagnostic.request.fields.map(\.name) == ["severity", "code", "message"],
+            "diagnostic route did not enforce its field allowlist"
+        )
+        expect(
+            !declinedDiagnostic.request.fields.contains(where: { $0.value == rawDiagnostic }),
+            "raw diagnostic crossed the Apple bridge"
+        )
+        expectDiagnosticFallback(
+            declinedDiagnostic,
+            originalResult: rawDiagnostic,
+            normalizedError: nil,
+            "diagnostic decline"
+        )
+
+        let acceptedResponse = DiagnosticBridgeResponse(
+            schemaVersion: 1,
+            binding: declinedDiagnostic.request.binding,
+            resultType: "diagnostic_condensation",
+            condensedResult: "synthetic condensed result"
+        )
+        let acceptedDiagnostic = DiagnosticResultRoutingPolicy.resolve(
+            result: diagnosticResult,
+            context: diagnosticContext,
+            outcome: .response(acceptedResponse)
+        )
+        expect(
+            acceptedDiagnostic.visibleResult == acceptedResponse.condensedResult,
+            "valid diagnostic response was not accepted"
+        )
+        expect(acceptedDiagnostic.acceptedCondensation, "valid response remained untrusted")
+        expect(acceptedDiagnostic.normalizedError == nil, "valid response produced an error")
+        expect(acceptedDiagnostic.originalExecutionCount == 1, "valid response changed executions")
+        expect(!acceptedDiagnostic.rerunOriginalTool, "valid response would rerun the tool")
+
+        let mismatchedBinding = DiagnosticRouteBinding(
+            callID: diagnosticContext.callID,
+            toolName: diagnosticContext.toolName,
+            toolVersion: "different-version",
+            stateVersion: diagnosticContext.stateVersion,
+            action: declinedDiagnostic.request.binding.action,
+            originalResultType: diagnosticResult.resultType
+        )
+        let invalidResponses = [
+            DiagnosticBridgeResponse(
+                schemaVersion: 2,
+                binding: declinedDiagnostic.request.binding,
+                resultType: acceptedResponse.resultType,
+                condensedResult: "wrong schema"
+            ),
+            DiagnosticBridgeResponse(
+                schemaVersion: acceptedResponse.schemaVersion,
+                binding: mismatchedBinding,
+                resultType: acceptedResponse.resultType,
+                condensedResult: "wrong provenance"
+            ),
+            DiagnosticBridgeResponse(
+                schemaVersion: acceptedResponse.schemaVersion,
+                binding: declinedDiagnostic.request.binding,
+                resultType: "wrong_result_type",
+                condensedResult: "wrong type"
+            ),
+        ]
+        for invalidResponse in invalidResponses {
+            expectDiagnosticFallback(
+                DiagnosticResultRoutingPolicy.resolve(
+                    result: diagnosticResult,
+                    context: diagnosticContext,
+                    outcome: .response(invalidResponse)
+                ),
+                originalResult: rawDiagnostic,
+                normalizedError: "diagnostic_bridge_invalid_response",
+                "invalid diagnostic response"
+            )
+        }
+
+        let failedOutcomes: [(DiagnosticBridgeOutcome, String, String)] = [
+            (
+                .failed(reason: "DEV130_DIAGNOSTIC_FAILURE_SENTINEL"),
+                "diagnostic_bridge_failed",
+                "failure"
+            ),
+            (.timedOut, "diagnostic_bridge_timeout", "timeout"),
+            (.cancelled, "diagnostic_bridge_cancelled", "cancellation"),
+        ]
+        for (outcome, normalizedError, label) in failedOutcomes {
+            expectDiagnosticFallback(
+                DiagnosticResultRoutingPolicy.resolve(
+                    result: diagnosticResult,
+                    context: diagnosticContext,
+                    outcome: outcome
+                ),
+                originalResult: rawDiagnostic,
+                normalizedError: normalizedError,
+                "diagnostic \(label)"
+            )
+        }
+
+        let diagnosticEvidence = (
+            [declinedDiagnostic, acceptedDiagnostic]
+                + invalidResponses.map {
+                    DiagnosticResultRoutingPolicy.resolve(
+                        result: diagnosticResult,
+                        context: diagnosticContext,
+                        outcome: .response($0)
+                    )
+                }
+                + failedOutcomes.map {
+                    DiagnosticResultRoutingPolicy.resolve(
+                        result: diagnosticResult,
+                        context: diagnosticContext,
+                        outcome: $0.0
+                    )
+                }
+        ).flatMap(\.audit).joined(separator: "\n")
+        expect(!diagnosticEvidence.contains(rawDiagnostic), "raw diagnostic leaked to audit")
+        expect(
+            !diagnosticEvidence.contains("DEV130_DIAGNOSTIC_FAILURE_SENTINEL"),
+            "raw bridge failure leaked to audit"
+        )
+        print(
+            "PASS diagnostic-result-routing "
+                + "action=\(declinedDiagnostic.request.binding.action) "
+                + "fields=\(declinedDiagnostic.request.fields.count) "
+                + "executions=\(declinedDiagnostic.originalExecutionCount) "
+                + "rerun=\(declinedDiagnostic.rerunOriginalTool)"
         )
 
         let validationState = baseState()
@@ -505,6 +681,6 @@ struct AdversarialScenarios {
                 + "commands=\(cancellationUncertain.state.executorCommandCount)"
         )
 
-        print("SUMMARY passed=7 failed=0")
+        print("SUMMARY passed=8 failed=0")
     }
 }

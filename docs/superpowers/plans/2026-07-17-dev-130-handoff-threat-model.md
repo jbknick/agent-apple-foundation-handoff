@@ -2,11 +2,15 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Publish an Apple-source-grounded handoff threat model and execute a deterministic offline mock that proves DEV-130's five mandatory adversarial outcomes.
+**Goal:** Publish an Apple-source-grounded handoff threat model and execute a
+deterministic offline mock for the original adversarial outcomes plus the
+approved diagnostic-result routing boundary.
 
 **Architecture:** Keep Apple API facts and version labels in research evidence, while expressing the selected security policy as a framework-neutral typed reducer. Split the reducer from its executable scenario runner so policy state and adversarial expectations are independently reviewable; capture exact commands, outputs, blockers, and non-claims in a separate evidence transcript.
 
-**Tech Stack:** Markdown, Swift 6.3.2 standard library, macOS Command Line Tools SDK 26.5 inspection, POSIX shell validation, official Apple documentation and WWDC26 sources.
+**Tech Stack:** Markdown, Swift 6.3.3 standard library, Xcode 26.6 with macOS
+and iPhoneOS SDK 26.5 inspection, POSIX shell validation, official Apple
+documentation and WWDC26 sources.
 
 ## Global Constraints
 
@@ -18,11 +22,21 @@
 - Require bound provider grants, immediate confirmation for high-impact effects, one stable active state, valid versioned transitions, finite budgets, provenance-bound results, least-context envelopes, and no silent trust-expanding fallback.
 - Promise application-controlled at-most-once execution plus reconciliation/recovery, never exactly-once or external-effect rollback.
 - Keep default evidence metadata-only; raw prompts, responses, reasoning, tool arguments/results, credentials, real user content, and `.trace` files are excluded from committed artifacts.
-- Default tests use no model generation, network service, PCC, provider credentials, paid service, full Xcode, or hardware requirement.
+- Default tests use no model generation, network service, PCC, provider
+  credentials, paid service, live Apple bridge, or hardware requirement.
 - Apple `.onToolCall`, `.historyTransform`, mutable session transcript, and transcript error policies are official Xcode 27 beta guidance; the installed SDK 26.5 session transcript is get-only.
-- Missing SDK, binary, target, Instruments, Evaluations, or hardware support is an explicit blocker, never a pass.
+- Missing SDK 27 declarations, the legacy `Instruments` binary, `Evaluations`,
+  or compatible beta support is an explicit blocker, never a pass. Current
+  Xcode 26.6, iPhoneOS 26.5, `xctrace`, and `simctl` availability is structural
+  evidence only.
+- The `PostToolUse` diagnostic route uses exact action
+  `condense_diagnostic_output`, an approved local-field allowlist, strict
+  response schema/provenance binding, original-result preservation, and no
+  original-tool rerun. DEV-130 remains a pure repository model, not the host
+  hook or production bridge.
 
-**Stack base:** temporary local DEV-129 head `b4e12a6`; the parent will rebase this branch onto final DEV-129 before push or PR creation.
+**Integration base:** current `origin/main`; the issue delta remains exactly the
+seven paths listed in final verification.
 
 **Design:** `docs/superpowers/specs/2026-07-17-dev-130-handoff-threat-model-design.md`
 
@@ -34,15 +48,21 @@
 - `docs/research/dev-130-handoff-threat-model.md`: durable assets/actors/boundaries/threats/controls/invariants/residual-risks report.
 - `docs/research/evidence/dev-130-command-transcript.md`: commands, exact outputs, environment labels, source checks, blockers, and non-claims.
 
-## Commit boundaries
+## Review and merge boundaries
 
 1. `docs(DEV-130): design handoff threat model`
 2. `docs(DEV-130): plan handoff threat model research`
 3. `test(DEV-130): add adversarial handoff policy fixture`
 4. `docs(DEV-130): publish threat model evidence`
 
-Review corrections use narrow follow-up commits. Do not squash, push, merge,
-tag, or release from this task.
+Historical implementation commits remain reviewable. Integration requires
+exactly three main-agent rounds: correctness/scope, simplicity, and adversarial
+acceptance. Each round uses a fresh worker for named corrections, followed by
+main-agent diff inspection and focused verification. Only after all rounds are
+clean may the reviewed head be pushed with an exact force lease and
+squash-merged with head-SHA protection. The merged tree must match the reviewed
+tree and pass its smoke gate. Linear updates are limited to definition-of-done
+evidence and status propagation.
 
 ---
 
@@ -57,7 +77,10 @@ tag, or release from this task.
 **Interfaces:**
 
 - Consumes: only Swift standard-library values and synthetic fixture data.
-- Produces: `DataClass`, `Provider`, `ContextField`, `BoundaryGrant`, `TransitionEdge`, `TransitionProposal`, `EffectCommitStatus`, `Phase`, `HandoffState`, `SecurityEvent`, `ExecutorCommand`, `ReducerDecision`, and `HandoffSecurityPolicy.reduce(state:event:)`.
+- Produces: the transition reducer types plus `DiagnosticToolResult`,
+  `DiagnosticBridgeRequest`, `DiagnosticBridgeResponse`,
+  `DiagnosticBridgeOutcome`, `DiagnosticRoutingDecision`, and the pure
+  `DiagnosticResultRoutingPolicy.resolve(result:context:outcome:)`.
 - Produces exact executable output used by Task 2's evidence transcript.
 
 - [ ] **Step 1: Write the failing adversarial runner and golden output**
@@ -69,12 +92,13 @@ when an assertion is false, and emit exactly these lines:
 ```text
 PASS indirect-injection unauthorizedCommands=0
 PASS sensitive-provider-transfer blocked=true sentinelLeaked=false
+PASS diagnostic-result-routing action=condense_diagnostic_output fields=3 executions=1 rerun=false
 PASS tool-failure-precommit phase=stable active=research
 PASS tool-failure-uncertain phase=recoveryRequired effects=1 commands=1
 PASS transition-budget count=3 fourthCommand=false terminal=transitionBudgetExceeded
 PASS cancellation-precommit phase=stable pending=false
 PASS cancellation-uncertain phase=recoveryRequired effects=1 commands=1
-SUMMARY passed=7 failed=0
+SUMMARY passed=8 failed=0
 ```
 
 Write the same bytes to `expected-output.txt`. The runner must assert:
@@ -83,6 +107,8 @@ Write the same bytes to `expected-output.txt`. The runner must assert:
 expect(injected.state.executorCommandCount == 0, "untrusted text emitted a command")
 expect(blocked.providerRequest == nil, "C3 content crossed the provider boundary")
 expect(!blocked.state.audit.joined().contains(secretSentinel), "sentinel leaked to audit")
+expect(declinedDiagnostic.request.binding.action == "condense_diagnostic_output", "diagnostic route used the wrong action")
+expect(!declinedDiagnostic.rerunOriginalTool, "diagnostic decline would rerun the tool")
 expect(precommit.state.phase == .stable, "pre-commit failure did not restore stable state")
 expect(uncertain.state.phase.isRecoveryRequired, "uncertain effect did not require recovery")
 expect(budget.state.transitionCount == 3, "transition budget count changed")
@@ -106,6 +132,12 @@ rg -q "cannot find.*HandoffState|cannot find.*HandoffSecurityPolicy" /tmp/dev130
 Expected: compile exits nonzero only because the required mock policy types do
 not exist yet.
 
+For the July 18 diagnostic-route amendment, add its assertions before the new
+policy types, then compile both fixture files with `-warnings-as-errors` and
+require the specific missing `DiagnosticRoutingDecision` or
+`DiagnosticToolResult` diagnostic. Record that fresh RED separately from the
+historical transition-policy RED. Do not simulate a production hook call.
+
 - [ ] **Step 3: Implement the minimal policy reducer**
 
 Create `HandoffSecurityPolicy.swift` with these exact type relationships:
@@ -128,7 +160,8 @@ struct HandoffSecurityPolicy { static func reduce(state: HandoffState, event: Se
 `HandoffState` must carry `activeProfile`, `provider`, `stateVersion`, `policyVersion`,
 `transitionCount`, `maxTransitions`, `phase`, `pendingTransition`,
 `checkpoint`, `allowedEdges`, `executorCommandCount`, `effectLedger`, and
-`audit`. Implement only the behavior required by the adversarial assertions:
+`audit`. Keep the diagnostic-result resolver orthogonal to this state machine.
+Implement only the behavior required by the adversarial assertions:
 
 - untrusted context appends metadata-only audit and never creates a command;
 - transition proposals are phase gated before budget evaluation and fail closed
@@ -146,6 +179,11 @@ struct HandoffSecurityPolicy { static func reduce(state: HandoffState, event: Se
   ledger; and
 - a proposal after the transition budget is exhausted terminates with exact
   reason `transitionBudgetExceeded` and emits no command.
+- a diagnostic request uses trigger `PostToolUse`, destination
+  `appleOnDevice`, exact action `condense_diagnostic_output`, and only approved
+  fields; it accepts a response only when schema and the complete request
+  binding match; decline/failure/timeout/cancellation preserve the original
+  once-executed result and never request a rerun.
 
 Audit strings contain types, decisions, classes, and synthetic IDs only. They
 must never include `ContextField.value`.
@@ -156,18 +194,20 @@ Run:
 
 ```bash
 set -euo pipefail
-swiftc -parse-as-library \
+artifact_dir="$(mktemp -d)"
+swiftc -warnings-as-errors -parse-as-library \
   fixtures/dev-130/HandoffSecurityPolicy.swift \
   fixtures/dev-130/AdversarialScenarios.swift \
-  -o /tmp/dev130-adversarial
-/tmp/dev130-adversarial | tee /tmp/dev130-adversarial.out
-diff -u fixtures/dev-130/expected-output.txt /tmp/dev130-adversarial.out
-/tmp/dev130-adversarial > /tmp/dev130-adversarial-second.out
-cmp /tmp/dev130-adversarial.out /tmp/dev130-adversarial-second.out
-! rg -q 'DEV130_SECRET_SENTINEL' /tmp/dev130-adversarial.out
+  -o "$artifact_dir/dev130-adversarial"
+"$artifact_dir/dev130-adversarial" | tee "$artifact_dir/dev130-adversarial.out"
+diff -u fixtures/dev-130/expected-output.txt "$artifact_dir/dev130-adversarial.out"
+"$artifact_dir/dev130-adversarial" > "$artifact_dir/dev130-adversarial-second.out"
+cmp "$artifact_dir/dev130-adversarial.out" "$artifact_dir/dev130-adversarial-second.out"
+! rg -q 'DEV130_SECRET_SENTINEL|DEV130_DIAGNOSTIC_RAW_SENTINEL' \
+  "$artifact_dir/dev130-adversarial.out"
 ```
 
-Expected: compile and both runs exit `0`; output reports seven passes and is
+Expected: compile and both runs exit `0`; output reports eight passes and is
 byte-identical across runs; the secret sentinel is absent.
 
 - [ ] **Step 5: Run fixture scope and hygiene gates**
@@ -278,11 +318,13 @@ Use `apply_patch`. The transcript must have exactly these top-level sections:
 6. `Semantic and evidence-safety gates`
 7. `Host-assisted blockers`
 
-Record exact commands, exit codes, relevant outputs, interface hash, Task 1 RED
-diagnostic class, compiled fixture output, repeated-run comparison, source-link
-checks, report semantic gates, existing DEV-128 regression results, and exact
-full-Xcode/Instruments/Evaluations blockers. Do not include temporary absolute
-paths, raw user/model data, or claim a source link check proves API behavior.
+Record exact commands, exit codes, relevant outputs, interface hash, both RED
+diagnostic classes, compiled fixture output, repeated-run comparison,
+source-link checks, report semantic gates, the complete DEV-128 positive and
+expected-blocker matrix, current Xcode/iPhoneOS/`xctrace`/`simctl` structural
+passes, and exact SDK 27/legacy Instruments/Evaluations blockers. Do not include
+temporary absolute paths, raw user/model data, or claim a source link check
+proves API behavior.
 
 - [ ] **Step 4: Run report semantics and source gates**
 
@@ -319,26 +361,31 @@ and clean whitespace.
 
 ```bash
 set -euo pipefail
-swiftc -parse-as-library \
+artifact_dir="$(mktemp -d)"
+swiftc -warnings-as-errors -parse-as-library \
   fixtures/dev-130/HandoffSecurityPolicy.swift \
   fixtures/dev-130/AdversarialScenarios.swift \
-  -o /tmp/dev130-adversarial
-/tmp/dev130-adversarial > /tmp/dev130-adversarial.out
-diff -u fixtures/dev-130/expected-output.txt /tmp/dev130-adversarial.out
+  -o "$artifact_dir/dev130-adversarial"
+"$artifact_dir/dev130-adversarial" > "$artifact_dir/dev130-adversarial.out"
+diff -u fixtures/dev-130/expected-output.txt "$artifact_dir/dev130-adversarial.out"
 
 SDK=$(xcrun --sdk macosx --show-sdk-path)
 TARGET=arm64-apple-macos26.0
 swiftc -typecheck -target "$TARGET" -sdk "$SDK" \
   fixtures/dev-128/compiled/stable-surface.swift
+swiftc -typecheck -target "$TARGET" -sdk "$SDK" \
+  fixtures/dev-128/compiled/generable-macro.swift
 for fixture in availability-probe transcript-roundtrip session-isolation baton-pass-state; do
   swiftc -parse-as-library -target "$TARGET" -sdk "$SDK" \
-    "fixtures/dev-128/compiled/$fixture.swift" -o "/tmp/dev130-$fixture"
-  "/tmp/dev130-$fixture"
+    "fixtures/dev-128/compiled/$fixture.swift" -o "$artifact_dir/dev130-$fixture"
+  "$artifact_dir/dev130-$fixture"
 done
 ```
 
-Expected: DEV-130 exact output passes, and all five prior stable/pseudocode
-DEV-128 fixtures type-check or run with their documented outputs.
+Expected: DEV-130 exact output passes, and all six DEV-128 positive fixtures
+type-check or run with their documented outputs. Then run both strict
+expected-blocker gates from `fixtures/dev-128/README.md` without weakening their
+required diagnostic classes.
 
 - [ ] **Step 6: Commit report and transcript atomically**
 
@@ -357,7 +404,6 @@ After task reviews and corrections, invoke
 
 ```bash
 set -euo pipefail
-base=b4e12a6
 expected_paths="$(printf '%s\n' \
   'docs/research/dev-130-handoff-threat-model.md' \
   'docs/research/evidence/dev-130-command-transcript.md' \
@@ -366,36 +412,45 @@ expected_paths="$(printf '%s\n' \
   'fixtures/dev-130/AdversarialScenarios.swift' \
   'fixtures/dev-130/HandoffSecurityPolicy.swift' \
   'fixtures/dev-130/expected-output.txt' | sort)"
-actual_paths="$(git diff --name-only "$base"...HEAD | sort)"
+actual_paths="$(git diff --name-only origin/main...HEAD | sort)"
 test "$actual_paths" = "$expected_paths"
 
-swiftc -parse-as-library \
+artifact_dir="$(mktemp -d)"
+swiftc -warnings-as-errors -parse-as-library \
   fixtures/dev-130/HandoffSecurityPolicy.swift \
   fixtures/dev-130/AdversarialScenarios.swift \
-  -o /tmp/dev130-final
-/tmp/dev130-final > /tmp/dev130-final.out
-diff -u fixtures/dev-130/expected-output.txt /tmp/dev130-final.out
-/tmp/dev130-final > /tmp/dev130-final-second.out
-cmp /tmp/dev130-final.out /tmp/dev130-final-second.out
+  -o "$artifact_dir/dev130-final"
+"$artifact_dir/dev130-final" > "$artifact_dir/dev130-final.out"
+diff -u fixtures/dev-130/expected-output.txt "$artifact_dir/dev130-final.out"
+"$artifact_dir/dev130-final" > "$artifact_dir/dev130-final-second.out"
+cmp "$artifact_dir/dev130-final.out" "$artifact_dir/dev130-final-second.out"
 
 ! git ls-files | rg '\.(trace|xcresult)$'
-! rg -n 'DEV130_SECRET_SENTINEL' docs/research/dev-130-handoff-threat-model.md \
+forbidden_pattern="$(printf 'DEV130_%s_%s|DEV130_%s_%s_%s' \
+  SECRET SENTINEL DIAGNOSTIC RAW SENTINEL)"
+! rg -n "$forbidden_pattern" docs/research/dev-130-handoff-threat-model.md \
   docs/research/evidence/dev-130-command-transcript.md
-git diff --check "$base"...HEAD
+git diff --check origin/main...HEAD
 test -z "$(git status --porcelain)"
 ```
 
 Then rerun all Task 2 semantic/source gates, the prior DEV-128 regression gates,
-and the expected Xcode 27/Instruments/Evaluations blocker probes. Generate a
-whole-branch review package from `b4e12a6` to the exact head and obtain a fresh
-review with no open Critical or Important findings.
+and the expected SDK 27/legacy Instruments/Evaluations blocker probes. Complete
+exactly three main-agent review/fix rounds against `origin/main`, each with zero
+remaining actionable findings. Push only under an exact force lease. Merge with
+`gh pr merge --squash --match-head-commit <reviewed-head-sha>`, then verify the
+squash commit tree matches the reviewed head tree and rerun the merged smoke
+gate from updated `main`.
 
-## Linear and parent handoff
+## Linear and merge handoff
 
-1. Add a DEV-130 completion-evidence comment with exact commits, seven paths,
-   fixture output, report/source gates, reviews, SDK regression results,
-   blocker classification, and skipped checks.
-2. Link repository paths/commit hashes as reproducible evidence.
-3. Leave DEV-130 `In Progress` because the parent still must rebase onto final
-   DEV-129, push, open the atomic stacked PR, and move the issue to `In Review`.
-4. Report the local head and rebase base to the parent. Do not push or open a PR.
+1. Immediately before merge, re-read DEV-130 and GitHub to detect amendments,
+   remote drift, or unresolved actionable feedback.
+2. Add only the DEV-130 definition-of-done evidence comment: reviewed head,
+   squash commit, seven paths, eight-pass fixture output, source/semantic gates,
+   SDK regression results, current structural host evidence, and honest
+   blocker classifications.
+3. Link repository paths and commit hashes as reproducible evidence. Do not
+   relabel SDK 27, legacy Instruments, or Evaluations blockers as passes.
+4. Change issue status only when its current issue-level completion contract is
+   satisfied; no other Linear propagation is authorized by this plan.
