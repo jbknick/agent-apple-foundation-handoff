@@ -5,7 +5,7 @@
 - Issue: `DEV-133`
 - Branch: `codex/dev-133-repository-guidance`
 - Reviewed main: `829d5f71ac5cb9609f96dde4a7ae73c32f42e3cd`
-- Exact tested source commit: `cf5f03c0621cc574fa7abbdeb4f2b7ea27eeaab8`
+- Exact tested source commit: `8d856fd32e43cb21b594f5d6d292b42c580e7edc`
 - Deterministic execution date: `2026-07-19`
 - Repository identity: `<repo>`
 - Host identity: `<host-path>` for each executable candidate
@@ -19,10 +19,11 @@ the corrected current guidance.
 
 | Artifact | SHA-256 |
 | --- | --- |
-| `CLAUDE.md` | `9ac057b3b9e2d5409d06d6d6c62a50211cda00f4a38f0489ec13b61b492cc8cb` |
-| `AGENTS.md` | `aad4b711f0e9f49958715715bddc6ff0864c73963c003680fe2ceaeba7dbd078` |
+| `CLAUDE.md` | `ce7345cf05c1220bbc9371cf314c08fed5249cddb95207d90b96f8ca1c787b3f` |
+| `AGENTS.md` | `0e149aea836a919a786324df168f38f12979a3d29e44e8a65a8afe93f64cacdb` |
 | `scripts/sync_generated_artifacts.py` | `b1212533c7a1234a2d65787f1301a9702af089b7e3c84365cffd7e0ed7f26c2d` |
-| `tests/test_repository_guidance.py` | `45792b5429142cb09ebefbf8eae57fd67e6d018b23fca9c354ba4d3fc698fe88` |
+| `tests/test_repository_guidance.py` | `2c263def429c386f1042f49d2382f2a2f9202f92fb308768343e7d101e38befe` |
+| `docs/superpowers/plans/2026-07-17-dev-133-repository-guidance.md` | `c2ad1ebb647c2722a3b6932770ff8ff9e1a6a2975b7334773957c5da9910a66a` |
 
 ## Current guidance contract
 
@@ -41,7 +42,7 @@ the corrected current guidance.
    separate.
 6. The generated adapter is derived only through
    `scripts/sync_generated_artifacts.py`, is a regular root file, and remains at
-   or below 100 lines and 8192 bytes.
+   or below 90 lines and 6500 bytes.
 7. Structural guidance and host prerequisites never prove plugin capability.
 
 ## Current deterministic validation
@@ -50,8 +51,9 @@ the corrected current guidance.
 | --- | --- | --- |
 | Generated synchronization | `PYTHONDONTWRITEBYTECODE=1 python3 scripts/sync_generated_artifacts.py --check` | `pass` |
 | Repository guidance tests | `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_*.py' -v` | `pass tests=21 failures=0` |
-| Public invalid-input API | focused `test_synchronize_normalizes_invalid_canonical_input` RED/GREEN cycle | `pass return=false diagnostic=canonical-only` |
-| Root generated guide | regular-file count and size checks | `pass files=1 lines=99 bytes=6874` |
+| Public invalid-input API | focused `test_synchronize_normalizes_invalid_canonical_input` | `pass return=false diagnostic=canonical-only` |
+| Root generated guide | regular-file count and size checks | `pass files=1 lines=90 bytes=5878` |
+| Current implementation plan | compact contract and command review | `pass lines=182 bytes=8259 historical checklists/model recipes absent` |
 | DEV-131 tests | `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s fixtures/dev-131/tests -p 'test_*.py' -v` | `pass tests=26 failures=0` |
 | DEV-131 proof | `PYTHONDONTWRITEBYTECODE=1 python3 fixtures/dev-131/proof_runner.py` | `pass cases=11 oracle_matches=11 evidence=pass rubric=pass` |
 | DEV-130 compile | `swiftc -warnings-as-errors -parse-as-library` over both DEV-130 sources | `pass` |
