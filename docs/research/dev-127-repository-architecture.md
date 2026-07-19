@@ -105,7 +105,7 @@ their canonical source, generation direction, drift check, and edit policy.
 | Generation and drift control | **Not established** | There are no generators, generated outputs, sync scripts, or drift checks. |
 | Claude Code loading of this fork | **Not established** | The fork has no Claude plugin to validate, discover, install, enable, or exercise. |
 | Codex loading of this fork | **Not established** | The fork has no Codex plugin to discover, install, enable, or exercise. |
-| `FoundationModels` module import | **Established (limited)** | The historical audit and 2026-07-19 revalidation both observed `printf 'import FoundationModels\n' \| swiftc -typecheck -` exit `0`. This proves only a bare module import. |
+| `FoundationModels` module import | **Established (limited)** | Both checks observed a bare import exit `0`; no behavior was proved. |
 | Swift example compilation | **Not established** | The authoritative fork contains no Swift examples to compile. |
 | Xcode host-tool availability | **Established (limited)** | On 2026-07-19, `xcodebuild -version` reported Xcode `26.6` build `17F113` and `xcode-select -p` reported `/Applications/Xcode.app/Contents/Developer`. The historical 2026-07-16/17 blocker is retained in the transcript. This is version/tool availability only, not project or runtime validation. |
 
@@ -176,8 +176,7 @@ The audit deliberately does not pre-select the following decisions:
 **Post-audit downstream constraint (2026-07-18).** DEV-127 neither established
 nor implemented plugin-bundled lifecycle hooks, trusted hook loading,
 executable packaging, writable plugin data, or host-specific result-replacement
-semantics. Downstream extension work must treat them as required extension
-surfaces.
+semantics. Downstream extension work must treat them as required surfaces.
 
 1. DEV-132 must establish the plugin topology and the authoritative ownership
    boundary between shared canonical content, generated host metadata, and any

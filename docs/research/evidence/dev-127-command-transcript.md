@@ -249,9 +249,10 @@ swift-driver version: 1.148.6 Apple Swift version 6.3.3 (swiftlang-6.3.3.1.3 cla
 Target: arm64-apple-macosx26.0
 $ xcrun --sdk macosx --show-sdk-version
 26.5
+$ printf 'import FoundationModels\n' | swiftc -typecheck -
 ```
 
-Exit status: `0` for each command.
+Exit status: `0` for each command. The bare import produced no standard output.
 
 This revalidation establishes host Xcode tool availability and version only.
 **Not established:** project example compilation, device or runtime proof, and
