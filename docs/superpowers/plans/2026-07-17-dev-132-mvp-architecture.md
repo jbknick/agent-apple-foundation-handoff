@@ -1,8 +1,5 @@
 # DEV-132 Apple Foundation Models Handoff MVP Architecture Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use
-> `superpowers:subagent-driven-development` to execute this plan task by task.
-
 **Goal:** Publish a durable, internally consistent MVP architecture decision
 record and machine-checkable proof for seven representative design scenarios,
 without creating any production plugin artifact.
@@ -27,9 +24,9 @@ compile/regression evidence only, not live runtime proof.
 - Integrate the unique four-path DEV-132 delta atomically against current
   `main`. Historical stack bases, commit IDs, and host versions are provenance,
   not acceptance bindings.
-- Do not push, merge, tag, publish, or release unless the active issue separately
-  authorizes that action. Opening the issue-scoped PR is permitted only after
-  final verification and review.
+- The active sequential PR review plan and the user's publication authorization
+  govern this branch: workers never push or merge; the main agent may update the
+  PR and squash-merge only after all three review rounds and current gates pass.
 - Do not create production manifests, marketplaces, skills, references,
   schemas, generators, tests, Swift fixtures, routers, hooks, bridges, agents,
   commands, MCP servers, apps, dependencies, or runtime packages in DEV-132.
@@ -113,14 +110,14 @@ the commit or PR. Any correction must modify one of the four allowed files.
   local OpenAI-compatible servers, external providers, PCC, credentials, paid,
   and network surfaces are deferred.
 
-## Task 1: Publish the durable decision record
+## Task 1: Amend the canonical design and durable decision record
 
 **Files:**
 
-- Create:
-  `docs/architecture/apple-foundation-models-handoff-mvp-decision-record.md`
-- Read:
+- Amend:
   `docs/superpowers/specs/2026-07-17-dev-132-mvp-architecture-design.md`
+- Amend:
+  `docs/architecture/apple-foundation-models-handoff-mvp-decision-record.md`
 - Read:
   `docs/research/dev-128-foundation-models-api-map.md`
 - Read:
@@ -130,57 +127,12 @@ the commit or PR. Any correction must modify one of the four allowed files.
 - Read:
   `docs/research/dev-131-evaluation-strategy.md`
 
-### Step 1: Assign a fresh SDD implementer
+### Step 1: Apply the July 18 architecture amendment
 
-Give the implementer Task 1 only. Require it to read the five source documents
-and the DEV-132 design spec before editing. Tell it that the output is a
-decision record, not a second speculative design, and that it may change only
-the decision-record path.
-
-### Step 2: Prove the artifact and semantic contract are initially RED
-
-Run:
-
-```bash
-set +e
-record=docs/architecture/apple-foundation-models-handoff-mvp-decision-record.md
-test -s "$record"
-red_rc=$?
-set -e
-test "$red_rc" -ne 0
-```
-
-Expected: the file check exits nonzero before the record exists.
-
-Then save the following semantic gate in the worker notes and run it. It must
-also fail before implementation:
-
-```bash
-set +e
-record=docs/architecture/apple-foundation-models-handoff-mvp-decision-record.md
-(
-  for section in \
-    'Decision status and scope' \
-    'Users and workflows' \
-    'Skill and reference architecture' \
-    'Canonical and generated ownership' \
-    'Selected package placement and fallback' \
-    'Handoff patterns and Apple API boundary' \
-    'State, trust, effects, and recovery' \
-    'Output and evidence contracts' \
-    'Deferred work' \
-    'Decision propagation'; do
-    rg -q -F "## $section" "$record" || exit 1
-  done
-)
-red_semantic_rc=$?
-set -e
-test "$red_semantic_rc" -ne 0
-```
-
-### Step 3: Create the decision record
-
-Use `apply_patch` to create the file. It must:
+Read the sources above before editing. Amend the canonical design first, then
+keep the existing decision record consistent with it rather than creating a
+parallel design. After any design edit, Task 2 must refresh the scenario JSON's
+`designArtifactSha256`. Together, the design and record must:
 
 1. identify the current DEV-127 through DEV-131 artifacts as source authority
    and label earlier reviewed heads as historical provenance;
@@ -216,14 +168,27 @@ Use `apply_patch` to create the file. It must:
 Do not copy long research prose. Prefer compact tables with explicit ownership
 and downstream impact.
 
-### Step 4: Run GREEN semantic and consistency gates
+### Step 2: Run semantic and consistency gates
 
-Run the section gate from Step 2 and:
+Run:
 
 ```bash
 set -e
 record=docs/architecture/apple-foundation-models-handoff-mvp-decision-record.md
 test -s "$record"
+for section in \
+  'Decision status and scope' \
+  'Users and workflows' \
+  'Skill and reference architecture' \
+  'Canonical and generated ownership' \
+  'Selected package placement and fallback' \
+  'Handoff patterns and Apple API boundary' \
+  'State, trust, effects, and recovery' \
+  'Output and evidence contracts' \
+  'Deferred work' \
+  'Decision propagation'; do
+  rg -q -F "## $section" "$record"
+done
 placeholder_re='T(BD)|TO(DO)|FIX(ME)|fill in detai(ls)|implement lat(er)'
 ! rg -n -e "$placeholder_re" "$record"
 for token in \
@@ -235,7 +200,7 @@ for token in \
   'validate-apple-foundation-models-handoff' \
   'plugins/apple-foundation-models-handoff' \
   'stateVersion' 'policyVersion' 'recoveryRequired' \
-  'no safe reconciliation' 'metadata-only' 'rubric stimulus' \
+  'No safe reconciliation' 'metadata-only' 'rubric stimulus' \
   '<host-path>' 'no_activation' 'clarification_required' \
   'condense_diagnostic_output' 'providerNormalizationVersion' \
   'D-OWNER-001' 'not_applicable' 'DEV-141' 'DEV-145'; do
@@ -246,83 +211,36 @@ git diff --check -- "$record"
 
 Expected: every assertion exits `0`; the placeholder search prints nothing.
 
-### Step 5: Review Task 1 before commit
-
-Assign a fresh spec-compliance reviewer. It must compare the record against all
-five blocker reports and the design spec, list omissions/contradictions with
-line evidence, and make no edits. The implementer fixes only confirmed issues;
-rerun the semantic gate after each fix. Then assign a fresh quality reviewer to
-check readability, duplicated authority, ambiguous ownership, and unsupported
-Apple claims. Resolve verified findings before committing.
-
-### Step 6: Commit Task 1 atomically
-
-```bash
-git add docs/architecture/apple-foundation-models-handoff-mvp-decision-record.md
-git diff --cached --check
-git diff --cached --name-only
-git commit -m 'docs(DEV-132): publish MVP decision record'
-```
-
-Expected staged path: the decision record only.
-
 ## Task 2: Amend the machine-checkable seven-scenario architecture proof
 
 **Files:**
 
-- Create:
+- Amend:
   `docs/research/evidence/dev-132-architecture-scenarios.json`
 - Read:
   `docs/superpowers/specs/2026-07-17-dev-132-mvp-architecture-design.md`
 - Read:
   `docs/architecture/apple-foundation-models-handoff-mvp-decision-record.md`
 - Read:
-  `fixtures/dev-131/index.json`
-- Read:
   `fixtures/dev-131/proof_runner.py`
 
-### Step 1: Assign a fresh SDD implementer
+### Step 1: Preserve the observed RED evidence
 
-Give the implementer Task 2 only. It may change only the scenario JSON. Require
-normalized synthetic data, no raw prompt/response/reasoning/tool content, no
-real user data, no credentials, and no claim that a design-level case ran a
-real host, model, provider, or Apple runtime. Synthetic scenario evidence must
-still satisfy the DEV-131 path, content, structured-key, classification, and
-hash boundaries; this file does not authorize raw/live evidence.
+Round 1 checked the pre-amendment four-case snapshot for scenarios 001-007 and
+the `no_activation`, `clarification_required`, and
+`condense_diagnostic_output` contract. The recorded result was
+`DEV132_AMENDMENT_RED rc=1`: scenarios 005-007 and the July 18 routing/cost
+contract were absent. This is historical RED evidence; the Step 3 oracle is the
+current acceptance gate.
 
-### Step 2: Establish the amended JSON contract RED
+### Step 2: Amend the normalized JSON evidence
 
-Run before editing the existing four-scenario file:
-
-```bash
-set +e
-python3 - <<'PY'
-import json
-from pathlib import Path
-
-path = Path('docs/research/evidence/dev-132-architecture-scenarios.json')
-data = json.loads(path.read_text())
-assert [s['id'] for s in data['scenarios']] == [
-    f'DEV132-SCENARIO-{n:03d}' for n in range(1, 8)
-]
-text = path.read_text()
-for required in (
-    'no_activation', 'clarification_required',
-    'condense_diagnostic_output',
-):
-    assert required in text
-PY
-red_rc=$?
-set -e
-test "$red_rc" -ne 0
-```
-
-Expected: nonzero because the stale evidence has only scenarios 001-004 and no
-July 18 routing/cost contract.
-
-### Step 3: Create the normalized JSON evidence
-
-Use `apply_patch`. Top-level fields must be:
+Change only the scenario JSON. Use normalized synthetic data: no raw prompt,
+response, reasoning, or tool content; no real user data or credentials; and no
+claim that a design-level case ran a real host, model, provider, or Apple
+runtime. The evidence must satisfy the DEV-131 path, content, structured-key,
+classification, and hash boundaries; it does not authorize raw/live evidence.
+Top-level fields must be:
 
 ```text
 schemaVersion
@@ -390,7 +308,7 @@ Retain and amend exactly these cases:
 Keep the two branches in Scenario 4 explicit so the blocked C3 envelope is not
 misrepresented as having been dispatched.
 
-### Step 4: Run the semantic oracle
+### Step 3: Run the semantic oracle
 
 Run exactly:
 
@@ -579,41 +497,11 @@ Expected output:
 This check validates scenario semantics and cross-field invariants. File
 existence or JSON syntax alone is not acceptance.
 
-### Step 5: Perform independent consistency and risk reviews
-
-Run two read-only reviewers in parallel because they share no mutable state:
-
-1. **Architecture consistency reviewer:** compare every scenario field against
-   the design spec, decision record, DEV-128 pattern/API map, and DEV-131 stable
-   IDs. It must report any wrong activation, pattern, owner, version label, or
-   oracle set with exact file/line or JSON-pointer evidence.
-2. **Security and recovery risk reviewer:** compare Scenarios 2 and 4 against
-   DEV-130. It must actively look for C3 serialization, conflated blocked and
-   dispatched paths, unauthorized trust expansion, replay, exactly-once or
-   rollback overclaim, missing reconciliation, termination before
-   reconciliation, late/replayed mutation of authority/phase/pending/checkpoint/
-   counts/ledger, sensitive evidence, or `stateVersion`/`policyVersion` drift.
-
-Reviewers do not edit. The Task 2 implementer resolves only confirmed findings;
-rerun the complete semantic oracle after each change.
-
-### Step 6: Commit Task 2 atomically
-
-```bash
-git add docs/research/evidence/dev-132-architecture-scenarios.json
-git diff --cached --check
-git diff --cached --name-only
-git commit -m 'docs(DEV-132): record architecture scenario proof'
-```
-
-Expected staged path: the scenario JSON only.
-
 ## Task 3: Run complete issue verification
 
 Do not edit while collecting the first verification result. If a gate fails,
-invoke `superpowers:systematic-debugging`, establish root cause, assign the
-narrow correction to the prior task implementer or a fresh worker, and commit
-the correction separately.
+establish root cause and address the narrow correction in the active review
+round before rerunning the affected gate.
 
 ### Step 1: Verify scope, history, and allowed paths
 
@@ -641,7 +529,7 @@ base.
 
 ### Step 2: Re-run DEV-132 document and JSON semantic gates
 
-Run Task 1 Step 4, Task 2 Step 4, and:
+Run Task 1 Step 2, Task 2 Step 3, and:
 
 ```bash
 set -e
@@ -664,9 +552,6 @@ set -e
 PYTHONDONTWRITEBYTECODE=1 \
   python3 -m unittest discover -s fixtures/dev-131/tests -p 'test_*.py' -v
 PYTHONDONTWRITEBYTECODE=1 python3 fixtures/dev-131/proof_runner.py
-pycache_root="$(mktemp -d)"
-PYTHONPYCACHEPREFIX="$pycache_root" \
-  python3 -m compileall -q fixtures/dev-131
 test -z "$(find . -type d -name '__pycache__' -print -quit)"
 test -z "$(find . -type f -name '*.pyc' -print -quit)"
 ```
@@ -750,248 +635,27 @@ rg -q "no such module 'Evaluations'" "$artifact_dir/evaluations.out"
 ```
 
 Expected: six positive fixtures pass and both strict expected blockers match
-their capability-specific diagnostics. Static macros are now positive under
-Xcode 26.6; the old Command Line Tools blocker is historical. The availability
-values themselves
-remain host-state observations; their four output shapes are the gate.
+their capability-specific diagnostics. Static macros are positive under Xcode
+26.6. The availability values themselves remain host-state observations; their
+four output shapes are the gate.
 Unique `mktemp` artifacts remain outside the repository because destructive
 cleanup commands are not permitted in this execution environment.
 
 ### Step 6: Preserve historical host evidence without false passes
 
-The following July 17 probe is retained only as historical provenance. Do not
-run it as a current acceptance gate or repeat its Command Line Tools blockers:
-the current bounded observation is Xcode 26.6, Swift 6.3.3, and SDK 26.5, with
-the six-positive/two-strict-blocker DEV-128 matrix in Step 5. Current downstream
-host/model issues own their own matrices; missing live Apple, paired telemetry,
-or runtime prerequisites remain `blocked` rather than inheriting this output.
+The July 17 host probe and its normalized output remain as provenance in the
+chronological DEV-132 Linear comments and evidence. Do not rerun that probe or
+treat its obsolete host and Command Line Tools observations as current
+acceptance.
 
-```bash
-set -e
-
-normalize_host_version() {
-  python3 -c '
-import re
-import sys
-
-patterns = {
-    "claude": r"[0-9]+\.[0-9]+\.[0-9]+ \(Claude Code\)",
-    "codex": r"codex-cli [0-9]+\.[0-9]+\.[0-9]+",
-}
-value = sys.stdin.read()
-print(value if re.fullmatch(patterns[sys.argv[1]], value) else "null")
-' "$1"
-}
-
-set +e
-claude_bin="$(command -v claude 2>/dev/null)"
-claude_lookup_rc=$?
-codex_bin="$(command -v codex 2>/dev/null)"
-codex_lookup_rc=$?
-set -e
-
-claude_version_output=null
-claude_version_rc=1
-claude_row_state=blocked
-claude_row_reason=executable_missing
-if test "$claude_lookup_rc" -eq 0 && test -n "$claude_bin"; then
-  if test ! -x "$claude_bin"; then
-    claude_row_reason=executable_not_runnable
-  else
-    set +e
-    claude_version_raw="$("$claude_bin" --version 2>/dev/null)"
-    claude_version_rc=$?
-    set -e
-    claude_version_output="$(printf '%s' "$claude_version_raw" | \
-      normalize_host_version claude)"
-    if test "$claude_version_rc" -ne 0 || test -z "$claude_version_raw"; then
-      claude_version_output=null
-      claude_row_reason=version_unavailable
-    elif test "$claude_version_output" = null; then
-      claude_row_reason=version_output_invalid
-    elif test "$claude_version_output" = '2.1.91 (Claude Code)'; then
-      claude_row_state=pass
-      claude_row_reason=approved_baseline
-    else
-      claude_row_reason=version_mismatch
-    fi
-  fi
-fi
-
-codex_version_output=null
-codex_version_rc=1
-codex_row_state=blocked
-codex_row_reason=executable_missing
-if test "$codex_lookup_rc" -eq 0 && test -n "$codex_bin"; then
-  if test ! -x "$codex_bin"; then
-    codex_row_reason=executable_not_runnable
-  else
-    set +e
-    codex_version_raw="$("$codex_bin" --version 2>/dev/null)"
-    codex_version_rc=$?
-    set -e
-    codex_version_output="$(printf '%s' "$codex_version_raw" | \
-      normalize_host_version codex)"
-    if test "$codex_version_rc" -ne 0 || test -z "$codex_version_raw"; then
-      codex_version_output=null
-      codex_row_reason=version_unavailable
-    elif test "$codex_version_output" = null; then
-      codex_row_reason=version_output_invalid
-    elif test "$codex_version_output" = 'codex-cli 0.144.5'; then
-      codex_row_state=pass
-      codex_row_reason=approved_baseline
-    else
-      codex_row_reason=version_mismatch
-    fi
-  fi
-fi
-
-printf 'host=claude phase=prerequisite executable=<host-path> version=%s status=%s reason=%s\n' \
-  "$claude_version_output" "$claude_row_state" "$claude_row_reason"
-printf 'host=codex phase=prerequisite executable=<host-path> version=%s status=%s reason=%s\n' \
-  "$codex_version_output" "$codex_row_state" "$codex_row_reason"
-if test "$claude_row_state" != pass || test "$codex_row_state" != pass; then
-  exit 1
-fi
-
-developer_dir="$(xcode-select -p)"
-set +e
-xcodebuild_output="$(xcodebuild -version 2>&1)"
-xcodebuild_rc=$?
-instruments_output="$(xcrun --find instruments 2>&1)"
-instruments_rc=$?
-xctrace_output="$(xcrun --find xctrace 2>&1)"
-xctrace_rc=$?
-iphoneos_output="$(xcrun --sdk iphoneos --show-sdk-path 2>&1)"
-iphoneos_rc=$?
-simctl_output="$(xcrun --find simctl 2>&1)"
-simctl_rc=$?
-evaluations_dir="$(mktemp -d)"
-evaluations_source="$evaluations_dir/evaluations.swift"
-printf 'import Evaluations\n' > "$evaluations_source"
-evaluations_output="$(xcrun swiftc -typecheck "$evaluations_source" 2>&1)"
-evaluations_rc=$?
-set -e
-test -n "$developer_dir"
-printf 'developerDirectory=<developer-dir>\n'
-classify_blocker_probe() {
-  probe_name="$1"
-  probe_rc="$2"
-  probe_raw_output="$3"
-  probe_state=fail
-  probe_diagnostic_class=unexpected_diagnostic
-  case "$probe_name" in
-    xcodebuild)
-      expected_fragment='requires Xcode'
-      expected_class=full_xcode_unavailable
-      ;;
-    instruments|xctrace|simctl)
-      expected_fragment='unable to find utility'
-      expected_class=utility_not_found
-      ;;
-    iphoneos)
-      expected_fragment='SDK "iphoneos" cannot be located'
-      expected_class=sdk_not_found
-      ;;
-    evaluations)
-      expected_fragment="no such module 'Evaluations'"
-      expected_class=module_not_found
-      ;;
-    *)
-      expected_fragment=''
-      expected_class=unknown_probe
-      ;;
-  esac
-  if test "$probe_rc" -ne 0 && \
-     test -n "$expected_fragment" && \
-     [[ "$probe_raw_output" == *"$expected_fragment"* ]]; then
-    probe_state=blocked
-    probe_diagnostic_class="$expected_class"
-  fi
-  printf 'probe=%s rc=%s status=%s diagnosticClass=%s\n' \
-    "$probe_name" "$probe_rc" "$probe_state" "$probe_diagnostic_class"
-  test "$probe_state" = blocked
-}
-classify_blocker_probe xcodebuild "$xcodebuild_rc" "$xcodebuild_output"
-classify_blocker_probe instruments "$instruments_rc" "$instruments_output"
-classify_blocker_probe xctrace "$xctrace_rc" "$xctrace_output"
-classify_blocker_probe iphoneos "$iphoneos_rc" "$iphoneos_output"
-classify_blocker_probe simctl "$simctl_rc" "$simctl_output"
-classify_blocker_probe evaluations "$evaluations_rc" "$evaluations_output"
-
-set +e
-claude_bin_after="$(command -v claude 2>/dev/null)"
-claude_lookup_after_rc=$?
-codex_bin_after="$(command -v codex 2>/dev/null)"
-codex_lookup_after_rc=$?
-claude_version_after_raw="$("$claude_bin" --version 2>/dev/null)"
-claude_version_after_rc=$?
-codex_version_after_raw="$("$codex_bin" --version 2>/dev/null)"
-codex_version_after_rc=$?
-set -e
-claude_version_after="$(printf '%s' "$claude_version_after_raw" | \
-  normalize_host_version claude)"
-codex_version_after="$(printf '%s' "$codex_version_after_raw" | \
-  normalize_host_version codex)"
-
-claude_integrity_state=pass
-claude_integrity_reason=stable_resolution_and_version
-if test "$claude_lookup_after_rc" -ne 0 || \
-   test "$claude_bin_after" != "$claude_bin" || \
-   test "$claude_version_after_rc" -ne 0 || \
-   test "$claude_version_after" = null || \
-   test "$claude_version_after" != "$claude_version_output"; then
-  claude_integrity_state=fail
-  claude_integrity_reason=resolution_or_version_drift
-  if test "$claude_version_after_rc" -ne 0 || \
-     test -z "$claude_version_after_raw" || \
-     test "$claude_version_after" = null; then
-    claude_version_after=null
-  fi
-fi
-
-codex_integrity_state=pass
-codex_integrity_reason=stable_resolution_and_version
-if test "$codex_lookup_after_rc" -ne 0 || \
-   test "$codex_bin_after" != "$codex_bin" || \
-   test "$codex_version_after_rc" -ne 0 || \
-   test "$codex_version_after" = null || \
-   test "$codex_version_after" != "$codex_version_output"; then
-  codex_integrity_state=fail
-  codex_integrity_reason=resolution_or_version_drift
-  if test "$codex_version_after_rc" -ne 0 || \
-     test -z "$codex_version_after_raw" || \
-     test "$codex_version_after" = null; then
-    codex_version_after=null
-  fi
-fi
-
-printf 'host=claude phase=integrity executable=<host-path> version=%s status=%s reason=%s\n' \
-  "$claude_version_after" "$claude_integrity_state" "$claude_integrity_reason"
-printf 'host=codex phase=integrity executable=<host-path> version=%s status=%s reason=%s\n' \
-  "$codex_version_after" "$codex_integrity_state" "$codex_integrity_reason"
-if test "$claude_integrity_state" != pass || \
-   test "$codex_integrity_state" != pass; then
-  exit 1
-fi
-```
-
-Historical July 17 result only: Command Line Tools was selected and the listed
-Xcode/device tooling was blocked. Before operations, a missing/non-runnable executable, unavailable
-version, or version other than the approved baseline produces a normalized
-`blocked` row with `<host-path>` and observed exact version or `null`; only then
-does the command exit. Claude 2.1.91 and Codex 0.144.5 produce prerequisite
-`pass`, but version output proves binary prerequisites only. All later
-Claude/Codex operations use `"$claude_bin"` and `"$codex_bin"`. After successful
-capture, resolution or version drift emits normalized `fail`, invalidates the
-row, and then exits. Alternate-PATH Claude Code 2.1.140 is neither a substitute
-nor an extra acceptance row. DEV-132 does not claim plugin discovery,
-activation, reference loading, model execution, device execution, or Xcode 27
-evidence. Only strict single-line Claude/Codex version formats may enter the
-row; malformed, multiline, or path-bearing output becomes `null` and is never
-echoed. Raw blocker diagnostics stay transient. Committed blocker evidence is
-limited to the probe name, exit code, normalized status, and stable
-`diagnosticClass` after the expected error class is verified.
+Current bounded compile evidence is Xcode 26.6, Swift 6.3.3, and macOS SDK
+26.5, with the six-positive/two-strict-blocker DEV-128 matrix in Step 5.
+Live Apple execution, paired `pluginOff`/`pluginOn` cost telemetry, and the
+DEV-143 through DEV-145 runtime chain remain `blocked`, not inferred from
+compile or historical evidence. Each downstream issue owns its current
+captured executable, normalized `<host-path>`, exact version, resolution
+stability, and model matrix. DEV-132 claims no plugin discovery, activation,
+reference loading, model execution, device execution, or Xcode 27 evidence.
 
 ### Step 7: Verify downstream Linear propagation
 
@@ -1000,30 +664,39 @@ through DEV-145. Confirm each affected issue contains the
 DEV-132 propagation comment with decision, rationale, source issue, and impact,
 and that no stale assumption contradicts the approved root/fallback, five
 positive workflows, bounded non-positive router, generated-artifact ownership,
-Apple-first runtime chain, security, or cost/evidence contracts. If a durable decision changed,
-update DEV-132 first, then every affected downstream issue before proceeding.
+Apple-first runtime chain, security, or cost/evidence contracts. If a durable
+decision changed, update DEV-132 first, then every affected downstream issue
+before proceeding.
 
-## Task 4: Obtain final whole-issue review and attach evidence
+## Task 4: Complete the three-round review and publish evidence
 
-### Step 1: Assign a fresh whole-issue reviewer
+### Step 1: Run exactly three main-agent review/fix rounds
 
-The reviewer must not be a Task 1/2 implementer or prior focused reviewer. Give
-it the full DEV-132 issue, blocker documents, design spec, implementation plan,
-decision record, scenario JSON, commit history, and fresh verification output.
-Require an explicit verdict against every Definition of Done item and every
-out-of-scope rule. It must inspect actual content and JSON semantics, not infer
-success from paths, lint, discovery, or previous reviewer statements.
+The main agent reviews the complete four-path delta against the latest DEV-132
+issue, chronological comments, GitHub feedback, blocker documents, and current
+verification output:
 
-If it finds an issue, invoke `superpowers:receiving-code-review`, verify the
-claim technically, assign the narrow correction, rerun affected gates and the
-full verification suite, and obtain a fresh final verdict.
+1. correctness and scope, including every Definition of Done item and
+   out-of-scope rule;
+2. simplicity, including readability, concise ownership, DRY, and removal of
+   dead or speculative scaffolding; and
+3. adversarial acceptance, including recovery, replay, decline/failure,
+   evidence honesty, stale bindings, and whole-PR readiness.
+
+For every round, record severity-ranked findings with exact evidence and the
+smallest bounded correction. A fresh worker may change only named allowed
+paths, commits locally, and never pushes or merges. Use RED/GREEN evidence for
+behavioral corrections. The main agent inspects every fix and reruns the
+affected gates; a clean round creates no no-op commit. Finish only when all
+three rounds have zero actionable findings.
 
 ### Step 2: Confirm atomic integration against current main
 
-Fetch `origin/main`, verify the reviewed remote head has not changed, and
-integrate only the unique DEV-132 four-path delta. Resolve conflicts in favor
-of current `main` plus DEV-132-owned behavior, then rerun Tasks 3 and 4. Stop on
-remote drift; never overwrite concurrent work.
+Immediately re-read Linear and GitHub, fetch `origin/main`, and verify the
+reviewed remote head has not changed. Keep only the unique DEV-132 four-path
+delta, resolving conflicts in favor of current `main` plus DEV-132-owned
+behavior. Stop on remote drift or lease failure; never overwrite concurrent
+work. Rerun Task 3 after integration.
 
 ### Step 3: Attach durable evidence in Linear
 
@@ -1033,9 +706,10 @@ Post one DEV-132 evidence comment containing:
 - links to all four allowed repository artifacts;
 - Task 1 semantic gate result;
 - the exact scenario-oracle output and scenario count;
-- independent consistency, risk, and whole-issue review verdicts;
+- the three main-agent review verdicts and closed findings;
 - DEV-128/130/131 command results and counts;
-- current blocker commands and diagnostics;
+- normalized blocker evidence containing only probe, status, exit code, and
+  `diagnosticClass`; raw diagnostics remain transient;
 - normalized `<host-path>` executable identities, exact host versions,
   resolution-stability results, and explicit prerequisite-only labels;
 - the exact allowed-path diff result and clean worktree result;
@@ -1059,10 +733,10 @@ it requires. Then confirm:
 - DEV-132 issue evidence and downstream propagation are current;
 - the PR diff contains only the four allowed paths;
 - all required deterministic and compile gates pass;
-- each host row used one captured executable, records normalized `<host-path>`
-  plus exact version, and rejects resolution drift;
+- every cited host row uses one captured executable, records normalized
+  `<host-path>` plus exact version, and rejects resolution drift;
 - all unsupported capabilities are blocked or not run, never false passes;
-- all focused and final reviews are resolved; and
+- all three review rounds have zero actionable findings; and
 - the worktree is clean.
 
 Only then may DEV-132 be marked complete.
