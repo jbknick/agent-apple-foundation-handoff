@@ -66,6 +66,31 @@ CLOSED_RESPONSE_COMPILER_GUIDANCE = (
     "selection, or pass the same frozen tuple to the one selected positive "
     "workflow for unchanged serialization without re-inference."
 )
+DOMAIN_CLASSIFICATION_GUIDANCE = (
+    "Classify explicit Apple Foundation Models session, profile, or provider "
+    "coordination as `domain = foundation_models_handoff`; classify bare `Apple "
+    "handoff` wording without that boundary as `domain = ambiguous`; classify App "
+    "Intents or Shortcuts, Apple Handoff or NSUserActivity, generic Swift or actors, "
+    "generic Core ML, coding-session handoff, Agent Skills, and Foundation Models "
+    "runtime Skills as `domain = out_of_domain`."
+)
+IMMUTABLE_PRESELECTION_GUIDANCE = (
+    "On positive activation, `routerInput` is an immutable pre-selection record, "
+    "not a workflow finding. Serialize the exact four normalized values from the "
+    "source request in the shown field order; never use inspection, execution, "
+    "evidence results, or drafted output to infer or revise a value. This "
+    "serialization neither invokes nor emulates the router and has no branch or "
+    "ownership effect."
+)
+PRESELECTION_GUIDANCE_CONTRACTS = (
+    ROUTER_FIRST_GUIDANCE_CONTRACTS[0],
+    DOMAIN_CLASSIFICATION_GUIDANCE,
+    ROUTER_FIRST_GUIDANCE_CONTRACTS[1],
+    CLOSED_RESPONSE_COMPILER_GUIDANCE,
+    IMMUTABLE_PRESELECTION_GUIDANCE,
+    GENERIC_SWIFT_ACTOR_ROUTER_RECIPE,
+    ROUTER_FIRST_GUIDANCE_CONTRACTS[2],
+)
 STALE_WORKFLOW_CLAIMS = (
     "remain unimplemented",
     "must not be advertised as active",
@@ -87,9 +112,7 @@ WORKFLOW_GUIDANCE_CONTRACTS = (
     "Structural integration alone is not a pass",
     "Discovery, file presence, and installation are structural prerequisites and "
     "cannot prove behavioral or capability activation",
-    *ROUTER_FIRST_GUIDANCE_CONTRACTS,
-    GENERIC_SWIFT_ACTOR_ROUTER_RECIPE,
-    CLOSED_RESPONSE_COMPILER_GUIDANCE,
+    *PRESELECTION_GUIDANCE_CONTRACTS,
 )
 SKILL_OWNED_SECTION_HEADINGS = (
     "Routing and Inspection",
@@ -198,7 +221,7 @@ def assert_workflow_guidance_contract(
             f"missing workflow guidance contract: {contract}",
         )
     positions = tuple(
-        normalized_text.index(contract) for contract in ROUTER_FIRST_GUIDANCE_CONTRACTS
+        normalized_text.index(contract) for contract in PRESELECTION_GUIDANCE_CONTRACTS
     )
     test_case.assertEqual(
         tuple(sorted(positions)),
@@ -735,13 +758,21 @@ class RepositoryGuidanceTests(unittest.TestCase):
                 assert_workflow_guidance_contract(self, f"{valid} {claim}")
 
     def test_guidance_oracle_rejects_late_router_preselection(self):
-        prefix = " ".join((*WORKFLOW_SKILLS, *WORKFLOW_GUIDANCE_CONTRACTS[:-3]))
+        prefix = " ".join(
+            (
+                *WORKFLOW_SKILLS,
+                *(
+                    contract
+                    for contract in WORKFLOW_GUIDANCE_CONTRACTS
+                    if contract not in PRESELECTION_GUIDANCE_CONTRACTS
+                ),
+            )
+        )
         reordered = " ".join(
             (
                 prefix,
-                ROUTER_FIRST_GUIDANCE_CONTRACTS[2],
-                ROUTER_FIRST_GUIDANCE_CONTRACTS[0],
-                ROUTER_FIRST_GUIDANCE_CONTRACTS[1],
+                PRESELECTION_GUIDANCE_CONTRACTS[-1],
+                *PRESELECTION_GUIDANCE_CONTRACTS[:-1],
             )
         )
 
@@ -766,6 +797,60 @@ class RepositoryGuidanceTests(unittest.TestCase):
             "wrong positive tuple": valid.replace(
                 "same frozen tuple",
                 "newly inferred tuple",
+                1,
+            ),
+        }
+        for mutation, candidate in mutations.items():
+            with self.subTest(mutation=mutation), self.assertRaises(AssertionError):
+                assert_workflow_guidance_contract(self, candidate)
+
+    def test_guidance_oracle_rejects_domain_and_immutable_preselection_mutations(
+        self,
+    ):
+        valid = " ".join((*WORKFLOW_SKILLS, *WORKFLOW_GUIDANCE_CONTRACTS))
+
+        assert_workflow_guidance_contract(self, valid)
+        mutations = {
+            "missing domain recipe": valid.replace(
+                DOMAIN_CLASSIFICATION_GUIDANCE,
+                "",
+                1,
+            ),
+            "wrong explicit Foundation Models domain": valid.replace(
+                "coordination as `domain = foundation_models_handoff`",
+                "coordination as `domain = ambiguous`",
+                1,
+            ),
+            "wrong bare Apple handoff domain": valid.replace(
+                "without that boundary as `domain = ambiguous`",
+                "without that boundary as `domain = foundation_models_handoff`",
+                1,
+            ),
+            "wrong adjacent-domain classification": valid.replace(
+                "runtime Skills as `domain = out_of_domain`",
+                "runtime Skills as `domain = foundation_models_handoff`",
+                1,
+            ),
+            "workflow finding reversal": valid.replace(
+                "an immutable pre-selection record, not a workflow finding",
+                "a mutable workflow finding, not a pre-selection record",
+                1,
+            ),
+            "post-inspection source reversal": valid.replace(
+                "the source request in the shown field order",
+                "post-inspection findings in a convenient field order",
+                1,
+            ),
+            "revision reversal": valid.replace(
+                "never use inspection, execution, evidence results, or drafted "
+                "output to infer or revise a value",
+                "use inspection, execution, evidence results, or drafted output "
+                "to infer or revise a value",
+                1,
+            ),
+            "router emulation reversal": valid.replace(
+                "neither invokes nor emulates the router",
+                "invokes and emulates the router",
                 1,
             ),
         }

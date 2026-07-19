@@ -342,7 +342,17 @@ ROUTER_CLASSIFICATION_FREEZE_SENTENCE = (
     "ambiguous`."
 )
 
+ROUTER_DOMAIN_CLASSIFICATION_SENTENCE = (
+    "Classify explicit Apple Foundation Models session, profile, or provider "
+    "coordination as `domain = foundation_models_handoff`; classify bare `Apple "
+    "handoff` wording without that boundary as `domain = ambiguous`; classify App "
+    "Intents or Shortcuts, Apple Handoff or NSUserActivity, generic Swift or actors, "
+    "generic Core ML, coding-session handoff, Agent Skills, and Foundation Models "
+    "runtime Skills as `domain = out_of_domain`."
+)
+
 ROUTER_FINAL_RESPONSE_GATE_SENTENCES = (
+    ROUTER_DOMAIN_CLASSIFICATION_SENTENCE,
     ROUTER_CLASSIFICATION_FREEZE_SENTENCE,
     "When this router activates, resolve the branch directly from the user "
     "request without inspection or tool use.",
@@ -360,8 +370,18 @@ POSITIVE_FROZEN_TUPLE_SENTENCE = (
     "into `routerInput`; use no synonyms and do not reclassify later."
 )
 
+POSITIVE_IMMUTABLE_PRESELECTION_SENTENCE = (
+    "On positive activation, `routerInput` is an immutable pre-selection record, "
+    "not a workflow finding. Serialize the exact four normalized values from the "
+    "source request in the shown field order; never use inspection, execution, "
+    "evidence results, or drafted output to infer or revise a value. This "
+    "serialization neither invokes nor emulates the router and has no branch or "
+    "ownership effect."
+)
+
 POSITIVE_FINAL_RESPONSE_GATE_SENTENCES = (
     POSITIVE_FROZEN_TUPLE_SENTENCE,
+    POSITIVE_IMMUTABLE_PRESELECTION_SENTENCE,
     "Once this positive workflow activates, it remains the only workflow owner; "
     "never select, invoke, or switch to another skill.",
     "Make the first character of the final response the opening backtick of the "
@@ -1937,6 +1957,93 @@ class SkillContractMutationTests(unittest.TestCase):
                         ),
                     }
                 )
+            for mutation, candidate in positive_mutations.items():
+                with self.subTest(skill=skill, mutation=mutation):
+                    self.assert_skill_rejected(candidate, skill)
+
+    def test_immutable_preselection_and_domain_recipe_mutations_are_rejected(
+        self,
+    ) -> None:
+        router_fixture = build_valid_router_fixture()
+        router_mutations = {
+            "missing domain recipe": router_fixture.replace(
+                ROUTER_DOMAIN_CLASSIFICATION_SENTENCE,
+                "",
+                1,
+            ),
+            "wrong explicit Foundation Models domain": router_fixture.replace(
+                "coordination as `domain = foundation_models_handoff`",
+                "coordination as `domain = ambiguous`",
+                1,
+            ),
+            "wrong bare Apple handoff domain": router_fixture.replace(
+                "without that boundary as `domain = ambiguous`",
+                "without that boundary as `domain = foundation_models_handoff`",
+                1,
+            ),
+            "wrong adjacent-domain classification": router_fixture.replace(
+                "runtime Skills as `domain = out_of_domain`",
+                "runtime Skills as `domain = foundation_models_handoff`",
+                1,
+            ),
+            "classification after freeze": router_fixture.replace(
+                ROUTER_DOMAIN_CLASSIFICATION_SENTENCE
+                + "\n"
+                + ROUTER_CLASSIFICATION_FREEZE_SENTENCE,
+                ROUTER_CLASSIFICATION_FREEZE_SENTENCE
+                + "\n"
+                + ROUTER_DOMAIN_CLASSIFICATION_SENTENCE,
+                1,
+            ),
+        }
+        for mutation, candidate in router_mutations.items():
+            with self.subTest(owner="router", mutation=mutation):
+                self.assert_router_rejected(candidate)
+
+        for skill in WORKFLOW_SKILLS:
+            fixture = build_valid_skill_fixture(skill)
+            positive_mutations = {
+                "missing immutable preselection": fixture.replace(
+                    POSITIVE_IMMUTABLE_PRESELECTION_SENTENCE,
+                    "",
+                    1,
+                ),
+                "workflow finding reversal": fixture.replace(
+                    "an immutable pre-selection record, not a workflow finding",
+                    "a mutable workflow finding, not a pre-selection record",
+                    1,
+                ),
+                "post-inspection source reversal": fixture.replace(
+                    "the source request in the shown field order",
+                    "post-inspection findings in a convenient field order",
+                    1,
+                ),
+                "revision reversal": fixture.replace(
+                    "never use inspection, execution, evidence results, or drafted "
+                    "output to infer or revise a value",
+                    "use inspection, execution, evidence results, or drafted output "
+                    "to infer or revise a value",
+                    1,
+                ),
+                "router emulation reversal": fixture.replace(
+                    "neither invokes nor emulates the router",
+                    "invokes and emulates the router",
+                    1,
+                ),
+                "immutable rule moved after ownership": fixture.replace(
+                    POSITIVE_FROZEN_TUPLE_SENTENCE
+                    + "\n"
+                    + POSITIVE_IMMUTABLE_PRESELECTION_SENTENCE
+                    + "\n"
+                    + POSITIVE_FINAL_RESPONSE_GATE_SENTENCES[2],
+                    POSITIVE_FROZEN_TUPLE_SENTENCE
+                    + "\n"
+                    + POSITIVE_FINAL_RESPONSE_GATE_SENTENCES[2]
+                    + "\n"
+                    + POSITIVE_IMMUTABLE_PRESELECTION_SENTENCE,
+                    1,
+                ),
+            }
             for mutation, candidate in positive_mutations.items():
                 with self.subTest(skill=skill, mutation=mutation):
                     self.assert_skill_rejected(candidate, skill)
