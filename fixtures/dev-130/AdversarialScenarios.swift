@@ -169,14 +169,20 @@ struct AdversarialScenarios {
         )
 
         let rawDiagnostic = "DEV130_DIAGNOSTIC_RAW_SENTINEL"
+        let remoteDiagnostic = "DEV130_DIAGNOSTIC_REMOTE_SENTINEL"
         let diagnosticResult = DiagnosticToolResult(
             originalResult: rawDiagnostic,
             resultType: "compiler_diagnostics",
             fields: [
-                DiagnosticField(name: "severity", value: "warning"),
-                DiagnosticField(name: "code", value: "synthetic-warning"),
-                DiagnosticField(name: "message", value: "synthetic diagnostic summary"),
-                DiagnosticField(name: "rawOutput", value: rawDiagnostic),
+                DiagnosticField(name: "severity", value: "warning", origin: .trustedLocal),
+                DiagnosticField(name: "code", value: "synthetic-warning", origin: .trustedLocal),
+                DiagnosticField(
+                    name: "message",
+                    value: "synthetic diagnostic summary",
+                    origin: .trustedLocal
+                ),
+                DiagnosticField(name: "rawOutput", value: rawDiagnostic, origin: .trustedLocal),
+                DiagnosticField(name: "message", value: remoteDiagnostic, origin: .nonLocal),
             ],
             originalExecutionCount: 1
         )
@@ -208,8 +214,10 @@ struct AdversarialScenarios {
             "diagnostic route did not enforce its field allowlist"
         )
         expect(
-            !declinedDiagnostic.request.fields.contains(where: { $0.value == rawDiagnostic }),
-            "raw diagnostic crossed the Apple bridge"
+            !declinedDiagnostic.request.fields.contains(where: {
+                $0.value == rawDiagnostic || $0.value == remoteDiagnostic
+            }),
+            "unapproved diagnostic crossed the Apple bridge"
         )
         expectDiagnosticFallback(
             declinedDiagnostic,
@@ -319,6 +327,7 @@ struct AdversarialScenarios {
                 }
         ).flatMap(\.audit).joined(separator: "\n")
         expect(!diagnosticEvidence.contains(rawDiagnostic), "raw diagnostic leaked to audit")
+        expect(!diagnosticEvidence.contains(remoteDiagnostic), "remote diagnostic leaked to audit")
         expect(
             !diagnosticEvidence.contains("DEV130_DIAGNOSTIC_FAILURE_SENTINEL"),
             "raw bridge failure leaked to audit"

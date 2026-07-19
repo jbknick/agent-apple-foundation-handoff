@@ -8,8 +8,9 @@ Host and diagnostic-route evidence refresh: `2026-07-19` (Asia/Jerusalem)
 
 This transcript records the installed SDK/interface checks, current official
 Apple primary-source review, the original fixture RED diagnostic class, the
-fresh diagnostic-route RED diagnostic class, a current deterministic GREEN
-run, repeated-run comparison, the complete DEV-128 matrix, report
+initial diagnostic-route RED, the locality review-correction RED, the final
+deterministic GREEN and repeated-run comparison, the complete DEV-128 matrix,
+report
 semantic/source gates, current structural host passes, and narrow host blockers
 for DEV-130.
 
@@ -227,6 +228,40 @@ error: cannot find 'DiagnosticToolResult' in scope
 No production hook, bridge, model, or tool execution was involved. The RED
 proved only that the new pure policy contract did not yet exist.
 
+### Locality review-correction RED
+
+Review found that the first request filter checked only an approved field name.
+The runner was changed first to give an approved-name `message` field a typed
+non-local origin. Fresh command:
+
+```bash
+set +e
+artifact_dir="$(mktemp -d)"
+swiftc -warnings-as-errors -parse-as-library \
+  fixtures/dev-130/HandoffSecurityPolicy.swift \
+  fixtures/dev-130/AdversarialScenarios.swift \
+  -o "$artifact_dir/dev130-red" > "$artifact_dir/red.out" 2>&1
+red_rc=$?
+set -e
+test "$red_rc" -ne 0
+rg -q "extra argument 'origin' in call|cannot infer contextual base in reference to member 'trustedLocal'" \
+  "$artifact_dir/red.out"
+```
+
+Relevant output; compile exited `1`, and the diagnostic-class assertion exited
+`0`:
+
+```text
+red_rc=1
+error: extra argument 'origin' in call
+error: cannot infer contextual base in reference to member 'trustedLocal'
+```
+
+GREEN added only `DiagnosticFieldOrigin` and required both `.trustedLocal` and
+the approved name when filtering the request. The approved-name non-local
+mutation and the unapproved-name local mutation are both absent from the bridge
+request and metadata-only evidence.
+
 ### Fresh GREEN and repeatability
 
 Command:
@@ -266,8 +301,9 @@ The diff and byte comparison produced no output. The assertions additionally
 cover independent `stateVersion`/`policyVersion`, stale source state,
 destination, purpose, class, field, proposal-policy and grant-policy mismatches,
 proposal phase gating before budget, uncertain replay, late-event immunity,
-approved diagnostic-field filtering, schema/provenance mismatches, original
-result preservation, normalized interruption errors, and no original-tool rerun.
+approved diagnostic-name plus trusted-local-origin filtering,
+schema/provenance mismatches, original result preservation, normalized
+interruption errors, and no original-tool rerun.
 
 ## Adversarial E2E execution
 
@@ -336,8 +372,8 @@ test "$(git diff --name-only origin/main...HEAD | sort)" = "$expected_paths"
 placeholder_pattern="$(printf '%s%s|%s%s|%s%s|fill in %s|implement %s' \
   T BD TO DO FIX ME details later)"
 ! rg -n "$placeholder_pattern" "$report" "$transcript"
-forbidden_pattern="$(printf 'DEV130_%s_%s|DEV130_%s_%s_%s' \
-  SECRET SENTINEL DIAGNOSTIC RAW SENTINEL)"
+forbidden_pattern="$(printf 'DEV130_%s_%s|DEV130_%s_%s_%s|DEV130_%s_%s_%s' \
+  SECRET SENTINEL DIAGNOSTIC RAW SENTINEL DIAGNOSTIC REMOTE SENTINEL)"
 ! rg -n "$forbidden_pattern" "$report" "$transcript"
 git diff --check
 ```

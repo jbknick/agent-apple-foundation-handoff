@@ -102,9 +102,15 @@ struct ReducerDecision: Equatable {
     let providerRequest: String?
 }
 
+enum DiagnosticFieldOrigin: Equatable {
+    case trustedLocal
+    case nonLocal
+}
+
 struct DiagnosticField: Equatable {
     let name: String
     let value: String
+    let origin: DiagnosticFieldOrigin
 }
 
 struct DiagnosticToolResult: Equatable {
@@ -193,7 +199,9 @@ struct DiagnosticResultRoutingPolicy {
             trigger: "PostToolUse",
             destination: .appleOnDevice,
             binding: binding,
-            fields: result.fields.filter { approvedFieldNames.contains($0.name) }
+            fields: result.fields.filter {
+                $0.origin == .trustedLocal && approvedFieldNames.contains($0.name)
+            }
         )
 
         switch outcome {

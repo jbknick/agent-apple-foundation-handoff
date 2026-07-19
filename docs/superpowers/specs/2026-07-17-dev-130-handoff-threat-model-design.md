@@ -78,8 +78,9 @@ enters `recoveryRequired` until the ledger and external resource are reconciled.
 The July 18 host contract selects diagnostic tool results at `PostToolUse` and
 uses the exact action `condense_diagnostic_output` for an Apple-first local
 bridge. The host executes the original tool once, then constructs a request
-from an explicit diagnostic-field allowlist. The bridge is not allowed to
-trigger the tool again.
+only from fields with an allowlisted name and typed `trustedLocal` origin. An
+approved name does not admit a remote or otherwise non-local value. The bridge
+is not allowed to trigger the tool again.
 
 The Apple response remains untrusted until its schema version, call ID, tool
 name and version, source state version, action, original result type, and
@@ -187,10 +188,11 @@ partial-failure cases into pre-commit and uncertain-commit variants:
 4. three transitions are allowed and the fourth is terminated by the budget;
 5. pre-commit cancellation restores the checkpoint, while cancellation after a
    possible effect enters recovery without duplication.
-6. selected diagnostic results route only approved fields through exact action
-   `condense_diagnostic_output`; only a schema- and provenance-bound Apple
-   response is accepted, while decline, failure, timeout, and cancellation
-   preserve the once-executed original result without rerun.
+6. selected diagnostic results route only fields with an approved name and
+   trusted-local origin through exact action `condense_diagnostic_output`; only
+   a schema- and provenance-bound Apple response is accepted, while decline,
+   failure, timeout, and cancellation preserve the once-executed original
+   result without rerun.
 
 The fixture validates application policy only. It does not invoke a model,
 prove Apple framework callbacks, exercise a provider, or claim exactly-once

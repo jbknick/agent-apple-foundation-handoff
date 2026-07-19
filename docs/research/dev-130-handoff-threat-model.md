@@ -168,9 +168,10 @@ over-sharing, or trace disclosure.
     is untrusted until version-labelled, reviewed, compiled, tested, and
     explicitly executed.
 12. **Diagnostic tool result to local Apple bridge:** the host selects the
-    diagnostic route after the original tool returns, sends only allowlisted
-    local fields under exact action `condense_diagnostic_output`, and treats the
-    Apple response as untrusted until schema and provenance validation.
+    diagnostic route after the original tool returns, sends only fields with an
+    allowlisted name and trusted-local origin under exact action
+    `condense_diagnostic_output`, and treats the Apple response as untrusted
+    until schema and provenance validation.
 
 ## Data classification and transfer policy
 
@@ -273,8 +274,10 @@ commit or lack idempotency; transcript rollback cannot undo that effect.
 The July 18 amendment binds the actual host boundary: selected diagnostic tool
 results enter a `PostToolUse` route to an Apple-first local Swift bridge using
 the exact action `condense_diagnostic_output`. The original tool has already
-run. The route builds a new bridge request from an explicit allowlist of local
-diagnostic fields and never reruns the original tool.
+run. The route builds a new bridge request only from fields whose name is on the
+explicit allowlist and whose typed origin is `trustedLocal`; an approved name
+cannot make a remote or otherwise non-local value eligible. The route never
+reruns the original tool.
 
 Apple output remains untrusted until the application validates the exact
 response schema and request provenance: call ID, tool name and version, source
@@ -321,8 +324,9 @@ These are mandatory plugin/application policy, not Apple API guarantees:
     authority, current auth/permissions, confirmation, and effect budget.
 11. **Tool-result provenance:** accepted results bind outstanding call ID,
     expected tool/version/provider, current state, action, schema, and result
-    types. The diagnostic route additionally permits only allowlisted local
-    fields. Model text or mismatched output cannot close a call or replace the
+    types. The diagnostic route additionally requires both an allowlisted field
+    name and typed trusted-local origin. Model text, a non-local value using an
+    approved name, or mismatched output cannot close a call or replace the
     original result.
 12. **At-most-once effect:** each logical effect has a stable idempotency key and
     ledger entry. Retry reconciles the recorded result and emits no second
@@ -491,7 +495,7 @@ requirement and must not be represented as executed proof.
 | --- | --- | --- | --- | --- | --- | --- |
 | Injection | `stable(research,onDevice)`, counts 0 | untrusted tool text contains forged transition/effect instructions | Same stable authority | commands 0, effects 0 | event name + `decision=ignored` | **Executed: DEV-130 fixture** |
 | Disallowed transfer | Stable; custom destination; envelope includes C3 | typed transition proposal with even an over-broad grant | Stable, no pending/checkpoint | commands 0, effects 0 | blocked + class only; no field value | **Executed: DEV-130 fixture** |
-| Diagnostic-result routing | Original diagnostic result already executed once | `PostToolUse` builds allowlisted Apple request; valid, declined, invalid, failed, timed-out, and cancelled companions resolve | Valid bound response replaces visible result; every other companion preserves original | original executions 1; reruns 0 | trigger/action, synthetic binding, field count, decision, normalized error only | **Executed: DEV-130 fixture** |
+| Diagnostic-result routing | Original diagnostic result already executed once; fields include unapproved-name local and approved-name non-local mutations | `PostToolUse` filters by approved name plus trusted-local origin; valid, declined, invalid, failed, timed-out, and cancelled companions resolve | Valid bound response replaces visible result; every other companion preserves original | original executions 1; reruns 0 | trigger/action, synthetic binding, field count, decision, normalized error only | **Executed: DEV-130 fixture** |
 | Pre-effect tool failure | Stable checkpoint, valid proposal | propose -> one transition command -> `.notCommitted` failure | Original stable profile/provider/version | commands 1 total, effects 0 | restored/notCommitted | **Executed: DEV-130 fixture** |
 | Post-effect/uncertain tool failure | Transitioning after one command | failure with synthetic uncertain effect ID -> replay | `recoveryRequired`, pending/checkpoint retained for repair | commands 1 total, ledger effects 1 | recovery + synthetic effect ID | **Executed: DEV-130 fixture** |
 | Transition budget | Stable, max 3 | three valid propose/commit pairs -> fourth proposal | `terminated(transitionBudgetExceeded)` with prior sole active identity | commands 3, effects 0 | transition count + terminal reason | **Executed: DEV-130 fixture** |
@@ -505,14 +509,14 @@ requirement and must not be represented as executed proof.
 | Transcript repair | Preserved history with partial response/unmatched call | resume request -> validator repair/drop -> validate | Inference blocked until one valid stable/recovery state | effect commands 0 during repair | entry types/counts/provenance decisions | Deterministic downstream requirement |
 | Auth expiry | Confirmed while unlocked | auth expires -> immediate pre-execution revalidation | Stable blocked/awaiting fresh confirmation | effect commands 0 | auth-state class, no credential | Deterministic downstream requirement |
 | Opaque provider tools | Custom provider returns final text without typed tool trace | accept provider response metadata -> render disclosure | Response may continue, but tool activity is `unknown` | local tool count unknown, never asserted zero | provider ID + `toolVisibility=opaque` | Deterministic downstream requirement |
-| Trace leakage | Synthetic classified fields and reasoning markers | run default audit -> scan repository/log output | Stable; evidence contains metadata only | effects unchanged; leaked values 0 | classes, hashes, counts | Partial: fixture proves C3 and raw diagnostic values absent from audit and fixture output; full trace scanner downstream |
+| Trace leakage | Synthetic classified fields and reasoning markers | run default audit -> scan repository/log output | Stable; evidence contains metadata only | effects unchanged; leaked values 0 | classes, hashes, counts | Partial: fixture proves C3, raw diagnostic, and non-local diagnostic values absent from audit and fixture output; full trace scanner downstream |
 | Error/fallback mapping | Table-driven stable state for each installed/beta-labelled error class | context/refusal/decoding/rate/concurrent/tool/timeout/cancel event | Explicit stable, terminated, unavailable, or `recoveryRequired` mapping | no silent retry; effect count at most prior ledger | error class + mapped phase only | Deterministic downstream requirement |
 
 The executed output contains eight PASS scenario lines and
 `SUMMARY passed=8 failed=0`; repeated runs are byte-identical. The fixture also
 asserts separate state/policy versions, grant mismatch cases, proposal phase
-gating, late-event immunity, uncertain replay, diagnostic field filtering,
-strict Apple-response binding, original-result preservation, and no rerun. It
+gating, late-event immunity, uncertain replay, diagnostic name-and-origin
+filtering, strict Apple-response binding, original-result preservation, and no rerun. It
 does not invoke a model, Apple callbacks, the production bridge, a provider,
 Instruments, Evaluations, or an external effect.
 
@@ -524,7 +528,7 @@ These requirements bind the named follow-on issues:
 | --- | --- |
 | DEV-132 | Architecture must keep the deterministic reducer authoritative, model proposals untrusted, baton-pass distinct from isolated consultation, and one stable active profile/provider. |
 | DEV-134 | The skill design and output contract must require C0–C3 classification with provenance, atomic fail-closed envelopes, target-necessary baton-pass history, minimized isolated-consultation context, destination-bound grants, and truthful PCC/custom-provider labels. |
-| DEV-136 | The production `SKILL.md` workflow guidance must direct generated handoff work to specify semantic argument/recipient/resource checks, immediate bound confirmation, auth revalidation, provenance-valid results, idempotency, and application-controlled at-most-once behavior. Its approved host `PostToolUse` diagnostic route must retain exact action `condense_diagnostic_output`, approved-field-only Apple input, strict response binding, original-result fallback, normalized interruption errors, and no original-tool rerun; DEV-130 does not claim the skill itself supplies that runtime. |
+| DEV-136 | The production `SKILL.md` workflow guidance must direct generated handoff work to specify semantic argument/recipient/resource checks, immediate bound confirmation, auth revalidation, provenance-valid results, idempotency, and application-controlled at-most-once behavior. Its approved host `PostToolUse` diagnostic route must retain exact action `condense_diagnostic_output`, Apple input gated by both approved field name and trusted-local origin, strict response binding, original-result fallback, normalized interruption errors, and no original-tool rerun; DEV-130 does not claim the skill itself supplies that runtime. |
 | DEV-137 | The reference library must distinguish installed Apple facts, official Xcode 27 beta guidance, mandatory plugin policy, and recommendations while documenting independent `stateVersion`/`policyVersion`, phase-before-budget, single-active state, finite budgets, pre-commit rollback, uncertain-effect recovery, cancellation, transcript repair, and safe fallback. |
 | DEV-138 | The deterministic fixture suite must prove all downstream adversarial rows, retain exact output and repeated-run contracts including diagnostic-result routing, remain offline/synthetic, and never treat optional host blockers as passes. |
 | DEV-139 | The cross-host harness must assert the security contract through real Claude and Codex task invocations and evidence scans: metadata-only outputs, no forbidden sentinels or trace/result artifacts, honest executed-versus-blocked labels, and no silent loss of the documented confirmation, recovery, provider, and fallback rules. It does not own runtime transcript handling. |

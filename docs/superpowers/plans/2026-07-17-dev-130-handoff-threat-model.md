@@ -30,10 +30,10 @@ documentation and WWDC26 sources.
   Xcode 26.6, iPhoneOS 26.5, `xctrace`, and `simctl` availability is structural
   evidence only.
 - The `PostToolUse` diagnostic route uses exact action
-  `condense_diagnostic_output`, an approved local-field allowlist, strict
-  response schema/provenance binding, original-result preservation, and no
-  original-tool rerun. DEV-130 remains a pure repository model, not the host
-  hook or production bridge.
+  `condense_diagnostic_output`, approved field names plus typed trusted-local
+  origin, strict response schema/provenance binding, original-result
+  preservation, and no original-tool rerun. DEV-130 remains a pure repository
+  model, not the host hook or production bridge.
 
 **Integration base:** current `origin/main`; the issue delta remains exactly the
 seven paths listed in final verification.
@@ -77,7 +77,8 @@ evidence and status propagation.
 **Interfaces:**
 
 - Consumes: only Swift standard-library values and synthetic fixture data.
-- Produces: the transition reducer types plus `DiagnosticToolResult`,
+- Produces: the transition reducer types plus `DiagnosticFieldOrigin`,
+  `DiagnosticToolResult`,
   `DiagnosticBridgeRequest`, `DiagnosticBridgeResponse`,
   `DiagnosticBridgeOutcome`, `DiagnosticRoutingDecision`, and the pure
   `DiagnosticResultRoutingPolicy.resolve(result:context:outcome:)`.
@@ -138,6 +139,11 @@ require the specific missing `DiagnosticRoutingDecision` or
 `DiagnosticToolResult` diagnostic. Record that fresh RED separately from the
 historical transition-policy RED. Do not simulate a production hook call.
 
+For the review correction, add an approved-name/non-local field mutation before
+adding origin to the policy model. Require the compile to fail on the missing
+`origin` argument, then add only a tiny typed origin and require both
+`trustedLocal` and an approved name in the request filter.
+
 - [ ] **Step 3: Implement the minimal policy reducer**
 
 Create `HandoffSecurityPolicy.swift` with these exact type relationships:
@@ -180,10 +186,11 @@ Implement only the behavior required by the adversarial assertions:
 - a proposal after the transition budget is exhausted terminates with exact
   reason `transitionBudgetExceeded` and emits no command.
 - a diagnostic request uses trigger `PostToolUse`, destination
-  `appleOnDevice`, exact action `condense_diagnostic_output`, and only approved
-  fields; it accepts a response only when schema and the complete request
-  binding match; decline/failure/timeout/cancellation preserve the original
-  once-executed result and never request a rerun.
+  `appleOnDevice`, exact action `condense_diagnostic_output`, and only fields
+  with both an approved name and typed `trustedLocal` origin; it accepts a
+  response only when schema and the complete request binding match;
+  decline/failure/timeout/cancellation preserve the original once-executed
+  result and never request a rerun.
 
 Audit strings contain types, decisions, classes, and synthetic IDs only. They
 must never include `ContextField.value`.
@@ -203,7 +210,7 @@ swiftc -warnings-as-errors -parse-as-library \
 diff -u fixtures/dev-130/expected-output.txt "$artifact_dir/dev130-adversarial.out"
 "$artifact_dir/dev130-adversarial" > "$artifact_dir/dev130-adversarial-second.out"
 cmp "$artifact_dir/dev130-adversarial.out" "$artifact_dir/dev130-adversarial-second.out"
-! rg -q 'DEV130_SECRET_SENTINEL|DEV130_DIAGNOSTIC_RAW_SENTINEL' \
+! rg -q 'DEV130_SECRET_SENTINEL|DEV130_DIAGNOSTIC_(RAW|REMOTE)_SENTINEL' \
   "$artifact_dir/dev130-adversarial.out"
 ```
 
@@ -318,8 +325,8 @@ Use `apply_patch`. The transcript must have exactly these top-level sections:
 6. `Semantic and evidence-safety gates`
 7. `Host-assisted blockers`
 
-Record exact commands, exit codes, relevant outputs, interface hash, both RED
-diagnostic classes, compiled fixture output, repeated-run comparison,
+Record exact commands, exit codes, relevant outputs, interface hash, all three
+RED diagnostic classes, compiled fixture output, repeated-run comparison,
 source-link checks, report semantic gates, the complete DEV-128 positive and
 expected-blocker matrix, current Xcode/iPhoneOS/`xctrace`/`simctl` structural
 passes, and exact SDK 27/legacy Instruments/Evaluations blockers. Do not include
@@ -426,8 +433,8 @@ diff -u fixtures/dev-130/expected-output.txt "$artifact_dir/dev130-final.out"
 cmp "$artifact_dir/dev130-final.out" "$artifact_dir/dev130-final-second.out"
 
 ! git ls-files | rg '\.(trace|xcresult)$'
-forbidden_pattern="$(printf 'DEV130_%s_%s|DEV130_%s_%s_%s' \
-  SECRET SENTINEL DIAGNOSTIC RAW SENTINEL)"
+forbidden_pattern="$(printf 'DEV130_%s_%s|DEV130_%s_%s_%s|DEV130_%s_%s_%s' \
+  SECRET SENTINEL DIAGNOSTIC RAW SENTINEL DIAGNOSTIC REMOTE SENTINEL)"
 ! rg -n "$forbidden_pattern" docs/research/dev-130-handoff-threat-model.md \
   docs/research/evidence/dev-130-command-transcript.md
 git diff --check origin/main...HEAD
