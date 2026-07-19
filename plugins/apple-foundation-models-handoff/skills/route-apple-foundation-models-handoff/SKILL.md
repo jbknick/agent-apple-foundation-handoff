@@ -7,6 +7,9 @@ description: 'Route a non-positive Apple Foundation Models handoff request befor
 
 ## Final Response Gate
 
+Freeze `domain`, `requestedOperation`, `artifactState`, and `evidenceState` exactly
+once; emit the matching router-owned branch immediately, and never let a requested
+operation, artifact, or evidence cue override `domain = ambiguous`.
 When this router activates, resolve the branch directly from the user request without
 inspection or tool use.
 Make the final response exactly one fenced `text` block copied from the matching

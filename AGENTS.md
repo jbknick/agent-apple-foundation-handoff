@@ -8,9 +8,7 @@
 Never edit `AGENTS.md` directly; update `CLAUDE.md`, then use `scripts/sync_generated_artifacts.py`.
 
 ### Scope and capability ownership
-- The plugin ID is `apple-foundation-models-handoff`. It helps Apple-platform engineers
-  design, implement, review, debug, and validate Foundation Models handoff architectures;
-  it is not generic Apple Intelligence education.
+- Plugin ID `apple-foundation-models-handoff` supports five Apple Foundation Models handoff workflows; it is not generic Apple Intelligence education.
 - DEV-135 installed the metadata scaffold. The package exposes five workflows plus one non-positive router. The five production workflows are implemented: `design-apple-foundation-models-handoff`, `implement-apple-foundation-models-handoff`,
   `review-apple-foundation-models-handoff`, `debug-apple-foundation-models-handoff`, and `validate-apple-foundation-models-handoff`. `route-apple-foundation-models-handoff` is the non-positive router; it is not a workflow.
 - Before selecting any positive workflow, resolve non-positive pre-selection in this order: `domain = out_of_domain`, `domain = ambiguous`, then a confirmed implementation request missing an approved architecture or exact change boundary.
@@ -18,6 +16,7 @@ Never edit `AGENTS.md` directly; update `CLAUDE.md`, then use `scripts/sync_gene
 - The bounded non-positive preselection router may only clarify, decline, or hand off
   those requests. It is not a sixth positive workflow and is distinct from the
   DEV-142 through DEV-145 cost router, `PostToolUse` hooks, and Swift bridge chain.
+- Treat pre-selection as one closed compilation transaction: resolve and freeze `domain`, `requestedOperation`, `artifactState`, and `evidenceState` exactly once; emit a router-owned outcome immediately before positive selection, or pass the same frozen tuple to the one selected positive workflow for unchanged serialization without re-inference.
 - Treat a request asking only about Swift actors, actor isolation, or a Swift example as `domain = out_of_domain` even when it asks for implementation; select only `route-apple-foundation-models-handoff` and return its `no_activation` result before positive selection.
 - Otherwise select exactly one matching positive workflow; once selected, it remains the only workflow owner for the request. Progressively disclose only the directly linked reference needed for that concern. Do not copy complete workflows into guidance, duplicate the reference corpus, or add a plugin-local worker.
 - Foundation Models handoff, coding-session handoff, Apple Handoff, App Intents,

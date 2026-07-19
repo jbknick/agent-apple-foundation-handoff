@@ -7,6 +7,9 @@ description: Validate an Apple Foundation Models handoff artifact when the user 
 
 ## Final Response Gate
 
+Before drafting, freeze normalized `domain`, `requestedOperation`, `artifactState`,
+and `evidenceState`, then copy that same tuple unchanged into `routerInput`; use no
+synonyms and do not reclassify later.
 Once this positive workflow activates, it remains the only workflow owner; never
 select, invoke, or switch to another skill.
 Make the first character of the final response the opening backtick of the exact

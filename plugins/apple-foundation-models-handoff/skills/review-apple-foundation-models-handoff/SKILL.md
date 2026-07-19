@@ -7,12 +7,17 @@ description: Review an existing Apple Foundation Models handoff artifact when th
 
 ## Final Response Gate
 
+Before drafting, freeze normalized `domain`, `requestedOperation`, `artifactState`,
+and `evidenceState`, then copy that same tuple unchanged into `routerInput`; use no
+synonyms and do not reclassify later.
 Once this positive workflow activates, it remains the only workflow owner; never
 select, invoke, or switch to another skill.
 Make the first character of the final response the opening backtick of the exact
 21-line result-envelope `text` fence under Output Contract; emit no prose before it.
 Close that fence immediately after its 21st line, then emit only the exact required
 headings, each once and in their listed order.
+When `requestedOperation = compound_review_fix`, write the literal sentence
+`Any requested fix requires a separate authorized follow-on.` under `### Findings`.
 The response is incomplete until the fence is followed by exactly 11 level-three
 headings: all ten common headings followed by the workflow-specific headings in
 their listed order; do not stop after the fence or omit an empty-but-required heading.
