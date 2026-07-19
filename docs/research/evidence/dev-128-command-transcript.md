@@ -453,6 +453,38 @@ installed SDK 26.5 because it targets macOS 27 and consumes missing OS 27 beta
 Foundation Models declarations. This is source-compatibility evidence, not a
 claim that the package fails under Xcode 27.
 
+### 2026-07-19 Xcode 26.6 immutable rebuild
+
+The same immutable revision was rebuilt on the current full-Xcode host to bind
+that blocker classification to the active toolchain rather than the historical
+Command Line Tools output above:
+
+```console
+$ date '+%Y-%m-%dT%H:%M:%S%z %Z'
+2026-07-19T15:36:59+0300 IDT
+# exit 0
+
+$ test "$(git -C /tmp/apple-foundation-models-utilities rev-parse HEAD)" = \
+    376ca60e61985369d5067bd3c575bdb6a13f0e1b
+# exit 0
+
+$ swift build -v --package-path /tmp/apple-foundation-models-utilities
+# normalized compiler identity
+-target arm64-apple-macosx27.0
+-sdk /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk
+target-sdk-version 26.5
+target-sdk-name macosx26.5
+
+error: 'DynamicProfile' is not a member type of class 'FoundationModels.LanguageModelSession'
+# exit 1
+```
+
+With `xcode-select` at `/Applications/Xcode.app/Contents/Developer`, Xcode
+26.6, and the macOS SDK at 26.5 (as recorded in the current revalidation), this
+current rebuild confirms the same strict Apple Utilities source-compatibility
+blocker: the revision targets macOS 27 and references unavailable OS 27 beta
+Foundation Models declarations. It does not establish behavior under Xcode 27.
+
 ## Official source ledger
 
 All source retrieval and review occurred during `2026-07-16` through
