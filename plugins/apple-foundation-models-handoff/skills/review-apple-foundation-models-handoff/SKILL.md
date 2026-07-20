@@ -21,8 +21,10 @@ Make the first character of the final response the opening backtick of the exact
 21-line result-envelope `text` fence under Output Contract; emit no prose before it.
 Close that fence immediately after its 21st line, then emit only the exact required
 headings, each once and in their listed order.
-When `requestedOperation = compound_review_fix`, write the literal sentence
-`Any requested fix requires a separate authorized follow-on.` under `### Findings`.
+When `requestedOperation = compound_review_fix`, make the literal sentence
+`Any requested fix requires a separate authorized follow-on.` the first nonblank
+line under `### Findings`; keep all findings in that section and emit no extra
+follow-on heading.
 The response is incomplete until the fence is followed by exactly 11 level-three
 headings: all ten common headings followed by the workflow-specific headings in
 their listed order; do not stop after the fence or omit an empty-but-required heading.
