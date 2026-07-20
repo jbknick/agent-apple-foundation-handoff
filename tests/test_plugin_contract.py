@@ -238,7 +238,7 @@ class PluginContractTests(unittest.TestCase):
         generated = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
         required = (
             "Exactly five package reference files are present",
-            "Skills, hooks, commands, agents, MCP servers, package scripts, "
+            "Hooks, commands, agents, MCP servers, package scripts, "
             "dependencies, and runtime code remain absent",
             "zero runtime capabilities",
         )
@@ -665,7 +665,13 @@ class CodexProbeRaceTests(unittest.TestCase):
                 mock.patch.object(
                     codex_probe,
                     "read_regular_file",
-                    return_value=b'{"interface":{"capabilities":[]}}',
+                    return_value=json.dumps(
+                        {
+                            "interface": {
+                                "capabilities": codex_probe.EXPECTED_CAPABILITIES
+                            }
+                        }
+                    ).encode("utf-8"),
                 ),
                 mock.patch.object(
                     codex_probe, "emit_result", side_effect=emitted.append

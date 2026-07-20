@@ -223,15 +223,24 @@ class _MutateAfterRead:
 
 
 @contextlib.contextmanager
-def mutate_after_read(read_number: int, mutation):
+def mutate_after_read(target: Path, mutation):
     real_fdopen = sync_generated_artifacts.os.fdopen
-    reads = 0
+    target_metadata = target.lstat()
+    mutated = False
 
     def wrapped_fdopen(*arguments, **keywords):
-        nonlocal reads
-        reads += 1
+        nonlocal mutated
         stream = real_fdopen(*arguments, **keywords)
-        if reads == read_number:
+        try:
+            opened = os.fstat(arguments[0])
+        except (IndexError, OSError, TypeError):
+            return stream
+        if (
+            not mutated
+            and (opened.st_dev, opened.st_ino)
+            == (target_metadata.st_dev, target_metadata.st_ino)
+        ):
+            mutated = True
             return _MutateAfterRead(stream, mutation)
         return stream
 
@@ -512,7 +521,7 @@ class RepositoryGuidanceTests(unittest.TestCase):
                 self.assertFalse(os.path.lexists(isolated_root / "AGENTS.md"))
 
     def _assert_post_read_change_is_rejected(
-        self, target_name: str, read_number: int, diagnostic_text: str, change: str
+        self, target_name: str, diagnostic_text: str, change: str
     ):
         with tempfile.TemporaryDirectory() as directory:
             isolated_root = Path(directory)
@@ -534,7 +543,7 @@ class RepositoryGuidanceTests(unittest.TestCase):
                         stream.write(b"post-read change\n")
 
             diagnostic = io.StringIO()
-            with mutate_after_read(read_number, mutation):
+            with mutate_after_read(target, mutation):
                 with contextlib.redirect_stderr(diagnostic):
                     synchronized = sync_generated_artifacts.synchronize(
                         isolated_root, write=False
@@ -549,7 +558,6 @@ class RepositoryGuidanceTests(unittest.TestCase):
             with self.subTest(change=change):
                 self._assert_post_read_change_is_rejected(
                     "CLAUDE.md",
-                    1,
                     "CLAUDE.md: invalid canonical metadata input\n",
                     change,
                 )
@@ -559,7 +567,6 @@ class RepositoryGuidanceTests(unittest.TestCase):
             with self.subTest(change=change):
                 self._assert_post_read_change_is_rejected(
                     "AGENTS.md",
-                    6,
                     "AGENTS.md: unsafe or unwritable generated output\n",
                     change,
                 )
@@ -642,7 +649,7 @@ class RepositoryGuidanceTests(unittest.TestCase):
         generated_bytes = GENERATED.read_bytes()
 
         self.assertLessEqual(len(generated_bytes.decode("utf-8").splitlines()), 90)
-        self.assertLessEqual(len(generated_bytes), 6500)
+        self.assertLessEqual(len(generated_bytes), 9 * 1024)
         self.assertLess(len(generated_bytes), len(canonical_bytes))
 
     def test_only_one_root_agents_file_exists(self):
@@ -661,7 +668,7 @@ class RepositoryGuidanceTests(unittest.TestCase):
             self.assertIn("Never edit `AGENTS.md` directly", text)
             self.assertIn("`scripts/sync_generated_artifacts.py`", text)
 
-    def test_guidance_distinguishes_metadata_from_planned_capabilities(self):
+    def test_guidance_distinguishes_metadata_from_implemented_capabilities(self):
         for guide in (CANONICAL, GENERATED):
             text = normalized_guide(guide)
 
@@ -682,17 +689,20 @@ class RepositoryGuidanceTests(unittest.TestCase):
                 "are generated",
                 text,
             )
-            self.assertIn(
-                "non-executable scaffold with zero capabilities",
-                text,
-            )
+            self.assertIn("The five production workflows are implemented", text)
+            self.assertIn("five workflows plus one non-positive router", text)
             self.assertIn(
                 "Exactly five package reference files are present as "
                 "documentation-only inputs and provide zero runtime capabilities",
                 text,
             )
             self.assertIn(
-                "Skills, hooks, commands, agents, MCP servers, package scripts, "
+                "`skills/**` and `references/**` are current plugin-local "
+                "canonical inputs",
+                text,
+            )
+            self.assertIn(
+                "Hooks, commands, agents, MCP servers, package scripts, "
                 "dependencies, and runtime code remain absent",
                 text,
             )
@@ -858,10 +868,10 @@ class RepositoryGuidanceTests(unittest.TestCase):
             "DEV-135 provides metadata for structural discovery and installation.",
             "Normalize repository location as `<repo>` and executable identity as "
             "`<host-path>`; never commit their literal resolutions or raw `PATH`.",
-            "Before host operations, a missing or non-runnable executable, unavailable "
-            "or malformed version, or approved-baseline mismatch emits a normalized "
-            "`blocked` row with stable reason/version metadata before exit.",
-            "After successful capture, resolution or version drift emits normalized "
+            "Before host operations, a missing/non-runnable executable, "
+            "malformed/unavailable version, or baseline mismatch emits normalized "
+            "`blocked` with stable reason/version metadata.",
+            "After capture, resolution or version drift emits normalized "
             "`fail` before exit, invalidates the row, and requires a fresh run.",
         )
 

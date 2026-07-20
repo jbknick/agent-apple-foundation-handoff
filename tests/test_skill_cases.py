@@ -314,8 +314,8 @@ BASELINE_ROW_KEYS = {
     "observedFailureClasses",
 }
 
-INITIAL_CAPTURE_HEAD = "8e78fc1e17b60ec432c9409b99b4d6f9b3eaeffa"
-REVIEW_RECAPTURE_HEAD = "4beae69d8339c19ea519ad19a4dbbfd1d229ffcd"
+INITIAL_CAPTURE_HEAD = "464dd11938acebbed055df1bdbf5032c0fadbdb6"
+REVIEW_RECAPTURE_HEAD = "ba18d72e65b46939b1d494cf423f245cdd003231"
 
 APPROVED_LIMITATIONS = (
     "The five responses were scored only as no-skill RED controls and are not capability evidence.",
@@ -521,7 +521,7 @@ FIXTURE_WITHOUT_OWNERS_SHA256 = (
     "aed1d8f41b6c24706243f03016e12fc17f58d8ea7c7c9e524723c77cf1da68f0"
 )
 HISTORICAL_EVIDENCE_CORE_SHA256 = (
-    "7ee3690d90695707522f9cbc09385c9ff5e5cd6bb5c61b122db3be2053e8d1b4"
+    "7f2df2c46dfaf6ea9367b62081c521029a234754fbb05740f261ea0e143311e1"
 )
 NON_POSITIVE_SCORER_SHA256 = (
     "27476f8047b24c330e2fb2c692e373c0aac4f121de4d9b2211b1206f3db02132"
@@ -546,7 +546,7 @@ APPROVED_SKILL_PAYLOAD_SHA256 = {
         "461b83873f481c1f9d11fe81dd388453cc0d81e9863ba29a1cbb1c854ce310e9"
     ),
 }
-ROUTER_RED_CAPTURE_COMMIT = "78a0fe9234e79d43a8c1bab130f3005416cf25a0"
+ROUTER_RED_CAPTURE_COMMIT = "2a111d96329506276741a86028019fab8572b0e8"
 ROUTER_RED_EXECUTABLE_SHA256 = (
     "bdcb530615d44fcc7b35d12fe00f30c3025c25fc22a21193591dcdb064304385"
 )
@@ -2824,13 +2824,6 @@ class CodexPluginLoadContractTests(unittest.TestCase):
             temporary_home.__enter__.return_value = str(codex_home)
             temporary_home.__exit__.return_value = False
             executable = Path(sys.executable).resolve(strict=True)
-            production_require = module.require
-
-            def require_except_superseded_capability_check(
-                condition: bool, reason: str
-            ) -> None:
-                if reason != "capabilities_not_empty":
-                    production_require(condition, reason)
 
             with (
                 mock.patch.object(module, "ROOT", repository),
@@ -2842,13 +2835,14 @@ class CodexPluginLoadContractTests(unittest.TestCase):
                 ),
                 mock.patch.object(module, "run_json", side_effect=responses),
                 mock.patch.object(module, "exact_version", return_value=True),
-                mock.patch.object(
-                    module,
-                    "require",
-                    side_effect=require_except_superseded_capability_check,
-                ),
             ):
-                return module.probe(str(executable), executable, executable)
+                return module.probe(
+                    str(executable),
+                    executable,
+                    executable,
+                    module.metadata_snapshot(executable.stat()),
+                    {"PATH": os.environ.get("PATH", "")},
+                )
 
     def test_plugin_load_accepts_exact_combined_approved_package_closure(
         self,
