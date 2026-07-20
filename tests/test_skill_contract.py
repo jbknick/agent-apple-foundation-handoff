@@ -403,6 +403,20 @@ DESIGN_SOURCE_PRESELECTION_SENTENCE = (
     "absent`, and `evidenceState = missing` before inspection or non-skill tool use."
 )
 
+DEBUG_SOURCE_PRESELECTION_SENTENCE = (
+    "For an explicit debug divergence in which a synthetic handoff reducer or "
+    "effect redispatches or replays before completion or reconciliation, freeze "
+    "the exact tuple `foundation_models_handoff/debug/implementation/failing`: "
+    "`domain = foundation_models_handoff`, `requestedOperation = debug`, "
+    "`artifactState = implementation`, and `evidenceState = failing` before "
+    "inspection or non-skill tool use."
+)
+
+SOURCE_PRESELECTION_SENTENCES = {
+    "design-apple-foundation-models-handoff": DESIGN_SOURCE_PRESELECTION_SENTENCE,
+    "debug-apple-foundation-models-handoff": DEBUG_SOURCE_PRESELECTION_SENTENCE,
+}
+
 POSITIVE_FINAL_RESPONSE_GATE_SENTENCES = (
     POSITIVE_FROZEN_TUPLE_SENTENCE,
     POSITIVE_IMMUTABLE_PRESELECTION_SENTENCE,
@@ -419,8 +433,10 @@ REVIEW_AUTHORIZED_FOLLOW_ON_SENTENCE = (
     "Any requested fix requires a separate authorized follow-on."
 )
 REVIEW_COMPOUND_FINAL_RESPONSE_SENTENCE = (
-    "When `requestedOperation = compound_review_fix`, write the literal sentence "
-    f"`{REVIEW_AUTHORIZED_FOLLOW_ON_SENTENCE}` under `### Findings`."
+    "When `requestedOperation = compound_review_fix`, make the literal sentence "
+    f"`{REVIEW_AUTHORIZED_FOLLOW_ON_SENTENCE}` the first nonblank line under "
+    "`### Findings`; keep all findings in that section and emit no extra follow-on "
+    "heading."
 )
 
 REQUIRED_RESPONSE_HEADING_COUNTS = {
@@ -434,13 +450,10 @@ REQUIRED_RESPONSE_HEADING_COUNTS = {
 
 def positive_final_response_gate_sentences(skill: str) -> tuple[str, ...]:
     count = REQUIRED_RESPONSE_HEADING_COUNTS[skill]
+    source_preselection = SOURCE_PRESELECTION_SENTENCES.get(skill)
     return (
         *POSITIVE_FINAL_RESPONSE_GATE_SENTENCES[:2],
-        *(
-            (DESIGN_SOURCE_PRESELECTION_SENTENCE,)
-            if skill == "design-apple-foundation-models-handoff"
-            else ()
-        ),
+        *((source_preselection,) if source_preselection is not None else ()),
         *POSITIVE_FINAL_RESPONSE_GATE_SENTENCES[2:],
         *(
             (REVIEW_COMPOUND_FINAL_RESPONSE_SENTENCE,)
@@ -1985,6 +1998,28 @@ class SkillContractMutationTests(unittest.TestCase):
                             "Requested fixes may be applied during review.",
                             1,
                         ),
+                        "review follow-on after findings": fixture.replace(
+                            "the first nonblank line under `### Findings`",
+                            "a later nonblank line under `### Findings`",
+                            1,
+                        ),
+                        "review findings split across sections": fixture.replace(
+                            "keep all findings in that section",
+                            "move some findings to a follow-on section",
+                            1,
+                        ),
+                        "review extra follow-on heading allowed": fixture.replace(
+                            "emit no extra follow-on heading",
+                            "emit an extra follow-on heading",
+                            1,
+                        ),
+                        "review fixture adds extra follow-on heading": fixture.replace(
+                            "### Findings\n",
+                            "### Findings\n"
+                            f"{REVIEW_AUTHORIZED_FOLLOW_ON_SENTENCE}\n\n"
+                            "### Authorized Follow-on\n",
+                            1,
+                        ),
                     }
                 )
             for mutation, candidate in positive_mutations.items():
@@ -2032,10 +2067,9 @@ class SkillContractMutationTests(unittest.TestCase):
 
         for skill in WORKFLOW_SKILLS:
             fixture = build_valid_skill_fixture(skill)
-            sentence_after_immutable = (
-                DESIGN_SOURCE_PRESELECTION_SENTENCE
-                if skill == "design-apple-foundation-models-handoff"
-                else POSITIVE_FINAL_RESPONSE_GATE_SENTENCES[2]
+            sentence_after_immutable = SOURCE_PRESELECTION_SENTENCES.get(
+                skill,
+                POSITIVE_FINAL_RESPONSE_GATE_SENTENCES[2],
             )
             positive_mutations = {
                 "missing immutable preselection": fixture.replace(
@@ -2314,6 +2348,97 @@ class SkillContractMutationTests(unittest.TestCase):
 
         for mutation, candidate in mutations.items():
             with self.subTest(mutation=mutation):
+                self.assert_skill_rejected(candidate, skill)
+
+    def test_debug_source_preselection_tuple_mutations_are_rejected(self) -> None:
+        skill = "debug-apple-foundation-models-handoff"
+        fixture = build_valid_skill_fixture(skill)
+
+        def mutate_source_tuple(
+            *,
+            domain: str = "foundation_models_handoff",
+            operation: str = "debug",
+            artifact: str = "implementation",
+            evidence: str = "failing",
+        ) -> str:
+            mutated_sentence = DEBUG_SOURCE_PRESELECTION_SENTENCE.replace(
+                "`foundation_models_handoff/debug/implementation/failing`",
+                f"`{domain}/{operation}/{artifact}/{evidence}`",
+                1,
+            )
+            for field, original, replacement in (
+                ("domain", "foundation_models_handoff", domain),
+                ("requestedOperation", "debug", operation),
+                ("artifactState", "implementation", artifact),
+                ("evidenceState", "failing", evidence),
+            ):
+                mutated_sentence = mutated_sentence.replace(
+                    f"`{field} = {original}`",
+                    f"`{field} = {replacement}`",
+                    1,
+                )
+            return fixture.replace(
+                DEBUG_SOURCE_PRESELECTION_SENTENCE,
+                mutated_sentence,
+                1,
+            )
+
+        mutations = {
+            "missing debug tuple": fixture.replace(
+                DEBUG_SOURCE_PRESELECTION_SENTENCE,
+                "",
+                1,
+            ),
+            "wrong domain": mutate_source_tuple(domain="ambiguous"),
+            "wrong operation": mutate_source_tuple(operation="validate"),
+            "wrong artifact state": mutate_source_tuple(artifact="unknown"),
+            "wrong evidence state": mutate_source_tuple(evidence="blocked"),
+            "post-inspection tuple": fixture.replace(
+                DEBUG_SOURCE_PRESELECTION_SENTENCE,
+                DEBUG_SOURCE_PRESELECTION_SENTENCE.replace(
+                    "before inspection or non-skill tool use",
+                    "after inspection or non-skill tool use",
+                    1,
+                ),
+                1,
+            ),
+            "post-inspection inference": fixture.replace(
+                DEBUG_SOURCE_PRESELECTION_SENTENCE,
+                DEBUG_SOURCE_PRESELECTION_SENTENCE.replace(
+                    "freeze the exact tuple",
+                    "infer the tuple from inspection findings",
+                    1,
+                ),
+                1,
+            ),
+            "tuple not immediately after immutable serialization": fixture.replace(
+                POSITIVE_IMMUTABLE_PRESELECTION_SENTENCE
+                + "\n"
+                + DEBUG_SOURCE_PRESELECTION_SENTENCE,
+                DEBUG_SOURCE_PRESELECTION_SENTENCE
+                + "\n"
+                + POSITIVE_IMMUTABLE_PRESELECTION_SENTENCE,
+                1,
+            ),
+        }
+
+        for mutation, candidate in mutations.items():
+            with self.subTest(mutation=mutation):
+                self.assert_skill_rejected(candidate, skill)
+
+    def test_debug_source_preselection_tuple_is_debug_only(self) -> None:
+        for skill in WORKFLOW_SKILLS:
+            if skill == "debug-apple-foundation-models-handoff":
+                continue
+            fixture = build_valid_skill_fixture(skill)
+            candidate = fixture.replace(
+                POSITIVE_IMMUTABLE_PRESELECTION_SENTENCE,
+                POSITIVE_IMMUTABLE_PRESELECTION_SENTENCE
+                + "\n"
+                + DEBUG_SOURCE_PRESELECTION_SENTENCE,
+                1,
+            )
+            with self.subTest(skill=skill):
                 self.assert_skill_rejected(candidate, skill)
 
     def test_router_non_positive_shape_omissions_and_malformed_fields_are_rejected(

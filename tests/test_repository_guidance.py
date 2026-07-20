@@ -74,6 +74,13 @@ DOMAIN_CLASSIFICATION_GUIDANCE = (
     "Apple Handoff or NSUserActivity, generic Swift or actors, generic Core ML, "
     "coding-session handoff, Agent Skills, and Foundation Models runtime Skills."
 )
+SYNTHETIC_DEBUG_DIVERGENCE_GUIDANCE = (
+    "Before positive selection, set `domain = foundation_models_handoff` for a "
+    "debug request only when it explicitly describes a synthetic handoff reducer "
+    "or effect that redispatches or replays before completion or reconciliation; "
+    "bare `Apple handoff` remains `domain = ambiguous`, and all adjacent "
+    "exclusions remain `domain = out_of_domain`."
+)
 IMMUTABLE_PRESELECTION_GUIDANCE = (
     "On positive activation, `routerInput` is an immutable pre-selection record, "
     "not a workflow finding. Serialize the exact four normalized values from the "
@@ -85,6 +92,7 @@ IMMUTABLE_PRESELECTION_GUIDANCE = (
 PRESELECTION_GUIDANCE_CONTRACTS = (
     ROUTER_FIRST_GUIDANCE_CONTRACTS[0],
     DOMAIN_CLASSIFICATION_GUIDANCE,
+    SYNTHETIC_DEBUG_DIVERGENCE_GUIDANCE,
     ROUTER_FIRST_GUIDANCE_CONTRACTS[1],
     CLOSED_RESPONSE_COMPILER_GUIDANCE,
     IMMUTABLE_PRESELECTION_GUIDANCE,
@@ -875,6 +883,36 @@ class RepositoryGuidanceTests(unittest.TestCase):
             "wrong adjacent-domain classification": valid.replace(
                 "set `domain = out_of_domain` for App Intents",
                 "set `domain = foundation_models_handoff` for App Intents",
+                1,
+            ),
+            "missing synthetic debug divergence recipe": valid.replace(
+                SYNTHETIC_DEBUG_DIVERGENCE_GUIDANCE,
+                "",
+                1,
+            ),
+            "synthetic debug divergence widened beyond explicit": valid.replace(
+                "only when it explicitly describes",
+                "whenever it may imply",
+                1,
+            ),
+            "synthetic debug divergence selected after inspection": valid.replace(
+                "Before positive selection",
+                "After positive selection and inspection",
+                1,
+            ),
+            "synthetic debug divergence timing generalized": valid.replace(
+                "redispatches or replays before completion or reconciliation",
+                "fails at any time",
+                1,
+            ),
+            "synthetic debug divergence overrides bare ambiguity": valid.replace(
+                "bare `Apple handoff` remains `domain = ambiguous`",
+                "bare `Apple handoff` becomes `domain = foundation_models_handoff`",
+                1,
+            ),
+            "synthetic debug divergence overrides adjacent exclusions": valid.replace(
+                "all adjacent exclusions remain `domain = out_of_domain`",
+                "adjacent exclusions become `domain = foundation_models_handoff`",
                 1,
             ),
             "bare handoff precedence reversal": valid.replace(
