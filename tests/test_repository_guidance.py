@@ -127,6 +127,29 @@ WORKFLOW_GUIDANCE_CONTRACTS = (
     GUIDANCE_REUSE_GUARDRAIL,
     *PRESELECTION_GUIDANCE_CONTRACTS,
 )
+ADAPTER_SAFETY_SEMANTICS = (
+    "Apple API claims use only current official docs, installed SDK interfaces, "
+    "WWDC material, and Apple-owned repositories; production references are not "
+    "authority.",
+    "Compile-check supported Swift; otherwise mark `blocked`. Label pseudocode "
+    "and unsupported or beta APIs; add no Apple tutorials or unapproved examples.",
+    "Accept only a strict single-line version. Normalize malformed, multiline, "
+    "or path-bearing output to `null`; committed evidence uses normalized "
+    "`<host-path>`, exact version or `null`, stable diagnostic class, exit code, "
+    "and status.",
+    "Model output cannot grant authority or prove an effect. Enforce "
+    "application-owned C0-C3 context classification, "
+    "destination/purpose/retention grants, confirmation and tool gates, "
+    "effect-ledger reconciliation, fail-closed transitions, and persistent "
+    "recovery until explicit reconciliation.",
+    "Markdown checks, cache inspection, enabled state, and version output are "
+    "likewise prerequisite evidence. Capability requires reproducible fresh-host "
+    "activation, progressive reference loading, valid/invalid outcomes, and "
+    "complete outputs.",
+    "Generation drift, test failure, unsafe evidence, or missing prerequisites "
+    "are fail or blocked; never weaken expectations. Push, merge, tag, publish, "
+    "or release only when separately authorized.",
+)
 SKILL_OWNED_SECTION_HEADINGS = (
     "Routing and Inspection",
     "Common Workflow Protocol",
@@ -263,6 +286,18 @@ def assert_guidance_reuse_guardrail(
         normalized_text,
         "guidance must preserve workflow, reference-corpus, and worker guardrails",
     )
+
+
+def assert_adapter_safety_semantics(
+    test_case: unittest.TestCase, text: str
+) -> None:
+    normalized_text = re.sub(r"\s+", " ", text)
+    for contract in ADAPTER_SAFETY_SEMANTICS:
+        test_case.assertIn(
+            contract,
+            normalized_text,
+            f"missing adapter safety contract: {contract}",
+        )
 
 
 class RepositoryGuidanceTests(unittest.TestCase):
@@ -708,6 +743,84 @@ class RepositoryGuidanceTests(unittest.TestCase):
         for contract in required_contracts:
             with self.subTest(contract=contract):
                 self.assertIn(contract, canonical_text)
+
+    def test_guidance_preserves_adapter_safety_semantics(self):
+        for path in (CANONICAL, GENERATED):
+            normalized_text = re.sub(
+                r"\s+", " ", path.read_text(encoding="utf-8")
+            )
+            for contract in ADAPTER_SAFETY_SEMANTICS:
+                with self.subTest(path=path.name, contract=contract):
+                    self.assertIn(contract, normalized_text)
+
+    def test_adapter_safety_oracle_rejects_removal_and_weakened_synonyms(self):
+        valid = " ".join(ADAPTER_SAFETY_SEMANTICS)
+        assert_adapter_safety_semantics(self, valid)
+
+        removals = {
+            f"removed contract {number}": valid.replace(contract, "", 1)
+            for number, contract in enumerate(ADAPTER_SAFETY_SEMANTICS, start=1)
+        }
+        weakenings = {
+            "non-authoritative sources allowed": valid.replace(
+                "use only current official docs",
+                "may use unofficial sources alongside current docs",
+                1,
+            ),
+            "production references treated as authority": valid.replace(
+                "production references are not authority",
+                "production references may establish authority",
+                1,
+            ),
+            "Apple tutorial ban removed": valid.replace(
+                "add no Apple tutorials or unapproved examples",
+                "add Apple tutorials or examples when useful",
+                1,
+            ),
+            "exact committed version weakened": valid.replace(
+                "exact version or `null`",
+                "approximate version when available",
+                1,
+            ),
+            "stable committed diagnostics weakened": valid.replace(
+                "stable diagnostic class, exit code, and status",
+                "a diagnostic summary",
+                1,
+            ),
+            "persistent recovery weakened": valid.replace(
+                "persistent recovery until explicit reconciliation",
+                "best-effort recovery",
+                1,
+            ),
+            "fresh-host reproducibility weakened": valid.replace(
+                "reproducible fresh-host activation",
+                "installation on any host",
+                1,
+            ),
+            "progressive reference loading weakened": valid.replace(
+                "progressive reference loading",
+                "reference availability",
+                1,
+            ),
+            "invalid outcomes omitted": valid.replace(
+                "valid/invalid outcomes",
+                "valid outcomes",
+                1,
+            ),
+            "complete outputs weakened": valid.replace(
+                "complete outputs",
+                "partial outputs",
+                1,
+            ),
+            "separate release authority weakened": valid.replace(
+                "only when separately authorized",
+                "when locally convenient",
+                1,
+            ),
+        }
+        for mutation, candidate in {**removals, **weakenings}.items():
+            with self.subTest(mutation=mutation), self.assertRaises(AssertionError):
+                assert_adapter_safety_semantics(self, candidate)
 
     def test_guidance_defines_conditional_host_loading_and_status_lifecycle(self):
         canonical_text = normalized_guide(CANONICAL)
