@@ -185,13 +185,13 @@ SKILL_PAYLOAD_SHA256 = {
         "e02f6a36d061e871c1e3b55a7ed60e2cd353d5b8e3abb7a4c1d79c43bfa774ca"
     ),
     "review-apple-foundation-models-handoff": (
-        "49be8453bd01eb22970c5e4623e74ef2ff9a884713c04e0e4a3511165bb0646a"
+        "abc436356f8d25a9746f5693b1179e50522657bbcb5bf4f992efca0b37a0bcca"
     ),
     "debug-apple-foundation-models-handoff": (
         "577da4692b00560a7c1d6cf27ca920f9de2766788f30934d4315e496ddf677b6"
     ),
     "validate-apple-foundation-models-handoff": (
-        "52ab881674d70e5c0af20551c8a77a9c9cf59565c7b72172cef819f50fce10ed"
+        "c5ce23c9989f683baae2d5747917f5aa5d9f536a3bc4a2dced77fa4815601414"
     ),
     "route-apple-foundation-models-handoff": (
         "461b83873f481c1f9d11fe81dd388453cc0d81e9863ba29a1cbb1c854ce310e9"

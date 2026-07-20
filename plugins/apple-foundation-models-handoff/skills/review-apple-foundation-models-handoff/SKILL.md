@@ -15,6 +15,12 @@ workflow finding. Serialize the exact four normalized values from the source
 request in the shown field order; never use inspection, execution, evidence
 results, or drafted output to infer or revise a value. This serialization neither
 invokes nor emulates the router and has no branch or ownership effect.
+For an explicit findings-only review of a supplied or described defective
+synthetic Foundation Models handoff reducer, freeze the exact tuple
+`foundation_models_handoff/review/implementation/failing`: `domain =
+foundation_models_handoff`, `requestedOperation = review`, `artifactState =
+implementation`, and `evidenceState = failing` before inspection or non-skill
+tool use.
 Once this positive workflow activates, it remains the only workflow owner; never
 select, invoke, or switch to another skill.
 Make the first character of the final response the opening backtick of the exact
