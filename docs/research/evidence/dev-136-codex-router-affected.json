@@ -6,7 +6,7 @@
   "status": "fail",
   "model": "gpt-5.6-sol",
   "codexVersion": "0.144.5",
-  "captureCommit": "cf167fcd8d25dabe0c4b474d17471007d675739c",
+  "captureCommit": "5564ab3303afc79080e5f8bdbba934535e914322",
   "fixtureSha256": "de255f68d724c3b3fdb610d2d9b2ce9f131d7e52ea1cd76cfa02ec7bdfed85f1",
   "skillPayloadSha256": {
     "design-apple-foundation-models-handoff": "5db3ec8adb5672cf4f4978db589a36145c1c468b6435aca0afb1256dd5019970",
