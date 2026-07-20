@@ -412,9 +412,32 @@ DEBUG_SOURCE_PRESELECTION_SENTENCE = (
     "inspection or non-skill tool use."
 )
 
+REVIEW_SOURCE_PRESELECTION_SENTENCE = (
+    "For an explicit findings-only review of a supplied or described defective "
+    "synthetic Foundation Models handoff reducer, freeze the exact tuple "
+    "`foundation_models_handoff/review/implementation/failing`: `domain = "
+    "foundation_models_handoff`, `requestedOperation = review`, `artifactState = "
+    "implementation`, and `evidenceState = failing` before inspection or non-skill "
+    "tool use."
+)
+
+VALIDATE_SOURCE_PRESELECTION_SENTENCE = (
+    "For an explicit complete release-facing validation of a synthetic Foundation "
+    "Models handoff's deterministic, SDK compile, evidence-safety, and "
+    "Claude/Codex host evidence, freeze the exact tuple "
+    "`foundation_models_handoff/validate/evidence_bundle/available`: `domain = "
+    "foundation_models_handoff`, `requestedOperation = validate`, `artifactState = "
+    "evidence_bundle`, and `evidenceState = available` before inspection or "
+    "non-skill tool use."
+)
+
 SOURCE_PRESELECTION_SENTENCES = {
     "design-apple-foundation-models-handoff": DESIGN_SOURCE_PRESELECTION_SENTENCE,
+    "review-apple-foundation-models-handoff": REVIEW_SOURCE_PRESELECTION_SENTENCE,
     "debug-apple-foundation-models-handoff": DEBUG_SOURCE_PRESELECTION_SENTENCE,
+    "validate-apple-foundation-models-handoff": (
+        VALIDATE_SOURCE_PRESELECTION_SENTENCE
+    ),
 }
 
 POSITIVE_FINAL_RESPONSE_GATE_SENTENCES = (
@@ -2436,6 +2459,188 @@ class SkillContractMutationTests(unittest.TestCase):
                 POSITIVE_IMMUTABLE_PRESELECTION_SENTENCE
                 + "\n"
                 + DEBUG_SOURCE_PRESELECTION_SENTENCE,
+                1,
+            )
+            with self.subTest(skill=skill):
+                self.assert_skill_rejected(candidate, skill)
+
+    def test_review_source_preselection_tuple_mutations_are_rejected(self) -> None:
+        skill = "review-apple-foundation-models-handoff"
+        fixture = build_valid_skill_fixture(skill)
+
+        def mutate_source_tuple(
+            *,
+            domain: str = "foundation_models_handoff",
+            operation: str = "review",
+            artifact: str = "implementation",
+            evidence: str = "failing",
+        ) -> str:
+            mutated_sentence = REVIEW_SOURCE_PRESELECTION_SENTENCE.replace(
+                "`foundation_models_handoff/review/implementation/failing`",
+                f"`{domain}/{operation}/{artifact}/{evidence}`",
+                1,
+            )
+            for field, original, replacement in (
+                ("domain", "foundation_models_handoff", domain),
+                ("requestedOperation", "review", operation),
+                ("artifactState", "implementation", artifact),
+                ("evidenceState", "failing", evidence),
+            ):
+                mutated_sentence = mutated_sentence.replace(
+                    f"`{field} = {original}`",
+                    f"`{field} = {replacement}`",
+                    1,
+                )
+            return fixture.replace(
+                REVIEW_SOURCE_PRESELECTION_SENTENCE,
+                mutated_sentence,
+                1,
+            )
+
+        mutations = {
+            "missing review tuple": fixture.replace(
+                REVIEW_SOURCE_PRESELECTION_SENTENCE,
+                "",
+                1,
+            ),
+            "wrong domain": mutate_source_tuple(domain="ambiguous"),
+            "wrong operation": mutate_source_tuple(operation="validate"),
+            "wrong artifact state": mutate_source_tuple(artifact="proposal"),
+            "wrong evidence state": mutate_source_tuple(evidence="available"),
+            "post-inspection tuple": fixture.replace(
+                REVIEW_SOURCE_PRESELECTION_SENTENCE,
+                REVIEW_SOURCE_PRESELECTION_SENTENCE.replace(
+                    "before inspection or non-skill tool use",
+                    "after inspection or non-skill tool use",
+                    1,
+                ),
+                1,
+            ),
+            "post-inspection inference": fixture.replace(
+                REVIEW_SOURCE_PRESELECTION_SENTENCE,
+                REVIEW_SOURCE_PRESELECTION_SENTENCE.replace(
+                    "freeze the exact tuple",
+                    "infer the tuple from inspection findings",
+                    1,
+                ),
+                1,
+            ),
+            "tuple not immediately after immutable serialization": fixture.replace(
+                POSITIVE_IMMUTABLE_PRESELECTION_SENTENCE
+                + "\n"
+                + REVIEW_SOURCE_PRESELECTION_SENTENCE,
+                REVIEW_SOURCE_PRESELECTION_SENTENCE
+                + "\n"
+                + POSITIVE_IMMUTABLE_PRESELECTION_SENTENCE,
+                1,
+            ),
+        }
+
+        for mutation, candidate in mutations.items():
+            with self.subTest(mutation=mutation):
+                self.assert_skill_rejected(candidate, skill)
+
+    def test_review_source_preselection_tuple_is_review_only(self) -> None:
+        for skill in WORKFLOW_SKILLS:
+            if skill == "review-apple-foundation-models-handoff":
+                continue
+            fixture = build_valid_skill_fixture(skill)
+            candidate = fixture.replace(
+                POSITIVE_IMMUTABLE_PRESELECTION_SENTENCE,
+                POSITIVE_IMMUTABLE_PRESELECTION_SENTENCE
+                + "\n"
+                + REVIEW_SOURCE_PRESELECTION_SENTENCE,
+                1,
+            )
+            with self.subTest(skill=skill):
+                self.assert_skill_rejected(candidate, skill)
+
+    def test_validate_source_preselection_tuple_mutations_are_rejected(self) -> None:
+        skill = "validate-apple-foundation-models-handoff"
+        fixture = build_valid_skill_fixture(skill)
+
+        def mutate_source_tuple(
+            *,
+            domain: str = "foundation_models_handoff",
+            operation: str = "validate",
+            artifact: str = "evidence_bundle",
+            evidence: str = "available",
+        ) -> str:
+            mutated_sentence = VALIDATE_SOURCE_PRESELECTION_SENTENCE.replace(
+                "`foundation_models_handoff/validate/evidence_bundle/available`",
+                f"`{domain}/{operation}/{artifact}/{evidence}`",
+                1,
+            )
+            for field, original, replacement in (
+                ("domain", "foundation_models_handoff", domain),
+                ("requestedOperation", "validate", operation),
+                ("artifactState", "evidence_bundle", artifact),
+                ("evidenceState", "available", evidence),
+            ):
+                mutated_sentence = mutated_sentence.replace(
+                    f"`{field} = {original}`",
+                    f"`{field} = {replacement}`",
+                    1,
+                )
+            return fixture.replace(
+                VALIDATE_SOURCE_PRESELECTION_SENTENCE,
+                mutated_sentence,
+                1,
+            )
+
+        mutations = {
+            "missing validate tuple": fixture.replace(
+                VALIDATE_SOURCE_PRESELECTION_SENTENCE,
+                "",
+                1,
+            ),
+            "wrong domain": mutate_source_tuple(domain="out_of_domain"),
+            "wrong operation": mutate_source_tuple(operation="review"),
+            "wrong artifact state": mutate_source_tuple(artifact="implementation"),
+            "wrong evidence state": mutate_source_tuple(evidence="blocked"),
+            "post-inspection tuple": fixture.replace(
+                VALIDATE_SOURCE_PRESELECTION_SENTENCE,
+                VALIDATE_SOURCE_PRESELECTION_SENTENCE.replace(
+                    "before inspection or non-skill tool use",
+                    "after inspection or non-skill tool use",
+                    1,
+                ),
+                1,
+            ),
+            "post-inspection inference": fixture.replace(
+                VALIDATE_SOURCE_PRESELECTION_SENTENCE,
+                VALIDATE_SOURCE_PRESELECTION_SENTENCE.replace(
+                    "freeze the exact tuple",
+                    "infer the tuple from inspection findings",
+                    1,
+                ),
+                1,
+            ),
+            "tuple not immediately after immutable serialization": fixture.replace(
+                POSITIVE_IMMUTABLE_PRESELECTION_SENTENCE
+                + "\n"
+                + VALIDATE_SOURCE_PRESELECTION_SENTENCE,
+                VALIDATE_SOURCE_PRESELECTION_SENTENCE
+                + "\n"
+                + POSITIVE_IMMUTABLE_PRESELECTION_SENTENCE,
+                1,
+            ),
+        }
+
+        for mutation, candidate in mutations.items():
+            with self.subTest(mutation=mutation):
+                self.assert_skill_rejected(candidate, skill)
+
+    def test_validate_source_preselection_tuple_is_validate_only(self) -> None:
+        for skill in WORKFLOW_SKILLS:
+            if skill == "validate-apple-foundation-models-handoff":
+                continue
+            fixture = build_valid_skill_fixture(skill)
+            candidate = fixture.replace(
+                POSITIVE_IMMUTABLE_PRESELECTION_SENTENCE,
+                POSITIVE_IMMUTABLE_PRESELECTION_SENTENCE
+                + "\n"
+                + VALIDATE_SOURCE_PRESELECTION_SENTENCE,
                 1,
             )
             with self.subTest(skill=skill):
