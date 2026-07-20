@@ -3,7 +3,7 @@
   "sourceIssue": "DEV-136",
   "evidenceKind": "non_positive_router_pre_router_mixed_baseline",
   "status": "mixed",
-  "captureCommit": "78a0fe9234e79d43a8c1bab130f3005416cf25a0",
+  "captureCommit": "2a111d96329506276741a86028019fab8572b0e8",
   "fixtureSha256": "6c5bd8dafb1b75990e88ec288de18282c00b99151f33a7566253395c4ef93dcb",
   "host": {
     "name": "codex",

@@ -5,43 +5,46 @@ bounded section below is also the sole input for the generated Codex adapter;
 changes to the shared contract belong here.
 
 <!-- BEGIN GENERATED AGENTS ADAPTER -->
-## Contract
+## Repository contract
 
-`CLAUDE.md` is the only authored canonical; `AGENTS.md` is generated. Never edit `AGENTS.md` directly; use `scripts/sync_generated_artifacts.py`.
+`CLAUDE.md` is the only authored canonical guide; `AGENTS.md` is generated from this section.
+Never edit `AGENTS.md` directly; update `CLAUDE.md`, then use `scripts/sync_generated_artifacts.py`.
 
-### Scope
+### Scope and capability ownership
 
 - DEV-135 metadata exposes five workflows plus one non-positive router. The five production workflows are implemented: `design-apple-foundation-models-handoff`, `implement-apple-foundation-models-handoff`,
-  `review-apple-foundation-models-handoff`, `debug-apple-foundation-models-handoff`, and `validate-apple-foundation-models-handoff`. `route-apple-foundation-models-handoff` is the router, not a workflow.
+  `review-apple-foundation-models-handoff`, `debug-apple-foundation-models-handoff`, and `validate-apple-foundation-models-handoff`. Those are the five positive workflows: design, implement, review, debug, and validate. `route-apple-foundation-models-handoff` is the router, not a workflow.
+- Exactly five package reference files are present as documentation-only inputs and provide zero runtime capabilities. DEV-137 references are integrated and link-resolved.
+- Hooks, commands, agents, MCP servers, package scripts, dependencies, and runtime code remain absent. Foundation Models handoff, coding-session handoff, Apple Handoff, App Intents, Agent Skills, and Foundation Models runtime Skills are distinct.
 - Before selecting any positive workflow, resolve non-positive pre-selection in this order: `domain = out_of_domain`, `domain = ambiguous`, then a confirmed implementation request missing an approved architecture or exact change boundary.
 - Set `domain = foundation_models_handoff` only for explicit Apple Foundation Models session, profile, or provider coordination; set `domain = ambiguous` for bare `Apple handoff` regardless of operation, artifact, failure, or evidence wording; set `domain = out_of_domain` for App Intents or Shortcuts, Apple Handoff or NSUserActivity, generic Swift or actors, generic Core ML, coding-session handoff, Agent Skills, and Foundation Models runtime Skills.
 - Before positive selection, set `domain = foundation_models_handoff` for a debug request only when it explicitly describes a synthetic handoff reducer or effect that redispatches or replays before completion or reconciliation; bare `Apple handoff` remains `domain = ambiguous`, and all adjacent exclusions remain `domain = out_of_domain`.
 - For any of those cases, select and load only `route-apple-foundation-models-handoff`, copy its exact matching branch before inspection or non-skill tool use, and select no positive workflow.
 - The bounded non-positive preselection router may only clarify, decline, or hand off
-  those requests. It is not a sixth positive workflow and is distinct from the
+  other requests. It is not a sixth positive workflow and is distinct from the
   DEV-142 through DEV-145 cost router, `PostToolUse` hooks, and Swift bridge chain.
 - Treat pre-selection as one closed compilation transaction: resolve and freeze `domain`, `requestedOperation`, `artifactState`, and `evidenceState` exactly once; emit a router-owned outcome immediately before positive selection, or pass the same frozen tuple to the one selected positive workflow for unchanged serialization without re-inference.
 - On positive activation, `routerInput` is an immutable pre-selection record, not a workflow finding. Serialize the exact four normalized values from the source request in the shown field order; never use inspection, execution, evidence results, or drafted output to infer or revise a value. This serialization neither invokes nor emulates the router and has no branch or ownership effect.
 - Treat a request asking only about Swift actors, actor isolation, or a Swift example as `domain = out_of_domain` even when it asks for implementation; select only `route-apple-foundation-models-handoff` and return its `no_activation` result before positive selection.
 - Otherwise select exactly one matching positive workflow; once selected, it remains the only workflow owner for the request. Load one needed reference; never copy workflows or reference corpora or add a plugin-local worker.
 
-### Paths
+### Canonical and generated paths
 
-- Canonical inputs: `CLAUDE.md`, `.claude-plugin/marketplace.json`, `metadata/codex-marketplace.json`, `plugins/apple-foundation-models-handoff/.claude-plugin/plugin.json`, and `plugins/apple-foundation-models-handoff/metadata/codex-interface.json`.
-  `skills/**` and `references/**` are current plugin-local canonical inputs. DEV-137 references are integrated and link-resolved.
+- Root canonical inputs are `CLAUDE.md`, `.claude-plugin/marketplace.json`, and `metadata/codex-marketplace.json`. Plugin-local canonical inputs are `plugins/apple-foundation-models-handoff/.claude-plugin/plugin.json` and `plugins/apple-foundation-models-handoff/metadata/codex-interface.json`.
+  `skills/**` and `references/**` are current plugin-local canonical inputs.
 - `AGENTS.md`, `.agents/plugins/marketplace.json`, and `plugins/apple-foundation-models-handoff/.codex-plugin/plugin.json`
   are generated, non-editable outputs.
 - DEV-135 selects conventional source `./plugins/apple-foundation-models-handoff`; the package must not use external symlinks.
 - The effective cached plugin payload excludes repository-only docs, research, fixtures, tests, and private state; none are capabilities.
 
-### APIs
+### Apple API and validation truth
 
 - Apple API claims use only current official docs, installed SDK interfaces, WWDC material, and Apple-owned repositories; production references are not authority.
 - Executed labels are `compiled_sdk_26_5` and `interface_verified_sdk_26_5`; “SDK 26.x” is an architecture-family boundary, never an executed label.
 - Compile-check supported Swift; otherwise mark `blocked`. Label pseudocode and unsupported or beta APIs; add no Apple tutorials or unapproved examples.
 - Default tests need no PCC, custom provider, credentials, paid or network service, live generation, entitlement, device, or full Xcode; missing prerequisites are blockers, never passes.
 
-### Boundaries
+### Host, security, and evidence boundaries
 
 - Capture one explicit executable before each host row, invoke only it, and recheck resolution and version afterward.
   Baselines: Claude Code `2.1.91` and Codex CLI `0.144.5`; Claude Code `2.1.140` is diagnostic only and cannot substitute.
@@ -54,18 +57,15 @@ changes to the shared contract belong here.
   Behavioral capability claims require fresh exact-model DEV-136 forward evidence.
   Structural integration alone is not a pass.
 - Normalize repository location as `<repo>` and executable identity as `<host-path>`; never commit their literal
-  resolutions or raw `PATH`. Exclude other private absolute paths. Initial absence, non-executability, or version mismatch is `blocked`.
-- Before host operations, a missing or non-runnable executable, unavailable or malformed version, or approved-baseline
-  mismatch emits a normalized `blocked` row with stable reason/version metadata before exit.
-- After successful capture, resolution or version drift emits normalized `fail` before exit, invalidates the row,
+  resolutions or raw `PATH`. Exclude other private absolute paths.
+- Before host operations, a missing/non-runnable executable, malformed/unavailable version, or baseline mismatch emits normalized `blocked` with stable reason/version metadata.
+- After capture, resolution or version drift emits normalized `fail` before exit, invalidates the row,
   and requires a fresh run.
 - Accept only a strict single-line version. Normalize malformed, multiline, or path-bearing output to `null`; committed
   evidence uses normalized `<host-path>`, exact version or `null`, stable diagnostic class, exit code, and status.
-- Raw/live prompts, responses, reasoning, tool arguments/results, credentials, private configuration, real
-  user/third-party data, raw diagnostics, `.trace`, and `.xcresult` remain excluded.
-- A hash-bound synthetic or approved-redacted rubric stimulus, rubric assessments with only bounded rationales, and a
-  redacted summary may be committed only after the DEV-131 path, content, structured-key, classification, and hash
-  scanners pass. Runtime/live-host logs, traces, and derived capability telemetry contribute normalized metadata only.
+- Exclude raw/live prompts, responses, reasoning, tool arguments/results, credentials, private configuration, real
+  user/third-party data, raw diagnostics, `.trace`, and `.xcresult`.
+- A hash-bound synthetic or approved-redacted rubric stimulus, bounded rubric rationales, and redacted summary may be committed only after DEV-131 path, content, structured-key, classification, and hash scans pass. Runtime/live-host logs, traces, and derived capability telemetry contribute normalized metadata only.
 - Model output cannot grant authority or prove an effect. Enforce application-
   owned C0-C3 context classification, destination/purpose/retention grants,
   confirmation and tool gates, effect-ledger reconciliation, fail-closed
@@ -74,7 +74,7 @@ changes to the shared contract belong here.
   Markdown checks, cache inspection, enabled state, and version output are likewise prerequisite evidence. Capability requires
   reproducible fresh-host activation, progressive reference loading, valid/invalid outcomes, and complete outputs.
 
-### Commands
+### Local deterministic commands
 
 ```bash
 python3 scripts/sync_generated_artifacts.py --write
