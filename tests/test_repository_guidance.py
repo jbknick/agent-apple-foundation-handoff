@@ -127,28 +127,44 @@ WORKFLOW_GUIDANCE_CONTRACTS = (
     GUIDANCE_REUSE_GUARDRAIL,
     *PRESELECTION_GUIDANCE_CONTRACTS,
 )
-ADAPTER_SAFETY_SEMANTICS = (
-    "Apple API claims use only current official docs, installed SDK interfaces, "
-    "WWDC material, and Apple-owned repositories; production references are not "
-    "authority.",
-    "Compile-check supported Swift; otherwise mark `blocked`. Label pseudocode "
-    "and unsupported or beta APIs; add no Apple tutorials or unapproved examples.",
-    "Accept only a strict single-line version. Normalize malformed, multiline, "
-    "or path-bearing output to `null`; committed evidence uses normalized "
-    "`<host-path>`, exact version or `null`, stable diagnostic class, exit code, "
-    "and status.",
-    "Model output cannot grant authority or prove an effect. Enforce "
-    "application-owned C0-C3 context classification, "
-    "destination/purpose/retention grants, confirmation and tool gates, "
-    "effect-ledger reconciliation, fail-closed transitions, and persistent "
-    "recovery until explicit reconciliation.",
-    "Markdown checks, cache inspection, enabled state, and version output are "
-    "likewise prerequisite evidence. Capability requires reproducible fresh-host "
-    "activation, progressive reference loading, valid/invalid outcomes, and "
-    "complete outputs.",
-    "Generation drift, test failure, unsafe evidence, or missing prerequisites "
-    "are fail or blocked; never weaken expectations. Push, merge, tag, publish, "
-    "or release only when separately authorized.",
+ADAPTER_SAFETY_SEMANTIC_GROUPS = (
+    (
+        "exclusive Apple authority",
+        (
+            "Apple API claims use only current official docs, installed SDK "
+            "interfaces, WWDC material, and Apple-owned repositories",
+            "production references are not authority",
+        ),
+    ),
+    (
+        "no Apple tutorials or unapproved examples",
+        ("add no Apple tutorials or unapproved examples",),
+    ),
+    (
+        "exact committed evidence metadata",
+        (
+            "committed evidence uses normalized `<host-path>`, exact version or "
+            "`null`",
+            "stable diagnostic class, exit code, and status",
+        ),
+    ),
+    (
+        "persistent recovery",
+        ("persistent recovery until explicit reconciliation",),
+    ),
+    (
+        "complete reproducible capability proof",
+        (
+            "reproducible fresh-host activation",
+            "progressive reference loading",
+            "valid/invalid outcomes",
+            "complete outputs",
+        ),
+    ),
+    (
+        "separate release authority",
+        ("Push, merge, tag, publish, or release only when separately authorized",),
+    ),
 )
 SKILL_OWNED_SECTION_HEADINGS = (
     "Routing and Inspection",
@@ -292,11 +308,10 @@ def assert_adapter_safety_semantics(
     test_case: unittest.TestCase, text: str
 ) -> None:
     normalized_text = re.sub(r"\s+", " ", text)
-    for contract in ADAPTER_SAFETY_SEMANTICS:
-        test_case.assertIn(
-            contract,
-            normalized_text,
-            f"missing adapter safety contract: {contract}",
+    for label, clauses in ADAPTER_SAFETY_SEMANTIC_GROUPS:
+        test_case.assertTrue(
+            all(clause in normalized_text for clause in clauses),
+            f"missing adapter safety semantic group: {label}",
         )
 
 
@@ -749,17 +764,24 @@ class RepositoryGuidanceTests(unittest.TestCase):
             normalized_text = re.sub(
                 r"\s+", " ", path.read_text(encoding="utf-8")
             )
-            for contract in ADAPTER_SAFETY_SEMANTICS:
-                with self.subTest(path=path.name, contract=contract):
-                    self.assertIn(contract, normalized_text)
+            for label, clauses in ADAPTER_SAFETY_SEMANTIC_GROUPS:
+                with self.subTest(path=path.name, semantic_group=label):
+                    self.assertTrue(
+                        all(clause in normalized_text for clause in clauses)
+                    )
 
     def test_adapter_safety_oracle_rejects_removal_and_weakened_synonyms(self):
-        valid = " ".join(ADAPTER_SAFETY_SEMANTICS)
+        valid = " ".join(
+            clause
+            for _, clauses in ADAPTER_SAFETY_SEMANTIC_GROUPS
+            for clause in clauses
+        )
         assert_adapter_safety_semantics(self, valid)
 
         removals = {
-            f"removed contract {number}": valid.replace(contract, "", 1)
-            for number, contract in enumerate(ADAPTER_SAFETY_SEMANTICS, start=1)
+            f"removed {label}: {clause}": valid.replace(clause, "", 1)
+            for label, clauses in ADAPTER_SAFETY_SEMANTIC_GROUPS
+            for clause in clauses
         }
         weakenings = {
             "non-authoritative sources allowed": valid.replace(
