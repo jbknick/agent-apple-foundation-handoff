@@ -102,6 +102,13 @@ and fail-closed enforcement are owned by
 [security, context, and recovery](security-context-and-recovery.md). These
 later owners add no capability in DEV-137.
 
+The DEV-142 offline proof verifies only the `PostToolUse` / `Bash`
+`condense_diagnostic_output` contract using injected non-model outcomes. It
+does not invoke a bridge, activate a host hook, or execute a selected command.
+Its routing evidence preserves the rule that an eligible original result has
+at most one bridge attempt and every decline/failure preserves the original
+result; it is not evidence that the downstream chain is installed or active.
+
 ## Transcript transfer
 
 Transcript transfer constructs a distinct destination session from all or a

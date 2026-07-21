@@ -163,6 +163,16 @@ workflow activation.
 | Instruments | Full Xcode 27, compatible target/device, collection approval | Optional or blocked; sensitive evidence rules apply |
 | DEV-142 runtime-cost gate | Paired normalized live telemetry, current policy, and live Apple prerequisites | At least 10% median total parent-model token reduction, zero correctness regressions, and zero additional parent-model turns; otherwise fail or block |
 
+The DEV-142 repository-only proof validates three schemas, a hash-bound
+synthetic corpus of 24 eligible cases, all 48 required host/case pair
+identities, deterministic routing boundaries, quality scoring, and the two
+versioned provider-normalization formulas. Its sorted metadata-only artifact
+can pass only for that offline contract. It records Apple and host invocation
+as `not_applicable`; parent-token reduction remains
+`blocked/provider_usage_not_executed` because no paired live provider usage
+was executed. It contains no model output, raw diagnostics, paths, traces, or
+runtime capability metadata.
+
 ## Apple Evaluations
 
 Official Apple documentation describes datasets, generations, metrics,

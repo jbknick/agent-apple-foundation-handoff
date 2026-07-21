@@ -61,6 +61,14 @@ retention, and allowed destination/provider.
 **Recommended control:** transform source values into typed, allowlisted fields
 before the boundary rather than attempting to remove unsafe data afterward.
 
+For the DEV-142 diagnostic router, only `C0` or `C1` `trustedLocal` fields in
+the closed allowlist may reach the proposed Apple-on-device boundary. Unknown,
+mixed, C2, C3, remote, or invalid fields decline the complete envelope before
+any bridge attempt. The deterministic proof uses synthetic field values only;
+it records no field content. Any decline, unavailable state, invalid response,
+or failure must preserve the original result rather than retrying the source
+command or emitting diagnostic content as evidence.
+
 ## Atomic boundary envelopes
 
 **Mandatory application policy:** a transfer envelope is atomic and fail-

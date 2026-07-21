@@ -1,0 +1,51 @@
+{
+  "action": "condense_diagnostic_output",
+  "checks": [
+    {
+      "id": "P-BOUNDARY-001",
+      "status": "pass"
+    },
+    {
+      "id": "P-CORPUS-001",
+      "status": "pass"
+    },
+    {
+      "id": "P-NORMALIZATION-001",
+      "status": "pass"
+    },
+    {
+      "id": "P-QUALITY-001",
+      "status": "pass"
+    },
+    {
+      "id": "P-RELEASE-001",
+      "status": "pass"
+    },
+    {
+      "id": "P-ROUTING-001",
+      "status": "pass"
+    },
+    {
+      "id": "P-SAFETY-001",
+      "status": "pass"
+    },
+    {
+      "id": "P-SCHEMA-001",
+      "status": "pass"
+    }
+  ],
+  "corpusSha256": "762eb4530079177808a731d86f953f8d46603a025317cd499cc517e98df98e2a",
+  "eligibleCaseCount": 24,
+  "issue": "DEV-142",
+  "liveClaims": {
+    "appleInvocation": "not_applicable",
+    "claudeHook": "not_applicable",
+    "codexHook": "not_applicable",
+    "parentTokenReduction": "blocked/provider_usage_not_executed"
+  },
+  "policyVersion": "diagnostic-condensation-v1",
+  "requiredPairCount": 48,
+  "schemaCount": 3,
+  "schemaVersion": 1,
+  "status": "pass"
+}
