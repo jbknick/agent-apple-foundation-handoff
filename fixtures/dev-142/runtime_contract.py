@@ -69,6 +69,270 @@ class QualityScore:
     reason_codes: tuple[str, ...]
 
 
+class BlockedEvidence(ValueError):
+    def __init__(self, reason):
+        self.reason = reason
+        super().__init__(reason)
+
+
+@dataclass(frozen=True)
+class NormalizedUsage:
+    provider: str
+    input_tokens: int
+    cached_input_tokens: int
+    output_tokens: int
+    reasoning_tokens: int | None
+    total_parent_model_tokens: int
+
+
+@dataclass(frozen=True)
+class PairScore:
+    host: str
+    case_id: str
+    status: str
+    reduction_ppm: int | None
+    correctness_regressions: int
+    additional_parent_model_turns: int
+    reason_codes: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ReleaseScore:
+    status: str
+    valid_required_pairs: int
+    blocked_required_pairs: int
+    median_reduction_ppm: int | None
+    correctness_regressions: int
+    additional_parent_model_turns: int
+    exploratory_pairs: int
+    reason_codes: tuple[str, ...]
+
+
+_MAX_UNSIGNED_64 = (1 << 64) - 1
+_REQUIRED_HOSTS = ("claude-code-2.1.91", "codex-cli-0.144.5")
+_REQUIRED_CASE_IDS = (
+    "test-swift-success-unicode-01", "test-swift-failure-02",
+    "test-xcode-success-03", "test-xcode-failure-04",
+    "test-pytest-success-05", "test-pytest-failure-06",
+    "build-swift-success-07", "build-swift-failure-08",
+    "build-xcode-success-09", "build-xcode-failure-10",
+    "build-pnpm-success-11", "build-pnpm-failure-12",
+    "typecheck-swiftc-success-13", "typecheck-swiftc-failure-14",
+    "typecheck-mypy-success-15", "typecheck-mypy-failure-16",
+    "typecheck-npm-success-17", "typecheck-npm-failure-18",
+    "lint-swift-format-success-19", "lint-swift-format-failure-20",
+    "lint-ruff-success-21", "lint-ruff-failure-22",
+    "lint-pnpm-success-23", "lint-pnpm-interrupted-24",
+)
+REQUIRED_PAIR_IDENTITIES = tuple(
+    (host, case_id) for host in _REQUIRED_HOSTS for case_id in _REQUIRED_CASE_IDS
+)
+
+
+def _usage_integer(value):
+    if type(value) is not int or value < 0 or value > _MAX_UNSIGNED_64:
+        raise BlockedEvidence("invalid_provider_usage")
+    return value
+
+
+def _checked_usage_add(*values):
+    total = 0
+    for value in values:
+        if total > _MAX_UNSIGNED_64 - value:
+            raise BlockedEvidence("usage_overflow")
+        total += value
+    return total
+
+
+def normalize_usage(provider, usage):
+    """Normalize only the two versioned provider usage contracts."""
+    required = {
+        "openai-responses-usage-v1": (
+            "input_tokens", "cached_tokens", "output_tokens", "reasoning_tokens",
+        ),
+        "anthropic-messages-usage-v1": (
+            "input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens",
+            "output_tokens",
+        ),
+    }
+    if provider not in required:
+        raise BlockedEvidence("unsupported_provider")
+    if type(usage) is not dict or set(usage) != set(required[provider]):
+        raise BlockedEvidence("missing_provider_usage_field")
+    values = {name: _usage_integer(usage[name]) for name in required[provider]}
+    if provider == "openai-responses-usage-v1":
+        if values["cached_tokens"] > values["input_tokens"] or values["reasoning_tokens"] > values["output_tokens"]:
+            raise BlockedEvidence("invalid_provider_subset")
+        return NormalizedUsage(
+            provider=provider,
+            input_tokens=values["input_tokens"],
+            cached_input_tokens=values["cached_tokens"],
+            output_tokens=values["output_tokens"],
+            reasoning_tokens=values["reasoning_tokens"],
+            total_parent_model_tokens=_checked_usage_add(values["input_tokens"], values["output_tokens"]),
+        )
+    cached_input_tokens = _checked_usage_add(
+        values["cache_read_input_tokens"], values["cache_creation_input_tokens"],
+    )
+    return NormalizedUsage(
+        provider=provider,
+        input_tokens=values["input_tokens"],
+        cached_input_tokens=cached_input_tokens,
+        output_tokens=values["output_tokens"],
+        reasoning_tokens=None,
+        total_parent_model_tokens=_checked_usage_add(
+            values["input_tokens"], cached_input_tokens, values["output_tokens"],
+        ),
+    )
+
+
+def _reduction_ppm(off_total, on_total):
+    if type(off_total) is not int or off_total <= 0:
+        raise BlockedEvidence("invalid_plugin_off_denominator")
+    if type(on_total) is not int or on_total < 0:
+        raise BlockedEvidence("invalid_plugin_on_total")
+    return ((off_total - on_total) * 1_000_000) // off_total
+
+
+def _median_ppm(values):
+    if not values:
+        return None
+    ordered = sorted(values)
+    count = len(ordered)
+    if count % 2:
+        return ordered[count // 2]
+    return (ordered[count // 2 - 1] + ordered[count // 2]) // 2
+
+
+_PAIR_IDENTITY_KEYS = (
+    "host", "caseID", "workflow", "parentModel", "provider",
+    "normalizationVersion", "toolchain", "policyVersion", "commandClass",
+)
+
+
+def _pair_coordinates(arm):
+    if type(arm) is not dict:
+        return "", ""
+    host = arm.get("host") if type(arm.get("host")) is str else ""
+    case_id = arm.get("caseID") if type(arm.get("caseID")) is str else ""
+    return host, case_id
+
+
+def _validated_arm(arm):
+    if type(arm) is not dict:
+        raise BlockedEvidence("invalid_telemetry_arm")
+    identity = []
+    for key in _PAIR_IDENTITY_KEYS:
+        value = arm.get(key)
+        if type(value) is not str or not value:
+            raise BlockedEvidence("invalid_pair_identity")
+        identity.append(value)
+    usage = arm.get("usage")
+    if type(usage) is not NormalizedUsage or usage.provider != arm["provider"] or arm["normalizationVersion"] != arm["provider"]:
+        raise BlockedEvidence("invalid_normalized_usage")
+    parent_turns = arm.get("parentTurns")
+    if type(parent_turns) is not int or parent_turns < 0:
+        raise BlockedEvidence("invalid_parent_turns")
+    quality = arm.get("quality")
+    if type(quality) is not QualityScore or type(quality.passed) is not bool:
+        raise BlockedEvidence("invalid_quality_score")
+    return tuple(identity), usage, parent_turns, quality
+
+
+def score_pair(off, on):
+    host, case_id = _pair_coordinates(off)
+    try:
+        off_identity, off_usage, off_turns, off_quality = _validated_arm(off)
+        on_identity, on_usage, on_turns, on_quality = _validated_arm(on)
+    except BlockedEvidence as error:
+        return PairScore(host, case_id, "blocked", None, 0, 0, (error.reason,))
+    if off_identity != on_identity:
+        return PairScore(host, case_id, "blocked", None, 0, 0, ("pair_identity_mismatch",))
+    try:
+        reduction_ppm = _reduction_ppm(
+            off_usage.total_parent_model_tokens, on_usage.total_parent_model_tokens,
+        )
+    except BlockedEvidence as error:
+        return PairScore(host, case_id, "blocked", None, 0, 0, (error.reason,))
+    additional_turns = max(on_turns - off_turns, 0)
+    if not off_quality.passed or not on_quality.passed:
+        return PairScore(
+            host, case_id, "fail", reduction_ppm, 1, additional_turns,
+            ("correctness_regression",),
+        )
+    return PairScore(host, case_id, "valid", reduction_ppm, 0, additional_turns, ())
+
+
+def release_gate(pairs):
+    if type(pairs) not in (list, tuple) or any(type(pair) is not PairScore for pair in pairs):
+        raise ContractError("invalid pair scores")
+    expected = set(REQUIRED_PAIR_IDENTITIES)
+    grouped = {}
+    exploratory_pairs = 0
+    for pair in pairs:
+        identity = (pair.host, pair.case_id)
+        if identity in expected:
+            grouped.setdefault(identity, []).append(pair)
+        else:
+            exploratory_pairs += 1
+
+    valid_required_pairs = 0
+    blocked_required_pairs = 0
+    correctness_regressions = 0
+    additional_parent_model_turns = 0
+    reductions = []
+    reasons = set()
+    failed_required_pair = False
+    for identity in REQUIRED_PAIR_IDENTITIES:
+        entries = grouped.get(identity, ())
+        if not entries:
+            blocked_required_pairs += 1
+            reasons.add("missing_required_pair")
+            continue
+        if len(entries) != 1:
+            failed_required_pair = True
+            reasons.add("duplicate_required_pair")
+            continue
+        pair = entries[0]
+        correctness_regressions += pair.correctness_regressions
+        additional_parent_model_turns += pair.additional_parent_model_turns
+        if pair.status == "blocked":
+            blocked_required_pairs += 1
+            reasons.add("blocked_required_pair")
+            continue
+        if pair.status != "valid" or type(pair.reduction_ppm) is not int:
+            failed_required_pair = True
+            reasons.add("failed_required_pair")
+            continue
+        valid_required_pairs += 1
+        reductions.append(pair.reduction_ppm)
+
+    median_reduction_ppm = _median_ppm(reductions)
+    if blocked_required_pairs:
+        status = "blocked"
+    elif (
+        failed_required_pair
+        or valid_required_pairs != len(REQUIRED_PAIR_IDENTITIES)
+        or median_reduction_ppm is None
+        or median_reduction_ppm < 100000
+        or correctness_regressions != 0
+        or additional_parent_model_turns != 0
+    ):
+        status = "fail"
+    else:
+        status = "pass"
+    return ReleaseScore(
+        status=status,
+        valid_required_pairs=valid_required_pairs,
+        blocked_required_pairs=blocked_required_pairs,
+        median_reduction_ppm=median_reduction_ppm,
+        correctness_regressions=correctness_regressions,
+        additional_parent_model_turns=additional_parent_model_turns,
+        exploratory_pairs=exploratory_pairs,
+        reason_codes=tuple(sorted(reasons)),
+    )
+
+
 _lstat = os.lstat
 _SHELL_METACHARACTERS = frozenset(";|&<>$`()\\~!{}\x00\r\n")
 _SAFE_SELECTOR = re.compile(r"^[A-Za-z0-9 _\-.,=:/\[\]]{1,128}$")
