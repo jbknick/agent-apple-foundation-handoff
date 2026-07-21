@@ -8,6 +8,7 @@ import re
 import tempfile
 import unittest
 from collections import Counter
+from dataclasses import replace
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -529,6 +530,158 @@ class Dev142CorpusTests(unittest.TestCase):
             mutate(candidate)
             with self.subTest(name=name), self.assertRaises(contract.ContractError):
                 contract.validate_benchmark(candidate)
+
+
+class Dev142CostTests(unittest.TestCase):
+    def _usage_for_total(self, total):
+        output_tokens = min(total, 200)
+        return contract.normalize_usage("openai-responses-usage-v1", {
+            "input_tokens": total - output_tokens,
+            "cached_tokens": 0,
+            "output_tokens": output_tokens,
+            "reasoning_tokens": 0,
+        })
+
+    def _arm(self, host, case_id, total, *, parent_turns=1, quality=None):
+        return {
+            "host": host,
+            "caseID": case_id,
+            "workflow": "diagnostic-condensation",
+            "parentModel": "synthetic-parent-v1",
+            "provider": "openai-responses-usage-v1",
+            "normalizationVersion": "openai-responses-usage-v1",
+            "toolchain": "synthetic-toolchain-v1",
+            "policyVersion": contract.Policy.POLICY_VERSION,
+            "commandClass": "test",
+            "usage": self._usage_for_total(total),
+            "parentTurns": parent_turns,
+            "quality": contract.QualityScore(True, ()) if quality is None else quality,
+        }
+
+    def _pair(self, host, case_id, *, off_total=1000, on_total=900, **changes):
+        off_changes = changes.pop("off", {})
+        on_changes = changes.pop("on", {})
+        off = self._arm(host, case_id, off_total)
+        on = self._arm(host, case_id, on_total)
+        off.update(off_changes)
+        on.update(on_changes)
+        for key, value in changes.items():
+            on[key] = value
+        return contract.score_pair(off, on)
+
+    def _48_pairs(self, *, off_total=1000, on_total=900):
+        return [
+            self._pair(host, case_id, off_total=off_total, on_total=on_total)
+            for host, case_id in contract.REQUIRED_PAIR_IDENTITIES
+        ]
+
+    def test_openai_subsets_are_not_double_counted(self):
+        usage = contract.normalize_usage("openai-responses-usage-v1", {
+            "input_tokens": 1000,
+            "cached_tokens": 600,
+            "output_tokens": 200,
+            "reasoning_tokens": 150,
+        })
+        self.assertEqual(usage.input_tokens, 1000)
+        self.assertEqual(usage.cached_input_tokens, 600)
+        self.assertEqual(usage.output_tokens, 200)
+        self.assertEqual(usage.reasoning_tokens, 150)
+        self.assertEqual(usage.total_parent_model_tokens, 1200)
+
+    def test_anthropic_cache_categories_are_additive_and_reasoning_is_null(self):
+        usage = contract.normalize_usage("anthropic-messages-usage-v1", {
+            "input_tokens": 1000,
+            "cache_read_input_tokens": 600,
+            "cache_creation_input_tokens": 150,
+            "output_tokens": 200,
+        })
+        self.assertEqual(usage.cached_input_tokens, 750)
+        self.assertIsNone(usage.reasoning_tokens)
+        self.assertEqual(usage.total_parent_model_tokens, 1950)
+
+    def test_normalization_blocks_missing_invalid_subset_and_unknown_usage_fields(self):
+        invalid = (
+            ("openai-responses-usage-v1", {"input_tokens": 1, "cached_tokens": 0, "output_tokens": 1}),
+            ("openai-responses-usage-v1", {"input_tokens": 1, "cached_tokens": 2, "output_tokens": 1, "reasoning_tokens": 0}),
+            ("openai-responses-usage-v1", {"input_tokens": True, "cached_tokens": 0, "output_tokens": 1, "reasoning_tokens": 0}),
+            ("anthropic-messages-usage-v1", {"input_tokens": 1, "cache_read_input_tokens": 0, "cache_creation_input_tokens": -1, "output_tokens": 1}),
+            ("unknown-provider", {}),
+        )
+        for provider, usage in invalid:
+            with self.subTest(provider=provider, usage=usage), self.assertRaises(contract.BlockedEvidence):
+                contract.normalize_usage(provider, usage)
+
+    def test_normalization_blocks_unsigned_overflow(self):
+        with self.assertRaises(contract.BlockedEvidence) as caught:
+            contract.normalize_usage("anthropic-messages-usage-v1", {
+                "input_tokens": (1 << 64) - 1,
+                "cache_read_input_tokens": 1,
+                "cache_creation_input_tokens": 0,
+                "output_tokens": 0,
+            })
+        self.assertEqual(caught.exception.reason, "usage_overflow")
+
+    def test_score_pair_blocks_zero_denominator_and_mismatched_identity(self):
+        host, case_id = contract.REQUIRED_PAIR_IDENTITIES[0]
+        zero = self._pair(host, case_id, off_total=0, on_total=0)
+        self.assertEqual(zero.status, "blocked")
+        self.assertIn("invalid_plugin_off_denominator", zero.reason_codes)
+        mismatch = self._pair(host, case_id, on={"workflow": "other-workflow"})
+        self.assertEqual(mismatch.status, "blocked")
+        self.assertIn("pair_identity_mismatch", mismatch.reason_codes)
+
+    def test_release_uses_integer_even_median_and_exact_ten_percent_boundary(self):
+        pairs = self._48_pairs()
+        for index, pair in enumerate(pairs):
+            if index < 24:
+                pairs[index] = self._pair(pair.host, pair.case_id, on_total=1000)
+            else:
+                pairs[index] = self._pair(pair.host, pair.case_id, on_total=800)
+        score = contract.release_gate(pairs)
+        self.assertEqual(score.status, "pass")
+        self.assertEqual(score.median_reduction_ppm, 100000)
+        below = self._48_pairs(on_total=901)
+        self.assertEqual(contract.release_gate(below).status, "fail")
+
+    def test_release_rejects_correctness_regression_and_extra_parent_turn(self):
+        pairs = self._48_pairs()
+        host, case_id = contract.REQUIRED_PAIR_IDENTITIES[0]
+        pairs[0] = self._pair(host, case_id, on={"quality": contract.QualityScore(False, ("regression",))})
+        pairs[1] = self._pair(*contract.REQUIRED_PAIR_IDENTITIES[1], on={"parentTurns": 2})
+        score = contract.release_gate(pairs)
+        self.assertEqual(score.status, "fail")
+        self.assertEqual(score.correctness_regressions, 1)
+        self.assertEqual(score.additional_parent_model_turns, 1)
+
+    def test_release_blocks_missing_and_blocked_required_pairs(self):
+        pairs = self._48_pairs()
+        missing = contract.release_gate(pairs[1:])
+        self.assertEqual(missing.status, "blocked")
+        self.assertEqual(missing.blocked_required_pairs, 1)
+        pairs[0] = replace(pairs[0], status="blocked", reduction_ppm=None, reason_codes=("provider_missing",))
+        blocked = contract.release_gate(pairs)
+        self.assertEqual(blocked.status, "blocked")
+        self.assertEqual(blocked.blocked_required_pairs, 1)
+
+    def test_release_rejects_duplicate_required_pair_and_excludes_exploratory_pair_from_median(self):
+        pairs = self._48_pairs()
+        duplicate = contract.release_gate([*pairs, pairs[0]])
+        self.assertEqual(duplicate.status, "fail")
+        exploratory = replace(pairs[0], host="exploratory-host", case_id="exploratory-case", reduction_ppm=-900000)
+        score = contract.release_gate([*pairs, exploratory])
+        self.assertEqual(score.status, "pass")
+        self.assertEqual(score.exploratory_pairs, 1)
+        self.assertEqual(score.median_reduction_ppm, 100000)
+
+    def test_release_requires_complete_10_0_0_matrix(self):
+        pairs = self._48_pairs(off_total=1000, on_total=900)
+        score = contract.release_gate(pairs)
+        self.assertEqual(score.status, "pass")
+        self.assertEqual(score.valid_required_pairs, 48)
+        self.assertEqual(score.blocked_required_pairs, 0)
+        self.assertEqual(score.median_reduction_ppm, 100000)
+        self.assertEqual(score.correctness_regressions, 0)
+        self.assertEqual(score.additional_parent_model_turns, 0)
 
 
 class Dev142SchemaParityTests(unittest.TestCase):
