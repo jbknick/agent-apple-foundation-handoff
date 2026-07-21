@@ -1765,6 +1765,30 @@ class Dev142RoutingTests(unittest.TestCase):
             },
         )
 
+    def test_route_rejects_command_operand_created_during_bridge(self):
+        scratch_path = self.root / "Derived"
+
+        def creating_bridge(candidate):
+            scratch_path.mkdir()
+            return self._bridge(candidate)
+
+        result = contract.route(
+            canonical_request(),
+            self._context(
+                command="swift test --scratch-path Derived",
+                bridge=creating_bridge,
+            ),
+        )
+
+        self.assertEqual(
+            result,
+            {
+                "outcome": "fail",
+                "reasonCode": "invalid_response",
+                "preserveOriginal": True,
+            },
+        )
+
 
 class Dev142ProofTests(unittest.TestCase):
     """The repository-only proof is deterministic metadata, never runtime proof."""
