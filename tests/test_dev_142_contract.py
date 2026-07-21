@@ -5,6 +5,8 @@ import math
 import os
 from pathlib import Path
 import re
+import subprocess
+import sys
 import tempfile
 import unittest
 from collections import Counter
@@ -14,6 +16,8 @@ from dataclasses import replace
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "fixtures" / "dev-142" / "runtime_contract.py"
 CORPUS = ROOT / "fixtures" / "dev-142" / "benchmark-corpus.json"
+PROOF_RUNNER = ROOT / "fixtures" / "dev-142" / "proof_runner.py"
+PROOF_EVIDENCE = ROOT / "docs" / "research" / "evidence" / "dev-142-contract-verification.json"
 SCHEMAS = ROOT / "schemas"
 SPEC = importlib.util.spec_from_file_location("dev142_runtime_contract", CONTRACT_PATH)
 contract = importlib.util.module_from_spec(SPEC)
@@ -1090,6 +1094,120 @@ class Dev142RoutingTests(unittest.TestCase):
                     {"outcome": expected_status, "reasonCode": "generation_declined", "preserveOriginal": True},
                 )
                 self.assertEqual(calls, [canonical_request()])
+
+
+class Dev142ProofTests(unittest.TestCase):
+    """The repository-only proof is deterministic metadata, never runtime proof."""
+
+    def _runner(self):
+        spec = importlib.util.spec_from_file_location("dev142_proof_runner", PROOF_RUNNER)
+        runner = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(runner)
+        return runner
+
+    def _run_proof(self, output):
+        completed = subprocess.run(
+            [sys.executable, str(PROOF_RUNNER), "--output", str(output)],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(completed.stdout, "")
+        self.assertEqual(completed.stderr, "")
+        return json.loads(output.read_text(encoding="utf-8"))
+
+    def test_proof_is_closed_deterministic_and_covers_the_offline_contract(self):
+        with tempfile.TemporaryDirectory() as directory:
+            first = Path(directory) / "first.json"
+            second = Path(directory) / "second.json"
+            proof = self._run_proof(first)
+            self._run_proof(second)
+            self.assertEqual(first.read_bytes(), second.read_bytes())
+
+        self.assertEqual(set(proof), {
+            "schemaVersion", "issue", "status", "policyVersion", "action",
+            "schemaCount", "eligibleCaseCount", "requiredPairCount", "corpusSha256",
+            "checks", "liveClaims",
+        })
+        self.assertEqual(proof["schemaVersion"], 1)
+        self.assertEqual(proof["issue"], "DEV-142")
+        self.assertEqual(proof["status"], "pass")
+        self.assertEqual(proof["policyVersion"], contract.Policy.POLICY_VERSION)
+        self.assertEqual(proof["action"], contract.Policy.ACTION)
+        self.assertEqual(proof["schemaCount"], 3)
+        self.assertEqual(proof["eligibleCaseCount"], 24)
+        self.assertEqual(proof["requiredPairCount"], 48)
+        self.assertEqual(proof["corpusSha256"], contract.corpus_digest(canonical_benchmark()))
+        self.assertEqual(proof["checks"], sorted(proof["checks"], key=lambda row: row["id"]))
+        self.assertEqual(
+            {row["id"] for row in proof["checks"]},
+            {
+                "P-BOUNDARY-001", "P-CORPUS-001", "P-NORMALIZATION-001",
+                "P-QUALITY-001", "P-RELEASE-001", "P-ROUTING-001",
+                "P-SCHEMA-001", "P-SAFETY-001",
+            },
+        )
+        self.assertTrue(all(set(row) == {"id", "status"} and row["status"] == "pass" for row in proof["checks"]))
+        self.assertEqual(proof["liveClaims"], {
+            "appleInvocation": "not_applicable",
+            "codexHook": "not_applicable",
+            "claudeHook": "not_applicable",
+            "parentTokenReduction": "blocked/provider_usage_not_executed",
+        })
+
+    def test_proof_validator_rejects_unsafe_or_self_attested_content(self):
+        with tempfile.TemporaryDirectory() as directory:
+            proof = self._run_proof(Path(directory) / "proof.json")
+        runner = self._runner()
+        mutations = (
+            {**proof, "privatePath": "/Users/example/private"},
+            {**proof, "rawPrompt": "synthetic prompt"},
+            {**proof, "rawResult": "synthetic result"},
+            {**proof, "rawResponse": "synthetic response"},
+            {**proof, "credential": "not-a-credential"},
+            {**proof, "trace": "output.trace"},
+            {**proof, "xcresult": "output.xcresult"},
+            {**proof, "modelCorrectness": "self-attested"},
+            {**proof, "extra": True},
+            {**proof, "checks": [*proof["checks"], {"id": "P-EXTRA-001", "status": "pass", "detail": "extra"}]},
+        )
+        for mutated in mutations:
+            with self.subTest(mutated=next(key for key in mutated if key not in proof or mutated[key] != proof.get(key))):
+                with self.assertRaises(ValueError):
+                    runner.validate_evidence(mutated)
+
+    def test_committed_evidence_matches_the_runner_and_documentation_keeps_the_boundaries(self):
+        with tempfile.TemporaryDirectory() as directory:
+            generated = Path(directory) / "proof.json"
+            self._run_proof(generated)
+            self.assertEqual(PROOF_EVIDENCE.read_bytes(), generated.read_bytes())
+
+        required_text = {
+            ROOT / "fixtures" / "dev-142" / "README.md": (
+                "python3 fixtures/dev-142/proof_runner.py --output",
+                "does not invoke Apple", "does not activate a host hook",
+                "provider_usage_not_executed",
+            ),
+            ROOT / "docs" / "architecture" / "apple-foundation-models-handoff-mvp-decision-record.md": (
+                "diagnostic-condensation-v1", "48", "provider_usage_not_executed",
+            ),
+            ROOT / "plugins" / "apple-foundation-models-handoff" / "references" / "orchestration-patterns.md": (
+                "PostToolUse", "condense_diagnostic_output", "at most one bridge attempt",
+            ),
+            ROOT / "plugins" / "apple-foundation-models-handoff" / "references" / "security-context-and-recovery.md": (
+                "C0", "C1", "preserve the original result",
+            ),
+            ROOT / "plugins" / "apple-foundation-models-handoff" / "references" / "evaluation-and-observability.md": (
+                "24", "48", "provider_usage_not_executed",
+            ),
+        }
+        for path, fragments in required_text.items():
+            text = path.read_text(encoding="utf-8")
+            for fragment in fragments:
+                with self.subTest(path=path, fragment=fragment):
+                    self.assertIn(fragment, text)
 
 
 if __name__ == "__main__":
