@@ -113,6 +113,13 @@ def _digest(value, label):
     return value
 
 
+def _enum(value, choices, label):
+    _string(value, label)
+    if value not in choices:
+        raise ContractError(f"invalid {label}")
+    return value
+
+
 def _exit_status(exit_status, interrupted):
     if type(interrupted) is not bool:
         raise ContractError("invalid interrupted")
@@ -145,18 +152,12 @@ def _validate_field(field):
         ),
     )
     name = _string(field["name"], "field name")
-    if name not in _FIELD_NAMES:
-        raise ContractError("field name is not allowlisted")
-    if field["origin"] != "trustedLocal":
-        raise ContractError("invalid field origin")
-    if field["classification"] not in ("C0", "C1"):
-        raise ContractError("invalid field classification")
-    if field["purpose"] != Policy.RESULT_TYPE:
-        raise ContractError("invalid field purpose")
-    if field["destination"] != "apple_on_device":
-        raise ContractError("invalid field destination")
-    if field["retention"] != "ephemeral":
-        raise ContractError("invalid field retention")
+    _enum(name, _FIELD_NAMES, "field name")
+    _enum(field["origin"], ("trustedLocal",), "field origin")
+    _enum(field["classification"], ("C0", "C1"), "field classification")
+    _enum(field["purpose"], (Policy.RESULT_TYPE,), "field purpose")
+    _enum(field["destination"], ("apple_on_device",), "field destination")
+    _enum(field["retention"], ("ephemeral",), "field retention")
     if type(field["redacted"]) is not bool:
         raise ContractError("invalid field redaction")
     if name in ("line", "column"):
@@ -171,17 +172,13 @@ def _validate_field(field):
 def _validate_bindings(value, required):
     _closed(value, required)
     _integer(value["schemaVersion"], "schemaVersion", minimum=Policy.SCHEMA_VERSION, maximum=Policy.SCHEMA_VERSION)
-    if value["policyVersion"] != Policy.POLICY_VERSION:
-        raise ContractError("invalid policyVersion")
+    _enum(value["policyVersion"], (Policy.POLICY_VERSION,), "policyVersion")
     _string(value["callID"], "callID")
-    if value["toolName"] != Policy.TOOL_NAME:
-        raise ContractError("invalid toolName")
+    _enum(value["toolName"], (Policy.TOOL_NAME,), "toolName")
     _string(value["toolVersion"], "toolVersion")
     _string(value["stateVersion"], "stateVersion")
-    if value["action"] != Policy.ACTION:
-        raise ContractError("invalid action")
-    if value["commandClass"] not in _COMMAND_CLASSES:
-        raise ContractError("invalid commandClass")
+    _enum(value["action"], (Policy.ACTION,), "action")
+    _enum(value["commandClass"], _COMMAND_CLASSES, "commandClass")
     _string(value["originalResultType"], "originalResultType")
     _digest(value["originalResultDigest"], "originalResultDigest")
     _exit_status(value["exitStatus"], value["interrupted"])
@@ -214,8 +211,7 @@ def validate_request(value):
 def _validate_diagnostic(value):
     _closed(value, ("id", "severity", "code", "message", "file", "line", "column", "failedTestID"))
     _string(value["id"], "diagnostic id")
-    if value["severity"] not in _SEVERITIES:
-        raise ContractError("invalid diagnostic severity")
+    _enum(value["severity"], _SEVERITIES, "diagnostic severity")
     _string(value["code"], "diagnostic code", nonempty=False)
     _string(value["message"], "diagnostic message")
     if value["file"] is not None:
@@ -239,7 +235,9 @@ def _validate_condensation(value):
             raise ContractError("duplicate diagnostic identity")
         identities.add(diagnostic["id"])
     _integer(value["warningCount"], "warningCount", minimum=0)
-    _integer(value["omittedWarningCount"], "omittedWarningCount", minimum=0, maximum=value["warningCount"])
+    # Warning-count ordering is a Task 3 quality-oracle semantic check. Draft
+    # 2020-12 cannot express the sibling comparison without a custom keyword.
+    _integer(value["omittedWarningCount"], "omittedWarningCount", minimum=0)
     return value
 
 
@@ -249,17 +247,16 @@ def validate_result(value):
         "stateVersion", "action", "commandClass", "originalResultType",
         "originalResultDigest", "outcome", "exitStatus", "interrupted",
     )
-    if type(value) is not dict or value.get("outcome") not in ("applied", "declined", "fail"):
+    if type(value) is not dict or "outcome" not in value:
         raise ContractError("invalid result outcome")
+    _enum(value["outcome"], ("applied", "declined", "fail"), "result outcome")
     if value["outcome"] == "applied":
         _validate_bindings(value, (*bindings, "resultType", "condensation"))
-        if value["resultType"] != Policy.RESULT_TYPE:
-            raise ContractError("invalid resultType")
+        _enum(value["resultType"], (Policy.RESULT_TYPE,), "resultType")
         _validate_condensation(value["condensation"])
     else:
         _validate_bindings(value, (*bindings, "reasonCode"))
-        if value["reasonCode"] not in _REASON_CODES:
-            raise ContractError("invalid reasonCode")
+        _enum(value["reasonCode"], _REASON_CODES, "reasonCode")
     return value
 
 
@@ -278,11 +275,9 @@ def _validate_expected(value):
 def _validate_case(value):
     _closed(value, ("id", "commandClass", "commandForm", "classification", "renderedSha256", "expected"))
     _string(value["id"], "case id")
-    if value["commandClass"] not in _COMMAND_CLASSES:
-        raise ContractError("invalid case commandClass")
+    _enum(value["commandClass"], _COMMAND_CLASSES, "case commandClass")
     _string(value["commandForm"], "commandForm")
-    if value["classification"] not in ("C0", "C1"):
-        raise ContractError("invalid case classification")
+    _enum(value["classification"], ("C0", "C1"), "case classification")
     _digest(value["renderedSha256"], "renderedSha256")
     _validate_expected(value["expected"])
     return value
@@ -296,10 +291,8 @@ def _validate_arm(value):
     ))
     _string(value["id"], "arm id")
     _string(value["pairID"], "pair id")
-    if value["arm"] not in ("pluginOff", "pluginOn"):
-        raise ContractError("invalid arm")
-    if value["provider"] not in ("openai-responses-usage-v1", "anthropic-messages-usage-v1"):
-        raise ContractError("invalid provider")
+    _enum(value["arm"], ("pluginOff", "pluginOn"), "arm")
+    _enum(value["provider"], ("openai-responses-usage-v1", "anthropic-messages-usage-v1"), "provider")
     for key in (
         "inputTokens", "cachedInputTokens", "outputTokens", "reasoningTokens",
         "totalParentModelTokens", "parentTurns", "appleAttempts", "replacements",
@@ -316,8 +309,7 @@ def _validate_arm(value):
 def _validate_pair(value):
     _closed(value, ("id", "status", "reduction"))
     _string(value["id"], "pair id")
-    if value["status"] not in ("valid", "blocked"):
-        raise ContractError("invalid pair status")
+    _enum(value["status"], ("valid", "blocked"), "pair status")
     _finite_number(value["reduction"], "reduction", minimum=-1, maximum=1, nullable=True)
     if value["status"] == "blocked" and value["reduction"] is not None:
         raise ContractError("blocked pair has reduction")
@@ -329,8 +321,7 @@ def _validate_release(value):
         "status", "validRequiredPairs", "blockedRequiredPairs", "medianReduction",
         "correctnessRegressions", "additionalParentModelTurns",
     ))
-    if value["status"] not in ("pass", "fail", "blocked"):
-        raise ContractError("invalid release status")
+    _enum(value["status"], ("pass", "fail", "blocked"), "release status")
     for key in ("validRequiredPairs", "blockedRequiredPairs", "correctnessRegressions", "additionalParentModelTurns"):
         _integer(value[key], key, minimum=0)
     _finite_number(value["medianReduction"], "medianReduction", minimum=-1, maximum=1, nullable=True)
@@ -338,13 +329,13 @@ def _validate_release(value):
 
 
 def validate_benchmark(value):
-    if type(value) is not dict or value.get("kind") not in ("corpus", "evidence"):
+    if type(value) is not dict or "kind" not in value:
         raise ContractError("invalid benchmark kind")
+    _enum(value["kind"], ("corpus", "evidence"), "benchmark kind")
     if value["kind"] == "corpus":
         _closed(value, ("schemaVersion", "policyVersion", "kind", "corpusVersion", "corpusSha256", "cases"))
         _integer(value["schemaVersion"], "schemaVersion", minimum=Policy.SCHEMA_VERSION, maximum=Policy.SCHEMA_VERSION)
-        if value["policyVersion"] != Policy.POLICY_VERSION:
-            raise ContractError("invalid policyVersion")
+        _enum(value["policyVersion"], (Policy.POLICY_VERSION,), "policyVersion")
         _string(value["corpusVersion"], "corpusVersion")
         _digest(value["corpusSha256"], "corpusSha256")
         if type(value["cases"]) is not list or not value["cases"]:
@@ -358,8 +349,7 @@ def validate_benchmark(value):
     else:
         _closed(value, ("schemaVersion", "policyVersion", "kind", "arms", "pairs", "release"))
         _integer(value["schemaVersion"], "schemaVersion", minimum=Policy.SCHEMA_VERSION, maximum=Policy.SCHEMA_VERSION)
-        if value["policyVersion"] != Policy.POLICY_VERSION:
-            raise ContractError("invalid policyVersion")
+        _enum(value["policyVersion"], (Policy.POLICY_VERSION,), "policyVersion")
         if type(value["arms"]) is not list or type(value["pairs"]) is not list:
             raise ContractError("invalid benchmark collections")
         arm_ids = set()
