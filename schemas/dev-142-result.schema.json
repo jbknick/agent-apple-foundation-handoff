@@ -29,10 +29,14 @@
     },
     "condensation": {
       "type": "object", "additionalProperties": false,
-      "required": ["summary", "diagnostics", "warningCount", "omittedWarningCount"],
+      "required": ["commandOutcome", "summary", "summaryFacts", "diagnostics", "warningCount", "omittedWarningCount", "nextAction", "completionFacts"],
       "properties": {
+        "commandOutcome": {"type": "string", "enum": ["success", "failure", "interrupted"]},
         "summary": {"type": "string", "minLength": 1}, "diagnostics": {"type": "array", "items": {"$ref": "#/$defs/diagnostic"}},
-        "warningCount": {"type": "integer", "minimum": 0}, "omittedWarningCount": {"type": "integer", "minimum": 0}
+        "summaryFacts": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "warningCount": {"type": "integer", "minimum": 0}, "omittedWarningCount": {"type": "integer", "minimum": 0},
+        "nextAction": {"type": "string", "minLength": 1},
+        "completionFacts": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
       }
     },
     "applied": {

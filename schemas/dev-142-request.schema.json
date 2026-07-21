@@ -5,7 +5,8 @@
   "x-dev142-constraints": {
     "uniqueBy": [{"array": "/fields", "keys": ["name"]}],
     "repoRelativePath": [{"array": "/fields", "when": {"name": "file"}, "field": "value"}],
-    "derivedInteger": [{"source": "/inputBytes", "target": "/estimatedSavingsBytes", "subtract": 4096}]
+    "derivedInteger": [{"source": "/inputBytes", "target": "/estimatedSavingsBytes", "subtract": 4096}],
+    "canonicalUtf8Bytes": [{"array": "/fields", "target": "/inputBytes"}]
   },
   "type": "object",
   "additionalProperties": false,

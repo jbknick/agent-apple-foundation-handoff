@@ -1,66 +1,152 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "dev-142-benchmark.schema.json",
-  "$comment": "Draft 2020-12 covers structure. The closed x-dev142 vocabulary, enforced by the repository-local semantic evaluator and Python validator, covers cross-value invariants.",
+  "$comment": "Draft 2020-12 covers structure. The closed x-dev142 vocabulary, enforced by the repository-local semantic evaluator and Python validator, derives the exact cost matrix.",
   "x-dev142-constraints": {
     "uniqueBy": [
       {"array": "/cases", "keys": ["id"]},
       {"array": "/arms", "keys": ["id"]},
       {"array": "/pairs", "keys": ["id"]}
-    ]
+    ],
+    "benchmarkCostModel": true
   },
   "oneOf": [{"$ref": "#/$defs/corpus"}, {"$ref": "#/$defs/evidence"}],
   "$defs": {
     "expected": {
       "type": "object", "additionalProperties": false,
-      "required": ["exitStatus", "interrupted", "warningCount", "requiredDiagnosticIDs", "failedTestIDs"],
+      "required": ["exitStatus", "interrupted", "commandOutcome", "warningCount", "warningRepresentativeIDs", "requiredDiagnosticIDs", "failedTestIDs", "summary", "summaryFacts", "nextAction", "completionFacts"],
       "properties": {
-        "exitStatus": {"type": ["integer", "null"], "minimum": 0, "maximum": 255}, "interrupted": {"type": "boolean"}, "warningCount": {"type": "integer", "minimum": 0},
-        "requiredDiagnosticIDs": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true}, "failedTestIDs": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
-      },
-      "allOf": [{"if": {"properties": {"interrupted": {"const": false}}}, "then": {"properties": {"exitStatus": {"type": "integer"}}}}]
+        "exitStatus": {"type": "integer", "minimum": 0, "maximum": 255},
+        "interrupted": {"const": false},
+        "commandOutcome": {"type": "string", "enum": ["success", "failure"]},
+        "warningCount": {"type": "integer", "minimum": 0},
+        "warningRepresentativeIDs": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+        "requiredDiagnosticIDs": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+        "failedTestIDs": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+        "summary": {"type": "string", "minLength": 1},
+        "summaryFacts": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+        "nextAction": {"type": "string", "minLength": 1},
+        "completionFacts": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
+      }
     },
     "case": {
       "type": "object", "additionalProperties": false,
       "required": ["id", "commandClass", "commandForm", "classification", "renderedSha256", "expected"],
       "properties": {
-        "id": {"type": "string", "minLength": 1}, "commandClass": {"type": "string", "enum": ["test", "build", "typecheck", "lint"]}, "commandForm": {"type": "string", "minLength": 1},
-        "classification": {"type": "string", "enum": ["C0", "C1"]}, "renderedSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "expected": {"$ref": "#/$defs/expected"}
+        "id": {"type": "string", "minLength": 1},
+        "commandClass": {"type": "string", "enum": ["test", "build", "typecheck", "lint"]},
+        "commandForm": {"type": "string", "minLength": 1},
+        "classification": {"type": "string", "enum": ["C0", "C1"]},
+        "renderedSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "expected": {"$ref": "#/$defs/expected"}
       }
     },
     "corpus": {
       "type": "object", "additionalProperties": false,
       "required": ["schemaVersion", "policyVersion", "kind", "corpusVersion", "corpusSha256", "cases"],
       "properties": {
-        "schemaVersion": {"const": 1}, "policyVersion": {"const": "diagnostic-condensation-v1"}, "kind": {"const": "corpus"}, "corpusVersion": {"type": "string", "minLength": 1},
-        "corpusSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "cases": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/case"}, "uniqueItems": true}
+        "schemaVersion": {"const": 1},
+        "policyVersion": {"const": "diagnostic-condensation-v1"},
+        "kind": {"const": "corpus"},
+        "corpusVersion": {"type": "string", "minLength": 1},
+        "corpusSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "cases": {"type": "array", "minItems": 24, "maxItems": 24, "items": {"$ref": "#/$defs/case"}, "uniqueItems": true}
+      }
+    },
+    "openAIUsage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["input_tokens", "cached_tokens", "output_tokens", "reasoning_tokens"],
+      "properties": {
+        "input_tokens": {"type": "integer", "minimum": 0},
+        "cached_tokens": {"type": "integer", "minimum": 0},
+        "output_tokens": {"type": "integer", "minimum": 0},
+        "reasoning_tokens": {"type": "integer", "minimum": 0}
+      }
+    },
+    "anthropicUsage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "output_tokens"],
+      "properties": {
+        "input_tokens": {"type": "integer", "minimum": 0},
+        "cache_read_input_tokens": {"type": "integer", "minimum": 0},
+        "cache_creation_input_tokens": {"type": "integer", "minimum": 0},
+        "output_tokens": {"type": "integer", "minimum": 0}
       }
     },
     "arm": {
       "type": "object", "additionalProperties": false,
-      "required": ["id", "pairID", "arm", "provider", "inputTokens", "cachedInputTokens", "outputTokens", "reasoningTokens", "totalParentModelTokens", "parentTurns", "appleAttempts", "replacements", "declines", "fallbacks", "latencyMilliseconds", "correct"],
+      "required": ["id", "pairID", "arm", "host", "caseID", "caseRenderedSha256", "commandClass", "workflow", "parentModel", "provider", "normalizationVersion", "toolchain", "policyVersion", "providerUsage", "parentTurns", "appleAttempts", "replacements", "declines", "fallbacks", "latencyMilliseconds", "qualityPassed", "qualityReasonCodes"],
       "properties": {
-        "id": {"type": "string", "minLength": 1}, "pairID": {"type": "string", "minLength": 1}, "arm": {"type": "string", "enum": ["pluginOff", "pluginOn"]}, "provider": {"type": "string", "enum": ["openai-responses-usage-v1", "anthropic-messages-usage-v1"]},
-        "inputTokens": {"type": ["integer", "null"], "minimum": 0}, "cachedInputTokens": {"type": ["integer", "null"], "minimum": 0}, "outputTokens": {"type": ["integer", "null"], "minimum": 0}, "reasoningTokens": {"type": ["integer", "null"], "minimum": 0},
-        "totalParentModelTokens": {"type": ["integer", "null"], "minimum": 0}, "parentTurns": {"type": ["integer", "null"], "minimum": 0}, "appleAttempts": {"type": ["integer", "null"], "minimum": 0}, "replacements": {"type": ["integer", "null"], "minimum": 0},
-        "declines": {"type": ["integer", "null"], "minimum": 0}, "fallbacks": {"type": ["integer", "null"], "minimum": 0}, "latencyMilliseconds": {"type": ["integer", "null"], "minimum": 0}, "correct": {"type": ["boolean", "null"]}
+        "id": {"type": "string", "minLength": 1},
+        "pairID": {"type": "string", "minLength": 1},
+        "arm": {"type": "string", "enum": ["pluginOff", "pluginOn"]},
+        "host": {"type": "string", "enum": ["claude-code-2.1.91", "codex-cli-0.144.5"]},
+        "caseID": {"type": "string", "minLength": 1},
+        "caseRenderedSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "commandClass": {"type": "string", "enum": ["test", "build", "typecheck", "lint"]},
+        "workflow": {"type": "string", "minLength": 1},
+        "parentModel": {"type": "string", "minLength": 1},
+        "provider": {"type": "string", "enum": ["openai-responses-usage-v1", "anthropic-messages-usage-v1"]},
+        "normalizationVersion": {"type": "string", "enum": ["openai-responses-usage-v1", "anthropic-messages-usage-v1"]},
+        "toolchain": {"type": "string", "minLength": 1},
+        "policyVersion": {"const": "diagnostic-condensation-v1"},
+        "providerUsage": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/openAIUsage"}, {"$ref": "#/$defs/anthropicUsage"}]},
+        "parentTurns": {"type": ["integer", "null"], "minimum": 0},
+        "appleAttempts": {"type": ["integer", "null"], "minimum": 0, "maximum": 1},
+        "replacements": {"type": ["integer", "null"], "minimum": 0, "maximum": 1},
+        "declines": {"type": ["integer", "null"], "minimum": 0},
+        "fallbacks": {"type": ["integer", "null"], "minimum": 0},
+        "latencyMilliseconds": {"type": ["integer", "null"], "minimum": 0},
+        "qualityPassed": {"type": ["boolean", "null"]},
+        "qualityReasonCodes": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
       },
-      "allOf": [{"if": {"properties": {"arm": {"const": "pluginOff"}}}, "then": {"properties": {"appleAttempts": {"enum": [0, null]}, "replacements": {"enum": [0, null]}}}}]
+      "allOf": [
+        {"if": {"properties": {"provider": {"const": "openai-responses-usage-v1"}}}, "then": {"properties": {"providerUsage": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/openAIUsage"}]}}}},
+        {"if": {"properties": {"provider": {"const": "anthropic-messages-usage-v1"}}}, "then": {"properties": {"providerUsage": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/anthropicUsage"}]}}}},
+        {"if": {"properties": {"arm": {"const": "pluginOff"}}}, "then": {"properties": {"appleAttempts": {"enum": [0, null]}, "replacements": {"enum": [0, null]}}}}
+      ]
     },
     "pair": {
-      "type": "object", "additionalProperties": false, "required": ["id", "status", "reduction"],
-      "properties": {"id": {"type": "string", "minLength": 1}, "status": {"type": "string", "enum": ["valid", "blocked"]}, "reduction": {"type": ["number", "null"], "minimum": -1, "maximum": 1}},
-      "allOf": [{"if": {"properties": {"status": {"const": "blocked"}}}, "then": {"properties": {"reduction": {"const": null}}}}]
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "host", "caseID", "status", "reductionPPM", "correctnessRegressions", "additionalParentModelTurns", "reasonCodes"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "host": {"type": "string", "enum": ["claude-code-2.1.91", "codex-cli-0.144.5"]},
+        "caseID": {"type": "string", "minLength": 1},
+        "status": {"type": "string", "enum": ["pass", "fail", "blocked"]},
+        "reductionPPM": {"type": ["integer", "null"], "minimum": -18446744073709551614000000, "maximum": 1000000},
+        "correctnessRegressions": {"type": "integer", "minimum": 0},
+        "additionalParentModelTurns": {"type": "integer", "minimum": 0},
+        "reasonCodes": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
+      },
+      "allOf": [{"if": {"properties": {"status": {"const": "blocked"}}}, "then": {"properties": {"reductionPPM": {"const": null}}}}]
     },
     "release": {
       "type": "object", "additionalProperties": false,
-      "required": ["status", "validRequiredPairs", "blockedRequiredPairs", "medianReduction", "correctnessRegressions", "additionalParentModelTurns"],
-      "properties": {"status": {"type": "string", "enum": ["pass", "fail", "blocked"]}, "validRequiredPairs": {"type": "integer", "minimum": 0}, "blockedRequiredPairs": {"type": "integer", "minimum": 0}, "medianReduction": {"type": ["number", "null"], "minimum": -1, "maximum": 1}, "correctnessRegressions": {"type": "integer", "minimum": 0}, "additionalParentModelTurns": {"type": "integer", "minimum": 0}}
+      "required": ["status", "validRequiredPairs", "blockedRequiredPairs", "medianReductionPPM", "correctnessRegressions", "additionalParentModelTurns", "exploratoryPairs", "reasonCodes"],
+      "properties": {
+        "status": {"type": "string", "enum": ["pass", "fail", "blocked"]},
+        "validRequiredPairs": {"type": "integer", "minimum": 0, "maximum": 48},
+        "blockedRequiredPairs": {"type": "integer", "minimum": 0, "maximum": 48},
+        "medianReductionPPM": {"type": ["integer", "null"], "minimum": -18446744073709551614000000, "maximum": 1000000},
+        "correctnessRegressions": {"type": "integer", "minimum": 0},
+        "additionalParentModelTurns": {"type": "integer", "minimum": 0},
+        "exploratoryPairs": {"const": 0},
+        "reasonCodes": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
+      }
     },
     "evidence": {
       "type": "object", "additionalProperties": false,
-      "required": ["schemaVersion", "policyVersion", "kind", "arms", "pairs", "release"],
-      "properties": {"schemaVersion": {"const": 1}, "policyVersion": {"const": "diagnostic-condensation-v1"}, "kind": {"const": "evidence"}, "arms": {"type": "array", "items": {"$ref": "#/$defs/arm"}, "uniqueItems": true}, "pairs": {"type": "array", "items": {"$ref": "#/$defs/pair"}, "uniqueItems": true}, "release": {"$ref": "#/$defs/release"}}
+      "required": ["schemaVersion", "policyVersion", "kind", "corpusSha256", "arms", "pairs", "release"],
+      "properties": {
+        "schemaVersion": {"const": 1},
+        "policyVersion": {"const": "diagnostic-condensation-v1"},
+        "kind": {"const": "evidence"},
+        "corpusSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "arms": {"type": "array", "minItems": 96, "maxItems": 96, "items": {"$ref": "#/$defs/arm"}, "uniqueItems": true},
+        "pairs": {"type": "array", "minItems": 48, "maxItems": 48, "items": {"$ref": "#/$defs/pair"}, "uniqueItems": true},
+        "release": {"$ref": "#/$defs/release"}
+      }
     }
   }
 }

@@ -10,6 +10,7 @@ import os
 import re
 import shlex
 import stat
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -124,7 +125,7 @@ _REQUIRED_CASE_IDS = (
     "typecheck-npm-success-17", "typecheck-npm-failure-18",
     "lint-swift-format-success-19", "lint-swift-format-failure-20",
     "lint-ruff-success-21", "lint-ruff-failure-22",
-    "lint-pnpm-success-23", "lint-pnpm-interrupted-24",
+    "lint-pnpm-success-23", "lint-pnpm-failure-24",
 )
 REQUIRED_PAIR_IDENTITIES = tuple(
     (host, case_id) for host in _REQUIRED_HOSTS for case_id in _REQUIRED_CASE_IDS
@@ -238,18 +239,40 @@ def _validated_arm(arm):
     quality = arm.get("quality")
     if type(quality) is not QualityScore or type(quality.passed) is not bool:
         raise BlockedEvidence("invalid_quality_score")
-    return tuple(identity), usage, parent_turns, quality
+    role = arm.get("arm")
+    if role not in ("pluginOff", "pluginOn"):
+        raise BlockedEvidence("invalid_arm_role")
+    apple_attempts = arm.get("appleAttempts")
+    replacements = arm.get("replacements")
+    if (
+        type(apple_attempts) is not int
+        or type(replacements) is not int
+        or not 0 <= apple_attempts <= 1
+        or not 0 <= replacements <= 1
+        or replacements > apple_attempts
+        or (role == "pluginOff" and (apple_attempts != 0 or replacements != 0))
+    ):
+        raise BlockedEvidence("invalid_apple_counters")
+    if type(quality.reason_codes) is not tuple or any(
+        type(reason) is not str or not reason for reason in quality.reason_codes
+    ):
+        raise BlockedEvidence("invalid_quality_score")
+    if quality.passed == bool(quality.reason_codes):
+        raise BlockedEvidence("invalid_quality_score")
+    return tuple(identity), usage, parent_turns, quality, role
 
 
 def score_pair(off, on):
     host, case_id = _pair_coordinates(off)
     try:
-        off_identity, off_usage, off_turns, off_quality = _validated_arm(off)
-        on_identity, on_usage, on_turns, on_quality = _validated_arm(on)
+        off_identity, off_usage, off_turns, off_quality, off_role = _validated_arm(off)
+        on_identity, on_usage, on_turns, on_quality, on_role = _validated_arm(on)
     except BlockedEvidence as error:
         return PairScore(host, case_id, "blocked", None, 0, 0, (error.reason,))
     if off_identity != on_identity:
         return PairScore(host, case_id, "blocked", None, 0, 0, ("pair_identity_mismatch",))
+    if (off_role, on_role) != ("pluginOff", "pluginOn"):
+        return PairScore(host, case_id, "blocked", None, 0, 0, ("pair_role_mismatch",))
     try:
         reduction_ppm = _reduction_ppm(
             off_usage.total_parent_model_tokens, on_usage.total_parent_model_tokens,
@@ -381,6 +404,20 @@ _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _COMMAND_CLASSES = frozenset(("test", "build", "typecheck", "lint"))
 _FIELD_NAMES = frozenset(("severity", "code", "message", "file", "line", "column"))
 _SEVERITIES = frozenset(("fatal", "error", "warning", "info"))
+_COMMAND_OUTCOMES = frozenset(("success", "failure", "interrupted"))
+_FIELD_ORDER = ("severity", "code", "message", "file", "line", "column")
+_SENSITIVE_TEXT_PATTERNS = (
+    re.compile(r"-----BEGIN (?:RSA |OPENSSH |EC )?PRIVATE KEY-----", re.IGNORECASE),
+    re.compile(r"/(?:Users|home|private)/[^\s]+", re.IGNORECASE),
+    re.compile(r"\b[A-Za-z]:[\\/](?:Users|home|private)[\\/]", re.IGNORECASE),
+    re.compile(r"(?:\\\\|//)[A-Za-z0-9_.-]+[\\/][^\s]+"),
+    re.compile(r"\bBearer\s+[A-Za-z0-9._~+/-]{8,}", re.IGNORECASE),
+    re.compile(
+        r"\b(?:api[_ -]?key|access[_ -]?token|password|secret|credential)\b"
+        r"\s*[:=]\s*(?!<redacted>|\[redacted\]|null\b)[^\s,}]+",
+        re.IGNORECASE,
+    ),
+)
 _REASON_CODES = frozenset(
     (
         "tool_not_allowed",
@@ -474,6 +511,50 @@ def _path(value, label):
     return value
 
 
+def _value_is_safe(value):
+    if type(value) is dict:
+        return all(_value_is_safe(key) and _value_is_safe(item) for key, item in value.items())
+    if type(value) is list:
+        return all(_value_is_safe(item) for item in value)
+    if type(value) is str:
+        return all(pattern.search(value) is None for pattern in _SENSITIVE_TEXT_PATTERNS)
+    return value is None or type(value) in (bool, int, float)
+
+
+def canonical_field_bytes(fields):
+    """Encode only allowlisted diagnostic names and values in one canonical form."""
+    if type(fields) is not list or not fields:
+        raise ContractError("invalid fields")
+    names = set()
+    content = []
+    for field in fields:
+        _validate_field(field)
+        name = field["name"]
+        if name in names:
+            raise ContractError("duplicate field name")
+        names.add(name)
+        if not _value_is_safe(field["value"]):
+            raise ContractError("sensitive field value")
+        content.append({"name": name, "value": field["value"]})
+    content.sort(key=lambda field: _FIELD_ORDER.index(field["name"]))
+    try:
+        return json.dumps(
+            content, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+    except (TypeError, ValueError, UnicodeEncodeError) as error:
+        raise ContractError("invalid canonical fields") from error
+
+
+def _string_list(value, label):
+    if type(value) is not list or not value:
+        raise ContractError(f"invalid {label}")
+    if any(type(item) is not str or not item for item in value):
+        raise ContractError(f"invalid {label}")
+    if len(set(value)) != len(value):
+        raise ContractError(f"duplicate {label}")
+    return value
+
+
 def _validate_field(field):
     _closed(
         field,
@@ -536,12 +617,9 @@ def validate_request(value):
         raise ContractError("invalid estimatedSavingsBytes")
     if type(value["fields"]) is not list or not value["fields"]:
         raise ContractError("invalid fields")
-    names = set()
-    for field in value["fields"]:
-        _validate_field(field)
-        if field["name"] in names:
-            raise ContractError("duplicate field name")
-        names.add(field["name"])
+    encoded = canonical_field_bytes(value["fields"])
+    if len(encoded) != input_bytes:
+        raise ContractError("invalid inputBytes")
     return value
 
 
@@ -561,8 +639,13 @@ def _validate_diagnostic(value):
 
 
 def _validate_condensation(value):
-    _closed(value, ("summary", "diagnostics", "warningCount", "omittedWarningCount"))
+    _closed(value, (
+        "commandOutcome", "summary", "summaryFacts", "diagnostics", "warningCount",
+        "omittedWarningCount", "nextAction", "completionFacts",
+    ))
+    _enum(value["commandOutcome"], _COMMAND_OUTCOMES, "command outcome")
     _string(value["summary"], "summary")
+    _string_list(value["summaryFacts"], "summary facts")
     if type(value["diagnostics"]) is not list:
         raise ContractError("invalid diagnostics")
     identities = set()
@@ -577,6 +660,13 @@ def _validate_condensation(value):
         identities.add(identity)
     _integer(value["warningCount"], "warningCount", minimum=0)
     _integer(value["omittedWarningCount"], "omittedWarningCount", minimum=0, maximum=value["warningCount"])
+    warning_representatives = sum(
+        diagnostic["severity"] == "warning" for diagnostic in value["diagnostics"]
+    )
+    if warning_representatives + value["omittedWarningCount"] != value["warningCount"]:
+        raise ContractError("invalid warning accounting")
+    _string(value["nextAction"], "next action")
+    _string_list(value["completionFacts"], "completion facts")
     return value
 
 
@@ -600,14 +690,27 @@ def validate_result(value):
 
 
 def _validate_expected(value):
-    _closed(value, ("exitStatus", "interrupted", "warningCount", "requiredDiagnosticIDs", "failedTestIDs"))
+    _closed(value, (
+        "exitStatus", "interrupted", "commandOutcome", "warningCount",
+        "warningRepresentativeIDs", "requiredDiagnosticIDs", "failedTestIDs",
+        "summary", "summaryFacts", "nextAction", "completionFacts",
+    ))
     _exit_status(value["exitStatus"], value["interrupted"])
+    _enum(value["commandOutcome"], ("success", "failure"), "expected command outcome")
+    if value["interrupted"] or _semantic_command_outcome(value["exitStatus"], False) != value["commandOutcome"]:
+        raise ContractError("invalid expected command outcome")
     _integer(value["warningCount"], "warningCount", minimum=0)
-    for key in ("requiredDiagnosticIDs", "failedTestIDs"):
+    for key in ("warningRepresentativeIDs", "requiredDiagnosticIDs", "failedTestIDs"):
         if type(value[key]) is not list or any(type(item) is not str or not item for item in value[key]):
             raise ContractError(f"invalid {key}")
         if len(set(value[key])) != len(value[key]):
             raise ContractError(f"duplicate {key}")
+    if len(value["warningRepresentativeIDs"]) > value["warningCount"]:
+        raise ContractError("invalid warning representatives")
+    _string(value["summary"], "expected summary")
+    _string_list(value["summaryFacts"], "expected summary facts")
+    _string(value["nextAction"], "expected next action")
+    _string_list(value["completionFacts"], "expected completion facts")
     return value
 
 
@@ -624,46 +727,94 @@ def _validate_case(value):
 
 def _validate_arm(value):
     _closed(value, (
-        "id", "pairID", "arm", "provider", "inputTokens", "cachedInputTokens",
-        "outputTokens", "reasoningTokens", "totalParentModelTokens", "parentTurns",
-        "appleAttempts", "replacements", "declines", "fallbacks", "latencyMilliseconds", "correct",
+        "id", "pairID", "arm", "host", "caseID", "caseRenderedSha256",
+        "commandClass", "workflow", "parentModel", "provider",
+        "normalizationVersion", "toolchain", "policyVersion", "providerUsage",
+        "parentTurns", "appleAttempts", "replacements", "declines", "fallbacks",
+        "latencyMilliseconds", "qualityPassed", "qualityReasonCodes",
     ))
     _string(value["id"], "arm id")
     _string(value["pairID"], "pair id")
     _enum(value["arm"], ("pluginOff", "pluginOn"), "arm")
+    _enum(value["host"], _REQUIRED_HOSTS, "host")
+    _string(value["caseID"], "case id")
+    _digest(value["caseRenderedSha256"], "case rendered hash")
+    _enum(value["commandClass"], _COMMAND_CLASSES, "commandClass")
+    for key in ("workflow", "parentModel", "toolchain"):
+        _string(value[key], key)
     _enum(value["provider"], ("openai-responses-usage-v1", "anthropic-messages-usage-v1"), "provider")
-    for key in (
-        "inputTokens", "cachedInputTokens", "outputTokens", "reasoningTokens",
-        "totalParentModelTokens", "parentTurns", "appleAttempts", "replacements",
-        "declines", "fallbacks", "latencyMilliseconds",
-    ):
+    _enum(value["normalizationVersion"], (value["provider"],), "normalizationVersion")
+    _enum(value["policyVersion"], (Policy.POLICY_VERSION,), "policyVersion")
+    if value["providerUsage"] is not None:
+        try:
+            normalize_usage(value["provider"], value["providerUsage"])
+        except BlockedEvidence as error:
+            raise ContractError("invalid provider usage") from error
+    for key in ("parentTurns", "declines", "fallbacks", "latencyMilliseconds"):
         _optional_integer(value[key], key)
-    if value["correct"] is not None and type(value["correct"]) is not bool:
-        raise ContractError("invalid correct")
+    for key in ("appleAttempts", "replacements"):
+        if value[key] is not None:
+            _integer(value[key], key, minimum=0, maximum=1)
+    if value["qualityPassed"] is not None and type(value["qualityPassed"]) is not bool:
+        raise ContractError("invalid quality")
+    if type(value["qualityReasonCodes"]) is not list or any(
+        type(reason) is not str or not reason for reason in value["qualityReasonCodes"]
+    ) or len(set(value["qualityReasonCodes"])) != len(value["qualityReasonCodes"]):
+        raise ContractError("invalid quality reasons")
+    if value["qualityPassed"] is True and value["qualityReasonCodes"]:
+        raise ContractError("passing quality has reasons")
+    if value["qualityPassed"] is False and not value["qualityReasonCodes"]:
+        raise ContractError("failing quality lacks reasons")
     if value["arm"] == "pluginOff" and (value["appleAttempts"] not in (None, 0) or value["replacements"] not in (None, 0)):
         raise ContractError("pluginOff cannot use Apple or replace output")
+    if value["appleAttempts"] is not None and value["replacements"] is not None and value["replacements"] > value["appleAttempts"]:
+        raise ContractError("replacement exceeds attempt")
     return value
 
 
 def _validate_pair(value):
-    _closed(value, ("id", "status", "reduction"))
+    _closed(value, (
+        "id", "host", "caseID", "status", "reductionPPM",
+        "correctnessRegressions", "additionalParentModelTurns", "reasonCodes",
+    ))
     _string(value["id"], "pair id")
-    _enum(value["status"], ("valid", "blocked"), "pair status")
-    _finite_number(value["reduction"], "reduction", minimum=-1, maximum=1, nullable=True)
-    if value["status"] == "blocked" and value["reduction"] is not None:
+    _enum(value["host"], _REQUIRED_HOSTS, "host")
+    _string(value["caseID"], "case id")
+    _enum(value["status"], ("pass", "fail", "blocked"), "pair status")
+    if value["reductionPPM"] is not None:
+        _integer(value["reductionPPM"], "reductionPPM", minimum=_MIN_REDUCTION_PPM, maximum=_MAX_REDUCTION_PPM)
+    if value["status"] == "blocked" and value["reductionPPM"] is not None:
         raise ContractError("blocked pair has reduction")
+    if value["status"] != "blocked" and value["reductionPPM"] is None:
+        raise ContractError("scored pair lacks reduction")
+    for key in ("correctnessRegressions", "additionalParentModelTurns"):
+        _integer(value[key], key, minimum=0)
+    if type(value["reasonCodes"]) is not list or any(
+        type(reason) is not str or not reason for reason in value["reasonCodes"]
+    ) or len(set(value["reasonCodes"])) != len(value["reasonCodes"]):
+        raise ContractError("invalid pair reasons")
+    if value["status"] == "pass" and value["reasonCodes"]:
+        raise ContractError("passing pair has reasons")
+    if value["status"] != "pass" and not value["reasonCodes"]:
+        raise ContractError("non-passing pair lacks reasons")
     return value
 
 
 def _validate_release(value):
     _closed(value, (
-        "status", "validRequiredPairs", "blockedRequiredPairs", "medianReduction",
-        "correctnessRegressions", "additionalParentModelTurns",
+        "status", "validRequiredPairs", "blockedRequiredPairs", "medianReductionPPM",
+        "correctnessRegressions", "additionalParentModelTurns", "exploratoryPairs",
+        "reasonCodes",
     ))
     _enum(value["status"], ("pass", "fail", "blocked"), "release status")
-    for key in ("validRequiredPairs", "blockedRequiredPairs", "correctnessRegressions", "additionalParentModelTurns"):
+    for key in ("validRequiredPairs", "blockedRequiredPairs", "correctnessRegressions", "additionalParentModelTurns", "exploratoryPairs"):
         _integer(value[key], key, minimum=0)
-    _finite_number(value["medianReduction"], "medianReduction", minimum=-1, maximum=1, nullable=True)
+    if value["medianReductionPPM"] is not None:
+        _integer(value["medianReductionPPM"], "medianReductionPPM", minimum=_MIN_REDUCTION_PPM, maximum=_MAX_REDUCTION_PPM)
+    if type(value["reasonCodes"]) is not list or any(
+        type(reason) is not str or not reason for reason in value["reasonCodes"]
+    ) or len(set(value["reasonCodes"])) != len(value["reasonCodes"]):
+        raise ContractError("invalid release reasons")
     return value
 
 
@@ -687,9 +838,10 @@ def validate_benchmark(value):
             ids.add(case["id"])
         _validate_corpus_invariants(value)
     else:
-        _closed(value, ("schemaVersion", "policyVersion", "kind", "arms", "pairs", "release"))
+        _closed(value, ("schemaVersion", "policyVersion", "kind", "corpusSha256", "arms", "pairs", "release"))
         _integer(value["schemaVersion"], "schemaVersion", minimum=Policy.SCHEMA_VERSION, maximum=Policy.SCHEMA_VERSION)
         _enum(value["policyVersion"], (Policy.POLICY_VERSION,), "policyVersion")
+        _digest(value["corpusSha256"], "corpusSha256")
         if type(value["arms"]) is not list or type(value["pairs"]) is not list:
             raise ContractError("invalid benchmark collections")
         arm_ids = set()
@@ -705,7 +857,129 @@ def validate_benchmark(value):
                 raise ContractError("duplicate pair id")
             pair_ids.add(pair["id"])
         _validate_release(value["release"])
+        derived = derive_benchmark(value)
+        if value["pairs"] != derived["pairs"] or value["release"] != derived["release"]:
+            raise ContractError("serialized benchmark aggregates are not derived")
     return value
+
+
+def _serialized_pair_dict(score):
+    return {
+        "id": f"{score.host}:{score.case_id}",
+        "host": score.host,
+        "caseID": score.case_id,
+        "status": score.status,
+        "reductionPPM": score.reduction_ppm,
+        "correctnessRegressions": score.correctness_regressions,
+        "additionalParentModelTurns": score.additional_parent_model_turns,
+        "reasonCodes": list(score.reason_codes),
+    }
+
+
+def _serialized_release_dict(score):
+    return {
+        "status": score.status,
+        "validRequiredPairs": score.valid_required_pairs,
+        "blockedRequiredPairs": score.blocked_required_pairs,
+        "medianReductionPPM": score.median_reduction_ppm,
+        "correctnessRegressions": score.correctness_regressions,
+        "additionalParentModelTurns": score.additional_parent_model_turns,
+        "exploratoryPairs": score.exploratory_pairs,
+        "reasonCodes": list(score.reason_codes),
+    }
+
+
+def _serialized_arm_for_scoring(arm):
+    required = (
+        arm["providerUsage"], arm["parentTurns"], arm["appleAttempts"],
+        arm["replacements"], arm["declines"], arm["fallbacks"],
+        arm["latencyMilliseconds"], arm["qualityPassed"],
+    )
+    if any(value is None for value in required):
+        raise BlockedEvidence("missing_required_telemetry")
+    usage = normalize_usage(arm["provider"], arm["providerUsage"])
+    return {
+        "host": arm["host"],
+        "caseID": arm["caseID"],
+        "workflow": arm["workflow"],
+        "parentModel": arm["parentModel"],
+        "provider": arm["provider"],
+        "normalizationVersion": arm["normalizationVersion"],
+        "toolchain": arm["toolchain"],
+        "policyVersion": arm["policyVersion"],
+        "commandClass": arm["commandClass"],
+        "arm": arm["arm"],
+        "usage": usage,
+        "parentTurns": arm["parentTurns"],
+        "appleAttempts": arm["appleAttempts"],
+        "replacements": arm["replacements"],
+        "quality": QualityScore(
+            arm["qualityPassed"], tuple(arm["qualityReasonCodes"])
+        ),
+    }
+
+
+def _score_serialized_pair(off, on):
+    host, case_id = off["host"], off["caseID"]
+    try:
+        return score_pair(
+            _serialized_arm_for_scoring(off), _serialized_arm_for_scoring(on)
+        )
+    except BlockedEvidence as error:
+        return PairScore(host, case_id, "blocked", None, 0, 0, (error.reason,))
+
+
+def derive_benchmark(value):
+    """Derive every pair and release aggregate from the exact serialized arms."""
+    if type(value) is not dict:
+        raise ContractError("invalid benchmark evidence")
+    _closed(value, ("schemaVersion", "policyVersion", "kind", "corpusSha256", "arms", "pairs", "release"))
+    _integer(value["schemaVersion"], "schemaVersion", minimum=Policy.SCHEMA_VERSION, maximum=Policy.SCHEMA_VERSION)
+    _enum(value["policyVersion"], (Policy.POLICY_VERSION,), "policyVersion")
+    _enum(value["kind"], ("evidence",), "benchmark kind")
+    _digest(value["corpusSha256"], "corpusSha256")
+    if type(value["arms"]) is not list or len(value["arms"]) != 96:
+        raise ContractError("invalid required arm count")
+    corpus = load_closed_json(Path(__file__).with_name("benchmark-corpus.json"))
+    _closed(corpus, ("schemaVersion", "policyVersion", "kind", "corpusVersion", "corpusSha256", "cases"))
+    if value["corpusSha256"] != corpus["corpusSha256"]:
+        raise ContractError("benchmark corpus mismatch")
+    cases = {case["id"]: case for case in corpus["cases"]}
+    if set(cases) != set(_REQUIRED_CASE_IDS):
+        raise ContractError("benchmark case identity mismatch")
+    grouped = {}
+    arm_ids = set()
+    for arm in value["arms"]:
+        _validate_arm(arm)
+        if arm["id"] in arm_ids:
+            raise ContractError("duplicate arm id")
+        arm_ids.add(arm["id"])
+        identity = (arm["host"], arm["caseID"])
+        if identity not in REQUIRED_PAIR_IDENTITIES:
+            raise ContractError("unexpected required arm")
+        case = cases[arm["caseID"]]
+        pair_id = f"{arm['host']}:{arm['caseID']}"
+        if (
+            arm["pairID"] != pair_id
+            or arm["id"] != f"{pair_id}:{arm['arm']}"
+            or arm["caseRenderedSha256"] != case["renderedSha256"]
+            or arm["commandClass"] != case["commandClass"]
+        ):
+            raise ContractError("unbound benchmark arm")
+        grouped.setdefault(identity, {})[arm["arm"]] = arm
+    scores = []
+    for identity in REQUIRED_PAIR_IDENTITIES:
+        roles = grouped.get(identity, {})
+        if set(roles) != {"pluginOff", "pluginOn"}:
+            raise ContractError("incomplete benchmark pair roles")
+        scores.append(_score_serialized_pair(roles["pluginOff"], roles["pluginOn"]))
+    if len(grouped) != 48:
+        raise ContractError("invalid required pair count")
+    release = release_gate(scores)
+    derived = deepcopy(value)
+    derived["pairs"] = [_serialized_pair_dict(score) for score in scores]
+    derived["release"] = _serialized_release_dict(release)
+    return derived
 
 
 def _validate_corpus_invariants(corpus):
@@ -752,7 +1026,7 @@ def _diagnostic_for_case(case, diagnostic_id):
         index = int(ordinal)
     except (AttributeError, ValueError) as error:
         raise ContractError("invalid diagnostic id") from error
-    if severity not in ("fatal", "error") or index < 1:
+    if severity not in ("fatal", "error", "warning") or index < 1:
         raise ContractError("invalid diagnostic id")
     failed_ids = case["expected"]["failedTestIDs"]
     return {
@@ -768,7 +1042,7 @@ def _diagnostic_for_case(case, diagnostic_id):
 
 
 def _case_summary(case):
-    return f"synthetic {case['commandForm']} summary"
+    return case["expected"]["summary"]
 
 
 def _noise_repeat(case):
@@ -787,13 +1061,24 @@ def render_case(case):
         ("exit-status", "interrupted" if expected["exitStatus"] is None else str(expected["exitStatus"])),
         ("interrupted", str(expected["interrupted"]).lower()),
         ("warning-count", str(expected["warningCount"])),
+        ("command-outcome", expected["commandOutcome"]),
         ("summary", _case_summary(case)),
+        ("summary-facts", "|".join(expected["summaryFacts"])),
+        ("next-action", expected["nextAction"]),
+        ("completion-facts", "|".join(expected["completionFacts"])),
     )
     rendered = [f"{key}: {value}\n" for key, value in lines]
     for diagnostic_id in expected["requiredDiagnosticIDs"]:
         diagnostic = _diagnostic_for_case(case, diagnostic_id)
         rendered.append(
             "diagnostic: " + json.dumps(
+                diagnostic, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            ) + "\n"
+        )
+    for diagnostic_id in expected["warningRepresentativeIDs"]:
+        diagnostic = _diagnostic_for_case(case, diagnostic_id)
+        rendered.append(
+            "warning-representative: " + json.dumps(
                 diagnostic, ensure_ascii=False, sort_keys=True, separators=(",", ":")
             ) + "\n"
         )
@@ -831,6 +1116,13 @@ def _required_identities(case):
     return frozenset(_diagnostic_identity(_diagnostic_for_case(case, diagnostic_id)) for diagnostic_id in case["expected"]["requiredDiagnosticIDs"])
 
 
+def _warning_identities(case):
+    return frozenset(
+        _diagnostic_identity(_diagnostic_for_case(case, diagnostic_id))
+        for diagnostic_id in case["expected"]["warningRepresentativeIDs"]
+    )
+
+
 def _diagnostic_identities(result):
     try:
         diagnostics = result["condensation"]["diagnostics"]
@@ -848,22 +1140,6 @@ def _diagnostic_identities(result):
     return frozenset(identities)
 
 
-def _invented_facts(case, result):
-    try:
-        condensation = result["condensation"]
-        if type(condensation) is not dict:
-            return True
-        if condensation["summary"] != _case_summary(case):
-            return True
-        if condensation["warningCount"] != case["expected"]["warningCount"]:
-            return True
-        if type(condensation["warningCount"]) is not int or type(condensation["omittedWarningCount"]) is not int or not 0 <= condensation["omittedWarningCount"] <= condensation["warningCount"]:
-            return True
-    except (KeyError, TypeError):
-        return True
-    return False
-
-
 def _semantic_command_outcome(exit_status, interrupted):
     if interrupted:
         return "interrupted"
@@ -873,11 +1149,15 @@ def _semantic_command_outcome(exit_status, interrupted):
 def score_condensation(case, result):
     """Score a normalized condensation against its immutable synthetic case."""
     _validate_case(case)
+    reasons = []
     try:
         validate_result(result)
     except ContractError:
-        return QualityScore(False, ("invalid_result",))
-    reasons = []
+        reasons.append("invalid_result")
+    if type(result) is not dict or any(
+        key not in result for key in ("exitStatus", "interrupted", "outcome", "commandClass")
+    ):
+        return QualityScore(False, tuple(sorted(set(reasons + ["invalid_result"]))))
     expected = case["expected"]
     if result["exitStatus"] != expected["exitStatus"]:
         reasons.append("exit_status_regression")
@@ -888,12 +1168,51 @@ def score_condensation(case, result):
         or result["commandClass"] != case["commandClass"]
         or _semantic_command_outcome(result["exitStatus"], result["interrupted"])
         != _semantic_command_outcome(expected["exitStatus"], expected["interrupted"])
+        or result.get("condensation", {}).get("commandOutcome") != expected["commandOutcome"]
     ):
         reasons.append("command_outcome_regression")
-    if _diagnostic_identities(result) != _required_identities(case):
-        reasons.append("diagnostic_identity_regression")
-    if _invented_facts(case, result):
-        reasons.append("invented_fact")
+    observed = _diagnostic_identities(result)
+    required = _required_identities(case)
+    warnings = _warning_identities(case)
+    if observed is None:
+        reasons.extend(("diagnostic_omission", "diagnostic_invention"))
+    else:
+        observed_required = frozenset(identity for identity in observed if identity[1] in ("fatal", "error"))
+        observed_warnings = frozenset(identity for identity in observed if identity[1] == "warning")
+        if required - observed_required:
+            reasons.append("diagnostic_omission")
+        if observed_required - required:
+            reasons.append("diagnostic_invention")
+        if warnings - observed_warnings:
+            reasons.append("warning_omission")
+        if observed_warnings - warnings:
+            reasons.append("warning_invention")
+        if any(identity[1] == "info" for identity in observed):
+            reasons.append("diagnostic_invention")
+    condensation = result.get("condensation", {})
+    if condensation.get("summary") != expected["summary"]:
+        reasons.extend(("summary_omission", "summary_invention"))
+    for field, omission, invention in (
+        ("summaryFacts", "summary_fact_omission", "summary_fact_invention"),
+        ("completionFacts", "completion_fact_omission", "completion_fact_invention"),
+    ):
+        observed_facts = condensation.get(field)
+        expected_facts = expected[field]
+        if type(observed_facts) is list:
+            if set(expected_facts) - set(observed_facts):
+                reasons.append(omission)
+            if set(observed_facts) - set(expected_facts):
+                reasons.append(invention)
+        else:
+            reasons.extend((omission, invention))
+    if condensation.get("nextAction") != expected["nextAction"]:
+        reasons.extend(("next_action_omission", "next_action_invention"))
+    if (
+        condensation.get("warningCount") != expected["warningCount"]
+        or condensation.get("omittedWarningCount")
+        != expected["warningCount"] - len(expected["warningRepresentativeIDs"])
+    ):
+        reasons.append("warning_count_regression")
     try:
         encoded = json.dumps(result, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     except (TypeError, ValueError, UnicodeEncodeError):
@@ -907,11 +1226,12 @@ def score_condensation(case, result):
 def benchmark_boundaries():
     """Return fixed ineligible/boundary rows, deliberately separate from corpus cases."""
     return (
-        {"id": "below-input-minimum", "inputBytes": 8191, "outputBytes": 4096, "realizedSavingsBytes": 4095, "occupiedTokens": 6144, "contextSize": 8192},
-        {"id": "minimum-input", "inputBytes": 8192, "outputBytes": 4096, "realizedSavingsBytes": 4096, "occupiedTokens": 6144, "contextSize": 8192},
-        {"id": "maximum-input", "inputBytes": 65536, "outputBytes": 61440, "realizedSavingsBytes": 61440, "occupiedTokens": 6144, "contextSize": 8192},
-        {"id": "above-input-maximum", "inputBytes": 65537, "outputBytes": 61440, "realizedSavingsBytes": 4097, "occupiedTokens": 6145, "contextSize": 8192},
-        {"id": "below-output-minimum", "inputBytes": 8192, "outputBytes": 4095, "realizedSavingsBytes": 4097, "occupiedTokens": 6145, "contextSize": 8192},
+        {"id": "below-input-minimum", "inputBytes": 8191, "outputBytes": 4096, "realizedSavingsBytes": 4095, "occupiedTokens": 6144, "contextSize": 8192, "exitStatus": 1, "interrupted": False},
+        {"id": "minimum-input", "inputBytes": 8192, "outputBytes": 4096, "realizedSavingsBytes": 4096, "occupiedTokens": 6144, "contextSize": 8192, "exitStatus": 1, "interrupted": False},
+        {"id": "maximum-input", "inputBytes": 65536, "outputBytes": 61440, "realizedSavingsBytes": 61440, "occupiedTokens": 6144, "contextSize": 8192, "exitStatus": 1, "interrupted": False},
+        {"id": "above-input-maximum", "inputBytes": 65537, "outputBytes": 61440, "realizedSavingsBytes": 4097, "occupiedTokens": 6145, "contextSize": 8192, "exitStatus": 1, "interrupted": False},
+        {"id": "below-output-minimum", "inputBytes": 8192, "outputBytes": 4095, "realizedSavingsBytes": 4097, "occupiedTokens": 6145, "contextSize": 8192, "exitStatus": 1, "interrupted": False},
+        {"id": "interrupted-command", "inputBytes": 8192, "outputBytes": 4096, "realizedSavingsBytes": 4096, "occupiedTokens": 6144, "contextSize": 8192, "exitStatus": None, "interrupted": True},
     )
 
 
@@ -976,8 +1296,29 @@ def fits_apple_budget(occupied_tokens, context_size):
 
 
 def _identity(path):
-    record = _lstat(path)
+    try:
+        record = _lstat(path)
+    except (OSError, RuntimeError, ValueError) as error:
+        raise RouteDeclined("command_not_allowed") from error
     return record.st_dev, record.st_ino, record.st_mode
+
+
+def _recheck_snapshot(snapshot):
+    for path, identity in snapshot:
+        if _identity(path) != identity:
+            raise RouteDeclined("command_not_allowed")
+
+
+def _capture_chain(path):
+    path = Path(path)
+    chain = tuple(reversed((path, *path.parents)))
+    snapshot = []
+    for member in chain:
+        identity = _identity(member)
+        if stat.S_ISLNK(identity[2]):
+            raise RouteDeclined("command_not_allowed")
+        snapshot.append((member, identity))
+    return tuple(snapshot)
 
 
 def _contained(candidate, root):
@@ -990,17 +1331,19 @@ def _contained(candidate, root):
 def _repository_root(repo_root):
     if not isinstance(repo_root, (str, Path)):
         raise RouteDeclined("command_not_allowed")
-    root = Path(repo_root)
+    root = Path(os.path.abspath(os.fspath(repo_root)))
     try:
         root_identity = _identity(root)
         if stat.S_ISLNK(root_identity[2]) or not stat.S_ISDIR(root_identity[2]):
             raise RouteDeclined("command_not_allowed")
         resolved = root.resolve(strict=False)
-    except (OSError, RuntimeError) as error:
+        snapshot = _capture_chain(resolved)
+    except (OSError, RuntimeError, ValueError) as error:
         raise RouteDeclined("command_not_allowed") from error
     if _identity(root) != root_identity:
         raise RouteDeclined("command_not_allowed")
-    return resolved, root_identity
+    _recheck_snapshot(snapshot)
+    return resolved, snapshot
 
 
 def _path_value(token):
@@ -1011,63 +1354,66 @@ def _path_value(token):
     return token
 
 
-def _reject_symlink_ancestors(candidate, root):
+def _nearest_existing_snapshot(candidate, root):
     _contained(candidate, root)
-    current = root
-    missing = False
-    for component in candidate.relative_to(root).parts[:-1]:
-        current /= component
+    current = candidate
+    missing = []
+    while True:
         try:
             identity = _identity(current)
-        except OSError:
-            missing = True
-            continue
-        if missing or stat.S_ISLNK(identity[2]):
+            break
+        except RouteDeclined as error:
+            cause = error.__cause__
+            if not isinstance(cause, (FileNotFoundError, NotADirectoryError)):
+                raise
+            missing.append(current)
+            if current == root:
+                raise
+            current = current.parent
+    if stat.S_ISLNK(identity[2]):
+        raise RouteDeclined("command_not_allowed")
+    relative_parts = current.relative_to(root).parts
+    existing_chain = [root]
+    for index in range(len(relative_parts)):
+        existing_chain.append(root.joinpath(*relative_parts[: index + 1]))
+    snapshot = []
+    for member in existing_chain:
+        member_identity = identity if member == current else _identity(member)
+        if stat.S_ISLNK(member_identity[2]):
             raise RouteDeclined("command_not_allowed")
+        snapshot.append((member, member_identity))
+    try:
+        resolved_parent = current.resolve(strict=False)
+    except (OSError, RuntimeError, ValueError) as error:
+        raise RouteDeclined("command_not_allowed") from error
+    _contained(resolved_parent, root)
+    _recheck_snapshot(snapshot)
+    return current, tuple(snapshot), tuple(missing)
 
 
 def _resolve_repo_path(token, root, *, directory=False, suffix=None, regular=False):
     token = _path_value(token)
     candidate = root / token
-    _reject_symlink_ancestors(candidate, root)
-    try:
-        first = _identity(candidate)
-        exists = True
-    except OSError:
-        exists = False
-        parent = candidate.parent
-        while parent != root:
-            try:
-                parent_identity = _identity(parent)
-                break
-            except OSError:
-                parent = parent.parent
-        try:
-            parent_identity = _identity(parent)
-            if stat.S_ISLNK(parent_identity[2]):
-                raise RouteDeclined("command_not_allowed")
-            _contained(parent.resolve(strict=False), root)
-        except (OSError, RuntimeError) as error:
-            raise RouteDeclined("command_not_allowed") from error
-        if not directory:
-            raise RouteDeclined("command_not_allowed")
+    existing, snapshot, missing = _nearest_existing_snapshot(candidate, root)
+    exists = not missing
+    if not exists and not directory:
+        raise RouteDeclined("command_not_allowed")
     if exists:
-        if stat.S_ISLNK(first[2]):
-            raise RouteDeclined("command_not_allowed")
+        first = snapshot[-1][1]
         try:
             resolved = candidate.resolve(strict=False)
-        except (OSError, RuntimeError) as error:
+        except (OSError, RuntimeError, ValueError) as error:
             raise RouteDeclined("command_not_allowed") from error
         _contained(resolved, root)
-        if _identity(candidate) != first:
-            raise RouteDeclined("command_not_allowed")
-        _reject_symlink_ancestors(candidate, root)
         if directory and not stat.S_ISDIR(first[2]):
             raise RouteDeclined("command_not_allowed")
         if regular and not stat.S_ISREG(first[2]):
             raise RouteDeclined("command_not_allowed")
+    elif existing == candidate:
+        raise RouteDeclined("command_not_allowed")
     if suffix is not None and not token.endswith(suffix):
         raise RouteDeclined("command_not_allowed")
+    _recheck_snapshot(snapshot)
     return token
 
 
@@ -1129,12 +1475,10 @@ def _swiftc_suffix(tokens, root):
 
 
 def _swift_format_suffix(tokens, root):
-    seen = set()
-    while tokens and tokens[0] in ("--recursive", "--strict"):
-        option = tokens.pop(0)
-        if option in seen:
-            raise RouteDeclined("command_not_allowed")
-        seen.add(option)
+    if tokens and tokens[0] == "--recursive":
+        tokens.pop(0)
+    if tokens and tokens[0] == "--strict":
+        tokens.pop(0)
     if not tokens:
         raise RouteDeclined("command_not_allowed")
     for token in tokens:
@@ -1227,12 +1571,10 @@ def _build_suffix(tokens):
 
 
 def _mypy_suffix(tokens, root):
-    seen = set()
-    while tokens and tokens[0] in ("--strict", "--no-incremental"):
-        option = tokens.pop(0)
-        if option in seen:
-            raise RouteDeclined("command_not_allowed")
-        seen.add(option)
+    if tokens and tokens[0] == "--strict":
+        tokens.pop(0)
+    if tokens and tokens[0] == "--no-incremental":
+        tokens.pop(0)
     if not tokens:
         raise RouteDeclined("command_not_allowed")
     for token in tokens:
@@ -1277,8 +1619,23 @@ _COMMAND_PREFIXES = (
 )
 
 
+def _contains_unquoted_shell_operator(command):
+    quote = None
+    for character in command:
+        if quote is None:
+            if character in ("'", '"'):
+                quote = character
+            elif character in _SHELL_METACHARACTERS:
+                return True
+        elif character == quote:
+            quote = None
+        elif quote == '"' and character in ("$", "`", "\\"):
+            return True
+    return quote is not None
+
+
 def parse_command(command, repo_root):
-    if type(command) is not str or not command.strip() or any(character in _SHELL_METACHARACTERS for character in command):
+    if type(command) is not str or not command.strip() or _contains_unquoted_shell_operator(command):
         raise RouteDeclined("compound_command")
     try:
         tokens = shlex.split(command, posix=True)
@@ -1286,7 +1643,7 @@ def parse_command(command, repo_root):
         raise RouteDeclined("compound_command") from error
     if not tokens or any(not token for token in tokens):
         raise RouteDeclined("command_not_allowed")
-    root, root_identity = _repository_root(repo_root)
+    root, root_snapshot = _repository_root(repo_root)
     for prefix, command_class, validator in _COMMAND_PREFIXES:
         if tuple(tokens[:len(prefix)]) != prefix:
             continue
@@ -1296,8 +1653,7 @@ def parse_command(command, repo_root):
                 raise RouteDeclined("command_not_allowed")
         else:
             validator(list(suffix), root)
-        if _identity(root) != root_identity:
-            raise RouteDeclined("command_not_allowed")
+        _recheck_snapshot(root_snapshot)
         return CommandSelection(command_class, tuple(tokens))
     raise RouteDeclined("command_not_allowed")
 
@@ -1316,6 +1672,34 @@ def _request_bindings_match(request, result):
     )
 
 
+def _validate_source_facts(value):
+    _validate_condensation(value)
+    return value
+
+
+def _json_clone(value, label):
+    try:
+        return json.loads(json.dumps(value, ensure_ascii=False, allow_nan=False))
+    except (TypeError, ValueError, UnicodeError) as error:
+        raise ContractError(f"invalid {label}") from error
+
+
+def _response_semantics_match(request, response, source_facts):
+    if response["condensation"] != source_facts:
+        return False
+    return response["condensation"]["commandOutcome"] == _semantic_command_outcome(
+        request["exitStatus"], request["interrupted"]
+    )
+
+
+def _validate_contained_diagnostic_paths(condensation, repo_root):
+    root, root_snapshot = _repository_root(repo_root)
+    for diagnostic in condensation["diagnostics"]:
+        if diagnostic["file"] is not None:
+            _resolve_repo_path(diagnostic["file"], root, regular=True)
+    _recheck_snapshot(root_snapshot)
+
+
 def _response_bytes(result):
     try:
         return len(json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
@@ -1331,27 +1715,38 @@ def route(request, context):
             raise ContractError("invalid context")
         if context.get("eventName") != Policy.EVENT_NAME or type(request) is not dict or request.get("toolName") != Policy.TOOL_NAME:
             return _fallback("declined", "tool_not_allowed")
-        estimate_savings(request.get("inputBytes"))
-        for field in request.get("fields", ()):
+        fields = request.get("fields", ())
+        if type(fields) is not list or any(
+            type(field) is not dict or not _value_is_safe(field.get("value"))
+            for field in fields
+        ):
+            return _fallback("declined", "data_policy_denied")
+        try:
+            actual_input_bytes = len(canonical_field_bytes(fields))
+        except ContractError:
+            return _fallback("declined", "data_policy_denied")
+        actual_estimate = estimate_savings(actual_input_bytes)
+        if (
+            request.get("inputBytes") != actual_input_bytes
+            or request.get("estimatedSavingsBytes") != actual_estimate
+        ):
+            return _fallback("declined", "contract_invariant_failed")
+        for field in fields:
             if type(field) is not dict or field.get("origin") != "trustedLocal" or field.get("classification") not in ("C0", "C1"):
                 return _fallback("declined", "data_policy_denied")
             if field.get("name") == "file":
                 try:
-                    root, root_identity = _repository_root(context.get("repoRoot"))
+                    root, root_snapshot = _repository_root(context.get("repoRoot"))
                     _resolve_repo_path(field.get("value"), root, regular=True)
-                    if _identity(root) != root_identity:
-                        raise RouteDeclined("command_not_allowed")
+                    _recheck_snapshot(root_snapshot)
                 except RouteDeclined:
                     return _fallback("declined", "data_policy_denied")
         validate_request(request)
         if request["action"] != Policy.ACTION or request["policyVersion"] != Policy.POLICY_VERSION:
-            return _fallback("declined", "contract_invariant_failed")
+            return _fallback("fail", "contract_invariant_failed")
         selection = parse_command(context.get("command"), context.get("repoRoot"))
         if selection.command_class != request["commandClass"]:
             return _fallback("declined", "command_not_allowed")
-        estimate = estimate_savings(request["inputBytes"])
-        if request["estimatedSavingsBytes"] != estimate:
-            return _fallback("declined", "contract_invariant_failed")
         if context.get("appleAvailable") is not True:
             return _fallback("declined", "apple_unavailable")
         if context.get("localeSupported") is not True:
@@ -1361,26 +1756,34 @@ def route(request, context):
         bridge = context.get("bridge")
         if not callable(bridge):
             raise ContractError("invalid bridge")
+        source_facts = _json_clone(context.get("sourceFacts"), "source facts")
+        _validate_source_facts(source_facts)
+        _validate_contained_diagnostic_paths(source_facts, context.get("repoRoot"))
+        frozen_request = _json_clone(request, "request")
+        frozen_source_facts = _json_clone(source_facts, "source facts")
     except RouteDeclined as error:
         return _fallback("declined", error.reason)
     except ContractError:
         return _fallback("fail", "contract_invariant_failed")
 
     try:
-        response = bridge(request)
+        response = bridge(deepcopy(frozen_request))
     except RouteDeclined as error:
         return _fallback("declined", error.reason if error.reason in _REASON_CODES else "generation_declined")
     except Exception:
         return _fallback("fail", "contract_invariant_failed")
     try:
         validate_result(response)
+        if not _request_bindings_match(frozen_request, response):
+            raise ContractError("response bindings mismatch")
         if response["outcome"] != "applied":
             return _fallback(response["outcome"], response["reasonCode"])
-        if not _request_bindings_match(request, response):
-            raise ContractError("response bindings mismatch")
+        if not _response_semantics_match(frozen_request, response, frozen_source_facts):
+            raise ContractError("invalid response semantics")
+        _validate_contained_diagnostic_paths(response["condensation"], context.get("repoRoot"))
         output_bytes = _response_bytes(response)
-        if output_bytes > Policy.MAXIMUM_CONDENSED_BYTES or request["inputBytes"] - output_bytes < Policy.MINIMUM_REALIZED_SAVINGS_BYTES:
+        if output_bytes > Policy.MAXIMUM_CONDENSED_BYTES or frozen_request["inputBytes"] - output_bytes < Policy.MINIMUM_REALIZED_SAVINGS_BYTES:
             return _fallback("declined", "insufficient_realized_savings")
-        return response
-    except ContractError:
+        return _json_clone(response, "response")
+    except (ContractError, RouteDeclined):
         return _fallback("fail", "invalid_response")
