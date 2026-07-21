@@ -1,6 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "dev-142-benchmark.schema.json",
+  "$comment": "Draft 2020-12 covers structure. The closed x-dev142 vocabulary, enforced by the repository-local semantic evaluator and Python validator, covers cross-value invariants.",
+  "x-dev142-constraints": {
+    "uniqueBy": [{"array": "/cases", "keys": ["id"]}]
+  },
   "oneOf": [{"$ref": "#/$defs/corpus"}, {"$ref": "#/$defs/evidence"}],
   "$defs": {
     "expected": {

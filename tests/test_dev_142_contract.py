@@ -104,6 +104,15 @@ def canonical_benchmark():
 
 def schema_accepts(schema, value):
     """Evaluate only the repository-local Draft 2020-12 keywords we use."""
+    def json_equal(left, right):
+        if type(left) is not type(right):
+            return False
+        if type(left) is dict:
+            return set(left) == set(right) and all(json_equal(left[key], right[key]) for key in left)
+        if type(left) is list:
+            return len(left) == len(right) and all(json_equal(a, b) for a, b in zip(left, right))
+        return left == right
+
     def resolve(node):
         if "$ref" not in node:
             return node
@@ -129,6 +138,60 @@ def schema_accepts(schema, value):
             return type(candidate) in (int, float) and math.isfinite(candidate)
         raise AssertionError(f"unsupported schema type: {expected}")
 
+    def pointer(candidate, path):
+        current = candidate
+        for part in path.removeprefix("/").split("/"):
+            if type(current) is not dict or part not in current:
+                return None
+            current = current[part]
+        return current
+
+    def closed_vocabulary_matches(vocabulary, candidate):
+        for rule in vocabulary.get("uniqueBy", []):
+            values = pointer(candidate, rule["array"])
+            if values is None:
+                continue
+            if type(values) is not list:
+                return False
+            identities = set()
+            for item in values:
+                if type(item) is not dict or any(key not in item for key in rule["keys"]):
+                    return False
+                identity = tuple(json.dumps(item[key], sort_keys=True, separators=(",", ":")) for key in rule["keys"])
+                if identity in identities:
+                    return False
+                identities.add(identity)
+        for rule in vocabulary.get("repoRelativePath", []):
+            values = pointer(candidate, rule["array"])
+            if values is None:
+                continue
+            if type(values) is not list:
+                return False
+            for item in values:
+                if type(item) is not dict:
+                    return False
+                if all(json_equal(item.get(key), expected) for key, expected in rule["when"].items()):
+                    path = item.get(rule["field"])
+                    if type(path) is not str or not path or path.startswith("/") or "\x00" in path:
+                        return False
+                    if any(part in ("", ".", "..") for part in path.split("/")):
+                        return False
+        for rule in vocabulary.get("derivedInteger", []):
+            source = pointer(candidate, rule["source"])
+            target = pointer(candidate, rule["target"])
+            if source is None or target is None:
+                continue
+            if type(source) is not int or type(target) is not int or target != source - rule["subtract"]:
+                return False
+        for rule in vocabulary.get("lessThanOrEqual", []):
+            left = pointer(candidate, rule["left"])
+            right = pointer(candidate, rule["right"])
+            if left is None or right is None:
+                continue
+            if type(left) is not int or type(right) is not int or left > right:
+                return False
+        return True
+
     def matches(node, candidate):
         node = resolve(node)
         if "oneOf" in node and sum(matches(branch, candidate) for branch in node["oneOf"]) != 1:
@@ -137,9 +200,9 @@ def schema_accepts(schema, value):
             return False
         if "if" in node and matches(node["if"], candidate) and "then" in node and not matches(node["then"], candidate):
             return False
-        if "const" in node and candidate != node["const"]:
+        if "const" in node and not json_equal(candidate, node["const"]):
             return False
-        if "enum" in node and candidate not in node["enum"]:
+        if "enum" in node and not any(json_equal(candidate, item) for item in node["enum"]):
             return False
         expected = node.get("type")
         if expected is not None:
@@ -160,7 +223,7 @@ def schema_accepts(schema, value):
                 return False
             if not all(matches(node.get("items", {}), item) for item in candidate):
                 return False
-            if node.get("uniqueItems") and len({json.dumps(item, sort_keys=True) for item in candidate}) != len(candidate):
+            if node.get("uniqueItems") and any(json_equal(left, right) for index, left in enumerate(candidate) for right in candidate[index + 1:]):
                 return False
         if type(candidate) is str:
             if len(candidate) < node.get("minLength", 0):
@@ -172,7 +235,7 @@ def schema_accepts(schema, value):
                 return False
             if "maximum" in node and candidate > node["maximum"]:
                 return False
-        return True
+        return closed_vocabulary_matches(node.get("x-dev142-constraints", {}), candidate)
 
     return matches(schema, value)
 

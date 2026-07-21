@@ -231,13 +231,15 @@ def _validate_condensation(value):
     identities = set()
     for diagnostic in value["diagnostics"]:
         _validate_diagnostic(diagnostic)
-        if diagnostic["id"] in identities:
+        identity = tuple(
+            diagnostic[key]
+            for key in ("severity", "code", "message", "file", "line", "column", "failedTestID")
+        )
+        if identity in identities:
             raise ContractError("duplicate diagnostic identity")
-        identities.add(diagnostic["id"])
+        identities.add(identity)
     _integer(value["warningCount"], "warningCount", minimum=0)
-    # Warning-count ordering is a Task 3 quality-oracle semantic check. Draft
-    # 2020-12 cannot express the sibling comparison without a custom keyword.
-    _integer(value["omittedWarningCount"], "omittedWarningCount", minimum=0)
+    _integer(value["omittedWarningCount"], "omittedWarningCount", minimum=0, maximum=value["warningCount"])
     return value
 
 
