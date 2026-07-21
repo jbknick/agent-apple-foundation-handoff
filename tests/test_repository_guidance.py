@@ -467,12 +467,17 @@ class RepositoryGuidanceTests(unittest.TestCase):
                 text,
             )
             self.assertIn(
-                "metadata-only scaffold with zero capabilities",
+                "non-executable scaffold with zero capabilities",
                 text,
             )
             self.assertIn(
-                "Skills, references, hooks, commands, agents, MCP servers, scripts, "
-                "dependencies, and runtime code are absent",
+                "Exactly five package reference files are present as "
+                "documentation-only inputs and provide zero runtime capabilities",
+                text,
+            )
+            self.assertIn(
+                "Skills, hooks, commands, agents, MCP servers, package scripts, "
+                "dependencies, and runtime code remain absent",
                 text,
             )
 
@@ -495,7 +500,7 @@ class RepositoryGuidanceTests(unittest.TestCase):
                 "`PostToolUse` hooks, and Swift bridge chain",
                 text,
             )
-            self.assertIn("runtime code are absent", text)
+            self.assertIn("runtime code remain absent", text)
             self.assertNotIn("Keep exactly five narrow skills", text)
             self.assertNotIn("Select the one skill matching the request", text)
 
@@ -548,9 +553,11 @@ class RepositoryGuidanceTests(unittest.TestCase):
             "marketplace registration, plugin install/add, then a fresh task",
             "`codex --plugin-dir` is not approved",
             "Claude `2.1.140` is diagnostic-only and cannot substitute",
-            "metadata-only scaffold with zero capabilities",
-            "Skills, references, hooks, commands, agents, MCP servers, scripts, "
-            "dependencies, and runtime code are absent",
+            "non-executable scaffold with zero capabilities",
+            "Exactly five package reference files are present as documentation-only "
+            "inputs and provide zero runtime capabilities",
+            "Skills, hooks, commands, agents, MCP servers, package scripts, "
+            "dependencies, and runtime code remain absent",
             "Normalize the repository as `<repo>` and executable as `<host-path>`",
             "never commit literal resolutions, other private absolute paths, or raw "
             "`PATH`",

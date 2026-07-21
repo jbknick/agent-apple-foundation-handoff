@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 import importlib.util
 import json
 import os
@@ -18,10 +19,21 @@ VERSION = "0.1.0"
 SOURCE = "./plugins/apple-foundation-models-handoff"
 MARKETPLACE = "agent-apple-foundation-handoff"
 REPOSITORY = "https://github.com/jbknick/agent-apple-foundation-handoff"
+REFERENCE_FILES = {
+    f"references/{name}"
+    for name in (
+        "architecture-and-state.md",
+        "orchestration-patterns.md",
+        "apple-api-availability.md",
+        "security-context-and-recovery.md",
+        "evaluation-and-observability.md",
+    )
+}
 ALLOWED_PACKAGE_FILES = {
     ".claude-plugin/plugin.json",
     ".codex-plugin/plugin.json",
     "metadata/codex-interface.json",
+    *REFERENCE_FILES,
 }
 ALLOWED_PACKAGE_ENTRIES = {
     ".claude-plugin": "directory",
@@ -30,10 +42,11 @@ ALLOWED_PACKAGE_ENTRIES = {
     ".codex-plugin/plugin.json": "file",
     "metadata": "directory",
     "metadata/codex-interface.json": "file",
+    "references": "directory",
+    **{name: "file" for name in REFERENCE_FILES},
 }
 FORBIDDEN_SURFACES = (
     "skills",
-    "references",
     "agents",
     "hooks",
     "mcp",
@@ -177,6 +190,21 @@ def assert_dev_138_repository_only_package(test_case: unittest.TestCase) -> None
 
 
 class PluginContractTests(unittest.TestCase):
+    def test_canonical_guidance_truthfully_names_present_references(self):
+        canonical = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+        generated = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        required = (
+            "Exactly five package reference files are present",
+            "Skills, hooks, commands, agents, MCP servers, package scripts, "
+            "dependencies, and runtime code remain absent",
+            "zero runtime capabilities",
+        )
+        for text in (canonical, generated):
+            flat = " ".join(text.split())
+            for token in required:
+                self.assertIn(token, flat)
+            self.assertNotIn("Skills, references, hooks", text)
+
     def test_canonical_identity_is_exact_and_honest(self):
         manifest = load_json(
             "plugins/apple-foundation-models-handoff/.claude-plugin/plugin.json"
@@ -397,7 +425,7 @@ class PluginContractTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     sync._validate_codex_marketplace(mutated, shared_manifest)
 
-    def test_plugin_package_contains_only_metadata_contract_files(self):
+    def test_plugin_package_contains_only_approved_contract_files(self):
         plugin_root = ROOT / "plugins" / PLUGIN_ID
         assert_plugin_package_contract(self, plugin_root)
 
@@ -440,6 +468,129 @@ class PluginContractTests(unittest.TestCase):
 
 
 class CodexProbeRaceTests(unittest.TestCase):
+    @contextmanager
+    def patched_probe(self, *, drift_after_teardown=False):
+        calls: list[str] = []
+        emitted: list[dict[str, object]] = []
+        temporary_directory = tempfile.TemporaryDirectory
+
+        @contextmanager
+        def marked_temporary_directory():
+            with temporary_directory() as directory:
+                yield directory
+            calls.append("teardown")
+
+        def require_stable_host(*_args):
+            calls.append("host")
+            if drift_after_teardown and "teardown" in calls:
+                raise codex_probe.ProbeFailure("host_resolution_or_version_drift")
+
+        source_hashes = {
+            relative_path: "a" * 64
+            for relative_path in codex_probe.EXPECTED_CACHE_FILES
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            locator = Path(directory) / "codex"
+            locator.write_text("#!/bin/sh\n", encoding="utf-8", newline="\n")
+            locator.chmod(0o700)
+            with (
+                mock.patch.object(
+                    codex_probe.shutil, "which", return_value=str(locator)
+                ),
+                mock.patch.object(
+                    codex_probe,
+                    "stable_host_version_matches",
+                    return_value=True,
+                ),
+                mock.patch.object(
+                    codex_probe.tempfile,
+                    "TemporaryDirectory",
+                    side_effect=marked_temporary_directory,
+                ),
+                mock.patch.object(
+                    codex_probe,
+                    "require_stable_host",
+                    side_effect=require_stable_host,
+                ),
+                mock.patch.object(
+                    codex_probe,
+                    "install_isolated_plugin",
+                    side_effect=lambda *_args: calls.append("install")
+                    or Path("cache"),
+                ),
+                mock.patch.object(
+                    codex_probe,
+                    "require_source_cache_identity",
+                    side_effect=lambda *_args: calls.append("identity") or source_hashes,
+                ),
+                mock.patch.object(
+                    codex_probe,
+                    "read_regular_file",
+                    return_value=b'{"interface":{"capabilities":[]}}',
+                ),
+                mock.patch.object(
+                    codex_probe, "emit_result", side_effect=emitted.append
+                ),
+            ):
+                yield calls, emitted
+
+    def test_probe_brackets_install_identity_and_teardown_with_host_checks(self):
+        with self.patched_probe() as (calls, emitted):
+            self.assertEqual(0, codex_probe.main())
+
+        self.assertEqual(
+            ["host", "install", "host", "identity", "host", "teardown", "host"],
+            calls,
+        )
+        self.assertEqual("pass", emitted[0]["status"])
+
+    def test_main_fails_closed_when_host_drifts_after_teardown(self):
+        with self.patched_probe(drift_after_teardown=True) as (_calls, emitted):
+            self.assertEqual(1, codex_probe.main())
+
+        self.assertEqual(
+            [
+                {
+                    "evidenceId": codex_probe.EVIDENCE_ID,
+                    "reason": "host_resolution_or_version_drift",
+                    "status": "fail",
+                }
+            ],
+            emitted,
+        )
+
+    def test_main_brackets_the_initial_version_check_with_host_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            locator = Path(directory) / "codex"
+            locator.write_text(
+                "#!/bin/sh\nprintf 'codex-cli 0.144.5\\n'\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+            locator.chmod(0o700)
+            emitted: list[dict[str, object]] = []
+            payload = {"evidenceId": codex_probe.EVIDENCE_ID, "status": "pass"}
+
+            with (
+                mock.patch.object(codex_probe.shutil, "which", return_value=str(locator)),
+                mock.patch.object(
+                    codex_probe,
+                    "stable_host_version_matches",
+                    return_value=True,
+                ) as stable_version,
+                mock.patch.object(
+                    codex_probe,
+                    "exact_version",
+                    side_effect=AssertionError("unbracketed version check"),
+                ),
+                mock.patch.object(codex_probe, "probe", return_value=payload),
+                mock.patch.object(codex_probe, "emit_result", side_effect=emitted.append),
+            ):
+                self.assertEqual(0, codex_probe.main())
+
+            stable_version.assert_called_once()
+            self.assertEqual([payload], emitted)
+
     def test_regular_file_read_rejects_path_replacement(self):
         with tempfile.TemporaryDirectory() as directory:
             artifact = Path(directory) / "artifact.json"
