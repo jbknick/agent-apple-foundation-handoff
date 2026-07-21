@@ -109,6 +109,8 @@ class ReleaseScore:
 
 
 _MAX_UNSIGNED_64 = (1 << 64) - 1
+_MIN_REDUCTION_PPM = (1 - _MAX_UNSIGNED_64) * 1_000_000
+_MAX_REDUCTION_PPM = 1_000_000
 _REQUIRED_HOSTS = ("claude-code-2.1.91", "codex-cli-0.144.5")
 _REQUIRED_CASE_IDS = (
     "test-swift-success-unicode-01", "test-swift-failure-02",
@@ -260,12 +262,46 @@ def score_pair(off, on):
             host, case_id, "fail", reduction_ppm, 1, additional_turns,
             ("correctness_regression",),
         )
-    return PairScore(host, case_id, "valid", reduction_ppm, 0, additional_turns, ())
+    return PairScore(host, case_id, "pass", reduction_ppm, 0, additional_turns, ())
+
+
+def _validate_pair_score(pair):
+    if type(pair) is not PairScore:
+        raise ContractError("invalid pair score")
+    if type(pair.host) is not str or not pair.host or type(pair.case_id) is not str or not pair.case_id:
+        raise ContractError("invalid pair score identity")
+    if pair.status not in ("pass", "fail", "blocked"):
+        raise ContractError("invalid pair score status")
+    if pair.reduction_ppm is not None:
+        if (
+            type(pair.reduction_ppm) is not int
+            or not _MIN_REDUCTION_PPM <= pair.reduction_ppm <= _MAX_REDUCTION_PPM
+        ):
+            raise ContractError("invalid pair score reduction")
+    if pair.status == "blocked":
+        if pair.reduction_ppm is not None:
+            raise ContractError("invalid blocked pair score")
+    elif pair.reduction_ppm is None:
+        raise ContractError("invalid scored pair")
+    for value in (pair.correctness_regressions, pair.additional_parent_model_turns):
+        if type(value) is not int or value < 0:
+            raise ContractError("invalid pair score counter")
+    if type(pair.reason_codes) is not tuple or any(type(code) is not str or not code for code in pair.reason_codes):
+        raise ContractError("invalid pair score reasons")
+    if len(set(pair.reason_codes)) != len(pair.reason_codes):
+        raise ContractError("duplicate pair score reason")
+    if pair.status == "pass" and pair.reason_codes:
+        raise ContractError("invalid passing pair score")
+    if pair.status != "pass" and not pair.reason_codes:
+        raise ContractError("missing pair score reason")
+    return pair
 
 
 def release_gate(pairs):
-    if type(pairs) not in (list, tuple) or any(type(pair) is not PairScore for pair in pairs):
+    if type(pairs) not in (list, tuple):
         raise ContractError("invalid pair scores")
+    for pair in pairs:
+        _validate_pair_score(pair)
     expected = set(REQUIRED_PAIR_IDENTITIES)
     grouped = {}
     exploratory_pairs = 0
@@ -300,7 +336,7 @@ def release_gate(pairs):
             blocked_required_pairs += 1
             reasons.add("blocked_required_pair")
             continue
-        if pair.status != "valid" or type(pair.reduction_ppm) is not int:
+        if pair.status != "pass":
             failed_required_pair = True
             reasons.add("failed_required_pair")
             continue
