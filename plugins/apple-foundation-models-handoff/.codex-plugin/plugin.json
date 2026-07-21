@@ -1,7 +1,7 @@
 {
   "name": "apple-foundation-models-handoff",
   "version": "0.1.0",
-  "description": "Installable metadata scaffold for Apple Foundation Models handoff workflows; production skills are not included yet.",
+  "description": "Design, implement, review, debug, and validate Apple Foundation Models handoff architectures.",
   "author": {
     "name": "Joseph Knickerbocker",
     "url": "https://github.com/jbknick"
@@ -16,16 +16,24 @@
     "swift",
     "agents"
   ],
+  "skills": "./skills/",
   "interface": {
     "displayName": "Apple Foundation Models Handoff",
-    "shortDescription": "Inspect the installable handoff plugin scaffold.",
-    "longDescription": "Metadata-only scaffold for an Apple Foundation Models handoff plugin. Production design, implementation, review, debugging, and validation skills are not included in version 0.1.0.",
+    "shortDescription": "Five workflows plus one non-positive router.",
+    "longDescription": "Five workflows plus one non-positive router for Apple Foundation Models handoff requests, with explicit Apple API availability, state, trust, recovery, and evidence boundaries.",
     "developerName": "Joseph Knickerbocker",
     "category": "Developer Tools",
-    "capabilities": [],
+    "capabilities": [
+      "design-apple-foundation-models-handoff",
+      "implement-apple-foundation-models-handoff",
+      "review-apple-foundation-models-handoff",
+      "debug-apple-foundation-models-handoff",
+      "validate-apple-foundation-models-handoff",
+      "route-apple-foundation-models-handoff"
+    ],
     "websiteURL": "https://github.com/jbknick/agent-apple-foundation-handoff",
     "defaultPrompt": [
-      "Inspect the installed plugin metadata and report which capabilities are currently available."
+      "Design an Apple Foundation Models baton pass from a research profile to a review profile that owns the final answer."
     ]
   }
 }

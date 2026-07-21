@@ -33,7 +33,14 @@
       "const": "Developer Tools"
     },
     "capabilities": {
-      "const": []
+      "const": [
+        "design-apple-foundation-models-handoff",
+        "implement-apple-foundation-models-handoff",
+        "review-apple-foundation-models-handoff",
+        "debug-apple-foundation-models-handoff",
+        "validate-apple-foundation-models-handoff",
+        "route-apple-foundation-models-handoff"
+      ]
     },
     "websiteURL": {
       "type": "string",

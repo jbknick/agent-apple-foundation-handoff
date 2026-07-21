@@ -24,6 +24,7 @@ SHARED_MANIFEST = Path(
 CODEX_INTERFACE = Path(
     "plugins/apple-foundation-models-handoff/metadata/codex-interface.json"
 )
+SKILLS_ROOT = Path("plugins/apple-foundation-models-handoff/skills")
 CANONICAL_INPUTS = (
     Path("CLAUDE.md"),
     CLAUDE_MARKETPLACE,
@@ -38,6 +39,23 @@ GENERATED_OUTPUTS = (
         "plugins/apple-foundation-models-handoff/"
         ".codex-plugin/plugin.json"
     ),
+)
+WORKFLOW_SKILLS = (
+    "design-apple-foundation-models-handoff",
+    "implement-apple-foundation-models-handoff",
+    "review-apple-foundation-models-handoff",
+    "debug-apple-foundation-models-handoff",
+    "validate-apple-foundation-models-handoff",
+)
+ROUTER_SKILL = "route-apple-foundation-models-handoff"
+ALL_CAPABILITIES = (*WORKFLOW_SKILLS, ROUTER_SKILL)
+PLUGIN_DESCRIPTION = (
+    "Design, implement, review, debug, and validate Apple Foundation Models "
+    "handoff architectures."
+)
+DEFAULT_PROMPT = (
+    "Design an Apple Foundation Models baton pass from a research profile to a "
+    "review profile that owns the final answer."
 )
 
 
@@ -65,12 +83,41 @@ def _delete_nested(value: object, keys: tuple[object, ...]) -> None:
     del current[keys[-1]]
 
 
+class _SwapAfterScandir:
+    def __init__(self, iterator, swap) -> None:
+        self.iterator = iterator
+        self.swap = swap
+
+    def __enter__(self):
+        return self.iterator.__enter__()
+
+    def __exit__(self, exception_type, exception, traceback):
+        result = self.iterator.__exit__(exception_type, exception, traceback)
+        self.swap()
+        return result
+
+
 class GeneratedArtifactTests(unittest.TestCase):
     def _copy_canonical_inputs(self, destination: Path) -> None:
         for relative_path in CANONICAL_INPUTS:
             target = destination / relative_path
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / relative_path, target)
+        shutil.copytree(
+            ROOT / SKILLS_ROOT,
+            destination / SKILLS_ROOT,
+        )
+
+    def _assert_private_safe_skill_error(
+        self,
+        raised: sync.CanonicalInputError,
+        *private_paths: Path,
+    ) -> None:
+        diagnostic = str(raised)
+        self.assertEqual(SKILLS_ROOT.as_posix(), diagnostic)
+        for private_path in private_paths:
+            self.assertNotIn(str(private_path), diagnostic)
+        self.assertFalse(Path(diagnostic).is_absolute())
 
     def _run_isolated_cli(
         self, root: Path, mode: str
@@ -164,8 +211,12 @@ class GeneratedArtifactTests(unittest.TestCase):
         rendered = json.loads(content)
 
         self.assertEqual("0.1.0", rendered["version"])
-        self.assertEqual([], rendered["interface"]["capabilities"])
-        self.assertNotIn("skills", rendered)
+        self.assertEqual(PLUGIN_DESCRIPTION, rendered["description"])
+        self.assertEqual(
+            list(ALL_CAPABILITIES), rendered["interface"]["capabilities"]
+        )
+        self.assertEqual([DEFAULT_PROMPT], rendered["interface"]["defaultPrompt"])
+        self.assertEqual("./skills/", rendered.get("skills"))
         self.assertEqual(
             [
                 "name",
@@ -176,6 +227,7 @@ class GeneratedArtifactTests(unittest.TestCase):
                 "repository",
                 "license",
                 "keywords",
+                "skills",
                 "interface",
             ],
             list(rendered),
@@ -250,7 +302,7 @@ class GeneratedArtifactTests(unittest.TestCase):
         manifest_ownership_drift = json.loads(sync.render_codex_manifest(inputs))
         manifest_ownership_drift["description"] = "Renderer-owned description drift."
         manifest_extra_key = json.loads(sync.render_codex_manifest(inputs))
-        manifest_extra_key["skills"] = []
+        manifest_extra_key["unexpected"] = True
         marketplace_ownership_drift = json.loads(sync.render_codex_marketplace(inputs))
         marketplace_ownership_drift["plugins"][0]["name"] = "wrong-plugin"
         marketplace_extra_key = json.loads(sync.render_codex_marketplace(inputs))
@@ -706,25 +758,314 @@ class GeneratedArtifactTests(unittest.TestCase):
             self.assertNotIn(str(ROOT), diagnostic)
             self.assertFalse(Path(diagnostic).is_absolute())
 
-    def test_non_empty_capabilities_are_rejected(self):
+    def test_capability_boundary_mutations_are_rejected(self):
+        mutations = (
+            ("missing", None),
+            ("reordered", list(reversed(ALL_CAPABILITIES))),
+            ("missing router", list(WORKFLOW_SKILLS)),
+            ("duplicate router", [*ALL_CAPABILITIES, ROUTER_SKILL]),
+            (
+                "seventh",
+                [*ALL_CAPABILITIES, "extra-apple-foundation-models-handoff"],
+            ),
+            ("substituted router", [*WORKFLOW_SKILLS, "wrong-router"]),
+        )
+        for name, replacement in mutations:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                isolated_root = Path(directory)
+                self._copy_canonical_inputs(isolated_root)
+                if replacement is None:
+                    self._mutate_json(
+                        isolated_root,
+                        CODEX_INTERFACE,
+                        lambda value: _delete_nested(value, ("capabilities",)),
+                    )
+                else:
+                    self._mutate_json(
+                        isolated_root,
+                        CODEX_INTERFACE,
+                        lambda value, replacement=replacement: _set_nested(
+                            value, ("capabilities",), replacement
+                        ),
+                    )
+
+                with self.assertRaises(sync.CanonicalInputError) as raised:
+                    sync.load_canonical_inputs(isolated_root)
+
+                self.assertEqual(CODEX_INTERFACE.as_posix(), str(raised.exception))
+
+    def test_skills_root_swap_to_external_exact_tree_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
-            isolated_root = Path(directory)
+            temporary_root = Path(directory)
+            isolated_root = temporary_root / "repository"
+            isolated_root.mkdir()
             self._copy_canonical_inputs(isolated_root)
-            self._mutate_json(
+            skills_root = isolated_root / SKILLS_ROOT
+            external = temporary_root / "external-skills"
+            original = temporary_root / "original-skills"
+            shutil.copytree(skills_root, external)
+            real_scandir = sync.os.scandir
+            calls = 0
+            swapped = False
+
+            def swap_root() -> None:
+                nonlocal swapped
+                skills_root.rename(original)
+                skills_root.symlink_to(external, target_is_directory=True)
+                swapped = True
+
+            def attacked_scandir(path):
+                nonlocal calls
+                calls += 1
+                iterator = real_scandir(path)
+                if calls == 1:
+                    return _SwapAfterScandir(iterator, swap_root)
+                return iterator
+
+            with mock.patch.object(sync.os, "scandir", attacked_scandir):
+                with self.assertRaises(sync.CanonicalInputError) as raised:
+                    sync.load_canonical_inputs(isolated_root)
+
+            self.assertTrue(swapped)
+            self._assert_private_safe_skill_error(
+                raised.exception,
                 isolated_root,
-                CODEX_INTERFACE,
-                lambda value: _set_nested(
-                    value, ("capabilities",), ["foundation-models-handoff"]
+                external,
+                original,
+            )
+
+    def test_skill_child_swap_to_external_exact_tree_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temporary_root = Path(directory)
+            isolated_root = temporary_root / "repository"
+            isolated_root.mkdir()
+            self._copy_canonical_inputs(isolated_root)
+            skill_directory = isolated_root / SKILLS_ROOT / ALL_CAPABILITIES[0]
+            external = temporary_root / "external-skill"
+            original = temporary_root / "original-skill"
+            shutil.copytree(skill_directory, external)
+            real_scandir = sync.os.scandir
+            calls = 0
+            swapped = False
+
+            def swap_child() -> None:
+                nonlocal swapped
+                skill_directory.rename(original)
+                skill_directory.symlink_to(external, target_is_directory=True)
+                swapped = True
+
+            def attacked_scandir(path):
+                nonlocal calls
+                calls += 1
+                iterator = real_scandir(path)
+                if calls == 2:
+                    return _SwapAfterScandir(iterator, swap_child)
+                return iterator
+
+            with mock.patch.object(sync.os, "scandir", attacked_scandir):
+                with self.assertRaises(sync.CanonicalInputError) as raised:
+                    sync.load_canonical_inputs(isolated_root)
+
+            self.assertTrue(swapped)
+            self._assert_private_safe_skill_error(
+                raised.exception,
+                isolated_root,
+                external,
+                original,
+            )
+
+    def test_skill_file_identity_swap_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temporary_root = Path(directory)
+            isolated_root = temporary_root / "repository"
+            isolated_root.mkdir()
+            self._copy_canonical_inputs(isolated_root)
+            skill_file = (
+                isolated_root / SKILLS_ROOT / ALL_CAPABILITIES[0] / "SKILL.md"
+            )
+            external = temporary_root / "external-SKILL.md"
+            original = temporary_root / "original-SKILL.md"
+            shutil.copyfile(skill_file, external)
+            real_open = sync.os.open
+            attacked = False
+
+            def attacked_open(path, flags, mode=0o777, *, dir_fd=None):
+                nonlocal attacked
+                if not attacked and str(path).endswith("SKILL.md"):
+                    skill_file.rename(original)
+                    skill_file.symlink_to(external)
+                    attacked = True
+                return real_open(path, flags, mode, dir_fd=dir_fd)
+
+            with mock.patch.object(sync.os, "open", attacked_open):
+                with self.assertRaises(sync.CanonicalInputError) as raised:
+                    sync.load_canonical_inputs(isolated_root)
+
+            self.assertTrue(attacked)
+            self._assert_private_safe_skill_error(
+                raised.exception,
+                isolated_root,
+                external,
+                original,
+            )
+
+    def test_skill_component_mutations_are_rejected(self):
+        def mutate_first_skill(root: Path, mutate) -> None:
+            skill = root / SKILLS_ROOT / ALL_CAPABILITIES[0] / "SKILL.md"
+            original = skill.read_text(encoding="utf-8")
+            mutated = mutate(original)
+            self.assertNotEqual(original, mutated)
+            skill.write_text(mutated, encoding="utf-8")
+
+        def remove_skill(root: Path) -> None:
+            shutil.rmtree(root / SKILLS_ROOT / ALL_CAPABILITIES[0])
+
+        def add_seventh_skill(root: Path) -> None:
+            extra = (
+                root
+                / "plugins/apple-foundation-models-handoff/skills/extra-workflow"
+            )
+            extra.mkdir()
+            (extra / "SKILL.md").write_text(
+                "---\nname: extra-workflow\ndescription: Extra.\n---\n",
+                encoding="utf-8",
+            )
+
+        def mismatch_frontmatter(root: Path) -> None:
+            mutate_first_skill(
+                root,
+                lambda text: text.replace(
+                    f"name: {ALL_CAPABILITIES[0]}", "name: wrong-skill", 1
                 ),
             )
 
-            with self.assertRaises(sync.CanonicalInputError) as raised:
-                sync.load_canonical_inputs(isolated_root)
+        def duplicate_name(root: Path) -> None:
+            mutate_first_skill(
+                root,
+                lambda text: text.replace(
+                    f"name: {ALL_CAPABILITIES[0]}\n",
+                    f"name: {ALL_CAPABILITIES[0]}\n"
+                    f"name: {ALL_CAPABILITIES[0]}\n",
+                    1,
+                ),
+            )
 
-            diagnostic = str(raised.exception)
-            self.assertNotIn(str(isolated_root), diagnostic)
-            self.assertNotIn(str(ROOT), diagnostic)
-            self.assertFalse(Path(diagnostic).is_absolute())
+        def duplicate_description(root: Path) -> None:
+            def mutate(text: str) -> str:
+                description = next(
+                    line for line in text.splitlines() if line.startswith("description: ")
+                )
+                return text.replace(description, f"{description}\n{description}", 1)
+
+            mutate_first_skill(root, mutate)
+
+        def extra_frontmatter_key(root: Path) -> None:
+            mutate_first_skill(
+                root,
+                lambda text: text.replace(
+                    f"name: {ALL_CAPABILITIES[0]}\n",
+                    f"name: {ALL_CAPABILITIES[0]}\nunexpected: value\n",
+                    1,
+                ),
+            )
+
+        def missing_closing_delimiter(root: Path) -> None:
+            mutate_first_skill(
+                root,
+                lambda text: text.replace("\n---\n\n#", "\n\n#", 1),
+            )
+
+        def malformed_description(root: Path) -> None:
+            mutate_first_skill(
+                root,
+                lambda text: text.replace("\ndescription: ", "\ndescription ", 1),
+            )
+
+        for name, mutate in (
+            ("missing skill", remove_skill),
+            ("seventh skill", add_seventh_skill),
+            ("capability name mismatch", mismatch_frontmatter),
+            ("duplicate name", duplicate_name),
+            ("duplicate description", duplicate_description),
+            ("extra frontmatter key", extra_frontmatter_key),
+            ("missing closing delimiter", missing_closing_delimiter),
+            ("malformed description", malformed_description),
+        ):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                isolated_root = Path(directory)
+                self._copy_canonical_inputs(isolated_root)
+                mutate(isolated_root)
+
+                with self.assertRaises(sync.CanonicalInputError) as raised:
+                    sync.load_canonical_inputs(isolated_root)
+
+                self.assertEqual(
+                    "plugins/apple-foundation-models-handoff/skills",
+                    str(raised.exception),
+                )
+
+    def test_invalid_skill_descriptions_are_rejected(self):
+        capability = ALL_CAPABILITIES[0]
+        skill = ROOT / SKILLS_ROOT / capability / "SKILL.md"
+        approved_line = next(
+            line
+            for line in skill.read_text(encoding="utf-8").splitlines()
+            if line.startswith("description: ")
+        )
+        approved = approved_line.removeprefix("description: ")
+        other_skill = ROOT / SKILLS_ROOT / ALL_CAPABILITIES[1] / "SKILL.md"
+        other_description = next(
+            line.removeprefix("description: ")
+            for line in other_skill.read_text(encoding="utf-8").splitlines()
+            if line.startswith("description: ")
+        )
+
+        mutations = (
+            ("empty sequence", "[]"),
+            ("null", "null"),
+            ("unterminated quote", '"unterminated'),
+            ("quoted approved description", f'"{approved}"'),
+            ("wrong unquoted description", "Wrong description."),
+            ("another skill description", other_description),
+        )
+        for name, replacement in mutations:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                isolated_root = Path(directory)
+                self._copy_canonical_inputs(isolated_root)
+                isolated_skill = (
+                    isolated_root / SKILLS_ROOT / capability / "SKILL.md"
+                )
+                original = isolated_skill.read_text(encoding="utf-8")
+                mutated = original.replace(
+                    approved_line,
+                    f"description: {replacement}",
+                    1,
+                )
+                self.assertNotEqual(original, mutated)
+                isolated_skill.write_text(mutated, encoding="utf-8")
+
+                with self.assertRaises(sync.CanonicalInputError) as raised:
+                    sync.load_canonical_inputs(isolated_root)
+
+                self._assert_private_safe_skill_error(
+                    raised.exception,
+                    isolated_root,
+                    isolated_skill,
+                )
+
+    def test_exact_capabilities_and_skill_component_are_accepted(self):
+        self.assertEqual(WORKFLOW_SKILLS, sync.WORKFLOW_SKILLS)
+        self.assertEqual(ROUTER_SKILL, sync.ROUTER_SKILL)
+        self.assertEqual(ALL_CAPABILITIES, sync.ALL_CAPABILITIES)
+        with tempfile.TemporaryDirectory() as directory:
+            isolated_root = Path(directory)
+            self._copy_canonical_inputs(isolated_root)
+            inputs = sync.load_canonical_inputs(isolated_root)
+
+            self.assertEqual("./skills/", inputs.shared_manifest.get("skills"))
+            self.assertEqual(
+                list(ALL_CAPABILITIES), inputs.codex_interface["capabilities"]
+            )
 
     def test_canonical_mutations_are_rejected_without_absolute_paths(self):
         mutations = (
@@ -749,7 +1090,7 @@ class GeneratedArtifactTests(unittest.TestCase):
                 "unknown shared field",
                 SHARED_MANIFEST,
                 "json",
-                lambda value: _set_nested(value, ("skills",), []),
+                lambda value: _set_nested(value, ("unexpected",), True),
             ),
             (
                 "unknown author field",

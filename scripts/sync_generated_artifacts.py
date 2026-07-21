@@ -25,6 +25,7 @@ OUTPUT_DIAGNOSTIC = "unsafe or unwritable generated output"
 UNEXPECTED_DIAGNOSTIC = "generated artifacts: unexpected generated path"
 PLUGIN_ID = "apple-foundation-models-handoff"
 PLUGIN_ROOT = Path("plugins") / PLUGIN_ID
+SKILLS_COMPONENT = PLUGIN_ROOT / "skills"
 CLAUDE_MARKETPLACE = Path(".claude-plugin/marketplace.json")
 CODEX_MARKETPLACE_INPUT = Path("metadata/codex-marketplace.json")
 SHARED_MANIFEST = PLUGIN_ROOT / ".claude-plugin/plugin.json"
@@ -34,6 +35,55 @@ CODEX_MARKETPLACE = Path(".agents/plugins/marketplace.json")
 GENERATED_PATHS = (Path("AGENTS.md"), CODEX_MARKETPLACE, CODEX_MANIFEST)
 EXPECTED_SOURCE = "./plugins/apple-foundation-models-handoff"
 EXPECTED_VERSION = "0.1.0"
+WORKFLOW_SKILLS = (
+    "design-apple-foundation-models-handoff",
+    "implement-apple-foundation-models-handoff",
+    "review-apple-foundation-models-handoff",
+    "debug-apple-foundation-models-handoff",
+    "validate-apple-foundation-models-handoff",
+)
+ROUTER_SKILL = "route-apple-foundation-models-handoff"
+ALL_CAPABILITIES = (*WORKFLOW_SKILLS, ROUTER_SKILL)
+EXPECTED_SKILL_DESCRIPTIONS = {
+    "design-apple-foundation-models-handoff": (
+        "Design an Apple Foundation Models handoff architecture, topology, pattern, "
+        "state model, or trust boundary when the user is creating or materially "
+        "revising how sessions, profiles, or providers transfer control or provide "
+        "isolated consultation."
+    ),
+    "implement-apple-foundation-models-handoff": (
+        "Implement an Apple Foundation Models handoff architecture when an approved "
+        "architecture or decision reference and an exact application change boundary "
+        "already exist."
+    ),
+    "review-apple-foundation-models-handoff": (
+        "Review an existing Apple Foundation Models handoff artifact when the user "
+        "wants severity-ranked findings about architecture, Apple API grounding, "
+        "state, security, recovery, or evidence claims rather than changes."
+    ),
+    "debug-apple-foundation-models-handoff": (
+        "Debug an Apple Foundation Models handoff when an observed routing, ownership, "
+        "transition, context, tool, effect, recovery, fallback, availability, or "
+        "version-labelled behavior differs from its expected contract and the cause "
+        "is not yet established."
+    ),
+    "validate-apple-foundation-models-handoff": (
+        "Validate an Apple Foundation Models handoff artifact when the user requests "
+        "reproducible proof, a complete pass/fail/blocked/not_applicable matrix, "
+        "cross-host comparison, or release implication rather than design, edits, "
+        "findings-only review, or diagnosis."
+    ),
+    ROUTER_SKILL: (
+        "Route a non-positive Apple Foundation Models handoff request before workflow "
+        "selection: reject App Intents or Shortcuts, Apple Handoff or NSUserActivity, "
+        "generic Swift or actors, generic Core ML, coding-session handoff, Agent "
+        "Skills, and Foundation Models runtime Skills; ask one clarification for "
+        "ambiguous Apple handoff wording or implementation without an approved "
+        "architecture and exact change boundary. Return only no_activation or "
+        "clarification_required; never use for a confirmed request that can select "
+        "design, implement, review, debug, or validate."
+    ),
+}
 ROOT_AGENTS_TEMP_PREFIX = ".AGENTS.md."
 ROOT_AGENTS_TEMP_SUFFIX = ".tmp"
 ROOT_AGENTS_TEMP_TOKEN_LENGTH = 32
@@ -219,6 +269,7 @@ def _validate_shared_manifest(value: object) -> None:
         "repository",
         "license",
         "keywords",
+        "skills",
     }
     value = _closed_object(value, fields, fields)
     if value["name"] != PLUGIN_ID:
@@ -239,6 +290,8 @@ def _validate_shared_manifest(value: object) -> None:
         raise ValueError("duplicate keywords")
     for keyword in keywords:
         _string(keyword)
+    if value["skills"] != "./skills/":
+        raise ValueError("skills component")
 
 
 def _validate_codex_interface(value: object) -> None:
@@ -263,8 +316,10 @@ def _validate_codex_interface(value: object) -> None:
     if value["category"] != "Developer Tools":
         raise ValueError("interface category")
     capabilities = value["capabilities"]
-    if capabilities != []:
+    if capabilities != list(ALL_CAPABILITIES):
         raise ValueError("capabilities")
+    if tuple(capabilities[:-1]) != WORKFLOW_SKILLS or capabilities[-1] != ROUTER_SKILL:
+        raise ValueError("capability topology")
     prompts = value["defaultPrompt"]
     if not isinstance(prompts, list) or not 1 <= len(prompts) <= 3:
         raise ValueError("prompt count")
@@ -272,6 +327,203 @@ def _validate_codex_interface(value: object) -> None:
         if len(_string(prompt)) > 128:
             raise ValueError("prompt length")
     _https(value["websiteURL"])
+
+
+def _open_bound_directory_at(
+    parent_fd: int,
+    name: str,
+) -> tuple[int, os.stat_result]:
+    metadata = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    if not stat.S_ISDIR(metadata.st_mode):
+        raise ValueError("directory")
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(name, _directory_flags(), dir_fd=parent_fd)
+        opened = os.fstat(descriptor)
+        if not stat.S_ISDIR(opened.st_mode) or not _same_file(metadata, opened):
+            raise ValueError("directory identity")
+        result = descriptor
+        descriptor = None
+        return result, opened
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+
+
+def _recheck_bound_directory_at(
+    parent_fd: int,
+    name: str,
+    descriptor: int,
+    opened: os.stat_result,
+) -> None:
+    current = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    held = os.fstat(descriptor)
+    if (
+        not stat.S_ISDIR(current.st_mode)
+        or not stat.S_ISDIR(held.st_mode)
+        or not _same_file(current, opened)
+        or not _same_file(held, opened)
+    ):
+        raise ValueError("directory identity")
+
+
+def _read_bound_regular_file(parent_fd: int, name: str) -> str:
+    metadata = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    if not stat.S_ISREG(metadata.st_mode):
+        raise ValueError("regular file")
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(name, flags, dir_fd=parent_fd)
+        opened = os.fstat(descriptor)
+        if not stat.S_ISREG(opened.st_mode) or not _same_file(metadata, opened):
+            raise ValueError("file identity")
+        with os.fdopen(os.dup(descriptor), "rb") as stream:
+            encoded = stream.read()
+        current = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        held = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(current.st_mode)
+            or not stat.S_ISREG(held.st_mode)
+            or not _same_file(current, opened)
+            or not _same_file(held, opened)
+        ):
+            raise ValueError("file identity")
+        return encoded.decode("utf-8")
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+
+
+def _validate_skill_frontmatter(skill_text: str, capability: str) -> None:
+    lines = skill_text.splitlines()
+    if not lines or lines[0] != "---":
+        raise ValueError("frontmatter opening delimiter")
+    try:
+        closing = lines.index("---", 1)
+    except ValueError as error:
+        raise ValueError("frontmatter closing delimiter") from error
+    if closing != 3 or closing + 1 >= len(lines):
+        raise ValueError("frontmatter boundary")
+
+    fields: list[tuple[str, str]] = []
+    for line in lines[1:closing]:
+        key, separator, value = line.partition(": ")
+        if not separator or not key or not value or value != value.strip():
+            raise ValueError("frontmatter field")
+        fields.append((key, value))
+    if [key for key, _ in fields] != ["name", "description"]:
+        raise ValueError("frontmatter fields")
+    if fields[0][1] != capability:
+        raise ValueError("skill identity")
+    expected_description = EXPECTED_SKILL_DESCRIPTIONS[capability]
+    if capability == ROUTER_SKILL:
+        expected_description = f"'{expected_description}'"
+    if fields[1][1] != expected_description:
+        raise ValueError("skill description")
+
+
+def _validate_skill_component(
+    root: object,
+    shared_manifest: Mapping[str, object],
+    codex_interface: Mapping[str, object],
+) -> None:
+    if not isinstance(root, Path):
+        raise ValueError("repository root")
+    if shared_manifest["skills"] != "./skills/":
+        raise ValueError("skills component")
+    capabilities = codex_interface["capabilities"]
+    if capabilities != list(ALL_CAPABILITIES):
+        raise ValueError("capabilities")
+    if tuple(capabilities[:-1]) != WORKFLOW_SKILLS or capabilities[-1] != ROUTER_SKILL:
+        raise ValueError("capability topology")
+
+    descriptors: list[int] = []
+    try:
+        root_metadata = root.lstat()
+        if not stat.S_ISDIR(root_metadata.st_mode):
+            raise ValueError("repository root")
+        root_fd = os.open(root, _directory_flags())
+        descriptors.append(root_fd)
+        opened_root = os.fstat(root_fd)
+        if not stat.S_ISDIR(opened_root.st_mode) or not _same_file(
+            root_metadata, opened_root
+        ):
+            raise ValueError("repository root identity")
+
+        plugins_fd, opened_plugins = _open_bound_directory_at(root_fd, "plugins")
+        descriptors.append(plugins_fd)
+        plugin_fd, opened_plugin = _open_bound_directory_at(plugins_fd, PLUGIN_ID)
+        descriptors.append(plugin_fd)
+        skills_fd, opened_skills = _open_bound_directory_at(plugin_fd, "skills")
+        descriptors.append(skills_fd)
+
+        with os.scandir(skills_fd) as entries:
+            discovered = {entry.name for entry in entries}
+        if discovered != set(ALL_CAPABILITIES):
+            raise ValueError("skill directories")
+
+        for capability in ALL_CAPABILITIES:
+            skill_fd, opened_skill = _open_bound_directory_at(
+                skills_fd, capability
+            )
+            descriptors.append(skill_fd)
+            try:
+                with os.scandir(skill_fd) as children:
+                    child_names = {child.name for child in children}
+                if child_names != {"SKILL.md"}:
+                    raise ValueError("skill contents")
+                skill_text = _read_bound_regular_file(skill_fd, "SKILL.md")
+                _validate_skill_frontmatter(skill_text, capability)
+                _recheck_bound_directory_at(
+                    skills_fd,
+                    capability,
+                    skill_fd,
+                    opened_skill,
+                )
+            finally:
+                descriptors.pop()
+                os.close(skill_fd)
+
+        _recheck_bound_directory_at(
+            plugin_fd,
+            "skills",
+            skills_fd,
+            opened_skills,
+        )
+        _recheck_bound_directory_at(
+            plugins_fd,
+            PLUGIN_ID,
+            plugin_fd,
+            opened_plugin,
+        )
+        _recheck_bound_directory_at(
+            root_fd,
+            "plugins",
+            plugins_fd,
+            opened_plugins,
+        )
+        current_root = root.lstat()
+        held_root = os.fstat(root_fd)
+        if (
+            not stat.S_ISDIR(current_root.st_mode)
+            or not stat.S_ISDIR(held_root.st_mode)
+            or not _same_file(current_root, opened_root)
+            or not _same_file(held_root, opened_root)
+        ):
+            raise ValueError("repository root identity")
+    except (OSError, UnicodeError, ValueError) as error:
+        raise ValueError("skills component") from error
+    finally:
+        cleanup_error: OSError | None = None
+        for descriptor in reversed(descriptors):
+            try:
+                os.close(descriptor)
+            except OSError as error:
+                cleanup_error = cleanup_error or error
+        if cleanup_error is not None:
+            raise ValueError("skills component cleanup") from cleanup_error
 
 
 def _validate_claude_marketplace(
@@ -362,6 +614,13 @@ def load_canonical_inputs(root: Path) -> CanonicalInputs:
     )
     _validate_input(CODEX_INTERFACE_INPUT, _validate_codex_interface, codex_interface)
     _validate_input(
+        SKILLS_COMPONENT,
+        _validate_skill_component,
+        root,
+        shared,
+        codex_interface,
+    )
+    _validate_input(
         CODEX_MARKETPLACE_INPUT,
         _validate_codex_marketplace,
         codex_marketplace,
@@ -395,6 +654,7 @@ def render_codex_manifest(inputs: CanonicalInputs) -> bytes:
             "repository": shared["repository"],
             "license": shared["license"],
             "keywords": list(shared["keywords"]),
+            "skills": shared["skills"],
             "interface": {
                 "displayName": interface["displayName"],
                 "shortDescription": interface["shortDescription"],

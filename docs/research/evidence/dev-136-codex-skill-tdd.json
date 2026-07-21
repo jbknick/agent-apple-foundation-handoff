@@ -1,0 +1,283 @@
+{
+  "schemaVersion": "1.0",
+  "sourceIssue": "DEV-136",
+  "evidenceKind": "codex_skill_red_baseline",
+  "status": "complete",
+  "initialRepositoryHeadAtCapture": "464dd11938acebbed055df1bdbf5032c0fadbdb6",
+  "caseContract": "tests/fixtures/dev-136-codex-skill-cases.json",
+  "fixtureSha256": "6c5bd8dafb1b75990e88ec288de18282c00b99151f33a7566253395c4ef93dcb",
+  "supersession": {
+    "status": "superseded",
+    "scope": "expectedSkillOwner_field_amendment_only",
+    "originalFixtureSha256": "6c5bd8dafb1b75990e88ec288de18282c00b99151f33a7566253395c4ef93dcb",
+    "canonicalFixtureSha256": "de255f68d724c3b3fdb610d2d9b2ce9f131d7e52ea1cd76cfa02ec7bdfed85f1",
+    "capabilityEvidence": {
+      "path": "docs/research/evidence/dev-136-codex-skill-host.json",
+      "role": "new_codex_host_capability_proof"
+    }
+  },
+  "integrationProvenance": {
+    "status": "tree_equivalent_rebase",
+    "originalBaseHead": "75c9c8ca8d38bcfd05dc3d82264d1b8219253bc6",
+    "mergedBaseHead": "cdaa9bd5ce771c41d68603efa7835003ff46ee8c",
+    "commitMappings": [
+      {
+        "captureHead": "464dd11938acebbed055df1bdbf5032c0fadbdb6",
+        "rebasedEquivalentHead": "ec2094ad9827488539c77a704b97882c69a4ee9e",
+        "treeSha": "9009a6e83fca6bcb27fe7b22d56f0c7f4bdfdba5"
+      },
+      {
+        "captureHead": "ba18d72e65b46939b1d494cf423f245cdd003231",
+        "rebasedEquivalentHead": "35ac482a8e2a954525a24d7e6047d6732df41fbe",
+        "treeSha": "d1a86311e961e2b53857685fc4c3efb7d1c3c574"
+      }
+    ]
+  },
+  "host": {
+    "name": "codex",
+    "version": "0.144.5",
+    "model": "gpt-5.6-sol",
+    "modelSelection": "explicit_cli_argument",
+    "sessionMode": "fresh_ephemeral_ignore_user_config",
+    "productionPluginSkillsAvailable": false,
+    "claudeInvoked": false
+  },
+  "privacy": {
+    "rawPrompts": "transient",
+    "rawResponses": "transient",
+    "rawToolEvents": "transient",
+    "committedHostEvidence": "normalized_metadata_and_sha256_only",
+    "offlineScorerOutputs": "approved_synthetic_or_redacted_only"
+  },
+  "preResponseBlockerObservations": [
+    {
+      "attemptedModelId": "sol",
+      "status": "blocked",
+      "phase": "pre_response",
+      "reasonCode": "unsupported_chatgpt_account_model_alias",
+      "responseProduced": false,
+      "countedAsBaselineSession": false,
+      "capabilityEvidence": false
+    }
+  ],
+  "summary": {
+    "sessionCount": 5,
+    "failedBaselineCount": 5,
+    "passedBaselineCount": 0
+  },
+  "baselines": [
+    {
+      "caseId": "DEV136-BASE-DESIGN-001",
+      "skillUnderTest": "design-apple-foundation-models-handoff",
+      "sessionOrdinal": 1,
+      "repositoryHeadAtCapture": "464dd11938acebbed055df1bdbf5032c0fadbdb6",
+      "promptSha256": "cdc8b25f1db7d95f85e37ba6a916f5ccb2b4312726c1f032d55423747e268833",
+      "rubricContractSha256": "77537b823a135ee1cf11a377023980fd3e47091214a13af2f5a8afd30c623278",
+      "codexExitCode": 0,
+      "responseSha256": "b38d47dd9ab015e46de58577c0a98d3cb88f89f358e78404ba46a4112fbbb575",
+      "responseBytes": 6794,
+      "toolEventCount": 5,
+      "rubricOutcome": {
+        "checks": {
+          "result_envelope_complete": false,
+          "selected_skill_named": false,
+          "router_envelope_complete": false,
+          "version_labels_complete": false,
+          "common_sections_complete": false,
+          "workflow_sections_complete": false,
+          "evidence_vocabulary_complete": false
+        },
+        "failedChecks": [
+          "result_envelope_complete",
+          "selected_skill_named",
+          "router_envelope_complete",
+          "version_labels_complete",
+          "common_sections_complete",
+          "workflow_sections_complete",
+          "evidence_vocabulary_complete"
+        ],
+        "verdict": "fail"
+      },
+      "observedFailureClasses": [
+        "missing_result_envelope",
+        "missing_skill_selection",
+        "missing_router_envelope",
+        "missing_version_labels",
+        "missing_common_sections",
+        "missing_workflow_sections",
+        "missing_evidence_status_vocabulary"
+      ]
+    },
+    {
+      "caseId": "DEV136-BASE-IMPLEMENT-001",
+      "skillUnderTest": "implement-apple-foundation-models-handoff",
+      "sessionOrdinal": 2,
+      "repositoryHeadAtCapture": "464dd11938acebbed055df1bdbf5032c0fadbdb6",
+      "promptSha256": "0f602d0a9eb90d619728be4a99d8590c1583020b3a7d56206e34d423bd7914a1",
+      "rubricContractSha256": "77537b823a135ee1cf11a377023980fd3e47091214a13af2f5a8afd30c623278",
+      "codexExitCode": 0,
+      "responseSha256": "91d16ec675d6cd49305d5d8b2e8462b87a49a5c4ddeded67441f5a464aa73ef5",
+      "responseBytes": 233,
+      "toolEventCount": 5,
+      "rubricOutcome": {
+        "checks": {
+          "result_envelope_complete": false,
+          "selected_skill_named": false,
+          "router_envelope_complete": false,
+          "version_labels_complete": false,
+          "common_sections_complete": false,
+          "workflow_sections_complete": false,
+          "evidence_vocabulary_complete": false
+        },
+        "failedChecks": [
+          "result_envelope_complete",
+          "selected_skill_named",
+          "router_envelope_complete",
+          "version_labels_complete",
+          "common_sections_complete",
+          "workflow_sections_complete",
+          "evidence_vocabulary_complete"
+        ],
+        "verdict": "fail"
+      },
+      "observedFailureClasses": [
+        "missing_result_envelope",
+        "missing_skill_selection",
+        "missing_router_envelope",
+        "missing_version_labels",
+        "missing_common_sections",
+        "missing_workflow_sections",
+        "missing_evidence_status_vocabulary"
+      ]
+    },
+    {
+      "caseId": "DEV136-BASE-REVIEW-001",
+      "skillUnderTest": "review-apple-foundation-models-handoff",
+      "sessionOrdinal": 3,
+      "repositoryHeadAtCapture": "ba18d72e65b46939b1d494cf423f245cdd003231",
+      "promptSha256": "53c421f4ef049225ca052c393f85c4f5196d35376ce49f92bb4781ce3c7c55fa",
+      "rubricContractSha256": "77537b823a135ee1cf11a377023980fd3e47091214a13af2f5a8afd30c623278",
+      "codexExitCode": 0,
+      "responseSha256": "6ecab48cb14015a317a4d84636235e4d93a3b595faecf577c1ddc833ece339b2",
+      "responseBytes": 2361,
+      "toolEventCount": 4,
+      "rubricOutcome": {
+        "checks": {
+          "result_envelope_complete": false,
+          "selected_skill_named": false,
+          "router_envelope_complete": false,
+          "version_labels_complete": false,
+          "common_sections_complete": false,
+          "workflow_sections_complete": true,
+          "evidence_vocabulary_complete": false
+        },
+        "failedChecks": [
+          "result_envelope_complete",
+          "selected_skill_named",
+          "router_envelope_complete",
+          "version_labels_complete",
+          "common_sections_complete",
+          "evidence_vocabulary_complete"
+        ],
+        "verdict": "fail"
+      },
+      "observedFailureClasses": [
+        "missing_result_envelope",
+        "missing_skill_selection",
+        "missing_router_envelope",
+        "missing_version_labels",
+        "missing_common_sections",
+        "missing_evidence_status_vocabulary"
+      ]
+    },
+    {
+      "caseId": "DEV136-BASE-DEBUG-001",
+      "skillUnderTest": "debug-apple-foundation-models-handoff",
+      "sessionOrdinal": 4,
+      "repositoryHeadAtCapture": "464dd11938acebbed055df1bdbf5032c0fadbdb6",
+      "promptSha256": "5aa0f73c4d9528249022718abd6237840d8023d40ec2869029f188d1a0544de4",
+      "rubricContractSha256": "77537b823a135ee1cf11a377023980fd3e47091214a13af2f5a8afd30c623278",
+      "codexExitCode": 0,
+      "responseSha256": "2f6d96d035ef9628c790cb783bb8d7f3d4d1369aea8b20bd41704f7c5424921d",
+      "responseBytes": 2035,
+      "toolEventCount": 7,
+      "rubricOutcome": {
+        "checks": {
+          "result_envelope_complete": false,
+          "selected_skill_named": false,
+          "router_envelope_complete": false,
+          "version_labels_complete": false,
+          "common_sections_complete": false,
+          "workflow_sections_complete": false,
+          "evidence_vocabulary_complete": false
+        },
+        "failedChecks": [
+          "result_envelope_complete",
+          "selected_skill_named",
+          "router_envelope_complete",
+          "version_labels_complete",
+          "common_sections_complete",
+          "workflow_sections_complete",
+          "evidence_vocabulary_complete"
+        ],
+        "verdict": "fail"
+      },
+      "observedFailureClasses": [
+        "missing_result_envelope",
+        "missing_skill_selection",
+        "missing_router_envelope",
+        "missing_version_labels",
+        "missing_common_sections",
+        "missing_workflow_sections",
+        "missing_evidence_status_vocabulary"
+      ]
+    },
+    {
+      "caseId": "DEV136-BASE-VALIDATE-001",
+      "skillUnderTest": "validate-apple-foundation-models-handoff",
+      "sessionOrdinal": 5,
+      "repositoryHeadAtCapture": "464dd11938acebbed055df1bdbf5032c0fadbdb6",
+      "promptSha256": "19f364ecf794839bdcebd4e5b2de5f573126080106361b8ed8b9e21584a43faf",
+      "rubricContractSha256": "77537b823a135ee1cf11a377023980fd3e47091214a13af2f5a8afd30c623278",
+      "codexExitCode": 0,
+      "responseSha256": "6118f837069b686b7172e143fbe180f3b3a2c19a8e8cdbc459bbb13fc479a908",
+      "responseBytes": 1634,
+      "toolEventCount": 6,
+      "rubricOutcome": {
+        "checks": {
+          "result_envelope_complete": false,
+          "selected_skill_named": false,
+          "router_envelope_complete": false,
+          "version_labels_complete": false,
+          "common_sections_complete": false,
+          "workflow_sections_complete": false,
+          "evidence_vocabulary_complete": false
+        },
+        "failedChecks": [
+          "result_envelope_complete",
+          "selected_skill_named",
+          "router_envelope_complete",
+          "version_labels_complete",
+          "common_sections_complete",
+          "workflow_sections_complete",
+          "evidence_vocabulary_complete"
+        ],
+        "verdict": "fail"
+      },
+      "observedFailureClasses": [
+        "missing_result_envelope",
+        "missing_skill_selection",
+        "missing_router_envelope",
+        "missing_version_labels",
+        "missing_common_sections",
+        "missing_workflow_sections",
+        "missing_evidence_status_vocabulary"
+      ]
+    }
+  ],
+  "limitations": [
+    "The five responses were scored only as no-skill RED controls and are not capability evidence.",
+    "Raw prompts, responses, and tool events were deleted after normalization.",
+    "Claude was not invoked in this wave."
+  ]
+}

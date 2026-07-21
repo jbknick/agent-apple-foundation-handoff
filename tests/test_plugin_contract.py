@@ -29,11 +29,35 @@ REFERENCE_FILES = {
         "evaluation-and-observability.md",
     )
 }
+PLUGIN_DESCRIPTION = (
+    "Design, implement, review, debug, and validate Apple Foundation Models "
+    "handoff architectures."
+)
+SHORT_DESCRIPTION = "Five workflows plus one non-positive router."
+LONG_DESCRIPTION = (
+    "Five workflows plus one non-positive router for Apple Foundation Models "
+    "handoff requests, with explicit Apple API availability, state, trust, "
+    "recovery, and evidence boundaries."
+)
+DEFAULT_PROMPT = (
+    "Design an Apple Foundation Models baton pass from a research profile to a "
+    "review profile that owns the final answer."
+)
+WORKFLOW_SKILLS = (
+    "design-apple-foundation-models-handoff",
+    "implement-apple-foundation-models-handoff",
+    "review-apple-foundation-models-handoff",
+    "debug-apple-foundation-models-handoff",
+    "validate-apple-foundation-models-handoff",
+)
+ROUTER_SKILL = "route-apple-foundation-models-handoff"
+ALL_CAPABILITIES = (*WORKFLOW_SKILLS, ROUTER_SKILL)
 ALLOWED_PACKAGE_FILES = {
     ".claude-plugin/plugin.json",
     ".codex-plugin/plugin.json",
     "metadata/codex-interface.json",
     *REFERENCE_FILES,
+    *(f"skills/{skill}/SKILL.md" for skill in ALL_CAPABILITIES),
 }
 ALLOWED_PACKAGE_ENTRIES = {
     ".claude-plugin": "directory",
@@ -44,9 +68,17 @@ ALLOWED_PACKAGE_ENTRIES = {
     "metadata/codex-interface.json": "file",
     "references": "directory",
     **{name: "file" for name in REFERENCE_FILES},
+    "skills": "directory",
+    **{
+        entry: entry_type
+        for skill in ALL_CAPABILITIES
+        for entry, entry_type in (
+            (f"skills/{skill}", "directory"),
+            (f"skills/{skill}/SKILL.md", "file"),
+        )
+    },
 }
 FORBIDDEN_SURFACES = (
-    "skills",
     "agents",
     "hooks",
     "mcp",
@@ -189,13 +221,24 @@ def assert_dev_138_repository_only_package(test_case: unittest.TestCase) -> None
             test_case.assertNotIn(prohibited, payload)
 
 
+def create_reference_plugin_package(plugin_root: Path) -> None:
+    plugin_root.mkdir()
+    for relative_path, entry_type in ALLOWED_PACKAGE_ENTRIES.items():
+        target = plugin_root / relative_path
+        if entry_type == "directory":
+            target.mkdir(parents=True, exist_ok=True)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("reference fixture\n", encoding="utf-8")
+
+
 class PluginContractTests(unittest.TestCase):
     def test_canonical_guidance_truthfully_names_present_references(self):
         canonical = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
         generated = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
         required = (
             "Exactly five package reference files are present",
-            "Skills, hooks, commands, agents, MCP servers, package scripts, "
+            "Hooks, commands, agents, MCP servers, package scripts, "
             "dependencies, and runtime code remain absent",
             "zero runtime capabilities",
         )
@@ -212,21 +255,55 @@ class PluginContractTests(unittest.TestCase):
 
         self.assertEqual(PLUGIN_ID, manifest["name"])
         self.assertEqual(VERSION, manifest["version"])
+        self.assertEqual(PLUGIN_DESCRIPTION, manifest["description"])
         self.assertEqual(REPOSITORY, manifest["homepage"])
         self.assertEqual(REPOSITORY, manifest["repository"])
-        self.assertNotIn("skills", manifest)
+        self.assertEqual("./skills/", manifest.get("skills"))
+        skills_root = ROOT / "plugins" / PLUGIN_ID / manifest["skills"]
+        self.assertEqual(
+            sorted(ALL_CAPABILITIES),
+            sorted(path.name for path in skills_root.iterdir() if path.is_dir()),
+        )
         for field in ("hooks", "mcpServers", "apps", "commands", "agents"):
             self.assertNotIn(field, manifest)
 
-    def test_codex_interface_has_zero_capabilities(self):
+    def test_codex_interface_advertises_five_workflows_plus_one_router(self):
         interface = load_json(
             "plugins/apple-foundation-models-handoff/metadata/codex-interface.json"
         )
 
+        self.assertEqual(SHORT_DESCRIPTION, interface["shortDescription"])
+        self.assertEqual(LONG_DESCRIPTION, interface["longDescription"])
         self.assertEqual("Developer Tools", interface["category"])
-        self.assertEqual([], interface["capabilities"])
-        self.assertEqual(1, len(interface["defaultPrompt"]))
-        self.assertLessEqual(len(interface["defaultPrompt"][0]), 128)
+        self.assertEqual(list(ALL_CAPABILITIES), interface["capabilities"])
+        self.assertEqual(list(WORKFLOW_SKILLS), interface["capabilities"][:-1])
+        self.assertEqual(ROUTER_SKILL, interface["capabilities"][-1])
+        self.assertIn("Five workflows plus one non-positive router", LONG_DESCRIPTION)
+        self.assertEqual([DEFAULT_PROMPT], interface["defaultPrompt"])
+        self.assertEqual(116, len(DEFAULT_PROMPT))
+        self.assertLessEqual(len(DEFAULT_PROMPT), 128)
+        for meta_instruction in ("select", "appropriate workflow", "which capability"):
+            self.assertNotIn(meta_instruction, DEFAULT_PROMPT.lower())
+        for stale_claim in ("metadata-only", "scaffold", "not included"):
+            self.assertNotIn(stale_claim, json.dumps(interface).lower())
+
+    def test_each_capability_resolves_to_one_authored_skill_with_the_same_name(self):
+        interface = load_json(
+            "plugins/apple-foundation-models-handoff/metadata/codex-interface.json"
+        )
+        skills_root = ROOT / "plugins" / PLUGIN_ID / "skills"
+
+        self.assertEqual(list(ALL_CAPABILITIES), interface["capabilities"])
+        self.assertEqual(
+            set(ALL_CAPABILITIES), {path.name for path in skills_root.iterdir()}
+        )
+        for capability in interface["capabilities"]:
+            with self.subTest(capability=capability):
+                skill_file = skills_root / capability / "SKILL.md"
+                self.assertTrue(skill_file.is_file())
+                self.assertFalse(skill_file.is_symlink())
+                text = skill_file.read_text(encoding="utf-8")
+                self.assertTrue(text.startswith(f"---\nname: {capability}\n"))
 
     def test_marketplaces_use_the_conventional_source(self):
         claude = load_json(".claude-plugin/marketplace.json")
@@ -235,6 +312,7 @@ class PluginContractTests(unittest.TestCase):
 
         self.assertEqual(MARKETPLACE, claude["name"])
         self.assertEqual(SOURCE, claude["plugins"][0]["source"])
+        self.assertEqual(PLUGIN_DESCRIPTION, claude["plugins"][0]["description"])
         entry = codex["plugins"][0]
         self.assertEqual({"source": "local", "path": SOURCE}, entry["source"])
         self.assertEqual(
@@ -269,7 +347,7 @@ class PluginContractTests(unittest.TestCase):
             with self.subTest(field=field):
                 self.assertEqual(shared[field], generated[field])
         self.assertEqual(interface, generated["interface"])
-        self.assertNotIn("skills", generated)
+        self.assertEqual("./skills/", generated.get("skills"))
         for field in ("hooks", "mcpServers", "apps", "commands", "agents"):
             self.assertNotIn(field, generated)
 
@@ -321,7 +399,9 @@ class PluginContractTests(unittest.TestCase):
         self.assertEqual(
             {"const": "Developer Tools"}, interface_properties["category"]
         )
-        self.assertEqual({"const": []}, interface_properties["capabilities"])
+        self.assertEqual(
+            {"const": list(ALL_CAPABILITIES)}, interface_properties["capabilities"]
+        )
         self.assertEqual(
             {"type": "string", "pattern": "^https://"},
             interface_properties["websiteURL"],
@@ -395,8 +475,38 @@ class PluginContractTests(unittest.TestCase):
         sync._validate_codex_interface(canonical_interface)
         sync._validate_codex_marketplace(canonical_marketplace, shared_manifest)
 
+        missing_capabilities = json.loads(json.dumps(canonical_interface))
+        del missing_capabilities["capabilities"]
+        with self.assertRaises(ValueError):
+            sync._validate_codex_interface(missing_capabilities)
+
         interface_boundary_mutations = (
-            ("non-empty capabilities", ("capabilities",), ["unimplemented"]),
+            ("empty capabilities", ("capabilities",), []),
+            (
+                "reordered capabilities",
+                ("capabilities",),
+                list(reversed(ALL_CAPABILITIES)),
+            ),
+            (
+                "missing router capability",
+                ("capabilities",),
+                list(WORKFLOW_SKILLS),
+            ),
+            (
+                "duplicated capability",
+                ("capabilities",),
+                [*ALL_CAPABILITIES, ROUTER_SKILL],
+            ),
+            (
+                "seventh capability",
+                ("capabilities",),
+                [*ALL_CAPABILITIES, "extra-apple-foundation-models-handoff"],
+            ),
+            (
+                "substituted router",
+                ("capabilities",),
+                [*WORKFLOW_SKILLS, "wrong-router"],
+            ),
             ("empty presentation string", ("displayName",), ""),
             ("missing prompt", ("defaultPrompt",), []),
             ("too many prompts", ("defaultPrompt",), ["prompt"] * 4),
@@ -425,7 +535,7 @@ class PluginContractTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     sync._validate_codex_marketplace(mutated, shared_manifest)
 
-    def test_plugin_package_contains_only_approved_contract_files(self):
+    def test_plugin_package_contains_only_references_workflows_and_router(self):
         plugin_root = ROOT / "plugins" / PLUGIN_ID
         assert_plugin_package_contract(self, plugin_root)
 
@@ -443,11 +553,40 @@ class PluginContractTests(unittest.TestCase):
             plugin_root = temporary_root / PLUGIN_ID
             shutil.copytree(ROOT / "plugins" / PLUGIN_ID, plugin_root)
             skills = plugin_root / "skills"
+            if skills.exists():
+                shutil.rmtree(skills)
             skills.symlink_to(temporary_root / "missing-skills", target_is_directory=True)
 
             self.assertTrue(os.path.lexists(skills))
             with self.assertRaises(AssertionError):
                 assert_plugin_package_contract(self, plugin_root)
+
+    def test_package_oracle_rejects_forbidden_capability_and_runtime_surfaces(self):
+        forbidden_paths = (
+            "agents/openai.yaml",
+            "commands/extra.md",
+            "hooks/hooks.json",
+            "mcp/server.json",
+            "package.json",
+            f"skills/{WORKFLOW_SKILLS[0]}/SKILL-copy.md",
+            f"skills/{WORKFLOW_SKILLS[0]}/output-contract.json",
+            f"skills/{WORKFLOW_SKILLS[0]}/agents/openai.yaml",
+            f"skills/{WORKFLOW_SKILLS[0]}/references/copied.md",
+        )
+        for relative_path in forbidden_paths:
+            with (
+                self.subTest(relative_path=relative_path),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                plugin_root = Path(directory) / PLUGIN_ID
+                create_reference_plugin_package(plugin_root)
+                assert_plugin_package_contract(self, plugin_root)
+                forbidden = plugin_root / relative_path
+                forbidden.parent.mkdir(parents=True, exist_ok=True)
+                forbidden.write_text("forbidden surface\n", encoding="utf-8")
+
+                with self.assertRaises(AssertionError):
+                    assert_plugin_package_contract(self, plugin_root)
 
     def test_package_oracle_rejects_unexpected_external_directory_symlink(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -526,7 +665,13 @@ class CodexProbeRaceTests(unittest.TestCase):
                 mock.patch.object(
                     codex_probe,
                     "read_regular_file",
-                    return_value=b'{"interface":{"capabilities":[]}}',
+                    return_value=json.dumps(
+                        {
+                            "interface": {
+                                "capabilities": codex_probe.EXPECTED_CAPABILITIES
+                            }
+                        }
+                    ).encode("utf-8"),
                 ),
                 mock.patch.object(
                     codex_probe, "emit_result", side_effect=emitted.append

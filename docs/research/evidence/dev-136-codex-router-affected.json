@@ -1,0 +1,400 @@
+{
+  "schemaVersion": "1.0",
+  "sourceIssue": "DEV-136",
+  "evidenceKind": "codex_skill_forward_test",
+  "mode": "host",
+  "status": "fail",
+  "model": "gpt-5.6-sol",
+  "codexVersion": "0.144.5",
+  "captureCommit": "5564ab3303afc79080e5f8bdbba934535e914322",
+  "fixtureSha256": "de255f68d724c3b3fdb610d2d9b2ce9f131d7e52ea1cd76cfa02ec7bdfed85f1",
+  "skillPayloadSha256": {
+    "design-apple-foundation-models-handoff": "5db3ec8adb5672cf4f4978db589a36145c1c468b6435aca0afb1256dd5019970",
+    "implement-apple-foundation-models-handoff": "e02f6a36d061e871c1e3b55a7ed60e2cd353d5b8e3abb7a4c1d79c43bfa774ca",
+    "review-apple-foundation-models-handoff": "abc436356f8d25a9746f5693b1179e50522657bbcb5bf4f992efca0b37a0bcca",
+    "debug-apple-foundation-models-handoff": "577da4692b00560a7c1d6cf27ca920f9de2766788f30934d4315e496ddf677b6",
+    "validate-apple-foundation-models-handoff": "c5ce23c9989f683baae2d5747917f5aa5d9f536a3bc4a2dced77fa4815601414",
+    "route-apple-foundation-models-handoff": "461b83873f481c1f9d11fe81dd388453cc0d81e9863ba29a1cbb1c854ce310e9"
+  },
+  "plugin": {
+    "selector": "apple-foundation-models-handoff@agent-apple-foundation-handoff",
+    "sourceManifestSha256": "ef93920ed967ec3d325b3cca15138da8f6db8053f59d534796ebda38b442d137",
+    "installedManifestSha256": "ef93920ed967ec3d325b3cca15138da8f6db8053f59d534796ebda38b442d137"
+  },
+  "host": {
+    "name": "codex",
+    "version": "0.144.5",
+    "model": "gpt-5.6-sol",
+    "modelSelection": "explicit_cli_argument",
+    "sessionMode": "fresh_ephemeral",
+    "resolvedExecutableSha256": "5e29ab10ca1171be158f7335dd6bd8ce1aaf9af1556939db36a5ee338be6f5f2",
+    "boundExecutableCopySha256": "5e29ab10ca1171be158f7335dd6bd8ce1aaf9af1556939db36a5ee338be6f5f2",
+    "prerequisites": {
+      "binary": "pass",
+      "pluginActivation": "not_applicable",
+      "model": "pass",
+      "installation": "pass",
+      "version": "pass",
+      "discovery": "pass",
+      "authentication": "pass"
+    },
+    "blockerReason": null,
+    "claudePolicy": "owner_deferred",
+    "claudeInvoked": false
+  },
+  "cleanup": {
+    "privateOutput": "pass",
+    "boundExecutableCopy": "pass",
+    "hostWorktreeRegistration": "pass",
+    "hostWorktreeDirectory": "pass",
+    "sourceWorktree": "pass"
+  },
+  "privacy": {
+    "rawPrompts": "transient_not_committed",
+    "rawResponses": "transient_not_committed",
+    "rawToolEvents": "transient_not_committed",
+    "committedEvidence": "normalized_metadata_and_sha256_only",
+    "offlineScorerOutputs": "approved_synthetic_or_redacted_only",
+    "expectedAnswersIncludedInPrompts": false
+  },
+  "summary": {
+    "fixtureCaseCount": 15,
+    "attemptedCount": 15,
+    "passedCount": 14,
+    "failedCount": 1,
+    "blockedCount": 0,
+    "notApplicableCount": 0
+  },
+  "cases": [
+    {
+      "caseId": "DEV136-FWD-DESIGN-001",
+      "skillUnderTest": "design-apple-foundation-models-handoff",
+      "expectedSkillOwner": "design-apple-foundation-models-handoff",
+      "sessionOrdinal": 1,
+      "promptSha256": "6a97d3b4c474d08314907fe17a6a7ee95377b4d6cdad563bbe540467654ad72a",
+      "rubricContractSha256": "77537b823a135ee1cf11a377023980fd3e47091214a13af2f5a8afd30c623278",
+      "codexExitCode": 0,
+      "responseSha256": "65d95be1f63ae23548ca1a92a17fff6774c9cc109dcae8e0f73d721c87e9f344",
+      "responseBytes": 12852,
+      "toolEventCount": 7,
+      "verdict": "pass",
+      "assertions": {
+        "activation": "pass",
+        "routing": "pass",
+        "one_clarification": "not_applicable",
+        "review_first_ordering": "not_applicable",
+        "independent_version_labels": "pass",
+        "common_sections": "pass",
+        "workflow_sections": "pass"
+      }
+    },
+    {
+      "caseId": "DEV136-FWD-DESIGN-002",
+      "skillUnderTest": "design-apple-foundation-models-handoff",
+      "expectedSkillOwner": "route-apple-foundation-models-handoff",
+      "sessionOrdinal": 2,
+      "promptSha256": "7258d92acab4ce7ccf4cbb019f9bf59afa68123556887091b9c71da4b7837ad3",
+      "rubricContractSha256": "aeec38f9b73497580702913db82b236b4c95658fab5f21b01b0070fb27cacb76",
+      "codexExitCode": 0,
+      "responseSha256": "da62b36a57b6153bf30c75b01640f67a095af1156f0b0f8a57d7ea60c91e8d11",
+      "responseBytes": 127,
+      "toolEventCount": 1,
+      "verdict": "pass",
+      "assertions": {
+        "activation": "pass",
+        "routing": "pass",
+        "one_clarification": "not_applicable",
+        "review_first_ordering": "not_applicable",
+        "independent_version_labels": "not_applicable",
+        "common_sections": "not_applicable",
+        "workflow_sections": "not_applicable"
+      }
+    },
+    {
+      "caseId": "DEV136-FWD-DESIGN-003",
+      "skillUnderTest": "design-apple-foundation-models-handoff",
+      "expectedSkillOwner": "route-apple-foundation-models-handoff",
+      "sessionOrdinal": 3,
+      "promptSha256": "d8d239e830b12c9883fb7596024fd2c5d932dee325d3d0383846ed6e86846adb",
+      "rubricContractSha256": "cfffc191a8d6d03a51e861bdc35be8352fb4b13f4bccdafa6ef5802048346090",
+      "codexExitCode": 0,
+      "responseSha256": "6631be94704b30218fe39cdf66e9ca3e267113fe69b1203398f04004eca6d993",
+      "responseBytes": 211,
+      "toolEventCount": 1,
+      "verdict": "pass",
+      "assertions": {
+        "activation": "pass",
+        "routing": "pass",
+        "one_clarification": "pass",
+        "review_first_ordering": "not_applicable",
+        "independent_version_labels": "not_applicable",
+        "common_sections": "not_applicable",
+        "workflow_sections": "not_applicable"
+      }
+    },
+    {
+      "caseId": "DEV136-FWD-IMPLEMENT-001",
+      "skillUnderTest": "implement-apple-foundation-models-handoff",
+      "expectedSkillOwner": "implement-apple-foundation-models-handoff",
+      "sessionOrdinal": 4,
+      "promptSha256": "bc03f6ad9d9332ef02f769b34cb58f92a19cc30774e7b554f54280cd31a3ee56",
+      "rubricContractSha256": "77537b823a135ee1cf11a377023980fd3e47091214a13af2f5a8afd30c623278",
+      "codexExitCode": 0,
+      "responseSha256": "073b6cacc5e0aff13bd5e6b129cdefaa6245089bc31db6bf2c72a0706cc92349",
+      "responseBytes": 3645,
+      "toolEventCount": 24,
+      "verdict": "pass",
+      "assertions": {
+        "activation": "pass",
+        "routing": "pass",
+        "one_clarification": "not_applicable",
+        "review_first_ordering": "not_applicable",
+        "independent_version_labels": "pass",
+        "common_sections": "pass",
+        "workflow_sections": "pass"
+      }
+    },
+    {
+      "caseId": "DEV136-FWD-IMPLEMENT-002",
+      "skillUnderTest": "implement-apple-foundation-models-handoff",
+      "expectedSkillOwner": "route-apple-foundation-models-handoff",
+      "sessionOrdinal": 5,
+      "promptSha256": "bbba3d3c685681496317c80fd646afc74b0b62cdd1f214b3626cfb9b95c99f7c",
+      "rubricContractSha256": "aeec38f9b73497580702913db82b236b4c95658fab5f21b01b0070fb27cacb76",
+      "codexExitCode": 0,
+      "responseSha256": "da62b36a57b6153bf30c75b01640f67a095af1156f0b0f8a57d7ea60c91e8d11",
+      "responseBytes": 127,
+      "toolEventCount": 1,
+      "verdict": "pass",
+      "assertions": {
+        "activation": "pass",
+        "routing": "pass",
+        "one_clarification": "not_applicable",
+        "review_first_ordering": "not_applicable",
+        "independent_version_labels": "not_applicable",
+        "common_sections": "not_applicable",
+        "workflow_sections": "not_applicable"
+      }
+    },
+    {
+      "caseId": "DEV136-FWD-IMPLEMENT-003",
+      "skillUnderTest": "implement-apple-foundation-models-handoff",
+      "expectedSkillOwner": "route-apple-foundation-models-handoff",
+      "sessionOrdinal": 6,
+      "promptSha256": "6b09de346ca348ca6734d6d4cbac8db46d2bef52b699d03748d4b75d18e661ab",
+      "rubricContractSha256": "cfffc191a8d6d03a51e861bdc35be8352fb4b13f4bccdafa6ef5802048346090",
+      "codexExitCode": 0,
+      "responseSha256": "3e5f74c521938cd2d62add9cf44c55deb51fbde11e4f940ab7aa6dd6c1ed95df",
+      "responseBytes": 220,
+      "toolEventCount": 1,
+      "verdict": "pass",
+      "assertions": {
+        "activation": "pass",
+        "routing": "pass",
+        "one_clarification": "pass",
+        "review_first_ordering": "not_applicable",
+        "independent_version_labels": "not_applicable",
+        "common_sections": "not_applicable",
+        "workflow_sections": "not_applicable"
+      }
+    },
+    {
+      "caseId": "DEV136-FWD-REVIEW-001",
+      "skillUnderTest": "review-apple-foundation-models-handoff",
+      "expectedSkillOwner": "review-apple-foundation-models-handoff",
+      "sessionOrdinal": 7,
+      "promptSha256": "128ad2bb3a23ee3017098bee1d50b395f5cd3f086618f4b02ff2966d610863a1",
+      "rubricContractSha256": "77537b823a135ee1cf11a377023980fd3e47091214a13af2f5a8afd30c623278",
+      "codexExitCode": 0,
+      "responseSha256": "8db6b41c5cad5aa0474bad1b7b65af00a7087f25f6e672de2a922b6ef1ed9c6e",
+      "responseBytes": 7233,
+      "toolEventCount": 59,
+      "verdict": "fail",
+      "assertions": {
+        "activation": "fail",
+        "routing": "fail",
+        "one_clarification": "not_applicable",
+        "review_first_ordering": "fail",
+        "independent_version_labels": "pass",
+        "common_sections": "pass",
+        "workflow_sections": "fail"
+      }
+    },
+    {
+      "caseId": "DEV136-FWD-REVIEW-002",
+      "skillUnderTest": "review-apple-foundation-models-handoff",
+      "expectedSkillOwner": "route-apple-foundation-models-handoff",
+      "sessionOrdinal": 8,
+      "promptSha256": "5dd735c54afec3e6f32dd7843e1d92409ac0414f403eb26f8b3a693e1a86e6d0",
+      "rubricContractSha256": "aeec38f9b73497580702913db82b236b4c95658fab5f21b01b0070fb27cacb76",
+      "codexExitCode": 0,
+      "responseSha256": "da62b36a57b6153bf30c75b01640f67a095af1156f0b0f8a57d7ea60c91e8d11",
+      "responseBytes": 127,
+      "toolEventCount": 1,
+      "verdict": "pass",
+      "assertions": {
+        "activation": "pass",
+        "routing": "pass",
+        "one_clarification": "not_applicable",
+        "review_first_ordering": "not_applicable",
+        "independent_version_labels": "not_applicable",
+        "common_sections": "not_applicable",
+        "workflow_sections": "not_applicable"
+      }
+    },
+    {
+      "caseId": "DEV136-FWD-REVIEW-003",
+      "skillUnderTest": "review-apple-foundation-models-handoff",
+      "expectedSkillOwner": "route-apple-foundation-models-handoff",
+      "sessionOrdinal": 9,
+      "promptSha256": "ed476f4c874372904783c3e3143c1717224ee601080757b3414888e385fba8e0",
+      "rubricContractSha256": "cfffc191a8d6d03a51e861bdc35be8352fb4b13f4bccdafa6ef5802048346090",
+      "codexExitCode": 0,
+      "responseSha256": "8620c018f6043ec060fbf13dc34c0d988fd581c1799f62f1b4b46a601e094966",
+      "responseBytes": 222,
+      "toolEventCount": 1,
+      "verdict": "pass",
+      "assertions": {
+        "activation": "pass",
+        "routing": "pass",
+        "one_clarification": "pass",
+        "review_first_ordering": "not_applicable",
+        "independent_version_labels": "not_applicable",
+        "common_sections": "not_applicable",
+        "workflow_sections": "not_applicable"
+      }
+    },
+    {
+      "caseId": "DEV136-FWD-DEBUG-001",
+      "skillUnderTest": "debug-apple-foundation-models-handoff",
+      "expectedSkillOwner": "debug-apple-foundation-models-handoff",
+      "sessionOrdinal": 10,
+      "promptSha256": "27d89e2bfccf51b9c4b62cbf901caadba443546c6b98e80309658c253ec2e9d7",
+      "rubricContractSha256": "77537b823a135ee1cf11a377023980fd3e47091214a13af2f5a8afd30c623278",
+      "codexExitCode": 0,
+      "responseSha256": "b06988ca6cdb970ee9b023d0d9615026bd0f015008bb4848b74d17b041847043",
+      "responseBytes": 8407,
+      "toolEventCount": 24,
+      "verdict": "pass",
+      "assertions": {
+        "activation": "pass",
+        "routing": "pass",
+        "one_clarification": "not_applicable",
+        "review_first_ordering": "not_applicable",
+        "independent_version_labels": "pass",
+        "common_sections": "pass",
+        "workflow_sections": "pass"
+      }
+    },
+    {
+      "caseId": "DEV136-FWD-DEBUG-002",
+      "skillUnderTest": "debug-apple-foundation-models-handoff",
+      "expectedSkillOwner": "route-apple-foundation-models-handoff",
+      "sessionOrdinal": 11,
+      "promptSha256": "f0c0363ee8376343a9432f71d683c72b63c5b77b36f1021f0c6d0e2e188d18ad",
+      "rubricContractSha256": "aeec38f9b73497580702913db82b236b4c95658fab5f21b01b0070fb27cacb76",
+      "codexExitCode": 0,
+      "responseSha256": "da62b36a57b6153bf30c75b01640f67a095af1156f0b0f8a57d7ea60c91e8d11",
+      "responseBytes": 127,
+      "toolEventCount": 1,
+      "verdict": "pass",
+      "assertions": {
+        "activation": "pass",
+        "routing": "pass",
+        "one_clarification": "not_applicable",
+        "review_first_ordering": "not_applicable",
+        "independent_version_labels": "not_applicable",
+        "common_sections": "not_applicable",
+        "workflow_sections": "not_applicable"
+      }
+    },
+    {
+      "caseId": "DEV136-FWD-DEBUG-003",
+      "skillUnderTest": "debug-apple-foundation-models-handoff",
+      "expectedSkillOwner": "route-apple-foundation-models-handoff",
+      "sessionOrdinal": 12,
+      "promptSha256": "e3d58d1dd7dfaebdb324066871e8240b5931e78a0b2d24ecd0014155ca36ac5e",
+      "rubricContractSha256": "cfffc191a8d6d03a51e861bdc35be8352fb4b13f4bccdafa6ef5802048346090",
+      "codexExitCode": 0,
+      "responseSha256": "e87dbbbcf90091d7e6b1ab652a7de8d57455782a2279a966a7077b23cf938908",
+      "responseBytes": 195,
+      "toolEventCount": 1,
+      "verdict": "pass",
+      "assertions": {
+        "activation": "pass",
+        "routing": "pass",
+        "one_clarification": "pass",
+        "review_first_ordering": "not_applicable",
+        "independent_version_labels": "not_applicable",
+        "common_sections": "not_applicable",
+        "workflow_sections": "not_applicable"
+      }
+    },
+    {
+      "caseId": "DEV136-FWD-VALIDATE-001",
+      "skillUnderTest": "validate-apple-foundation-models-handoff",
+      "expectedSkillOwner": "validate-apple-foundation-models-handoff",
+      "sessionOrdinal": 13,
+      "promptSha256": "3c53a023eecc7572a302836b9d54a747520cf44c0932d085b5cc97985c8592d4",
+      "rubricContractSha256": "77537b823a135ee1cf11a377023980fd3e47091214a13af2f5a8afd30c623278",
+      "codexExitCode": 0,
+      "responseSha256": "0034ca07a9541ef1352355548a82374695f1b3f9655b74c3d88800e273648c70",
+      "responseBytes": 11812,
+      "toolEventCount": 32,
+      "verdict": "pass",
+      "assertions": {
+        "activation": "pass",
+        "routing": "pass",
+        "one_clarification": "not_applicable",
+        "review_first_ordering": "not_applicable",
+        "independent_version_labels": "pass",
+        "common_sections": "pass",
+        "workflow_sections": "pass"
+      }
+    },
+    {
+      "caseId": "DEV136-FWD-VALIDATE-002",
+      "skillUnderTest": "validate-apple-foundation-models-handoff",
+      "expectedSkillOwner": "route-apple-foundation-models-handoff",
+      "sessionOrdinal": 14,
+      "promptSha256": "6026011bc55e5d4ab242e45aaaeb642cd5da469aecbee9656655a801da0e740c",
+      "rubricContractSha256": "aeec38f9b73497580702913db82b236b4c95658fab5f21b01b0070fb27cacb76",
+      "codexExitCode": 0,
+      "responseSha256": "da62b36a57b6153bf30c75b01640f67a095af1156f0b0f8a57d7ea60c91e8d11",
+      "responseBytes": 127,
+      "toolEventCount": 1,
+      "verdict": "pass",
+      "assertions": {
+        "activation": "pass",
+        "routing": "pass",
+        "one_clarification": "not_applicable",
+        "review_first_ordering": "not_applicable",
+        "independent_version_labels": "not_applicable",
+        "common_sections": "not_applicable",
+        "workflow_sections": "not_applicable"
+      }
+    },
+    {
+      "caseId": "DEV136-FWD-VALIDATE-003",
+      "skillUnderTest": "validate-apple-foundation-models-handoff",
+      "expectedSkillOwner": "route-apple-foundation-models-handoff",
+      "sessionOrdinal": 15,
+      "promptSha256": "77b647196bd891d2337646056c8eea5ab02293f6031a47423634f554feda7778",
+      "rubricContractSha256": "cfffc191a8d6d03a51e861bdc35be8352fb4b13f4bccdafa6ef5802048346090",
+      "codexExitCode": 0,
+      "responseSha256": "2abed2f423a4b5f708bde30ae4e13d3993cc178d3fb44ae3ab690b1946b23ab0",
+      "responseBytes": 202,
+      "toolEventCount": 1,
+      "verdict": "pass",
+      "assertions": {
+        "activation": "pass",
+        "routing": "pass",
+        "one_clarification": "pass",
+        "review_first_ordering": "not_applicable",
+        "independent_version_labels": "not_applicable",
+        "common_sections": "not_applicable",
+        "workflow_sections": "not_applicable"
+      }
+    }
+  ]
+}

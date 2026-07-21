@@ -4,6 +4,23 @@ This is a present-state verification runbook, not an implementation transcript.
 DEV-135 is already implemented. Use these commands to verify the candidate without
 recreating files, replaying historical RED steps, or adding behavior.
 
+## DEV-136 option-2 supersession
+
+> **Bounded supersession (DEV-136):** The approved DEV-136 option-2 decision
+> amends the production capability topology to **five workflows plus one non-positive router**,
+> `route-apple-foundation-models-handoff`. The five workflows retain
+> **positive-only workflow ownership**; the **router-owned non-positive branches**
+> are `no_activation`, domain `clarification_required`, and missing-approved-contract
+> `clarification_required`. Historical evidence remains truthful: **fixture prompts/outcomes are unchanged**,
+> and the DEV-134 prototype still does not prove host capability. **Codex-only current proof**
+> remains in scope, while Claude proof is owner-deferred. The binding design amendment path is
+> [`docs/superpowers/specs/2026-07-18-dev-136-preselection-router-design.md`](../specs/2026-07-18-dev-136-preselection-router-design.md).
+> Statements below that describe exactly five production capabilities or a
+> conceptual-only router remain historical except where this bounded note
+> supersedes them.
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
 ## Fixed contract
 
 - Candidate branch: `codex/dev-135-minimal-plugin-skeleton`.

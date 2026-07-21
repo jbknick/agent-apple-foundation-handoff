@@ -9,7 +9,7 @@ import shutil
 import stat
 import subprocess
 import tempfile
-from typing import Any
+from typing import Any, NoReturn
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -32,7 +32,34 @@ EXPECTED_CACHE_FILES = {
     ".codex-plugin/plugin.json",
     "metadata/codex-interface.json",
     *REFERENCE_FILES,
+    "skills/design-apple-foundation-models-handoff/SKILL.md",
+    "skills/implement-apple-foundation-models-handoff/SKILL.md",
+    "skills/review-apple-foundation-models-handoff/SKILL.md",
+    "skills/debug-apple-foundation-models-handoff/SKILL.md",
+    "skills/validate-apple-foundation-models-handoff/SKILL.md",
+    "skills/route-apple-foundation-models-handoff/SKILL.md",
 }
+EXPECTED_CACHE_DIRECTORIES = {
+    ".claude-plugin",
+    ".codex-plugin",
+    "metadata",
+    "references",
+    "skills",
+    "skills/design-apple-foundation-models-handoff",
+    "skills/implement-apple-foundation-models-handoff",
+    "skills/review-apple-foundation-models-handoff",
+    "skills/debug-apple-foundation-models-handoff",
+    "skills/validate-apple-foundation-models-handoff",
+    "skills/route-apple-foundation-models-handoff",
+}
+EXPECTED_CAPABILITIES = [
+    "design-apple-foundation-models-handoff",
+    "implement-apple-foundation-models-handoff",
+    "review-apple-foundation-models-handoff",
+    "debug-apple-foundation-models-handoff",
+    "validate-apple-foundation-models-handoff",
+    "route-apple-foundation-models-handoff",
+]
 
 EVIDENCE_ID = "E-CODEX-LOAD-001"
 PLUGIN_VERSION = "0.1.0"
@@ -133,9 +160,17 @@ def pairs_without_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return document
 
 
+def reject_nonfinite_constant(_: str) -> NoReturn:
+    raise ValueError("non-finite JSON constant")
+
+
 def parse_json_object(payload: bytes, reason: str) -> dict[str, Any]:
     try:
-        parsed = json.loads(payload, object_pairs_hook=pairs_without_duplicates)
+        parsed = json.loads(
+            payload,
+            object_pairs_hook=pairs_without_duplicates,
+            parse_constant=reject_nonfinite_constant,
+        )
     except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
         raise ProbeFailure(reason) from None
     if not isinstance(parsed, dict):
@@ -502,11 +537,7 @@ def scan_payload(root: Path, reason: str) -> set[str]:
     except OSError:
         raise ProbeFailure(reason) from None
 
-    expected_directories = {
-        Path(relative_path).parent.as_posix()
-        for relative_path in EXPECTED_CACHE_FILES
-    }
-    require(observed_directories == expected_directories, reason)
+    require(observed_directories == EXPECTED_CACHE_DIRECTORIES, reason)
     require(observed_files == EXPECTED_CACHE_FILES, reason)
     return observed_files
 
@@ -536,20 +567,20 @@ def probe(
         source_hashes = require_source_cache_identity(installed_path)
         require_stable_host(*host_identity, environment)
 
-        try:
-            generated_manifest = json.loads(
-                read_regular_file(
-                    PLUGIN_ROOT / ".codex-plugin/plugin.json",
-                    "generated_manifest_invalid",
-                )
-            )
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            raise ProbeFailure("generated_manifest_invalid") from None
-        require(isinstance(generated_manifest, dict), "generated_manifest_invalid")
+        generated_manifest = parse_json_object(
+            read_regular_file(
+                PLUGIN_ROOT / ".codex-plugin/plugin.json",
+                "generated_manifest_invalid",
+            ),
+            "generated_manifest_invalid",
+        )
         interface = generated_manifest.get("interface")
         require(isinstance(interface, dict), "generated_manifest_invalid")
         assert isinstance(interface, dict)
-        require(interface.get("capabilities") == [], "capabilities_not_empty")
+        require(
+            interface.get("capabilities") == EXPECTED_CAPABILITIES,
+            "capabilities_mismatch",
+        )
 
         result = {
             "status": "pass",
@@ -561,7 +592,7 @@ def probe(
             "pluginId": SELECTOR,
             "pluginVersion": PLUGIN_VERSION,
             "enabled": True,
-            "capabilities": [],
+            "capabilities": list(EXPECTED_CAPABILITIES),
             "cacheFiles": sorted(EXPECTED_CACHE_FILES),
             "referenceFiles": sorted(REFERENCE_FILES),
             "referenceSha256": {
@@ -574,7 +605,7 @@ def probe(
             "generatedManifestSha256": source_hashes[
                 ".codex-plugin/plugin.json"
             ],
-            "capabilityActivation": "blocked/production_skills_not_integrated",
+            "capabilityActivation": "not_applicable/behavior_owned_by_forward_runner",
         }
 
     require_stable_host(*host_identity, base_environment)

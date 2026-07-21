@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "sync_generated_artifacts.py"
 CANONICAL = ROOT / "CLAUDE.md"
 GENERATED = ROOT / "AGENTS.md"
+SKILLS_ROOT = Path("plugins/apple-foundation-models-handoff/skills")
 CANONICAL_INPUTS = (
     Path("CLAUDE.md"),
     Path(".claude-plugin/marketplace.json"),
@@ -31,6 +32,146 @@ HEADER = (
     "# AGENTS.md\n\n"
     "<!-- Generated from CLAUDE.md by scripts/sync_generated_artifacts.py. "
     "Do not edit directly. -->\n\n"
+)
+WORKFLOW_SKILLS = (
+    "design-apple-foundation-models-handoff",
+    "implement-apple-foundation-models-handoff",
+    "review-apple-foundation-models-handoff",
+    "debug-apple-foundation-models-handoff",
+    "validate-apple-foundation-models-handoff",
+)
+ROUTER_SKILL = "route-apple-foundation-models-handoff"
+ALL_CAPABILITIES = (*WORKFLOW_SKILLS, ROUTER_SKILL)
+ROUTER_FIRST_GUIDANCE_CONTRACTS = (
+    "Before selecting any positive workflow, resolve non-positive pre-selection "
+    "in this order: `domain = out_of_domain`, `domain = ambiguous`, then a "
+    "confirmed implementation request missing an approved architecture or exact "
+    "change boundary.",
+    f"For any of those cases, select and load only `{ROUTER_SKILL}`, copy its "
+    "exact matching branch before inspection or non-skill tool use, and select no "
+    "positive workflow.",
+    "Otherwise select exactly one matching positive workflow; once selected, it "
+    "remains the only workflow owner for the request.",
+)
+GENERIC_SWIFT_ACTOR_ROUTER_RECIPE = (
+    "Treat a request asking only about Swift actors, actor isolation, or a Swift "
+    "example as `domain = out_of_domain` even when it asks for implementation; "
+    "select only `route-apple-foundation-models-handoff` and return its "
+    "`no_activation` result before positive selection."
+)
+CLOSED_RESPONSE_COMPILER_GUIDANCE = (
+    "Treat pre-selection as one closed compilation transaction: resolve and "
+    "freeze `domain`, `requestedOperation`, `artifactState`, and `evidenceState` "
+    "exactly once; emit a router-owned outcome immediately before positive "
+    "selection, or pass the same frozen tuple to the one selected positive "
+    "workflow for unchanged serialization without re-inference."
+)
+DOMAIN_CLASSIFICATION_GUIDANCE = (
+    "Set `domain = foundation_models_handoff` only for explicit Apple Foundation "
+    "Models session, profile, or provider coordination; set `domain = ambiguous` "
+    "for bare `Apple handoff` regardless of operation, artifact, failure, or "
+    "evidence wording; set `domain = out_of_domain` for App Intents or Shortcuts, "
+    "Apple Handoff or NSUserActivity, generic Swift or actors, generic Core ML, "
+    "coding-session handoff, Agent Skills, and Foundation Models runtime Skills."
+)
+SYNTHETIC_DEBUG_DIVERGENCE_GUIDANCE = (
+    "Before positive selection, set `domain = foundation_models_handoff` for a "
+    "debug request only when it explicitly describes a synthetic handoff reducer "
+    "or effect that redispatches or replays before completion or reconciliation; "
+    "bare `Apple handoff` remains `domain = ambiguous`, and all adjacent "
+    "exclusions remain `domain = out_of_domain`."
+)
+IMMUTABLE_PRESELECTION_GUIDANCE = (
+    "On positive activation, `routerInput` is an immutable pre-selection record, "
+    "not a workflow finding. Serialize the exact four normalized values from the "
+    "source request in the shown field order; never use inspection, execution, "
+    "evidence results, or drafted output to infer or revise a value. This "
+    "serialization neither invokes nor emulates the router and has no branch or "
+    "ownership effect."
+)
+PRESELECTION_GUIDANCE_CONTRACTS = (
+    ROUTER_FIRST_GUIDANCE_CONTRACTS[0],
+    DOMAIN_CLASSIFICATION_GUIDANCE,
+    SYNTHETIC_DEBUG_DIVERGENCE_GUIDANCE,
+    ROUTER_FIRST_GUIDANCE_CONTRACTS[1],
+    CLOSED_RESPONSE_COMPILER_GUIDANCE,
+    IMMUTABLE_PRESELECTION_GUIDANCE,
+    GENERIC_SWIFT_ACTOR_ROUTER_RECIPE,
+    ROUTER_FIRST_GUIDANCE_CONTRACTS[2],
+)
+GUIDANCE_REUSE_GUARDRAIL = (
+    "Load one needed reference; never copy workflows or reference corpora or add "
+    "a plugin-local worker."
+)
+STALE_WORKFLOW_CLAIMS = (
+    "remain unimplemented",
+    "must not be advertised as active",
+    "DEV-136 will create",
+    "future `skills/**` and `references/**`",
+    "pending/future `references/**`",
+    "DEV-137 integration blocker",
+)
+WORKFLOW_GUIDANCE_CONTRACTS = (
+    "The five production workflows are implemented",
+    "five workflows plus one non-positive router",
+    ROUTER_SKILL,
+    "`skills/**` and `references/**` are current plugin-local canonical inputs",
+    "DEV-137 references are integrated and link-resolved",
+    "DEV-136 host evidence is Codex-only",
+    "Claude execution and cross-host comparison are `blocked/owner-deferred`",
+    "Behavioral capability claims require fresh exact-model DEV-136 forward "
+    "evidence",
+    "Structural integration alone is not a pass",
+    "Discovery, file presence, and installation are structural prerequisites and "
+    "cannot prove behavioral or capability activation",
+    GUIDANCE_REUSE_GUARDRAIL,
+    *PRESELECTION_GUIDANCE_CONTRACTS,
+)
+ADAPTER_SAFETY_SEMANTIC_GROUPS = (
+    (
+        "exclusive Apple authority",
+        (
+            "Apple API claims use only current official docs, installed SDK "
+            "interfaces, WWDC material, and Apple-owned repositories",
+            "production references are not authority",
+        ),
+    ),
+    (
+        "no Apple tutorials or unapproved examples",
+        ("add no Apple tutorials or unapproved examples",),
+    ),
+    (
+        "exact committed evidence metadata",
+        (
+            "committed evidence uses normalized `<host-path>`, exact version or "
+            "`null`",
+            "stable diagnostic class, exit code, and status",
+        ),
+    ),
+    (
+        "persistent recovery",
+        ("persistent recovery until explicit reconciliation",),
+    ),
+    (
+        "complete reproducible capability proof",
+        (
+            "reproducible fresh-host activation",
+            "progressive reference loading",
+            "valid/invalid outcomes",
+            "complete outputs",
+        ),
+    ),
+    (
+        "separate release authority",
+        ("Push, merge, tag, publish, or release only when separately authorized",),
+    ),
+)
+SKILL_OWNED_SECTION_HEADINGS = (
+    "Routing and Inspection",
+    "Common Workflow Protocol",
+    "Output Contract",
+    "References",
+    "Guardrails",
 )
 
 
@@ -82,15 +223,24 @@ class _MutateAfterRead:
 
 
 @contextlib.contextmanager
-def mutate_after_read(read_number: int, mutation):
+def mutate_after_read(target: Path, mutation):
     real_fdopen = sync_generated_artifacts.os.fdopen
-    reads = 0
+    target_metadata = target.lstat()
+    mutated = False
 
     def wrapped_fdopen(*arguments, **keywords):
-        nonlocal reads
-        reads += 1
+        nonlocal mutated
         stream = real_fdopen(*arguments, **keywords)
-        if reads == read_number:
+        try:
+            opened = os.fstat(arguments[0])
+        except (IndexError, OSError, TypeError):
+            return stream
+        if (
+            not mutated
+            and (opened.st_dev, opened.st_ino)
+            == (target_metadata.st_dev, target_metadata.st_ino)
+        ):
+            mutated = True
             return _MutateAfterRead(stream, mutation)
         return stream
 
@@ -100,12 +250,87 @@ def mutate_after_read(read_number: int, mutation):
         yield
 
 
+def assert_workflow_guidance_contract(
+    test_case: unittest.TestCase, text: str
+) -> None:
+    normalized_text = re.sub(r"\s+", " ", text)
+    for skill in WORKFLOW_SKILLS:
+        test_case.assertTrue(
+            skill in normalized_text,
+            f"missing workflow: {skill}",
+        )
+    test_case.assertIn(ROUTER_SKILL, normalized_text, "missing non-positive router")
+    test_case.assertIn(
+        "five workflows plus one non-positive router",
+        normalized_text,
+        "guidance must distinguish the five workflows from the router",
+    )
+    test_case.assertNotRegex(
+        normalized_text,
+        r"(?:six|6)(?:th)? (?:production )?workflows?|"
+        r"route-apple-foundation-models-handoff[^.]{0,80}(?:is|as) (?:a )?workflow",
+        "guidance must not call the router a workflow",
+    )
+    for claim in STALE_WORKFLOW_CLAIMS:
+        test_case.assertFalse(
+            claim in normalized_text,
+            f"stale workflow guidance remains: {claim}",
+        )
+    for contract in WORKFLOW_GUIDANCE_CONTRACTS:
+        test_case.assertTrue(
+            contract in normalized_text,
+            f"missing workflow guidance contract: {contract}",
+        )
+    positions = tuple(
+        normalized_text.index(contract) for contract in PRESELECTION_GUIDANCE_CONTRACTS
+    )
+    test_case.assertEqual(
+        tuple(sorted(positions)),
+        positions,
+        "router-owned branches must resolve before positive workflow selection",
+    )
+
+
+def assert_guidance_does_not_duplicate_skill_sections(
+    test_case: unittest.TestCase, text: str
+) -> None:
+    for heading in SKILL_OWNED_SECTION_HEADINGS:
+        test_case.assertNotRegex(
+            text,
+            rf"(?mi)^#{{2,6}}\s+{re.escape(heading)}\s*$",
+            f"root guidance must not duplicate skill-owned section: {heading}",
+        )
+
+
+def assert_guidance_reuse_guardrail(
+    test_case: unittest.TestCase, text: str
+) -> None:
+    normalized_text = re.sub(r"\s+", " ", text)
+    test_case.assertIn(
+        GUIDANCE_REUSE_GUARDRAIL,
+        normalized_text,
+        "guidance must preserve workflow, reference-corpus, and worker guardrails",
+    )
+
+
+def assert_adapter_safety_semantics(
+    test_case: unittest.TestCase, text: str
+) -> None:
+    normalized_text = re.sub(r"\s+", " ", text)
+    for label, clauses in ADAPTER_SAFETY_SEMANTIC_GROUPS:
+        test_case.assertTrue(
+            all(clause in normalized_text for clause in clauses),
+            f"missing adapter safety semantic group: {label}",
+        )
+
+
 class RepositoryGuidanceTests(unittest.TestCase):
     def _copy_canonical_inputs(self, destination: Path) -> None:
         for relative_path in CANONICAL_INPUTS:
             target = destination / relative_path
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / relative_path, target)
+        shutil.copytree(ROOT / SKILLS_ROOT, destination / SKILLS_ROOT)
 
     def test_generated_agents_matches_canonical_adapter_exactly(self):
         canonical_text = CANONICAL.read_text(encoding="utf-8")
@@ -296,7 +521,7 @@ class RepositoryGuidanceTests(unittest.TestCase):
                 self.assertFalse(os.path.lexists(isolated_root / "AGENTS.md"))
 
     def _assert_post_read_change_is_rejected(
-        self, target_name: str, read_number: int, diagnostic_text: str, change: str
+        self, target_name: str, diagnostic_text: str, change: str
     ):
         with tempfile.TemporaryDirectory() as directory:
             isolated_root = Path(directory)
@@ -318,7 +543,7 @@ class RepositoryGuidanceTests(unittest.TestCase):
                         stream.write(b"post-read change\n")
 
             diagnostic = io.StringIO()
-            with mutate_after_read(read_number, mutation):
+            with mutate_after_read(target, mutation):
                 with contextlib.redirect_stderr(diagnostic):
                     synchronized = sync_generated_artifacts.synchronize(
                         isolated_root, write=False
@@ -333,7 +558,6 @@ class RepositoryGuidanceTests(unittest.TestCase):
             with self.subTest(change=change):
                 self._assert_post_read_change_is_rejected(
                     "CLAUDE.md",
-                    1,
                     "CLAUDE.md: invalid canonical metadata input\n",
                     change,
                 )
@@ -343,7 +567,6 @@ class RepositoryGuidanceTests(unittest.TestCase):
             with self.subTest(change=change):
                 self._assert_post_read_change_is_rejected(
                     "AGENTS.md",
-                    6,
                     "AGENTS.md: unsafe or unwritable generated output\n",
                     change,
                 )
@@ -426,7 +649,7 @@ class RepositoryGuidanceTests(unittest.TestCase):
         generated_bytes = GENERATED.read_bytes()
 
         self.assertLessEqual(len(generated_bytes.decode("utf-8").splitlines()), 90)
-        self.assertLessEqual(len(generated_bytes), 6500)
+        self.assertLessEqual(len(generated_bytes), 9 * 1024)
         self.assertLess(len(generated_bytes), len(canonical_bytes))
 
     def test_only_one_root_agents_file_exists(self):
@@ -445,7 +668,7 @@ class RepositoryGuidanceTests(unittest.TestCase):
             self.assertIn("Never edit `AGENTS.md` directly", text)
             self.assertIn("`scripts/sync_generated_artifacts.py`", text)
 
-    def test_guidance_distinguishes_metadata_from_planned_capabilities(self):
+    def test_guidance_distinguishes_metadata_from_implemented_capabilities(self):
         for guide in (CANONICAL, GENERATED):
             text = normalized_guide(guide)
 
@@ -466,17 +689,20 @@ class RepositoryGuidanceTests(unittest.TestCase):
                 "are generated",
                 text,
             )
-            self.assertIn(
-                "non-executable scaffold with zero capabilities",
-                text,
-            )
+            self.assertIn("The five production workflows are implemented", text)
+            self.assertIn("five workflows plus one non-positive router", text)
             self.assertIn(
                 "Exactly five package reference files are present as "
                 "documentation-only inputs and provide zero runtime capabilities",
                 text,
             )
             self.assertIn(
-                "Skills, hooks, commands, agents, MCP servers, package scripts, "
+                "`skills/**` and `references/**` are current plugin-local "
+                "canonical inputs",
+                text,
+            )
+            self.assertIn(
+                "Hooks, commands, agents, MCP servers, package scripts, "
                 "dependencies, and runtime code remain absent",
                 text,
             )
@@ -543,29 +769,110 @@ class RepositoryGuidanceTests(unittest.TestCase):
             with self.subTest(contract=contract):
                 self.assertIn(contract, canonical_text)
 
+    def test_guidance_preserves_adapter_safety_semantics(self):
+        for path in (CANONICAL, GENERATED):
+            normalized_text = re.sub(
+                r"\s+", " ", path.read_text(encoding="utf-8")
+            )
+            for label, clauses in ADAPTER_SAFETY_SEMANTIC_GROUPS:
+                with self.subTest(path=path.name, semantic_group=label):
+                    self.assertTrue(
+                        all(clause in normalized_text for clause in clauses)
+                    )
+
+    def test_adapter_safety_oracle_rejects_removal_and_weakened_synonyms(self):
+        valid = " ".join(
+            clause
+            for _, clauses in ADAPTER_SAFETY_SEMANTIC_GROUPS
+            for clause in clauses
+        )
+        assert_adapter_safety_semantics(self, valid)
+
+        removals = {
+            f"removed {label}: {clause}": valid.replace(clause, "", 1)
+            for label, clauses in ADAPTER_SAFETY_SEMANTIC_GROUPS
+            for clause in clauses
+        }
+        weakenings = {
+            "non-authoritative sources allowed": valid.replace(
+                "use only current official docs",
+                "may use unofficial sources alongside current docs",
+                1,
+            ),
+            "production references treated as authority": valid.replace(
+                "production references are not authority",
+                "production references may establish authority",
+                1,
+            ),
+            "Apple tutorial ban removed": valid.replace(
+                "add no Apple tutorials or unapproved examples",
+                "add Apple tutorials or examples when useful",
+                1,
+            ),
+            "exact committed version weakened": valid.replace(
+                "exact version or `null`",
+                "approximate version when available",
+                1,
+            ),
+            "stable committed diagnostics weakened": valid.replace(
+                "stable diagnostic class, exit code, and status",
+                "a diagnostic summary",
+                1,
+            ),
+            "persistent recovery weakened": valid.replace(
+                "persistent recovery until explicit reconciliation",
+                "best-effort recovery",
+                1,
+            ),
+            "fresh-host reproducibility weakened": valid.replace(
+                "reproducible fresh-host activation",
+                "installation on any host",
+                1,
+            ),
+            "progressive reference loading weakened": valid.replace(
+                "progressive reference loading",
+                "reference availability",
+                1,
+            ),
+            "invalid outcomes omitted": valid.replace(
+                "valid/invalid outcomes",
+                "valid outcomes",
+                1,
+            ),
+            "complete outputs weakened": valid.replace(
+                "complete outputs",
+                "partial outputs",
+                1,
+            ),
+            "separate release authority weakened": valid.replace(
+                "only when separately authorized",
+                "when locally convenient",
+                1,
+            ),
+        }
+        for mutation, candidate in {**removals, **weakenings}.items():
+            with self.subTest(mutation=mutation), self.assertRaises(AssertionError):
+                assert_adapter_safety_semantics(self, candidate)
+
     def test_guidance_defines_conditional_host_loading_and_status_lifecycle(self):
         canonical_text = normalized_guide(CANONICAL)
         generated_text = normalized_guide(GENERATED)
         required_contracts = (
-            "captured approved `2.1.91` executable with session-only `--plugin-dir "
-            "<repo>` or an isolated packaging/cache install",
-            "Codex `0.144.5` uses its captured executable with isolated `CODEX_HOME`, "
-            "marketplace registration, plugin install/add, then a fresh task",
-            "`codex --plugin-dir` is not approved",
-            "Claude `2.1.140` is diagnostic-only and cannot substitute",
-            "non-executable scaffold with zero capabilities",
-            "Exactly five package reference files are present as documentation-only "
-            "inputs and provide zero runtime capabilities",
-            "Skills, hooks, commands, agents, MCP servers, package scripts, "
-            "dependencies, and runtime code remain absent",
-            "Normalize the repository as `<repo>` and executable as `<host-path>`",
-            "never commit literal resolutions, other private absolute paths, or raw "
-            "`PATH`",
-            "Before host operations, a missing/non-runnable executable, malformed/"
-            "unavailable version, or baseline mismatch emits normalized `blocked` "
-            "with stable reason/version metadata",
-            "After capture, resolution or version drift emits normalized `fail`, "
-            "invalidates the row, and requires a fresh run",
+            "Claude Code uses the captured approved `2.1.91` executable with "
+            "session-only `--plugin-dir <repo>` or an isolated install for packaging "
+            "and cache tests.",
+            "Codex `0.144.5` uses the captured executable with isolated `CODEX_HOME`, "
+            "marketplace registration, plugin install/add, and then a fresh task.",
+            "`codex --plugin-dir` is not an approved workflow for Codex `0.144.5`.",
+            "Claude Code `2.1.140` is diagnostic only and cannot substitute.",
+            "DEV-135 provides metadata for structural discovery and installation.",
+            "Normalize repository location as `<repo>` and executable identity as "
+            "`<host-path>`; never commit their literal resolutions or raw `PATH`.",
+            "Before host operations, a missing/non-runnable executable, "
+            "malformed/unavailable version, or baseline mismatch emits normalized "
+            "`blocked` with stable reason/version metadata.",
+            "After capture, resolution or version drift emits normalized "
+            "`fail` before exit, invalidates the row, and requires a fresh run.",
         )
 
         for text in (canonical_text, generated_text):
@@ -573,6 +880,261 @@ class RepositoryGuidanceTests(unittest.TestCase):
             for contract in required_contracts:
                 with self.subTest(contract=contract, guide=text[:12]):
                     self.assertIn(contract, text)
+
+    def test_guidance_truthfully_names_implemented_workflows_and_host_evidence_boundary(
+        self,
+    ):
+        canonical_text = CANONICAL.read_text(encoding="utf-8")
+        generated_text = GENERATED.read_text(encoding="utf-8")
+
+        for text in (canonical_text, generated_text):
+            with self.subTest(guide=text[:12]):
+                assert_workflow_guidance_contract(self, text)
+
+    def test_guidance_resolves_non_positive_router_before_workflow_selection(self):
+        for path in (CANONICAL, GENERATED):
+            with self.subTest(path=path.name):
+                assert_workflow_guidance_contract(
+                    self, path.read_text(encoding="utf-8")
+                )
+
+    def test_guidance_preserves_workflow_reference_and_worker_guardrails(self):
+        for path in (CANONICAL, GENERATED):
+            with self.subTest(path=path.name):
+                assert_guidance_reuse_guardrail(
+                    self, path.read_text(encoding="utf-8")
+                )
+
+        assert_guidance_reuse_guardrail(self, GUIDANCE_REUSE_GUARDRAIL)
+        mutations = {
+            "missing guardrail": "",
+            "workflow copy reversal": GUIDANCE_REUSE_GUARDRAIL.replace(
+                "never copy workflows",
+                "copy workflows",
+                1,
+            ),
+            "reference corpus removal": GUIDANCE_REUSE_GUARDRAIL.replace(
+                "reference corpora",
+                "reference snippets",
+                1,
+            ),
+            "worker addition reversal": GUIDANCE_REUSE_GUARDRAIL.replace(
+                "or add a plugin-local worker",
+                "and add a plugin-local worker",
+                1,
+            ),
+        }
+        for mutation, candidate in mutations.items():
+            with self.subTest(mutation=mutation), self.assertRaises(AssertionError):
+                assert_guidance_reuse_guardrail(self, candidate)
+
+    def test_guidance_oracle_rejects_removed_truthfulness_contract(self):
+        valid = " ".join((*WORKFLOW_SKILLS, *WORKFLOW_GUIDANCE_CONTRACTS))
+
+        assert_workflow_guidance_contract(self, valid)
+        for contract in WORKFLOW_GUIDANCE_CONTRACTS:
+            mutation = valid.replace(contract, "")
+            with self.subTest(contract=contract), self.assertRaises(AssertionError):
+                assert_workflow_guidance_contract(self, mutation)
+
+    def test_guidance_oracle_rejects_stale_integration_claims(self):
+        valid = " ".join((*WORKFLOW_SKILLS, *WORKFLOW_GUIDANCE_CONTRACTS))
+
+        assert_workflow_guidance_contract(self, valid)
+        for claim in STALE_WORKFLOW_CLAIMS:
+            with self.subTest(claim=claim), self.assertRaises(AssertionError):
+                assert_workflow_guidance_contract(self, f"{valid} {claim}")
+
+    def test_guidance_oracle_rejects_router_as_workflow(self):
+        valid = " ".join((*WORKFLOW_SKILLS, *WORKFLOW_GUIDANCE_CONTRACTS))
+        assert_workflow_guidance_contract(self, valid)
+
+        for claim in (
+            "six production workflows",
+            f"{ROUTER_SKILL} is a workflow",
+        ):
+            with self.subTest(claim=claim), self.assertRaises(AssertionError):
+                assert_workflow_guidance_contract(self, f"{valid} {claim}")
+
+    def test_guidance_oracle_rejects_late_router_preselection(self):
+        prefix = " ".join(
+            (
+                *WORKFLOW_SKILLS,
+                *(
+                    contract
+                    for contract in WORKFLOW_GUIDANCE_CONTRACTS
+                    if contract not in PRESELECTION_GUIDANCE_CONTRACTS
+                ),
+            )
+        )
+        reordered = " ".join(
+            (
+                prefix,
+                PRESELECTION_GUIDANCE_CONTRACTS[-1],
+                *PRESELECTION_GUIDANCE_CONTRACTS[:-1],
+            )
+        )
+
+        with self.assertRaises(AssertionError):
+            assert_workflow_guidance_contract(self, reordered)
+
+    def test_guidance_oracle_rejects_closed_response_compiler_mutations(self):
+        valid = " ".join((*WORKFLOW_SKILLS, *WORKFLOW_GUIDANCE_CONTRACTS))
+
+        assert_workflow_guidance_contract(self, valid)
+        mutations = {
+            "removed compiler": valid.replace(
+                CLOSED_RESPONSE_COMPILER_GUIDANCE,
+                "",
+                1,
+            ),
+            "wrong resolution cardinality": valid.replace(
+                "exactly once; emit a router-owned outcome immediately",
+                "again after selection; emit a router-owned outcome eventually",
+                1,
+            ),
+            "wrong positive tuple": valid.replace(
+                "same frozen tuple",
+                "newly inferred tuple",
+                1,
+            ),
+        }
+        for mutation, candidate in mutations.items():
+            with self.subTest(mutation=mutation), self.assertRaises(AssertionError):
+                assert_workflow_guidance_contract(self, candidate)
+
+    def test_guidance_oracle_rejects_domain_and_immutable_preselection_mutations(
+        self,
+    ):
+        valid = " ".join((*WORKFLOW_SKILLS, *WORKFLOW_GUIDANCE_CONTRACTS))
+
+        assert_workflow_guidance_contract(self, valid)
+        mutations = {
+            "missing domain recipe": valid.replace(
+                DOMAIN_CLASSIFICATION_GUIDANCE,
+                "",
+                1,
+            ),
+            "wrong explicit Foundation Models domain": valid.replace(
+                "Set `domain = foundation_models_handoff` only",
+                "Set `domain = ambiguous` only",
+                1,
+            ),
+            "wrong bare Apple handoff domain": valid.replace(
+                "set `domain = ambiguous` for bare",
+                "set `domain = foundation_models_handoff` for bare",
+                1,
+            ),
+            "wrong adjacent-domain classification": valid.replace(
+                "set `domain = out_of_domain` for App Intents",
+                "set `domain = foundation_models_handoff` for App Intents",
+                1,
+            ),
+            "missing synthetic debug divergence recipe": valid.replace(
+                SYNTHETIC_DEBUG_DIVERGENCE_GUIDANCE,
+                "",
+                1,
+            ),
+            "synthetic debug divergence widened beyond explicit": valid.replace(
+                "only when it explicitly describes",
+                "whenever it may imply",
+                1,
+            ),
+            "synthetic debug divergence selected after inspection": valid.replace(
+                "Before positive selection",
+                "After positive selection and inspection",
+                1,
+            ),
+            "synthetic debug divergence timing generalized": valid.replace(
+                "redispatches or replays before completion or reconciliation",
+                "fails at any time",
+                1,
+            ),
+            "synthetic debug divergence overrides bare ambiguity": valid.replace(
+                "bare `Apple handoff` remains `domain = ambiguous`",
+                "bare `Apple handoff` becomes `domain = foundation_models_handoff`",
+                1,
+            ),
+            "synthetic debug divergence overrides adjacent exclusions": valid.replace(
+                "all adjacent exclusions remain `domain = out_of_domain`",
+                "adjacent exclusions become `domain = foundation_models_handoff`",
+                1,
+            ),
+            "bare handoff precedence reversal": valid.replace(
+                "regardless of operation, artifact, failure, or evidence wording",
+                "unless operation, artifact, failure, or evidence wording selects "
+                "a workflow",
+                1,
+            ),
+            "omitted route skill load": valid.replace(
+                "select and load only",
+                "select only",
+                1,
+            ),
+            "paraphrased router branch": valid.replace(
+                "copy its exact matching branch",
+                "paraphrase its matching branch",
+                1,
+            ),
+            "positive workflow selected": valid.replace(
+                "select no positive workflow",
+                "select a positive workflow",
+                1,
+            ),
+            "adjacent domain omitted": valid.replace(
+                "coding-session handoff, ",
+                "",
+                1,
+            ),
+            "workflow finding reversal": valid.replace(
+                "an immutable pre-selection record, not a workflow finding",
+                "a mutable workflow finding, not a pre-selection record",
+                1,
+            ),
+            "post-inspection source reversal": valid.replace(
+                "the source request in the shown field order",
+                "post-inspection findings in a convenient field order",
+                1,
+            ),
+            "revision reversal": valid.replace(
+                "never use inspection, execution, evidence results, or drafted "
+                "output to infer or revise a value",
+                "use inspection, execution, evidence results, or drafted output "
+                "to infer or revise a value",
+                1,
+            ),
+            "router emulation reversal": valid.replace(
+                "neither invokes nor emulates the router",
+                "invokes and emulates the router",
+                1,
+            ),
+        }
+        for mutation, candidate in mutations.items():
+            with self.subTest(mutation=mutation), self.assertRaises(AssertionError):
+                assert_workflow_guidance_contract(self, candidate)
+
+    def test_guidance_does_not_duplicate_skill_owned_contract_sections(self):
+        for path in (CANONICAL, GENERATED):
+            with self.subTest(path=path.name):
+                assert_guidance_does_not_duplicate_skill_sections(
+                    self, path.read_text(encoding="utf-8")
+                )
+
+    def test_guidance_section_ownership_oracle_rejects_copy_without_remove(self):
+        valid = "# Repository guidance\n"
+        assert_guidance_does_not_duplicate_skill_sections(self, valid)
+
+        for level in (3, 4):
+            for heading in SKILL_OWNED_SECTION_HEADINGS:
+                with (
+                    self.subTest(level=level, heading=heading),
+                    self.assertRaises(AssertionError),
+                ):
+                    assert_guidance_does_not_duplicate_skill_sections(
+                        self,
+                        f"{valid}\n{'#' * level} {heading}\n"
+                        "Duplicated workflow content.\n",
+                    )
 
     def test_guidance_preserves_safe_synthetic_and_redacted_evidence_exception(self):
         canonical_text = normalized_guide(CANONICAL)

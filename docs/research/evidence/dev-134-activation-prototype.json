@@ -2,6 +2,7 @@
   "schemaVersion": "1.0",
   "evidenceKind": "design_contract_prototype",
   "sourceIssue": "DEV-134",
+  "dev136Option2SupersessionNote": "The approved DEV-136 option-2 decision establishes five workflows plus one non-positive router, route-apple-foundation-models-handoff. The five workflows retain positive-only workflow ownership; the router-owned non-positive branches are no_activation, domain clarification_required, and missing-approved-contract clarification_required. The conceptual routing recorded by this historical prototype is not evidence for the new production owner or host capability; fixture prompts/outcomes are unchanged. Codex-only current proof remains in scope and Claude proof is owner-deferred. The binding design amendment path is docs/superpowers/specs/2026-07-18-dev-136-preselection-router-design.md.",
   "designArtifact": "docs/superpowers/specs/2026-07-17-dev-134-agent-skill-catalog-design.md",
   "designArtifactSha256": "07541f46a0de721498e7526723769f6f69be3912c9e7d858097e685a72156ca7",
   "contractArtifact": "docs/architecture/apple-foundation-models-handoff-skill-contract.md",
