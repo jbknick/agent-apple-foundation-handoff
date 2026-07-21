@@ -81,29 +81,7 @@ def canonical_result(outcome="applied"):
 
 
 def canonical_benchmark():
-    return {
-        "schemaVersion": 1,
-        "policyVersion": "diagnostic-condensation-v1",
-        "kind": "corpus",
-        "corpusVersion": "dev-142-v1",
-        "corpusSha256": "b" * 64,
-        "cases": [
-            {
-                "id": "test-success-01",
-                "commandClass": "test",
-                "commandForm": "swift test",
-                "classification": "C0",
-                "renderedSha256": "c" * 64,
-                "expected": {
-                    "exitStatus": 0,
-                    "interrupted": False,
-                    "warningCount": 0,
-                    "requiredDiagnosticIDs": [],
-                    "failedTestIDs": [],
-                },
-            }
-        ],
-    }
+    return contract.load_closed_json(CORPUS)
 
 
 def schema_accepts(schema, value):
@@ -421,16 +399,17 @@ class Dev142CorpusTests(unittest.TestCase):
                 "column": 1 + index,
                 "failedTestID": case["expected"]["failedTestIDs"][0] if case["expected"]["failedTestIDs"] else None,
             })
-        return {
-            "exitStatus": case["expected"]["exitStatus"],
-            "interrupted": case["expected"]["interrupted"],
-            "condensation": {
-                "summary": f"synthetic {case['commandForm']} summary",
-                "diagnostics": diagnostics,
-                "warningCount": case["expected"]["warningCount"],
-                "omittedWarningCount": 0,
-            },
+        result = canonical_result()
+        result["commandClass"] = case["commandClass"]
+        result["exitStatus"] = case["expected"]["exitStatus"]
+        result["interrupted"] = case["expected"]["interrupted"]
+        result["condensation"] = {
+            "summary": f"synthetic {case['commandForm']} summary",
+            "diagnostics": diagnostics,
+            "warningCount": case["expected"]["warningCount"],
+            "omittedWarningCount": 0,
         }
+        return result
 
     def test_corpus_is_exact_hash_bound_and_balanced(self):
         self.assertTrue(CORPUS.exists())
@@ -462,6 +441,10 @@ class Dev142CorpusTests(unittest.TestCase):
             with self.subTest(command_form=command_form):
                 self.assertEqual(len(rows), 2)
                 self.assertEqual({row["expected"]["exitStatus"] == 0 for row in rows}, {False, True})
+        self.assertEqual(
+            frozenset(grouped),
+            contract.Policy.APPROVED_BENCHMARK_COMMAND_FORMS,
+        )
         unicode_case = next(row for row in corpus["cases"] if "unicode" in row["id"])
         rendered = contract.render_case(unicode_case)
         self.assertGreater(len(rendered), len(rendered.decode("utf-8").encode("ascii", "ignore")))
@@ -503,6 +486,49 @@ class Dev142CorpusTests(unittest.TestCase):
                 score = contract.score_condensation(failure, candidate)
                 self.assertFalse(score.passed)
                 self.assertEqual(score.reason_codes, tuple(sorted(score.reason_codes)))
+
+    def test_score_requires_a_closed_applied_result_and_matching_command_outcome(self):
+        corpus = contract.load_closed_json(CORPUS)
+        failure = next(row for row in corpus["cases"] if row["commandClass"] == "test" and row["expected"]["exitStatus"] == 1)
+        result = self._result_for(failure)
+        for name, mutate in {
+            "top_level_key": lambda value: value.__setitem__("invented", True),
+            "condensation_key": lambda value: value["condensation"].__setitem__("invented", True),
+            "command_class": lambda value: value.__setitem__("commandClass", "build"),
+            "success_for_failure": lambda value: value.__setitem__("exitStatus", 0),
+        }.items():
+            candidate = json.loads(json.dumps(result))
+            mutate(candidate)
+            with self.subTest(name=name):
+                score = contract.score_condensation(failure, candidate)
+                self.assertFalse(score.passed)
+                self.assertIn("invalid_result" if "key" in name else "command_outcome_regression", score.reason_codes)
+
+        for outcome in ("declined", "fail"):
+            candidate = canonical_result(outcome)
+            candidate["commandClass"] = failure["commandClass"]
+            candidate["exitStatus"] = failure["expected"]["exitStatus"]
+            candidate["interrupted"] = failure["expected"]["interrupted"]
+            with self.subTest(outcome=outcome):
+                score = contract.score_condensation(failure, candidate)
+                self.assertFalse(score.passed)
+                self.assertIn("command_outcome_regression", score.reason_codes)
+
+    def test_validate_benchmark_enforces_the_complete_hash_bound_corpus(self):
+        corpus = contract.load_closed_json(CORPUS)
+        self.assertEqual(contract.validate_benchmark(corpus), corpus)
+        mutations = {
+            "missing_case": lambda value: value["cases"].pop(),
+            "unapproved_form": lambda value: value["cases"][0].__setitem__("commandForm", "echo synthetic"),
+            "unbalanced_form": lambda value: value["cases"][0].__setitem__("commandForm", value["cases"][2]["commandForm"]),
+            "rendered_hash": lambda value: value["cases"][0].__setitem__("renderedSha256", "0" * 64),
+            "corpus_hash": lambda value: value.__setitem__("corpusSha256", "0" * 64),
+        }
+        for name, mutate in mutations.items():
+            candidate = json.loads(json.dumps(corpus))
+            mutate(candidate)
+            with self.subTest(name=name), self.assertRaises(contract.ContractError):
+                contract.validate_benchmark(candidate)
 
 
 class Dev142SchemaParityTests(unittest.TestCase):
