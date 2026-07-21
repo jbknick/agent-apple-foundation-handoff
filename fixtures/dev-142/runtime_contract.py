@@ -1494,7 +1494,7 @@ def _resolve_repo_path(
     _recheck_snapshot(snapshot)
     _recheck_absence(missing)
     if snapshot_sink is not None:
-        snapshot_sink.append(snapshot)
+        snapshot_sink.append((snapshot, missing))
     return token
 
 
@@ -1748,18 +1748,19 @@ def parse_command(command, repo_root):
         if tuple(tokens[:len(prefix)]) != prefix:
             continue
         suffix = tokens[len(prefix):]
-        path_snapshots = []
+        operand_path_states = []
         if validator is None:
             if suffix:
                 raise RouteDeclined("command_not_allowed")
         else:
-            validator(list(suffix), root, path_snapshots)
+            validator(list(suffix), root, operand_path_states)
         _recheck_snapshot(root_snapshot)
-        for snapshot in path_snapshots:
+        for snapshot, missing in operand_path_states:
             _recheck_snapshot(snapshot)
+            _recheck_absence(missing)
         return CommandSelection(
             command_class, tuple(tokens),
-            (root_snapshot, tuple(path_snapshots)),
+            (root_snapshot, tuple(operand_path_states)),
         )
     raise RouteDeclined("command_not_allowed")
 
@@ -1800,22 +1801,23 @@ def _response_semantics_match(request, response, source_facts):
 
 def _capture_contained_diagnostic_paths(condensation, repo_root):
     root, root_snapshot = _repository_root(repo_root)
-    path_snapshots = []
+    operand_path_states = []
     for diagnostic in condensation["diagnostics"]:
         if diagnostic["file"] is not None:
             _resolve_repo_path(
                 diagnostic["file"], root, regular=True,
-                snapshot_sink=path_snapshots,
+                snapshot_sink=operand_path_states,
             )
     _recheck_snapshot(root_snapshot)
-    return root_snapshot, tuple(path_snapshots)
+    return root_snapshot, tuple(operand_path_states)
 
 
 def _recheck_contained_path_state(path_states):
-    for root_snapshot, path_snapshots in path_states:
+    for root_snapshot, operand_path_states in path_states:
         _recheck_snapshot(root_snapshot)
-        for snapshot in path_snapshots:
+        for snapshot, missing in operand_path_states:
             _recheck_snapshot(snapshot)
+            _recheck_absence(missing)
 
 
 def _response_bytes(result):
