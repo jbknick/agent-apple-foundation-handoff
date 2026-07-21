@@ -172,6 +172,8 @@ def schema_accepts(schema, value):
                     return False
                 if all(json_equal(item.get(key), expected) for key, expected in rule["when"].items()):
                     path = item.get(rule["field"])
+                    if path is None and rule.get("nullable"):
+                        continue
                     if type(path) is not str or not path or path.startswith("/") or "\x00" in path:
                         return False
                     if any(part in ("", ".", "..") for part in path.split("/")):
