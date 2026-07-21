@@ -498,6 +498,38 @@ class Dev142SchemaParityTests(unittest.TestCase):
         self.assertFalse(schema_accepts({"enum": [1]}, True))
         self.assertTrue(schema_accepts({"type": "array", "uniqueItems": True}, [True, 1]))
 
+    def test_closed_vocabulary_covers_diagnostic_paths_and_evidence_ids(self):
+        result_schema = self._schema("dev-142-result.schema.json")
+        result = canonical_result()
+        diagnostic = {
+            "id": "diagnostic-1", "severity": "error", "code": "E1", "message": "failure",
+            "file": "/private/path", "line": 1, "column": 1, "failedTestID": None,
+        }
+        for path in ("/private/path", "../private/path"):
+            rejected = {**result, "condensation": {**result["condensation"], "diagnostics": [dict(diagnostic, file=path)]}}
+            with self.subTest(path=path), self.assertRaises(contract.ContractError):
+                contract.validate_result(rejected)
+            self.assertFalse(schema_accepts(result_schema, rejected))
+
+        benchmark_schema = self._schema("dev-142-benchmark.schema.json")
+        arm = {
+            "id": "arm-1", "pairID": "pair-1", "arm": "pluginOff", "provider": "openai-responses-usage-v1",
+            "inputTokens": 1, "cachedInputTokens": 0, "outputTokens": 1, "reasoningTokens": 0,
+            "totalParentModelTokens": 2, "parentTurns": 1, "appleAttempts": 0, "replacements": 0,
+            "declines": 0, "fallbacks": 0, "latencyMilliseconds": 1, "correct": True,
+        }
+        evidence = {
+            "schemaVersion": 1, "policyVersion": contract.Policy.POLICY_VERSION, "kind": "evidence",
+            "arms": [arm], "pairs": [{"id": "pair-1", "status": "blocked", "reduction": None}],
+            "release": {"status": "blocked", "validRequiredPairs": 0, "blockedRequiredPairs": 1, "medianReduction": None, "correctnessRegressions": 0, "additionalParentModelTurns": 0},
+        }
+        duplicate_arm = {**evidence, "arms": [arm, dict(arm, pairID="pair-2")]}
+        duplicate_pair = {**evidence, "pairs": [evidence["pairs"][0], {"id": "pair-1", "status": "valid", "reduction": None}]}
+        for rejected in (duplicate_arm, duplicate_pair):
+            with self.subTest(evidence=rejected), self.assertRaises(contract.ContractError):
+                contract.validate_benchmark(rejected)
+            self.assertFalse(schema_accepts(benchmark_schema, rejected))
+
 
 if __name__ == "__main__":
     unittest.main()
