@@ -2,12 +2,14 @@ import importlib.util
 import json
 import math
 from pathlib import Path
+import re
 import tempfile
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "fixtures" / "dev-142" / "runtime_contract.py"
+SCHEMAS = ROOT / "schemas"
 SPEC = importlib.util.spec_from_file_location("dev142_runtime_contract", CONTRACT_PATH)
 contract = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
@@ -98,6 +100,81 @@ def canonical_benchmark():
             }
         ],
     }
+
+
+def schema_accepts(schema, value):
+    """Evaluate only the repository-local Draft 2020-12 keywords we use."""
+    def resolve(node):
+        if "$ref" not in node:
+            return node
+        target = schema
+        for part in node["$ref"].removeprefix("#/").split("/"):
+            target = target[part]
+        return target
+
+    def type_matches(candidate, expected):
+        if expected == "null":
+            return candidate is None
+        if expected == "object":
+            return type(candidate) is dict
+        if expected == "array":
+            return type(candidate) is list
+        if expected == "string":
+            return type(candidate) is str
+        if expected == "boolean":
+            return type(candidate) is bool
+        if expected == "integer":
+            return type(candidate) is int
+        if expected == "number":
+            return type(candidate) in (int, float) and math.isfinite(candidate)
+        raise AssertionError(f"unsupported schema type: {expected}")
+
+    def matches(node, candidate):
+        node = resolve(node)
+        if "oneOf" in node and sum(matches(branch, candidate) for branch in node["oneOf"]) != 1:
+            return False
+        if "allOf" in node and not all(matches(branch, candidate) for branch in node["allOf"]):
+            return False
+        if "if" in node and matches(node["if"], candidate) and "then" in node and not matches(node["then"], candidate):
+            return False
+        if "const" in node and candidate != node["const"]:
+            return False
+        if "enum" in node and candidate not in node["enum"]:
+            return False
+        expected = node.get("type")
+        if expected is not None:
+            expected = expected if type(expected) is list else [expected]
+            if not any(type_matches(candidate, item) for item in expected):
+                return False
+        if type(candidate) is dict:
+            required = node.get("required", [])
+            if any(key not in candidate for key in required):
+                return False
+            properties = node.get("properties", {})
+            if node.get("additionalProperties") is False and any(key not in properties for key in candidate):
+                return False
+            if any(key in candidate and not matches(child, candidate[key]) for key, child in properties.items()):
+                return False
+        if type(candidate) is list:
+            if len(candidate) < node.get("minItems", 0):
+                return False
+            if not all(matches(node.get("items", {}), item) for item in candidate):
+                return False
+            if node.get("uniqueItems") and len({json.dumps(item, sort_keys=True) for item in candidate}) != len(candidate):
+                return False
+        if type(candidate) is str:
+            if len(candidate) < node.get("minLength", 0):
+                return False
+            if "pattern" in node and re.search(node["pattern"], candidate) is None:
+                return False
+        if type(candidate) in (int, float) and type(candidate) is not bool:
+            if "minimum" in node and candidate < node["minimum"]:
+                return False
+            if "maximum" in node and candidate > node["maximum"]:
+                return False
+        return True
+
+    return matches(schema, value)
 
 
 class Dev142PolicySchemaTests(unittest.TestCase):
@@ -232,6 +309,91 @@ class Dev142PolicySchemaTests(unittest.TestCase):
         evidence["pairs"][0]["reduction"] = math.nan
         with self.assertRaises(contract.ContractError):
             contract.validate_benchmark(evidence)
+
+    def test_all_enum_boundaries_reject_unhashable_values_as_contract_errors(self):
+        diagnostic = {
+            "id": "diagnostic-1", "severity": [], "code": "E1", "message": "failure",
+            "file": None, "line": None, "column": None, "failedTestID": None,
+        }
+        cases = (
+            (contract.validate_request, {**canonical_request(), "commandClass": []}),
+            (contract.validate_request, {**canonical_request(), "fields": [dict(canonical_request()["fields"][0], classification={})]}),
+            (contract.validate_result, {**canonical_result(), "condensation": {**canonical_result()["condensation"], "diagnostics": [diagnostic]}}),
+            (contract.validate_result, {**canonical_result("declined"), "reasonCode": {}}),
+            (contract.validate_benchmark, {**canonical_benchmark(), "kind": []}),
+            (contract.validate_benchmark, {**canonical_benchmark(), "cases": [dict(canonical_benchmark()["cases"][0], commandClass=[])]}),
+        )
+        for validator, value in cases:
+            with self.subTest(validator=validator.__name__, value=value), self.assertRaises(contract.ContractError):
+                validator(value)
+
+        evidence = {
+            "schemaVersion": 1, "policyVersion": contract.Policy.POLICY_VERSION, "kind": "evidence",
+            "arms": [], "pairs": [],
+            "release": {"status": {}, "validRequiredPairs": 0, "blockedRequiredPairs": 0, "medianReduction": None, "correctnessRegressions": 0, "additionalParentModelTurns": 0},
+        }
+        with self.assertRaises(contract.ContractError):
+            contract.validate_benchmark(evidence)
+
+
+class Dev142SchemaParityTests(unittest.TestCase):
+    def _schema(self, name):
+        return json.loads((SCHEMAS / name).read_text())
+
+    def test_request_schema_matches_field_value_and_status_contract(self):
+        schema = self._schema("dev-142-request.schema.json")
+        accepted = canonical_request()
+        line = dict(accepted["fields"][0], name="line", value=1)
+        accepted["fields"] = [line]
+        self.assertEqual(contract.validate_request(accepted), accepted)
+        self.assertTrue(schema_accepts(schema, accepted))
+        rejected = dict(accepted, fields=[dict(line, value="1")])
+        with self.assertRaises(contract.ContractError):
+            contract.validate_request(rejected)
+        self.assertFalse(schema_accepts(schema, rejected))
+        rejected = dict(accepted, exitStatus=None, interrupted=False)
+        with self.assertRaises(contract.ContractError):
+            contract.validate_request(rejected)
+        self.assertFalse(schema_accepts(schema, rejected))
+
+    def test_result_schema_matches_tagged_union_and_status_contract(self):
+        schema = self._schema("dev-142-result.schema.json")
+        for outcome in ("applied", "declined", "fail"):
+            accepted = canonical_result(outcome)
+            self.assertEqual(contract.validate_result(accepted), accepted)
+            self.assertTrue(schema_accepts(schema, accepted))
+        rejected = dict(canonical_result("declined"), exitStatus=None, interrupted=False)
+        with self.assertRaises(contract.ContractError):
+            contract.validate_result(rejected)
+        self.assertFalse(schema_accepts(schema, rejected))
+        rejected = {**canonical_result("declined"), "condensation": {}}
+        with self.assertRaises(contract.ContractError):
+            contract.validate_result(rejected)
+        self.assertFalse(schema_accepts(schema, rejected))
+
+    def test_benchmark_schema_matches_blocked_and_plugin_off_contract(self):
+        schema = self._schema("dev-142-benchmark.schema.json")
+        evidence = {
+            "schemaVersion": 1, "policyVersion": contract.Policy.POLICY_VERSION, "kind": "evidence",
+            "arms": [{
+                "id": "arm-1", "pairID": "pair-1", "arm": "pluginOff", "provider": "openai-responses-usage-v1",
+                "inputTokens": 1, "cachedInputTokens": 0, "outputTokens": 1, "reasoningTokens": 0,
+                "totalParentModelTokens": 2, "parentTurns": 1, "appleAttempts": 0, "replacements": 0,
+                "declines": 0, "fallbacks": 0, "latencyMilliseconds": 1, "correct": True,
+            }],
+            "pairs": [{"id": "pair-1", "status": "blocked", "reduction": None}],
+            "release": {"status": "blocked", "validRequiredPairs": 0, "blockedRequiredPairs": 1, "medianReduction": None, "correctnessRegressions": 0, "additionalParentModelTurns": 0},
+        }
+        self.assertEqual(contract.validate_benchmark(evidence), evidence)
+        self.assertTrue(schema_accepts(schema, evidence))
+        blocked_reduction = {**evidence, "pairs": [{"id": "pair-1", "status": "blocked", "reduction": 0.0}]}
+        with self.assertRaises(contract.ContractError):
+            contract.validate_benchmark(blocked_reduction)
+        self.assertFalse(schema_accepts(schema, blocked_reduction))
+        plugin_off_attempt = {**evidence, "arms": [dict(evidence["arms"][0], appleAttempts=1)]}
+        with self.assertRaises(contract.ContractError):
+            contract.validate_benchmark(plugin_off_attempt)
+        self.assertFalse(schema_accepts(schema, plugin_off_attempt))
 
 
 if __name__ == "__main__":
