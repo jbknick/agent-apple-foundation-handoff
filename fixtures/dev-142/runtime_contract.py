@@ -490,17 +490,37 @@ def _path_value(token):
     return token
 
 
+def _reject_symlink_ancestors(candidate, root):
+    _contained(candidate, root)
+    current = root
+    missing = False
+    for component in candidate.relative_to(root).parts[:-1]:
+        current /= component
+        try:
+            identity = _identity(current)
+        except OSError:
+            missing = True
+            continue
+        if missing or stat.S_ISLNK(identity[2]):
+            raise RouteDeclined("command_not_allowed")
+
+
 def _resolve_repo_path(token, root, *, directory=False, suffix=None, regular=False):
     token = _path_value(token)
     candidate = root / token
+    _reject_symlink_ancestors(candidate, root)
     try:
         first = _identity(candidate)
         exists = True
     except OSError:
         exists = False
         parent = candidate.parent
-        while parent != root and not parent.exists():
-            parent = parent.parent
+        while parent != root:
+            try:
+                parent_identity = _identity(parent)
+                break
+            except OSError:
+                parent = parent.parent
         try:
             parent_identity = _identity(parent)
             if stat.S_ISLNK(parent_identity[2]):
@@ -520,6 +540,7 @@ def _resolve_repo_path(token, root, *, directory=False, suffix=None, regular=Fal
         _contained(resolved, root)
         if _identity(candidate) != first:
             raise RouteDeclined("command_not_allowed")
+        _reject_symlink_ancestors(candidate, root)
         if directory and not stat.S_ISDIR(first[2]):
             raise RouteDeclined("command_not_allowed")
         if regular and not stat.S_ISREG(first[2]):
@@ -777,6 +798,8 @@ def _request_bindings_match(request, result):
 def _response_bytes(result):
     try:
         return len(json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+    except UnicodeError as error:
+        raise ContractError("invalid response") from error
     except (TypeError, ValueError) as error:
         raise ContractError("invalid response") from error
 
@@ -791,6 +814,14 @@ def route(request, context):
         for field in request.get("fields", ()):
             if type(field) is not dict or field.get("origin") != "trustedLocal" or field.get("classification") not in ("C0", "C1"):
                 return _fallback("declined", "data_policy_denied")
+            if field.get("name") == "file":
+                try:
+                    root, root_identity = _repository_root(context.get("repoRoot"))
+                    _resolve_repo_path(field.get("value"), root, regular=True)
+                    if _identity(root) != root_identity:
+                        raise RouteDeclined("command_not_allowed")
+                except RouteDeclined:
+                    return _fallback("declined", "data_policy_denied")
         validate_request(request)
         if request["action"] != Policy.ACTION or request["policyVersion"] != Policy.POLICY_VERSION:
             return _fallback("declined", "contract_invariant_failed")
@@ -823,7 +854,7 @@ def route(request, context):
     try:
         validate_result(response)
         if response["outcome"] != "applied":
-            return _fallback("declined", response["reasonCode"])
+            return _fallback(response["outcome"], response["reasonCode"])
         if not _request_bindings_match(request, response):
             raise ContractError("response bindings mismatch")
         output_bytes = _response_bytes(response)
