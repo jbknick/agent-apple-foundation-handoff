@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dev-142-request.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "policyVersion", "callID", "toolName", "toolVersion", "stateVersion", "action", "commandClass", "originalResultType", "originalResultDigest", "exitStatus", "interrupted", "inputBytes", "estimatedSavingsBytes", "fields"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "policyVersion": {"const": "diagnostic-condensation-v1"},
+    "callID": {"type": "string", "minLength": 1},
+    "toolName": {"const": "Bash"},
+    "toolVersion": {"type": "string", "minLength": 1},
+    "stateVersion": {"type": "string", "minLength": 1},
+    "action": {"const": "condense_diagnostic_output"},
+    "commandClass": {"enum": ["test", "build", "typecheck", "lint"]},
+    "originalResultType": {"type": "string", "minLength": 1},
+    "originalResultDigest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "exitStatus": {"type": ["integer", "null"], "minimum": 0, "maximum": 255},
+    "interrupted": {"type": "boolean"},
+    "inputBytes": {"type": "integer", "minimum": 8192, "maximum": 65536},
+    "estimatedSavingsBytes": {"type": "integer", "minimum": 4096},
+    "fields": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/field"}}
+  },
+  "allOf": [{"if": {"properties": {"interrupted": {"const": false}}}, "then": {"properties": {"exitStatus": {"type": "integer"}}}}],
+  "$defs": {
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "value", "origin", "classification", "purpose", "destination", "retention", "redacted"],
+      "properties": {
+        "name": {"enum": ["severity", "code", "message", "file", "line", "column"]},
+        "value": {},
+        "origin": {"const": "trustedLocal"},
+        "classification": {"enum": ["C0", "C1"]},
+        "purpose": {"const": "diagnostic_condensation"},
+        "destination": {"const": "apple_on_device"},
+        "retention": {"const": "ephemeral"},
+        "redacted": {"type": "boolean"}
+      }
+    }
+  }
+}

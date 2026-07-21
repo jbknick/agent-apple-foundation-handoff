@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dev-142-result.schema.json",
+  "oneOf": [{"$ref": "#/$defs/applied"}, {"$ref": "#/$defs/nonApplied"}],
+  "$defs": {
+    "bindings": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {"const": 1}, "policyVersion": {"const": "diagnostic-condensation-v1"},
+        "callID": {"type": "string", "minLength": 1}, "toolName": {"const": "Bash"},
+        "toolVersion": {"type": "string", "minLength": 1}, "stateVersion": {"type": "string", "minLength": 1},
+        "action": {"const": "condense_diagnostic_output"}, "commandClass": {"enum": ["test", "build", "typecheck", "lint"]},
+        "originalResultType": {"type": "string", "minLength": 1}, "originalResultDigest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "exitStatus": {"type": ["integer", "null"], "minimum": 0, "maximum": 255}, "interrupted": {"type": "boolean"}
+      }
+    },
+    "condensation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["summary", "diagnostics", "warningCount", "omittedWarningCount"],
+      "properties": {
+        "summary": {"type": "string", "minLength": 1}, "diagnostics": {"type": "array", "items": {"$ref": "#/$defs/diagnostic"}},
+        "warningCount": {"type": "integer", "minimum": 0}, "omittedWarningCount": {"type": "integer", "minimum": 0}
+      }
+    },
+    "diagnostic": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "severity", "code", "message", "file", "line", "column", "failedTestID"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1}, "severity": {"enum": ["fatal", "error", "warning", "info"]},
+        "code": {"type": "string"}, "message": {"type": "string", "minLength": 1}, "file": {"type": ["string", "null"]},
+        "line": {"type": ["integer", "null"], "minimum": 1}, "column": {"type": ["integer", "null"], "minimum": 1},
+        "failedTestID": {"type": ["string", "null"], "minLength": 1}
+      }
+    },
+    "applied": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schemaVersion", "policyVersion", "callID", "toolName", "toolVersion", "stateVersion", "action", "commandClass", "originalResultType", "originalResultDigest", "outcome", "exitStatus", "interrupted", "resultType", "condensation"],
+      "allOf": [{"$ref": "#/$defs/bindings"}],
+      "properties": {"outcome": {"const": "applied"}, "resultType": {"const": "diagnostic_condensation"}, "condensation": {"$ref": "#/$defs/condensation"}}
+    },
+    "nonApplied": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schemaVersion", "policyVersion", "callID", "toolName", "toolVersion", "stateVersion", "action", "commandClass", "originalResultType", "originalResultDigest", "outcome", "exitStatus", "interrupted", "reasonCode"],
+      "allOf": [{"$ref": "#/$defs/bindings"}],
+      "properties": {"outcome": {"enum": ["declined", "fail"]}, "reasonCode": {"enum": ["tool_not_allowed", "command_not_allowed", "compound_command", "data_policy_denied", "input_below_minimum", "input_above_maximum", "apple_unavailable", "locale_unsupported", "context_budget_exceeded", "generation_declined", "cancelled", "deadline_exceeded", "invalid_response", "insufficient_realized_savings", "host_replacement_unavailable", "host_replacement_failed", "contract_invariant_failed"]}}
+    }
+  }
+}
