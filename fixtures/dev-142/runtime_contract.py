@@ -4,6 +4,7 @@ This module deliberately performs no host, process, or model operation.
 """
 
 import json
+import hashlib
 import math
 import os
 import re
@@ -54,6 +55,12 @@ class RouteDeclined(ValueError):
 class CommandSelection:
     command_class: str
     tokens: tuple
+
+
+@dataclass(frozen=True)
+class QualityScore:
+    passed: bool
+    reason_codes: tuple[str, ...]
 
 
 _lstat = os.lstat
@@ -392,6 +399,170 @@ def validate_benchmark(value):
             pair_ids.add(pair["id"])
         _validate_release(value["release"])
     return value
+
+
+_SYNTHETIC_NOISE_LINE = "synthetic-noise|unicode=\u00e9\u6f22\U0001f642|classification={classification}|case={case_id}|repeat={repeat}\n"
+
+
+def _case_ordinal(case):
+    try:
+        return int(case["id"].rsplit("-", 1)[1])
+    except (KeyError, TypeError, ValueError, IndexError) as error:
+        raise ContractError("invalid case id") from error
+
+
+def _diagnostic_for_case(case, diagnostic_id):
+    try:
+        severity, ordinal = diagnostic_id.split("-", 1)
+        index = int(ordinal)
+    except (AttributeError, ValueError) as error:
+        raise ContractError("invalid diagnostic id") from error
+    if severity not in ("fatal", "error") or index < 1:
+        raise ContractError("invalid diagnostic id")
+    failed_ids = case["expected"]["failedTestIDs"]
+    return {
+        "id": diagnostic_id,
+        "severity": severity,
+        "code": f"{case['commandClass'].upper()}-{index:03d}",
+        "message": f"synthetic {case['commandForm']} {severity} diagnostic",
+        "file": f"Sources/{case['commandClass'].title()}Case{index}.swift",
+        "line": 100 + index,
+        "column": 1 + index,
+        "failedTestID": failed_ids[0] if failed_ids else None,
+    }
+
+
+def _case_summary(case):
+    return f"synthetic {case['commandForm']} summary"
+
+
+def _noise_repeat(case):
+    return 176 + _case_ordinal(case) * 3
+
+
+def render_case(case):
+    """Render one reviewed synthetic case with stable UTF-8 bytes."""
+    _validate_case(case)
+    expected = case["expected"]
+    lines = (
+        ("case-id", case["id"]),
+        ("command-class", case["commandClass"]),
+        ("command-form", case["commandForm"]),
+        ("classification", case["classification"]),
+        ("exit-status", "interrupted" if expected["exitStatus"] is None else str(expected["exitStatus"])),
+        ("interrupted", str(expected["interrupted"]).lower()),
+        ("warning-count", str(expected["warningCount"])),
+        ("summary", _case_summary(case)),
+    )
+    rendered = [f"{key}: {value}\n" for key, value in lines]
+    for diagnostic_id in expected["requiredDiagnosticIDs"]:
+        diagnostic = _diagnostic_for_case(case, diagnostic_id)
+        rendered.append(
+            "diagnostic: " + json.dumps(
+                diagnostic, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            ) + "\n"
+        )
+    for failed_test_id in expected["failedTestIDs"]:
+        rendered.append(f"failed-test: {failed_test_id}\n")
+    noise = _SYNTHETIC_NOISE_LINE.format(
+        classification=case["classification"], case_id=case["id"], repeat=_noise_repeat(case)
+    )
+    rendered.extend(noise for _ in range(_noise_repeat(case)))
+    return "".join(rendered).encode("utf-8")
+
+
+def corpus_digest(corpus):
+    """Hash the canonical corpus representation without its self-binding field."""
+    if type(corpus) is not dict:
+        raise ContractError("invalid corpus")
+    bound = {key: value for key, value in corpus.items() if key != "corpusSha256"}
+    try:
+        canonical = json.dumps(bound, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    except (TypeError, ValueError, UnicodeEncodeError) as error:
+        raise ContractError("invalid corpus") from error
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def _diagnostic_identity(diagnostic):
+    if type(diagnostic) is not dict:
+        return None
+    keys = ("id", "severity", "code", "message", "file", "line", "column", "failedTestID")
+    if set(diagnostic) != set(keys):
+        return None
+    return tuple(diagnostic[key] for key in keys)
+
+
+def _required_identities(case):
+    return frozenset(_diagnostic_identity(_diagnostic_for_case(case, diagnostic_id)) for diagnostic_id in case["expected"]["requiredDiagnosticIDs"])
+
+
+def _diagnostic_identities(result):
+    try:
+        diagnostics = result["condensation"]["diagnostics"]
+    except (KeyError, TypeError):
+        return None
+    if type(diagnostics) is not list:
+        return None
+    identities = [_diagnostic_identity(diagnostic) for diagnostic in diagnostics]
+    try:
+        duplicate = len(set(identities)) != len(identities)
+    except TypeError:
+        return None
+    if any(identity is None for identity in identities) or duplicate:
+        return None
+    return frozenset(identities)
+
+
+def _invented_facts(case, result):
+    try:
+        condensation = result["condensation"]
+        if type(condensation) is not dict:
+            return True
+        if condensation["summary"] != _case_summary(case):
+            return True
+        if condensation["warningCount"] != case["expected"]["warningCount"]:
+            return True
+        if type(condensation["warningCount"]) is not int or type(condensation["omittedWarningCount"]) is not int or not 0 <= condensation["omittedWarningCount"] <= condensation["warningCount"]:
+            return True
+    except (KeyError, TypeError):
+        return True
+    return False
+
+
+def score_condensation(case, result):
+    """Score a normalized condensation against its immutable synthetic case."""
+    _validate_case(case)
+    reasons = []
+    try:
+        if result["exitStatus"] != case["expected"]["exitStatus"]:
+            reasons.append("exit_status_regression")
+        if result["interrupted"] != case["expected"]["interrupted"]:
+            reasons.append("interruption_regression")
+    except (KeyError, TypeError):
+        reasons.extend(("exit_status_regression", "interruption_regression"))
+    if _diagnostic_identities(result) != _required_identities(case):
+        reasons.append("diagnostic_identity_regression")
+    if _invented_facts(case, result):
+        reasons.append("invented_fact")
+    try:
+        encoded = json.dumps(result, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    except (TypeError, ValueError, UnicodeEncodeError):
+        reasons.append("invented_fact")
+        encoded = b""
+    if len(encoded) > Policy.MAXIMUM_CONDENSED_BYTES:
+        reasons.append("condensed_output_too_large")
+    return QualityScore(not reasons, tuple(sorted(set(reasons))))
+
+
+def benchmark_boundaries():
+    """Return fixed ineligible/boundary rows, deliberately separate from corpus cases."""
+    return (
+        {"id": "below-input-minimum", "inputBytes": 8191, "outputBytes": 4096, "realizedSavingsBytes": 4095, "occupiedTokens": 6144, "contextSize": 8192},
+        {"id": "minimum-input", "inputBytes": 8192, "outputBytes": 4096, "realizedSavingsBytes": 4096, "occupiedTokens": 6144, "contextSize": 8192},
+        {"id": "maximum-input", "inputBytes": 65536, "outputBytes": 61440, "realizedSavingsBytes": 61440, "occupiedTokens": 6144, "contextSize": 8192},
+        {"id": "above-input-maximum", "inputBytes": 65537, "outputBytes": 61440, "realizedSavingsBytes": 4097, "occupiedTokens": 6145, "contextSize": 8192},
+        {"id": "below-output-minimum", "inputBytes": 8192, "outputBytes": 4095, "realizedSavingsBytes": 4097, "occupiedTokens": 6145, "contextSize": 8192},
+    )
 
 
 def _reject_non_finite(value):
