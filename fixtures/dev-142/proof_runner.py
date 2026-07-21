@@ -6,8 +6,10 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path
+import re
 import tempfile
 
 
@@ -39,13 +41,31 @@ ROUTING_BOUNDARIES = (
     "R-FILE-MISSING", "R-FILE-NONCONTAINED", "R-APPLE-UNAVAILABLE",
     "R-LOCALE-UNSUPPORTED", "R-MALFORMED-RESPONSE", "R-BRIDGE-DECLINE",
     "R-BRIDGE-FAIL", "R-BRIDGE-EXCEPTION", "R-APPLIED-001",
+    "R-SECRET-001", "R-CANONICAL-BYTES-001", "R-ISOLATED-REQUEST-001",
+    "R-RESPONSE-BINDINGS-001", "R-RESPONSE-SEMANTICS-001",
+    "R-PATH-RECHECK-001", "R-QUOTED-PYTEST-001", "R-FLAG-ORDER-001",
 )
 SAFETY_BOUNDARIES = (
     "S-PRIVATE-KEY-001", "S-PRIVATE-PATH-001", "S-RAW-PROMPT-001",
     "S-RAW-RESULT-001", "S-RAW-RESPONSE-001", "S-CREDENTIAL-001",
     "S-TRACE-001", "S-XCRESULT-001", "S-SELF-ATTEST-001",
     "S-EXTRA-KEY-001", "S-STATUS-001", "S-LIVE-CLAIM-001",
+    "S-PRIVATE-POSIX-001", "S-WINDOWS-PATH-001", "S-UNC-PATH-001",
+    "S-CREDENTIAL-VALUE-001", "S-NESTED-KEY-001",
 )
+EXPECTED_BOUNDARIES = {
+    "P-BOUNDARY-001": ("D-INPUT-001", "D-INTERRUPTION-001", "D-OCCUPANCY-001"),
+    "P-CORPUS-001": ("D-CORPUS-001",),
+    "P-NORMALIZATION-001": ("D-NORMALIZATION-ANTHROPIC-001", "D-NORMALIZATION-OPENAI-001"),
+    "P-QUALITY-001": ("D-QUALITY-001",),
+    "P-RELEASE-001": ("D-RELEASE-MATRIX-001",),
+    "P-ROUTING-001": tuple(sorted(ROUTING_BOUNDARIES)),
+    "P-SAFETY-001": tuple(sorted(SAFETY_BOUNDARIES)),
+    "P-SCHEMA-001": (
+        "D-SCHEMA-BENCHMARK-001", "D-SCHEMA-REQUEST-001",
+        "D-SCHEMA-RESULT-001", "D-SCHEMA-VOCABULARY-001",
+    ),
+}
 LIVE_CLAIMS = {
     "appleInvocation": "not_applicable",
     "codexHook": "not_applicable",
@@ -54,11 +74,23 @@ LIVE_CLAIMS = {
 }
 EVIDENCE_KEYS = {
     "schemaVersion", "issue", "status", "policyVersion", "action", "schemaCount",
-    "eligibleCaseCount", "requiredPairCount", "corpusSha256", "checks", "liveClaims",
+    "eligibleCaseCount", "requiredArmCount", "requiredPairCount", "corpusSha256", "checks", "liveClaims",
 }
-FORBIDDEN_METADATA = (
-    "api_key", "credential", "password", "secret", "rawprompt", "rawresult",
-    "rawresponse", "trace", "xcresult", "modelcorrectness", "selfattested",
+FORBIDDEN_METADATA_KEYS = {
+    "api_key", "access_token", "password", "secret", "credential", "authorization",
+    "private_key", "private_path", "raw_prompt", "raw_result", "raw_response",
+    "raw_reasoning", "hidden_reasoning", "chain_of_thought", "trace", "raw_trace",
+    "xcresult", "model_correctness", "self_attested", "self_attestation",
+}
+FORBIDDEN_METADATA_PATTERNS = (
+    re.compile(r"-----BEGIN (?:RSA |OPENSSH |EC )?PRIVATE KEY-----", re.IGNORECASE),
+    re.compile(r"/(?:Users|home|private)/[^\s]+", re.IGNORECASE),
+    re.compile(r"\b[A-Za-z]:[\\/](?:Users|home|private)[\\/]", re.IGNORECASE),
+    re.compile(r"(?:\\\\|//)[A-Za-z0-9_.-]+[\\/][^\s]+"),
+    re.compile(r"\bBearer\s+[A-Za-z0-9._~+/-]{8,}", re.IGNORECASE),
+    re.compile(r"\b(?:api[_ -]?key|access[_ -]?token|password|secret|credential)\b\s*[:=]\s*[^\s,}]+", re.IGNORECASE),
+    re.compile(r"\bself[-_ ](?:attested|attestation)\b", re.IGNORECASE),
+    re.compile(r"\.(?:trace|xcresult)(?:\b|$)", re.IGNORECASE),
 )
 
 
@@ -74,7 +106,9 @@ def _canonical_result(contract, case):
     expected = case["expected"]
     diagnostics = [
         contract._diagnostic_for_case(case, diagnostic_id)
-        for diagnostic_id in expected["requiredDiagnosticIDs"]
+        for diagnostic_id in (
+            expected["requiredDiagnosticIDs"] + expected["warningRepresentativeIDs"]
+        )
     ]
     return {
         "schemaVersion": contract.Policy.SCHEMA_VERSION,
@@ -92,16 +126,20 @@ def _canonical_result(contract, case):
         "interrupted": expected["interrupted"],
         "resultType": contract.Policy.RESULT_TYPE,
         "condensation": {
-            "summary": contract._case_summary(case),
+            "commandOutcome": expected["commandOutcome"],
+            "summary": expected["summary"],
+            "summaryFacts": list(expected["summaryFacts"]),
             "diagnostics": diagnostics,
             "warningCount": expected["warningCount"],
-            "omittedWarningCount": 0,
+            "omittedWarningCount": expected["warningCount"] - len(expected["warningRepresentativeIDs"]),
+            "nextAction": expected["nextAction"],
+            "completionFacts": list(expected["completionFacts"]),
         },
     }
 
 
 def _canonical_request(contract, command_class="test"):
-    return {
+    request = {
         "schemaVersion": contract.Policy.SCHEMA_VERSION,
         "policyVersion": contract.Policy.POLICY_VERSION,
         "callID": "proof-route-call",
@@ -118,7 +156,7 @@ def _canonical_request(contract, command_class="test"):
         "estimatedSavingsBytes": contract.Policy.MINIMUM_ESTIMATED_SAVINGS_BYTES,
         "fields": [{
             "name": "message",
-            "value": "synthetic diagnostic",
+            "value": "x",
             "origin": "trustedLocal",
             "classification": "C1",
             "purpose": "diagnostic_condensation",
@@ -127,6 +165,11 @@ def _canonical_request(contract, command_class="test"):
             "redacted": False,
         }],
     }
+    base = len(contract.canonical_field_bytes(request["fields"]))
+    request["fields"][0]["value"] = "x" * (contract.Policy.MINIMUM_INPUT_BYTES - base + 1)
+    if len(contract.canonical_field_bytes(request["fields"])) != contract.Policy.MINIMUM_INPUT_BYTES:
+        raise ValueError("unstable canonical request bytes")
+    return request
 
 
 def _route_result(contract, request):
@@ -146,20 +189,202 @@ def _route_result(contract, request):
         "interrupted": request["interrupted"],
         "resultType": contract.Policy.RESULT_TYPE,
         "condensation": {
+            "commandOutcome": "failure",
             "summary": "synthetic route proof",
+            "summaryFacts": ["error-count=0"],
             "diagnostics": [],
             "warningCount": 0,
             "omittedWarningCount": 0,
+            "nextAction": "inspect the synthetic route proof",
+            "completionFacts": ["command-finished=true", "task-complete=false"],
         },
     }
 
 
-def _verify_schemas(contract):
+def _schema_accepts(contract, schema, value):
+    def equal(left, right):
+        if type(left) is not type(right):
+            return False
+        if type(left) is dict:
+            return set(left) == set(right) and all(equal(left[key], right[key]) for key in left)
+        if type(left) is list:
+            return len(left) == len(right) and all(equal(a, b) for a, b in zip(left, right))
+        return left == right
+
+    def resolve(node):
+        if "$ref" not in node:
+            return node
+        target = schema
+        for part in node["$ref"].removeprefix("#/").split("/"):
+            target = target[part]
+        return target
+
+    def type_matches(candidate, expected):
+        return {
+            "null": candidate is None,
+            "object": type(candidate) is dict,
+            "array": type(candidate) is list,
+            "string": type(candidate) is str,
+            "boolean": type(candidate) is bool,
+            "integer": type(candidate) is int,
+            "number": type(candidate) in (int, float) and not isinstance(candidate, bool) and math.isfinite(candidate),
+        }[expected]
+
+    def pointer(candidate, path):
+        current = candidate
+        for part in path.removeprefix("/").split("/"):
+            if type(current) is not dict or part not in current:
+                return None
+            current = current[part]
+        return current
+
+    def vocabulary_matches(vocabulary, candidate):
+        for rule in vocabulary.get("uniqueBy", []):
+            values = pointer(candidate, rule["array"])
+            if values is None:
+                continue
+            identities = set()
+            if type(values) is not list:
+                return False
+            for item in values:
+                if type(item) is not dict or any(key not in item for key in rule["keys"]):
+                    return False
+                identity = tuple(json.dumps(item[key], sort_keys=True, separators=(",", ":")) for key in rule["keys"])
+                if identity in identities:
+                    return False
+                identities.add(identity)
+        for rule in vocabulary.get("repoRelativePath", []):
+            values = pointer(candidate, rule["array"])
+            if values is None:
+                continue
+            if type(values) is not list:
+                return False
+            for item in values:
+                if type(item) is not dict:
+                    return False
+                if all(equal(item.get(key), expected) for key, expected in rule["when"].items()):
+                    path = item.get(rule["field"])
+                    if path is None and rule.get("nullable"):
+                        continue
+                    if type(path) is not str or not path or path.startswith("/") or "\x00" in path:
+                        return False
+                    if any(part in ("", ".", "..") for part in path.split("/")):
+                        return False
+        for rule in vocabulary.get("derivedInteger", []):
+            source, target = pointer(candidate, rule["source"]), pointer(candidate, rule["target"])
+            if source is not None and target is not None and (
+                type(source) is not int or type(target) is not int or target != source - rule["subtract"]
+            ):
+                return False
+        for rule in vocabulary.get("lessThanOrEqual", []):
+            left, right = pointer(candidate, rule["left"]), pointer(candidate, rule["right"])
+            if left is not None and right is not None and (
+                type(left) is not int or type(right) is not int or left > right
+            ):
+                return False
+        for rule in vocabulary.get("canonicalUtf8Bytes", []):
+            fields, declared = pointer(candidate, rule["array"]), pointer(candidate, rule["target"])
+            if fields is not None and declared is not None:
+                try:
+                    actual = len(contract.canonical_field_bytes(fields))
+                except contract.ContractError:
+                    return False
+                if type(declared) is not int or declared != actual:
+                    return False
+        if vocabulary.get("benchmarkCostModel") is True and type(candidate) is dict and candidate.get("kind") in ("corpus", "evidence"):
+            try:
+                contract.validate_benchmark(candidate)
+            except contract.ContractError:
+                return False
+        return True
+
+    def matches(node, candidate):
+        node = resolve(node)
+        if "oneOf" in node and sum(matches(branch, candidate) for branch in node["oneOf"]) != 1:
+            return False
+        if "allOf" in node and not all(matches(branch, candidate) for branch in node["allOf"]):
+            return False
+        if "if" in node and matches(node["if"], candidate) and "then" in node and not matches(node["then"], candidate):
+            return False
+        if "const" in node and not equal(candidate, node["const"]):
+            return False
+        if "enum" in node and not any(equal(candidate, item) for item in node["enum"]):
+            return False
+        expected = node.get("type")
+        if expected is not None:
+            expected = expected if type(expected) is list else [expected]
+            if not any(type_matches(candidate, item) for item in expected):
+                return False
+        if type(candidate) is dict:
+            if any(key not in candidate for key in node.get("required", [])):
+                return False
+            properties = node.get("properties", {})
+            if node.get("additionalProperties") is False and any(key not in properties for key in candidate):
+                return False
+            if any(key in candidate and not matches(child, candidate[key]) for key, child in properties.items()):
+                return False
+        if type(candidate) is list:
+            if len(candidate) < node.get("minItems", 0) or len(candidate) > node.get("maxItems", len(candidate)):
+                return False
+            if not all(matches(node.get("items", {}), item) for item in candidate):
+                return False
+            if node.get("uniqueItems") and any(equal(left, right) for index, left in enumerate(candidate) for right in candidate[index + 1:]):
+                return False
+        if type(candidate) is str:
+            if len(candidate) < node.get("minLength", 0):
+                return False
+            if "pattern" in node and re.search(node["pattern"], candidate) is None:
+                return False
+        if type(candidate) in (int, float) and type(candidate) is not bool:
+            if "minimum" in node and candidate < node["minimum"]:
+                return False
+            if "maximum" in node and candidate > node["maximum"]:
+                return False
+        return vocabulary_matches(node.get("x-dev142-constraints", {}), candidate)
+
+    return matches(schema, value)
+
+
+def _verify_schemas(contract, corpus):
     if len(SCHEMA_PATHS) != 3:
         raise ValueError("unexpected schema count")
-    for path in SCHEMA_PATHS:
-        contract.load_closed_json(path)
-    return ("D-SCHEMA-001",)
+    schemas = {path.name: contract.load_closed_json(path) for path in SCHEMA_PATHS}
+    for name, schema in schemas.items():
+        if schema.get("$schema") != "https://json-schema.org/draft/2020-12/schema" or schema.get("$id") != name:
+            raise ValueError("invalid schema identity")
+    request = _canonical_request(contract)
+    result = _route_result(contract, request)
+    benchmark = _serialized_evidence(contract, corpus)
+    valid = {
+        "dev-142-request.schema.json": request,
+        "dev-142-result.schema.json": result,
+        "dev-142-benchmark.schema.json": benchmark,
+    }
+    if any(not _schema_accepts(contract, schemas[name], value) for name, value in valid.items()):
+        raise ValueError("valid semantic schema value rejected")
+    invalid_request = dict(request, inputBytes=request["inputBytes"] + 1, estimatedSavingsBytes=request["estimatedSavingsBytes"] + 1)
+    invalid_result = json.loads(json.dumps(result))
+    invalid_result["condensation"]["commandOutcome"] = "invented"
+    invalid_benchmark = json.loads(json.dumps(benchmark))
+    invalid_benchmark["pairs"][0]["reductionPPM"] += 1
+    invalid = {
+        "dev-142-request.schema.json": invalid_request,
+        "dev-142-result.schema.json": invalid_result,
+        "dev-142-benchmark.schema.json": invalid_benchmark,
+    }
+    if any(_schema_accepts(contract, schemas[name], value) for name, value in invalid.items()):
+        raise ValueError("invalid semantic schema value accepted")
+    expected_vocabularies = {
+        "dev-142-request.schema.json": {"uniqueBy", "repoRelativePath", "derivedInteger", "canonicalUtf8Bytes"},
+        "dev-142-result.schema.json": {"uniqueBy", "repoRelativePath", "lessThanOrEqual"},
+        "dev-142-benchmark.schema.json": {"uniqueBy", "benchmarkCostModel"},
+    }
+    if any(set(schemas[name].get("x-dev142-constraints", {})) != expected for name, expected in expected_vocabularies.items()):
+        raise ValueError("invalid closed schema vocabulary")
+    return (
+        "D-SCHEMA-BENCHMARK-001", "D-SCHEMA-REQUEST-001",
+        "D-SCHEMA-RESULT-001", "D-SCHEMA-VOCABULARY-001",
+    )
 
 
 def _verify_corpus(contract, corpus):
@@ -195,7 +420,10 @@ def _verify_boundaries(contract):
         raise ValueError("rejected input boundary accepted")
     if not contract.fits_apple_budget(6144, 8192) or contract.fits_apple_budget(6145, 8192):
         raise ValueError("context boundary failed")
-    return ("D-INPUT-001", "D-OCCUPANCY-001")
+    interrupted = rows.get("interrupted-command")
+    if interrupted is None or interrupted["exitStatus"] is not None or interrupted["interrupted"] is not True:
+        raise ValueError("interruption boundary failed")
+    return ("D-INPUT-001", "D-INTERRUPTION-001", "D-OCCUPANCY-001")
 
 
 def _route_result_with_size(contract, request, output_bytes):
@@ -220,8 +448,31 @@ def _non_applied_result(contract, request, outcome):
     return result
 
 
+def _resize_request(contract, request, size):
+    field = request["fields"][0]
+    current = len(contract.canonical_field_bytes(request["fields"]))
+    field["value"] += "x" * (size - current)
+    if size < current:
+        field["value"] = field["value"][: size - current]
+    request["inputBytes"] = len(contract.canonical_field_bytes(request["fields"]))
+    request["estimatedSavingsBytes"] = request["inputBytes"] - contract.Policy.MAXIMUM_CONDENSED_BYTES
+
+
+def _set_file_field(contract, request, value):
+    message = request["fields"][0]
+    file_field = dict(message, name="file", value=value)
+    request["fields"] = [message, file_field]
+    content = [
+        {"name": field["name"], "value": field["value"]}
+        for field in sorted(request["fields"], key=lambda field: ("severity", "code", "message", "file", "line", "column").index(field["name"]))
+    ]
+    request["inputBytes"] = len(json.dumps(content, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+    request["estimatedSavingsBytes"] = request["inputBytes"] - contract.Policy.MAXIMUM_CONDENSED_BYTES
+
+
 def _verify_routing(contract):
     with tempfile.TemporaryDirectory() as directory:
+        observed = set()
         root = Path(directory)
         (root / "Sources").mkdir()
         (root / "Sources" / "App.swift").write_text("struct App {}\n", encoding="utf-8")
@@ -243,6 +494,21 @@ def _verify_routing(contract):
         for boundary_id, command, command_class in accepted:
             if contract.parse_command(command, root).command_class != command_class:
                 raise ValueError(f"failed {boundary_id}")
+            observed.add(boundary_id)
+        if contract.parse_command('python3 -m pytest -k "one and (two)"', root).command_class != "test":
+            raise ValueError("failed R-QUOTED-PYTEST-001")
+        observed.add("R-QUOTED-PYTEST-001")
+        for command in (
+            "swift format lint --strict --recursive Sources",
+            "python3 -m mypy --no-incremental --strict Sources",
+            "python3 -m ruff check --output-format concise --no-fix Sources",
+        ):
+            try:
+                contract.parse_command(command, root)
+            except contract.RouteDeclined:
+                continue
+            raise ValueError("failed R-FLAG-ORDER-001")
+        observed.add("R-FLAG-ORDER-001")
 
         def route_case(boundary_id, request_change, context_change, bridge_factory, expected, expected_calls):
             request = _canonical_request(contract)
@@ -261,12 +527,19 @@ def _verify_routing(contract):
                 "localeSupported": True,
                 "occupiedTokens": 6144,
                 "contextSize": 8192,
+                "sourceFacts": _route_result(contract, request)["condensation"],
                 "bridge": bridge,
             }
             context_change(context)
+            if boundary_id in ("R-REALIZED-4095", "R-REALIZED-4096"):
+                output_bytes = 4097 if boundary_id.endswith("4095") else 4096
+                context["sourceFacts"] = _route_result_with_size(
+                    contract, request, output_bytes
+                )["condensation"]
             result = contract.route(request, context)
             if result != expected(request) or len(calls) != expected_calls:
                 raise ValueError(f"failed {boundary_id}")
+            observed.add(boundary_id)
 
         applied = lambda request: _route_result(contract, request)
         fallback = lambda outcome, reason: lambda _request: {
@@ -281,18 +554,20 @@ def _verify_routing(contract):
             ("R-POLICY-001", lambda request: request.update(policyVersion="diagnostic-condensation-v2"), no_context_change, fallback("fail", "contract_invariant_failed")),
             ("R-COMMAND-001", no_request_change, lambda context: context.update(command="echo rejected"), fallback("declined", "command_not_allowed")),
             ("R-COMPOUND-001", no_request_change, lambda context: context.update(command="swift test && pnpm test"), fallback("declined", "compound_command")),
-            ("R-INPUT-8191", lambda request: request.update(inputBytes=8191, estimatedSavingsBytes=4095), no_context_change, fallback("declined", "input_below_minimum")),
-            ("R-INPUT-65537", lambda request: request.update(inputBytes=65537, estimatedSavingsBytes=61441), no_context_change, fallback("declined", "input_above_maximum")),
-            ("R-ESTIMATED-4095", lambda request: request.update(estimatedSavingsBytes=4095), no_context_change, fallback("fail", "contract_invariant_failed")),
+            ("R-INPUT-8191", lambda request: _resize_request(contract, request, 8191), no_context_change, fallback("declined", "input_below_minimum")),
+            ("R-INPUT-65537", lambda request: _resize_request(contract, request, 65537), no_context_change, fallback("declined", "input_above_maximum")),
+            ("R-ESTIMATED-4095", lambda request: request.update(estimatedSavingsBytes=4095), no_context_change, fallback("declined", "contract_invariant_failed")),
+            ("R-CANONICAL-BYTES-001", lambda request: request.update(inputBytes=8193, estimatedSavingsBytes=4097), no_context_change, fallback("declined", "contract_invariant_failed")),
+            ("R-SECRET-001", lambda request: request["fields"][0].update(value="Bearer synthetic-private-token-12345678" + "x" * 8192), no_context_change, fallback("declined", "data_policy_denied")),
             ("R-OCCUPANCY-75-FAIL", no_request_change, lambda context: context.update(occupiedTokens=6145), fallback("declined", "context_budget_exceeded")),
             ("R-CLASS-C2", lambda request: request["fields"][0].update(classification="C2"), no_context_change, fallback("declined", "data_policy_denied")),
             ("R-CLASS-C3", lambda request: request["fields"][0].update(classification="C3"), no_context_change, fallback("declined", "data_policy_denied")),
             ("R-CLASS-UNKNOWN", lambda request: request["fields"][0].update(classification="C9"), no_context_change, fallback("declined", "data_policy_denied")),
             ("R-CLASS-UNCLASSIFIED", lambda request: request["fields"][0].pop("classification"), no_context_change, fallback("declined", "data_policy_denied")),
             ("R-PROVENANCE-MIXED", lambda request: request["fields"][0].update(origin="remote"), no_context_change, fallback("declined", "data_policy_denied")),
-            ("R-FILE-INVALID", lambda request: request.update(fields=[{**request["fields"][0], "name": "file", "value": "Sources\\App.swift"}]), no_context_change, fallback("declined", "data_policy_denied")),
-            ("R-FILE-MISSING", lambda request: request.update(fields=[{**request["fields"][0], "name": "file", "value": "Missing.swift"}]), no_context_change, fallback("declined", "data_policy_denied")),
-            ("R-FILE-NONCONTAINED", lambda request: request.update(fields=[{**request["fields"][0], "name": "file", "value": "../outside.swift"}]), no_context_change, fallback("declined", "data_policy_denied")),
+            ("R-FILE-INVALID", lambda request: _set_file_field(contract, request, "Sources\\App.swift"), no_context_change, fallback("declined", "data_policy_denied")),
+            ("R-FILE-MISSING", lambda request: _set_file_field(contract, request, "Missing.swift"), no_context_change, fallback("declined", "data_policy_denied")),
+            ("R-FILE-NONCONTAINED", lambda request: _set_file_field(contract, request, "../outside.swift"), no_context_change, fallback("declined", "data_policy_denied")),
             ("R-APPLE-UNAVAILABLE", no_request_change, lambda context: context.update(appleAvailable=False), fallback("declined", "apple_unavailable")),
             ("R-LOCALE-UNSUPPORTED", no_request_change, lambda context: context.update(localeSupported=False), fallback("declined", "locale_unsupported")),
         )
@@ -300,8 +575,8 @@ def _verify_routing(contract):
             route_case(boundary_id, request_change, context_change, applied, expected, 0)
 
         postflight_rows = (
-            ("R-INPUT-8192", lambda request: request.update(inputBytes=8192, estimatedSavingsBytes=4096), no_context_change, applied, applied),
-            ("R-INPUT-65536", lambda request: request.update(inputBytes=65536, estimatedSavingsBytes=61440), no_context_change, applied, applied),
+            ("R-INPUT-8192", lambda request: _resize_request(contract, request, 8192), no_context_change, applied, applied),
+            ("R-INPUT-65536", lambda request: _resize_request(contract, request, 65536), no_context_change, applied, applied),
             ("R-ESTIMATED-4096", lambda request: request.update(estimatedSavingsBytes=4096), no_context_change, applied, applied),
             ("R-OCCUPANCY-75-PASS", no_request_change, no_context_change, applied, applied),
             ("R-REALIZED-4095", no_request_change, no_context_change, lambda request: _route_result_with_size(contract, request, 4097), fallback("declined", "insufficient_realized_savings")),
@@ -314,10 +589,74 @@ def _verify_routing(contract):
         )
         for boundary_id, request_change, context_change, bridge_factory, expected in postflight_rows:
             route_case(boundary_id, request_change, context_change, bridge_factory, expected, 1)
-    return tuple(sorted(ROUTING_BOUNDARIES))
+
+        request = _canonical_request(contract)
+        original = json.loads(json.dumps(request))
+
+        def mutating_bridge(candidate):
+            candidate["callID"] = "invented"
+            response = _route_result(contract, candidate)
+            return response
+
+        isolated = contract.route(request, {
+            "eventName": contract.Policy.EVENT_NAME, "command": "swift test",
+            "repoRoot": root, "appleAvailable": True, "localeSupported": True,
+            "occupiedTokens": 6144, "contextSize": 8192,
+            "sourceFacts": _route_result(contract, request)["condensation"],
+            "bridge": mutating_bridge,
+        })
+        if isolated != fallback("fail", "invalid_response")(request) or request != original:
+            raise ValueError("failed R-ISOLATED-REQUEST-001")
+        observed.add("R-ISOLATED-REQUEST-001")
+
+        for boundary_id, response_change in (
+            ("R-RESPONSE-BINDINGS-001", lambda response: response.update(callID="invented")),
+            ("R-RESPONSE-SEMANTICS-001", lambda response: response["condensation"].update(summary="invented")),
+        ):
+            response = _route_result(contract, request)
+            response_change(response)
+            result = contract.route(request, {
+                "eventName": contract.Policy.EVENT_NAME, "command": "swift test",
+                "repoRoot": root, "appleAvailable": True, "localeSupported": True,
+                "occupiedTokens": 6144, "contextSize": 8192,
+                "sourceFacts": _route_result(contract, request)["condensation"],
+                "bridge": lambda _request, response=response: response,
+            })
+            if result != fallback("fail", "invalid_response")(request):
+                raise ValueError(f"failed {boundary_id}")
+            observed.add(boundary_id)
+
+        original_lstat = contract._lstat
+        root_calls = 0
+
+        def disappearing_root(path):
+            nonlocal root_calls
+            if Path(path).resolve(strict=False) == root.resolve():
+                root_calls += 1
+                if root_calls > 1:
+                    raise FileNotFoundError("synthetic disappearance")
+            return original_lstat(path)
+
+        contract._lstat = disappearing_root
+        try:
+            result = contract.route(request, {
+                "eventName": contract.Policy.EVENT_NAME, "command": "swift test",
+                "repoRoot": root, "appleAvailable": True, "localeSupported": True,
+                "occupiedTokens": 6144, "contextSize": 8192,
+                "sourceFacts": _route_result(contract, request)["condensation"],
+                "bridge": lambda value: _route_result(contract, value),
+            })
+        finally:
+            contract._lstat = original_lstat
+        if result.get("preserveOriginal") is not True or result.get("outcome") not in ("declined", "fail"):
+            raise ValueError("failed R-PATH-RECHECK-001")
+        observed.add("R-PATH-RECHECK-001")
+    if observed != set(ROUTING_BOUNDARIES):
+        raise ValueError("incomplete routing proof")
+    return tuple(sorted(observed))
 
 
-def _arm(contract, host, case_id, arm, input_tokens, output_tokens):
+def _arm(contract, host, case, arm, input_tokens, output_tokens, quality):
     usage = contract.normalize_usage("openai-responses-usage-v1", {
         "input_tokens": input_tokens,
         "cached_tokens": 0,
@@ -326,22 +665,68 @@ def _arm(contract, host, case_id, arm, input_tokens, output_tokens):
     })
     return {
         "host": host,
-        "caseID": case_id,
+        "caseID": case["id"],
         "workflow": "diagnostic-condensation",
         "parentModel": "proof-parent-model-v1",
         "provider": usage.provider,
         "normalizationVersion": usage.provider,
         "toolchain": "offline-contract-v1",
         "policyVersion": contract.Policy.POLICY_VERSION,
-        "commandClass": "test",
+        "commandClass": case["commandClass"],
         "arm": arm,
         "usage": usage,
         "parentTurns": 1,
-        "quality": contract.QualityScore(True, ()),
+        "appleAttempts": 0 if arm == "pluginOff" else 1,
+        "replacements": 0 if arm == "pluginOff" else 1,
+        "quality": quality,
     }
 
 
-def _verify_normalization_and_release(contract):
+def _serialized_evidence(contract, corpus):
+    cases = {case["id"]: case for case in corpus["cases"]}
+    arms = []
+    for host, case_id in contract.REQUIRED_PAIR_IDENTITIES:
+        case = cases[case_id]
+        quality = contract.score_condensation(case, _canonical_result(contract, case))
+        if not quality.passed:
+            raise ValueError("non-oracle proof quality")
+        pair_id = f"{host}:{case_id}"
+        for role, input_tokens, output_tokens, attempts, replacements in (
+            ("pluginOff", 900, 100, 0, 0),
+            ("pluginOn", 810, 90, 1, 1),
+        ):
+            arms.append({
+                "id": f"{pair_id}:{role}", "pairID": pair_id, "arm": role,
+                "host": host, "caseID": case_id,
+                "caseRenderedSha256": case["renderedSha256"],
+                "commandClass": case["commandClass"],
+                "workflow": "diagnostic-condensation",
+                "parentModel": "proof-parent-model-v1",
+                "provider": "openai-responses-usage-v1",
+                "normalizationVersion": "openai-responses-usage-v1",
+                "toolchain": "offline-contract-v1",
+                "policyVersion": contract.Policy.POLICY_VERSION,
+                "providerUsage": {
+                    "input_tokens": input_tokens, "cached_tokens": 0,
+                    "output_tokens": output_tokens, "reasoning_tokens": 0,
+                },
+                "parentTurns": 1, "appleAttempts": attempts,
+                "replacements": replacements, "declines": 0, "fallbacks": 0,
+                "latencyMilliseconds": 1, "qualityPassed": quality.passed,
+                "qualityReasonCodes": list(quality.reason_codes),
+            })
+    seed = {
+        "schemaVersion": contract.Policy.SCHEMA_VERSION,
+        "policyVersion": contract.Policy.POLICY_VERSION,
+        "kind": "evidence", "corpusSha256": corpus["corpusSha256"],
+        "arms": arms, "pairs": [], "release": {},
+    }
+    derived = contract.derive_benchmark(seed)
+    contract.validate_benchmark(derived)
+    return derived
+
+
+def _verify_normalization(contract):
     openai = contract.normalize_usage("openai-responses-usage-v1", {
         "input_tokens": 900, "cached_tokens": 200, "output_tokens": 100, "reasoning_tokens": 50,
     })
@@ -351,17 +736,27 @@ def _verify_normalization_and_release(contract):
     })
     if (openai.total_parent_model_tokens, anthropic.total_parent_model_tokens, anthropic.reasoning_tokens) != (1000, 1100, None):
         raise ValueError("provider normalization failed")
+    return ("D-NORMALIZATION-ANTHROPIC-001", "D-NORMALIZATION-OPENAI-001")
+
+
+def _verify_release(contract, corpus):
+    cases = {case["id"]: case for case in corpus["cases"]}
     pairs = []
     for host, case_id in contract.REQUIRED_PAIR_IDENTITIES:
-        off = _arm(contract, host, case_id, "pluginOff", 900, 100)
-        on = _arm(contract, host, case_id, "pluginOn", 810, 90)
+        case = cases[case_id]
+        quality = contract.score_condensation(case, _canonical_result(contract, case))
+        off = _arm(contract, host, case, "pluginOff", 900, 100, quality)
+        on = _arm(contract, host, case, "pluginOn", 810, 90, quality)
         pairs.append(contract.score_pair(off, on))
     release = contract.release_gate(pairs)
     if (release.status, release.valid_required_pairs, release.blocked_required_pairs,
             release.median_reduction_ppm, release.correctness_regressions,
             release.additional_parent_model_turns) != ("pass", 48, 0, 100000, 0, 0):
         raise ValueError("release gate failed")
-    return ("D-NORMALIZATION-001", "D-RELEASE-001")
+    serialized = _serialized_evidence(contract, corpus)
+    if len(serialized["arms"]) != 96 or len(serialized["pairs"]) != 48 or serialized["release"]["status"] != "pass":
+        raise ValueError("serialized release matrix failed")
+    return ("D-RELEASE-MATRIX-001",)
 
 
 def _check(check_id, operation):
@@ -389,6 +784,11 @@ def _verify_safety(evidence):
         ("S-EXTRA-KEY-001", lambda value: value.update(extra=True)),
         ("S-STATUS-001", lambda value: value.update(status="blocked")),
         ("S-LIVE-CLAIM-001", lambda value: value["liveClaims"].update(parentTokenReduction="pass")),
+        ("S-PRIVATE-POSIX-001", lambda value: value.update(issue="/private/synthetic/path")),
+        ("S-WINDOWS-PATH-001", lambda value: value.update(issue=r"C:\Users\synthetic\path")),
+        ("S-UNC-PATH-001", lambda value: value.update(issue=r"\\synthetic-server\private-share")),
+        ("S-CREDENTIAL-VALUE-001", lambda value: value.update(issue="Bearer synthetic-private-token-12345678")),
+        ("S-NESTED-KEY-001", lambda value: value["liveClaims"].update(rawPrompt="nested")),
     )
     observed = []
     for boundary_id, mutate in mutations:
@@ -409,13 +809,13 @@ def build_evidence():
     contract = _contract()
     corpus = contract.load_closed_json(CORPUS_PATH)
     checks = [
-        _check("P-SCHEMA-001", lambda: _verify_schemas(contract)),
+        _check("P-SCHEMA-001", lambda: _verify_schemas(contract, corpus)),
         _check("P-CORPUS-001", lambda: _verify_corpus(contract, corpus)),
         _check("P-QUALITY-001", lambda: _verify_quality(contract, corpus)),
         _check("P-BOUNDARY-001", lambda: _verify_boundaries(contract)),
         _check("P-ROUTING-001", lambda: _verify_routing(contract)),
-        _check("P-NORMALIZATION-001", lambda: _verify_normalization_and_release(contract)),
-        _check("P-RELEASE-001", lambda: _verify_normalization_and_release(contract)),
+        _check("P-NORMALIZATION-001", lambda: _verify_normalization(contract)),
+        _check("P-RELEASE-001", lambda: _verify_release(contract, corpus)),
         {"id": "P-SAFETY-001", "status": "pass", "boundaries": sorted(SAFETY_BOUNDARIES)},
     ]
     evidence = {
@@ -426,6 +826,7 @@ def build_evidence():
         "action": contract.Policy.ACTION,
         "schemaCount": len(SCHEMA_PATHS),
         "eligibleCaseCount": len(corpus["cases"]),
+        "requiredArmCount": len(contract.REQUIRED_PAIR_IDENTITIES) * 2,
         "requiredPairCount": len(contract.REQUIRED_PAIR_IDENTITIES),
         "corpusSha256": contract.corpus_digest(corpus),
         "checks": sorted(checks, key=lambda row: row["id"]),
@@ -436,20 +837,26 @@ def build_evidence():
     return evidence
 
 
+def _normalized_key(key):
+    camel_split = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", key)
+    return re.sub(r"[^a-z0-9]+", "_", camel_split.lower()).strip("_")
+
+
 def _safe_metadata(value):
     if isinstance(value, dict):
         for key, item in value.items():
-            normalized = "".join(character for character in key.lower() if character.isalnum())
-            if any(term in normalized for term in FORBIDDEN_METADATA):
+            if _normalized_key(str(key)) in FORBIDDEN_METADATA_KEYS:
                 return False
             if not _safe_metadata(item):
                 return False
     elif isinstance(value, list):
         return all(_safe_metadata(item) for item in value)
     elif isinstance(value, str):
-        lowered = value.lower()
-        if "/users/" in lowered or "/home/" in lowered or ".trace" in lowered or ".xcresult" in lowered:
-            return False
+        return all(pattern.search(value) is None for pattern in FORBIDDEN_METADATA_PATTERNS)
+    elif value is None or type(value) in (bool, int):
+        return True
+    else:
+        return False
     return True
 
 
@@ -466,6 +873,7 @@ def validate_evidence(evidence):
         "action": contract.Policy.ACTION,
         "schemaCount": 3,
         "eligibleCaseCount": 24,
+        "requiredArmCount": 96,
         "requiredPairCount": 48,
         "corpusSha256": contract.corpus_digest(corpus),
         "liveClaims": LIVE_CLAIMS,
@@ -489,10 +897,9 @@ def validate_evidence(evidence):
     ):
         raise ValueError("invalid check")
     rows = {row["id"]: row for row in checks}
-    if tuple(rows["P-ROUTING-001"]["boundaries"]) != tuple(sorted(ROUTING_BOUNDARIES)):
-        raise ValueError("incomplete routing proof")
-    if tuple(rows["P-SAFETY-001"]["boundaries"]) != tuple(sorted(SAFETY_BOUNDARIES)):
-        raise ValueError("incomplete safety proof")
+    for check_id, boundaries in EXPECTED_BOUNDARIES.items():
+        if tuple(rows[check_id]["boundaries"]) != tuple(sorted(boundaries)):
+            raise ValueError("incomplete proof boundary")
     return evidence
 
 

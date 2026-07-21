@@ -64,10 +64,14 @@ before the boundary rather than attempting to remove unsafe data afterward.
 For the DEV-142 diagnostic router, only `C0` or `C1` `trustedLocal` fields in
 the closed allowlist may reach the proposed Apple-on-device boundary. Unknown,
 mixed, C2, C3, remote, or invalid fields decline the complete envelope before
-any bridge attempt. The deterministic proof uses synthetic field values only;
-it records no field content. Any decline, unavailable state, invalid response,
-or failure must preserve the original result rather than retrying the source
-command or emitting diagnostic content as evidence.
+any bridge attempt. The router recursively scans each field value, computes
+the canonical UTF-8 request bytes before estimating savings, freezes its
+request bindings and source facts, and gives the bridge only an isolated copy.
+An applied response must match those frozen bindings and preserve the exact
+source warning, error, and exit facts. The deterministic proof uses synthetic
+field values only; it records no field content. Any decline, unavailable state,
+invalid response, or failure must preserve the original result rather than
+retrying the source command or emitting diagnostic content as evidence.
 
 ## Atomic boundary envelopes
 
