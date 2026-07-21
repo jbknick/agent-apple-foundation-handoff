@@ -1099,6 +1099,28 @@ class Dev142RoutingTests(unittest.TestCase):
 class Dev142ProofTests(unittest.TestCase):
     """The repository-only proof is deterministic metadata, never runtime proof."""
 
+    ROUTING_BOUNDARIES = {
+        "R-ACCEPT-TEST-001", "R-ACCEPT-TEST-002", "R-ACCEPT-TEST-003",
+        "R-ACCEPT-BUILD-001", "R-ACCEPT-BUILD-002", "R-ACCEPT-BUILD-003",
+        "R-ACCEPT-TYPECHECK-001", "R-ACCEPT-TYPECHECK-002", "R-ACCEPT-TYPECHECK-003",
+        "R-ACCEPT-LINT-001", "R-ACCEPT-LINT-002", "R-ACCEPT-LINT-003",
+        "R-EVENT-001", "R-TOOL-001", "R-ACTION-001", "R-POLICY-001",
+        "R-COMMAND-001", "R-COMPOUND-001", "R-INPUT-8191", "R-INPUT-8192",
+        "R-INPUT-65536", "R-INPUT-65537", "R-ESTIMATED-4095", "R-ESTIMATED-4096",
+        "R-REALIZED-4095", "R-REALIZED-4096", "R-OCCUPANCY-75-PASS",
+        "R-OCCUPANCY-75-FAIL", "R-CLASS-C2", "R-CLASS-C3", "R-CLASS-UNKNOWN",
+        "R-CLASS-UNCLASSIFIED", "R-PROVENANCE-MIXED", "R-FILE-INVALID",
+        "R-FILE-MISSING", "R-FILE-NONCONTAINED", "R-APPLE-UNAVAILABLE",
+        "R-LOCALE-UNSUPPORTED", "R-MALFORMED-RESPONSE", "R-BRIDGE-DECLINE",
+        "R-BRIDGE-FAIL", "R-BRIDGE-EXCEPTION", "R-APPLIED-001",
+    }
+    SAFETY_BOUNDARIES = {
+        "S-PRIVATE-KEY-001", "S-PRIVATE-PATH-001", "S-RAW-PROMPT-001",
+        "S-RAW-RESULT-001", "S-RAW-RESPONSE-001", "S-CREDENTIAL-001",
+        "S-TRACE-001", "S-XCRESULT-001", "S-SELF-ATTEST-001",
+        "S-EXTRA-KEY-001", "S-STATUS-001", "S-LIVE-CLAIM-001",
+    }
+
     def _runner(self):
         spec = importlib.util.spec_from_file_location("dev142_proof_runner", PROOF_RUNNER)
         runner = importlib.util.module_from_spec(spec)
@@ -1149,13 +1171,23 @@ class Dev142ProofTests(unittest.TestCase):
                 "P-SCHEMA-001", "P-SAFETY-001",
             },
         )
-        self.assertTrue(all(set(row) == {"id", "status"} and row["status"] == "pass" for row in proof["checks"]))
+        self.assertTrue(all(set(row) == {"id", "status", "boundaries"} and row["status"] == "pass" for row in proof["checks"]))
         self.assertEqual(proof["liveClaims"], {
             "appleInvocation": "not_applicable",
             "codexHook": "not_applicable",
             "claudeHook": "not_applicable",
             "parentTokenReduction": "blocked/provider_usage_not_executed",
         })
+
+    def test_routing_and_safety_rows_bind_each_executed_boundary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            proof = self._run_proof(Path(directory) / "proof.json")
+        runner = self._runner()
+        rows = {row["id"]: row for row in proof["checks"]}
+        self.assertEqual(set(rows["P-ROUTING-001"]["boundaries"]), self.ROUTING_BOUNDARIES)
+        self.assertEqual(set(rows["P-SAFETY-001"]["boundaries"]), self.SAFETY_BOUNDARIES)
+        self.assertEqual(runner._verify_routing(runner._contract()), tuple(sorted(self.ROUTING_BOUNDARIES)))
+        self.assertEqual(runner._verify_safety(proof), tuple(sorted(self.SAFETY_BOUNDARIES)))
 
     def test_proof_validator_rejects_unsafe_or_self_attested_content(self):
         with tempfile.TemporaryDirectory() as directory:
