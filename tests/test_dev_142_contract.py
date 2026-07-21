@@ -1,5 +1,6 @@
 import importlib.util
 import hashlib
+import inspect
 import json
 import math
 import os
@@ -398,6 +399,21 @@ class Dev142PolicySchemaTests(unittest.TestCase):
     def test_policy_constants_are_frozen(self):
         with self.assertRaises((AttributeError, TypeError)):
             contract.Policy.ACTION = "other"
+        with self.assertRaises((AttributeError, TypeError)):
+            contract.Policy.NEW_CONSTANT = "other"
+
+    def test_estimate_savings_decline_reasons_are_closed(self):
+        emitted = set(
+            re.findall(
+                r'RouteDeclined\("([a-z0-9_]+)"\)',
+                inspect.getsource(contract.estimate_savings),
+            )
+        )
+        self.assertLessEqual(emitted, contract._REASON_CODES)
+
+    def test_result_schema_has_no_unused_common_property_definition(self):
+        schema = contract.load_closed_json(SCHEMAS / "dev-142-result.schema.json")
+        self.assertNotIn("commonProperties", schema["$defs"])
 
     def test_request_rejects_one_independent_mutation_per_required_field(self):
         mutations = {
