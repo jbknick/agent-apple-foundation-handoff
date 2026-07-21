@@ -395,6 +395,46 @@ class Dev142SchemaParityTests(unittest.TestCase):
             contract.validate_benchmark(plugin_off_attempt)
         self.assertFalse(schema_accepts(schema, plugin_off_attempt))
 
+    def test_closed_vocabulary_enforces_cross_value_request_result_and_corpus_invariants(self):
+        request_schema = self._schema("dev-142-request.schema.json")
+        duplicate_name = canonical_request()
+        duplicate_name["fields"].append(dict(duplicate_name["fields"][0], value="second message"))
+        absolute_file = canonical_request()
+        absolute_file["fields"] = [dict(absolute_file["fields"][0], name="file", value="/private/path")]
+        traversal_file = canonical_request()
+        traversal_file["fields"] = [dict(traversal_file["fields"][0], name="file", value="../private/path")]
+        incorrect_estimate = dict(canonical_request(), estimatedSavingsBytes=4097)
+        for rejected in (duplicate_name, absolute_file, traversal_file, incorrect_estimate):
+            with self.subTest(request=rejected), self.assertRaises(contract.ContractError):
+                contract.validate_request(rejected)
+            self.assertFalse(schema_accepts(request_schema, rejected))
+
+        result_schema = self._schema("dev-142-result.schema.json")
+        result = canonical_result()
+        identity = {
+            "id": "diagnostic-1", "severity": "error", "code": "E1", "message": "failure",
+            "file": "Sources/App.swift", "line": 1, "column": 1, "failedTestID": None,
+        }
+        duplicate_identity = dict(identity, id="diagnostic-2")
+        duplicate_result = {**result, "condensation": {**result["condensation"], "diagnostics": [identity, duplicate_identity]}}
+        warning_result = {**result, "condensation": {**result["condensation"], "warningCount": 1, "omittedWarningCount": 2}}
+        for rejected in (duplicate_result, warning_result):
+            with self.subTest(result=rejected), self.assertRaises(contract.ContractError):
+                contract.validate_result(rejected)
+            self.assertFalse(schema_accepts(result_schema, rejected))
+
+        benchmark_schema = self._schema("dev-142-benchmark.schema.json")
+        duplicate_case = canonical_benchmark()
+        duplicate_case["cases"].append(dict(duplicate_case["cases"][0], commandForm="pnpm test"))
+        with self.assertRaises(contract.ContractError):
+            contract.validate_benchmark(duplicate_case)
+        self.assertFalse(schema_accepts(benchmark_schema, duplicate_case))
+
+    def test_local_schema_equality_distinguishes_boolean_and_integer_json_values(self):
+        self.assertFalse(schema_accepts({"const": 1}, True))
+        self.assertFalse(schema_accepts({"enum": [1]}, True))
+        self.assertTrue(schema_accepts({"type": "array", "uniqueItems": True}, [True, 1]))
+
 
 if __name__ == "__main__":
     unittest.main()
