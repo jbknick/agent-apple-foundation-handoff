@@ -5,7 +5,11 @@ This module deliberately performs no host, process, or model operation.
 
 import json
 import math
+import os
 import re
+import shlex
+import stat
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -38,6 +42,26 @@ class Policy(metaclass=_FrozenPolicy):
 
 class ContractError(ValueError):
     pass
+
+
+class RouteDeclined(ValueError):
+    def __init__(self, reason):
+        self.reason = reason
+        super().__init__(reason)
+
+
+@dataclass(frozen=True)
+class CommandSelection:
+    command_class: str
+    tokens: tuple
+
+
+_lstat = os.lstat
+_SHELL_METACHARACTERS = frozenset(";|&<>$`()\\~!{}\x00\r\n")
+_SAFE_SELECTOR = re.compile(r"^[A-Za-z0-9 _\-.,=:/\[\]]{1,128}$")
+_SAFE_EXPRESSION = re.compile(r"^[A-Za-z0-9 _\-.():]{1,128}$")
+_SAFE_GLOB = re.compile(r"^[A-Za-z0-9_.*?\-]{1,128}$")
+_PYTHON_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
@@ -401,3 +425,410 @@ def load_closed_json(path):
         raise ContractError("invalid JSON") from error
     _reject_non_finite(value)
     return value
+
+
+def _require_int(value, minimum):
+    if type(value) is not int or value < minimum:
+        raise ContractError("invalid integer")
+    return value
+
+
+def estimate_savings(input_bytes):
+    _require_int(input_bytes, 0)
+    if input_bytes < Policy.MINIMUM_INPUT_BYTES:
+        raise RouteDeclined("input_below_minimum")
+    if input_bytes > Policy.MAXIMUM_INPUT_BYTES:
+        raise RouteDeclined("input_above_maximum")
+    estimate = input_bytes - Policy.MAXIMUM_CONDENSED_BYTES
+    if estimate < Policy.MINIMUM_ESTIMATED_SAVINGS_BYTES:
+        raise RouteDeclined("estimated_savings_below_minimum")
+    return estimate
+
+
+def fits_apple_budget(occupied_tokens, context_size):
+    _require_int(occupied_tokens, 0)
+    _require_int(context_size, 1)
+    return (
+        occupied_tokens * Policy.MAXIMUM_APPLE_CONTEXT_DENOMINATOR
+        <= context_size * Policy.MAXIMUM_APPLE_CONTEXT_NUMERATOR
+    )
+
+
+def _identity(path):
+    record = _lstat(path)
+    return record.st_dev, record.st_ino, record.st_mode
+
+
+def _contained(candidate, root):
+    try:
+        candidate.relative_to(root)
+    except ValueError as error:
+        raise RouteDeclined("command_not_allowed") from error
+
+
+def _repository_root(repo_root):
+    if not isinstance(repo_root, (str, Path)):
+        raise RouteDeclined("command_not_allowed")
+    root = Path(repo_root)
+    try:
+        root_identity = _identity(root)
+        if stat.S_ISLNK(root_identity[2]) or not stat.S_ISDIR(root_identity[2]):
+            raise RouteDeclined("command_not_allowed")
+        resolved = root.resolve(strict=False)
+    except (OSError, RuntimeError) as error:
+        raise RouteDeclined("command_not_allowed") from error
+    if _identity(root) != root_identity:
+        raise RouteDeclined("command_not_allowed")
+    return resolved, root_identity
+
+
+def _path_value(token):
+    if type(token) is not str or not token or token.startswith("/") or "\\" in token:
+        raise RouteDeclined("command_not_allowed")
+    if any(part in ("", ".", "..") for part in token.split("/")):
+        raise RouteDeclined("command_not_allowed")
+    return token
+
+
+def _resolve_repo_path(token, root, *, directory=False, suffix=None, regular=False):
+    token = _path_value(token)
+    candidate = root / token
+    try:
+        first = _identity(candidate)
+        exists = True
+    except OSError:
+        exists = False
+        parent = candidate.parent
+        while parent != root and not parent.exists():
+            parent = parent.parent
+        try:
+            parent_identity = _identity(parent)
+            if stat.S_ISLNK(parent_identity[2]):
+                raise RouteDeclined("command_not_allowed")
+            _contained(parent.resolve(strict=False), root)
+        except (OSError, RuntimeError) as error:
+            raise RouteDeclined("command_not_allowed") from error
+        if not directory:
+            raise RouteDeclined("command_not_allowed")
+    if exists:
+        if stat.S_ISLNK(first[2]):
+            raise RouteDeclined("command_not_allowed")
+        try:
+            resolved = candidate.resolve(strict=False)
+        except (OSError, RuntimeError) as error:
+            raise RouteDeclined("command_not_allowed") from error
+        _contained(resolved, root)
+        if _identity(candidate) != first:
+            raise RouteDeclined("command_not_allowed")
+        if directory and not stat.S_ISDIR(first[2]):
+            raise RouteDeclined("command_not_allowed")
+        if regular and not stat.S_ISREG(first[2]):
+            raise RouteDeclined("command_not_allowed")
+    if suffix is not None and not token.endswith(suffix):
+        raise RouteDeclined("command_not_allowed")
+    return token
+
+
+def _safe_selector(value):
+    if not _SAFE_SELECTOR.fullmatch(value) or value[0] == " " or value[-1] == " ":
+        raise RouteDeclined("command_not_allowed")
+
+
+def _safe_expression(value):
+    if not _SAFE_EXPRESSION.fullmatch(value) or value[0] == " " or value[-1] == " ":
+        raise RouteDeclined("command_not_allowed")
+    depth = 0
+    for character in value:
+        if character == "(":
+            depth += 1
+        elif character == ")":
+            depth -= 1
+            if depth < 0:
+                raise RouteDeclined("command_not_allowed")
+    if depth:
+        raise RouteDeclined("command_not_allowed")
+
+
+def _take_pairs(tokens, allowed, root, *, values=None):
+    seen = set()
+    index = 0
+    while index < len(tokens):
+        option = tokens[index]
+        if option not in allowed or option in seen or index + 1 >= len(tokens):
+            raise RouteDeclined("command_not_allowed")
+        seen.add(option)
+        value = tokens[index + 1]
+        validator = allowed[option]
+        if validator == "directory":
+            _resolve_repo_path(value, root, directory=True)
+        elif validator == "configuration":
+            if value not in values:
+                raise RouteDeclined("command_not_allowed")
+        elif validator == "selector":
+            _safe_selector(value)
+        elif validator == "glob":
+            if not _SAFE_GLOB.fullmatch(value):
+                raise RouteDeclined("command_not_allowed")
+        index += 2
+
+
+def _swift_suffix(tokens, root, *, build=False):
+    allowed = {"--configuration": "configuration", "--package-path": "directory", "--scratch-path": "directory"}
+    if not build:
+        allowed["--filter"] = "selector"
+    _take_pairs(tokens, allowed, root, values=frozenset(("debug", "release")))
+
+
+def _swiftc_suffix(tokens, root):
+    if not tokens:
+        raise RouteDeclined("command_not_allowed")
+    for token in tokens:
+        _resolve_repo_path(token, root, suffix=".swift", regular=True)
+
+
+def _swift_format_suffix(tokens, root):
+    seen = set()
+    while tokens and tokens[0] in ("--recursive", "--strict"):
+        option = tokens.pop(0)
+        if option in seen:
+            raise RouteDeclined("command_not_allowed")
+        seen.add(option)
+    if not tokens:
+        raise RouteDeclined("command_not_allowed")
+    for token in tokens:
+        _resolve_repo_path(token, root)
+
+
+def _xcodebuild_suffix(tokens, root):
+    paired = {
+        "-project": "project", "-workspace": "workspace", "-scheme": "selector",
+        "-configuration": "configuration", "-sdk": "selector", "-destination": "selector",
+        "-derivedDataPath": "directory",
+    }
+    seen = set()
+    index = 0
+    while index < len(tokens):
+        option = tokens[index]
+        if option == "-quiet":
+            if option in seen:
+                raise RouteDeclined("command_not_allowed")
+            seen.add(option)
+            index += 1
+            continue
+        if option not in paired or option in seen or index + 1 >= len(tokens):
+            raise RouteDeclined("command_not_allowed")
+        seen.add(option)
+        value = tokens[index + 1]
+        kind = paired[option]
+        if kind == "project":
+            _resolve_repo_path(value, root, suffix=".xcodeproj", directory=True)
+        elif kind == "workspace":
+            _resolve_repo_path(value, root, suffix=".xcworkspace", directory=True)
+        elif kind == "configuration":
+            if value not in ("Debug", "Release"):
+                raise RouteDeclined("command_not_allowed")
+        elif kind == "directory":
+            _resolve_repo_path(value, root, directory=True)
+        else:
+            _safe_selector(value)
+        index += 2
+    if "-project" in seen and "-workspace" in seen:
+        raise RouteDeclined("command_not_allowed")
+
+
+def _unittest_suffix(tokens, root):
+    if tokens and tokens[0] in ("-v", "-q"):
+        tokens.pop(0)
+    if not tokens:
+        return
+    if tokens[0] != "discover":
+        for identifier in tokens:
+            if not all(_PYTHON_IDENTIFIER.fullmatch(part) for part in identifier.split(".")):
+                raise RouteDeclined("command_not_allowed")
+        return
+    tokens.pop(0)
+    _take_pairs(tokens, {"-s": "directory", "-p": "glob", "-t": "directory"}, root)
+
+
+def _pytest_suffix(tokens, root):
+    seen = set()
+    operands = False
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if token in ("-q", "-v", "-x"):
+            if operands or token in seen:
+                raise RouteDeclined("command_not_allowed")
+            seen.add(token)
+        elif token.startswith("--maxfail="):
+            if operands or "--maxfail" in seen or not token.removeprefix("--maxfail=").isdigit() or int(token.removeprefix("--maxfail=")) < 1:
+                raise RouteDeclined("command_not_allowed")
+            seen.add("--maxfail")
+        elif token in ("-k", "-m"):
+            if operands or token in seen or index + 1 >= len(tokens):
+                raise RouteDeclined("command_not_allowed")
+            seen.add(token)
+            _safe_expression(tokens[index + 1])
+            index += 1
+        else:
+            operands = True
+            path, separator, selector = token.partition("::")
+            _resolve_repo_path(path, root)
+            if separator and (not selector or any(not _PYTHON_IDENTIFIER.fullmatch(part) for part in selector.split("::"))):
+                raise RouteDeclined("command_not_allowed")
+        index += 1
+
+
+def _build_suffix(tokens):
+    if len(tokens) > 2 or len(set(tokens)) != len(tokens) or any(token not in ("--sdist", "--wheel") for token in tokens):
+        raise RouteDeclined("command_not_allowed")
+
+
+def _mypy_suffix(tokens, root):
+    seen = set()
+    while tokens and tokens[0] in ("--strict", "--no-incremental"):
+        option = tokens.pop(0)
+        if option in seen:
+            raise RouteDeclined("command_not_allowed")
+        seen.add(option)
+    if not tokens:
+        raise RouteDeclined("command_not_allowed")
+    for token in tokens:
+        _resolve_repo_path(token, root)
+
+
+def _ruff_suffix(tokens, root):
+    seen = set()
+    if tokens and tokens[0] == "--no-fix":
+        seen.add(tokens.pop(0))
+    if tokens and tokens[0] == "--output-format":
+        tokens.pop(0)
+        if not tokens or tokens[0] not in ("concise", "full"):
+            raise RouteDeclined("command_not_allowed")
+        seen.add("--output-format")
+        tokens.pop(0)
+    if not tokens:
+        raise RouteDeclined("command_not_allowed")
+    for token in tokens:
+        _resolve_repo_path(token, root)
+
+
+_COMMAND_PREFIXES = (
+    (("python3", "-m", "ruff", "check"), "lint", _ruff_suffix),
+    (("python3", "-m", "unittest"), "test", _unittest_suffix),
+    (("python3", "-m", "pytest"), "test", _pytest_suffix),
+    (("python3", "-m", "build"), "build", lambda tokens, root: _build_suffix(tokens)),
+    (("python3", "-m", "mypy"), "typecheck", _mypy_suffix),
+    (("swift", "format", "lint"), "lint", _swift_format_suffix),
+    (("swiftc", "-typecheck"), "typecheck", _swiftc_suffix),
+    (("xcodebuild", "test"), "test", _xcodebuild_suffix),
+    (("xcodebuild", "build"), "build", _xcodebuild_suffix),
+    (("swift", "test"), "test", lambda tokens, root: _swift_suffix(tokens, root)),
+    (("swift", "build"), "build", lambda tokens, root: _swift_suffix(tokens, root, build=True)),
+    (("npm", "run", "test"), "test", None), (("npm", "test"), "test", None),
+    (("pnpm", "run", "test"), "test", None), (("pnpm", "test"), "test", None),
+    (("npm", "run", "build"), "build", None), (("pnpm", "run", "build"), "build", None),
+    (("pnpm", "build"), "build", None),
+    (("npm", "run", "typecheck"), "typecheck", None), (("pnpm", "run", "typecheck"), "typecheck", None),
+    (("pnpm", "typecheck"), "typecheck", None),
+    (("npm", "run", "lint"), "lint", None), (("pnpm", "run", "lint"), "lint", None), (("pnpm", "lint"), "lint", None),
+)
+
+
+def parse_command(command, repo_root):
+    if type(command) is not str or not command.strip() or any(character in _SHELL_METACHARACTERS for character in command):
+        raise RouteDeclined("compound_command")
+    try:
+        tokens = shlex.split(command, posix=True)
+    except ValueError as error:
+        raise RouteDeclined("compound_command") from error
+    if not tokens or any(not token for token in tokens):
+        raise RouteDeclined("command_not_allowed")
+    root, root_identity = _repository_root(repo_root)
+    for prefix, command_class, validator in _COMMAND_PREFIXES:
+        if tuple(tokens[:len(prefix)]) != prefix:
+            continue
+        suffix = tokens[len(prefix):]
+        if validator is None:
+            if suffix:
+                raise RouteDeclined("command_not_allowed")
+        else:
+            validator(list(suffix), root)
+        if _identity(root) != root_identity:
+            raise RouteDeclined("command_not_allowed")
+        return CommandSelection(command_class, tuple(tokens))
+    raise RouteDeclined("command_not_allowed")
+
+
+def _fallback(outcome, reason):
+    return {"outcome": outcome, "reasonCode": reason, "preserveOriginal": True}
+
+
+def _request_bindings_match(request, result):
+    return all(
+        result.get(key) == request[key]
+        for key in (
+            "schemaVersion", "policyVersion", "callID", "toolName", "toolVersion", "stateVersion",
+            "action", "commandClass", "originalResultType", "originalResultDigest", "exitStatus", "interrupted",
+        )
+    )
+
+
+def _response_bytes(result):
+    try:
+        return len(json.dumps(result, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+    except (TypeError, ValueError) as error:
+        raise ContractError("invalid response") from error
+
+
+def route(request, context):
+    try:
+        if type(context) is not dict:
+            raise ContractError("invalid context")
+        if context.get("eventName") != Policy.EVENT_NAME or type(request) is not dict or request.get("toolName") != Policy.TOOL_NAME:
+            return _fallback("declined", "tool_not_allowed")
+        estimate_savings(request.get("inputBytes"))
+        for field in request.get("fields", ()):
+            if type(field) is not dict or field.get("origin") != "trustedLocal" or field.get("classification") not in ("C0", "C1"):
+                return _fallback("declined", "data_policy_denied")
+        validate_request(request)
+        if request["action"] != Policy.ACTION or request["policyVersion"] != Policy.POLICY_VERSION:
+            return _fallback("declined", "contract_invariant_failed")
+        selection = parse_command(context.get("command"), context.get("repoRoot"))
+        if selection.command_class != request["commandClass"]:
+            return _fallback("declined", "command_not_allowed")
+        estimate = estimate_savings(request["inputBytes"])
+        if request["estimatedSavingsBytes"] != estimate:
+            return _fallback("declined", "contract_invariant_failed")
+        if context.get("appleAvailable") is not True:
+            return _fallback("declined", "apple_unavailable")
+        if context.get("localeSupported") is not True:
+            return _fallback("declined", "locale_unsupported")
+        if not fits_apple_budget(context.get("occupiedTokens"), context.get("contextSize")):
+            return _fallback("declined", "context_budget_exceeded")
+        bridge = context.get("bridge")
+        if not callable(bridge):
+            raise ContractError("invalid bridge")
+    except RouteDeclined as error:
+        return _fallback("declined", error.reason)
+    except ContractError:
+        return _fallback("fail", "contract_invariant_failed")
+
+    try:
+        response = bridge(request)
+    except RouteDeclined as error:
+        return _fallback("declined", error.reason if error.reason in _REASON_CODES else "generation_declined")
+    except Exception:
+        return _fallback("fail", "contract_invariant_failed")
+    try:
+        validate_result(response)
+        if response["outcome"] != "applied":
+            return _fallback("declined", response["reasonCode"])
+        if not _request_bindings_match(request, response):
+            raise ContractError("response bindings mismatch")
+        output_bytes = _response_bytes(response)
+        if output_bytes > Policy.MAXIMUM_CONDENSED_BYTES or request["inputBytes"] - output_bytes < Policy.MINIMUM_REALIZED_SAVINGS_BYTES:
+            return _fallback("declined", "insufficient_realized_savings")
+        return response
+    except ContractError:
+        return _fallback("fail", "invalid_response")
