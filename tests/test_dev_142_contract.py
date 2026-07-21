@@ -5,6 +5,7 @@ import math
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -273,7 +274,7 @@ def schema_accepts(schema, value):
                     path = item.get(rule["field"])
                     if path is None and rule.get("nullable"):
                         continue
-                    if type(path) is not str or not path or path.startswith("/") or "\x00" in path:
+                    if type(path) is not str or not path or path.startswith("/") or "\\" in path or "\x00" in path:
                         return False
                     if any(part in ("", ".", "..") for part in path.split("/")):
                         return False
@@ -290,6 +291,25 @@ def schema_accepts(schema, value):
             if left is None or right is None:
                 continue
             if type(left) is not int or type(right) is not int or left > right:
+                return False
+        for rule in vocabulary.get("warningAccounting", []):
+            diagnostics = pointer(candidate, rule["array"])
+            omitted = pointer(candidate, rule["omitted"])
+            total = pointer(candidate, rule["total"])
+            if diagnostics is None and omitted is None and total is None:
+                continue
+            if (
+                type(diagnostics) is not list
+                or type(omitted) is not int
+                or type(total) is not int
+                or any(type(item) is not dict for item in diagnostics)
+            ):
+                return False
+            warning_count = sum(
+                item.get(rule["severityField"]) == rule["warningValue"]
+                for item in diagnostics
+            )
+            if warning_count + omitted != total:
                 return False
         for rule in vocabulary.get("canonicalUtf8Bytes", []):
             fields = pointer(candidate, rule["array"])
@@ -572,9 +592,23 @@ class Dev142CorpusTests(unittest.TestCase):
         boundaries = contract.benchmark_boundaries()
         self.assertEqual({row["id"] for row in boundaries} & {row["id"] for row in corpus["cases"]}, set())
         self.assertEqual(
-            {(row["inputBytes"], row["outputBytes"], row["realizedSavingsBytes"]) for row in boundaries},
-            {(8191, 4096, 4095), (8192, 4096, 4096), (65536, 61440, 61440), (65537, 61440, 4097), (8192, 4095, 4097)},
+            {row["inputBytes"] for row in boundaries},
+            {8191, 8192, 65536, 65537},
         )
+        self.assertEqual(
+            {row["outputBytes"] for row in boundaries}, {4096, 4097}
+        )
+        self.assertTrue(
+            {4095, 4096}.issubset(
+                {row["realizedSavingsBytes"] for row in boundaries}
+            )
+        )
+        for row in boundaries:
+            with self.subTest(row=row["id"]):
+                self.assertEqual(
+                    row["realizedSavingsBytes"],
+                    row["inputBytes"] - row["outputBytes"],
+                )
         self.assertTrue(any(row["occupiedTokens"] == 6144 and row["contextSize"] == 8192 for row in boundaries))
         self.assertTrue(any(row["occupiedTokens"] == 6145 and row["contextSize"] == 8192 for row in boundaries))
         interrupted = next(row for row in boundaries if row["id"] == "interrupted-command")
@@ -685,6 +719,43 @@ class Dev142CorpusTests(unittest.TestCase):
                 score = contract.score_condensation(failure, candidate)
                 self.assertFalse(score.passed)
                 self.assertIn("command_outcome_regression", score.reason_codes)
+
+    def test_score_condensation_fails_closed_for_malformed_untrusted_shapes(self):
+        case = next(
+            row for row in canonical_benchmark()["cases"]
+            if row["expected"]["commandOutcome"] == "failure"
+        )
+        result = self._result_for(case)
+        malformed = (
+            {**result, "condensation": []},
+            {**result, "condensation": None},
+            {
+                **result,
+                "condensation": {
+                    **result["condensation"],
+                    "summaryFacts": [{}],
+                },
+            },
+            {
+                **result,
+                "condensation": {
+                    **result["condensation"],
+                    "completionFacts": [{}],
+                },
+            },
+        )
+        for candidate in malformed:
+            with self.subTest(condensation=candidate["condensation"]):
+                score = contract.score_condensation(case, candidate)
+                self.assertFalse(score.passed)
+                self.assertIn("invalid_result", score.reason_codes)
+
+    def test_score_condensation_rejects_a_stale_oracle_hash(self):
+        case = deepcopy(canonical_benchmark()["cases"][0])
+        case["expected"]["summary"] = "synthetic tampered summary"
+        result = self._result_for(case)
+        with self.assertRaises(contract.ContractError):
+            contract.score_condensation(case, result)
 
     def test_validate_benchmark_enforces_the_complete_hash_bound_corpus(self):
         corpus = contract.load_closed_json(CORPUS)
@@ -920,8 +991,33 @@ class Dev142CostTests(unittest.TestCase):
             with self.subTest(name=name), self.assertRaises(contract.ContractError):
                 contract.validate_benchmark(candidate)
 
+    def test_serialized_cost_model_rejects_incoherent_route_counters(self):
+        mutations = {
+            "plugin_off_decline": lambda value: value["arms"][0].__setitem__("declines", 1),
+            "plugin_off_fallback": lambda value: value["arms"][0].__setitem__("fallbacks", 1),
+            "plugin_on_replacement_and_decline": lambda value: value["arms"][1].update(declines=1, fallbacks=1),
+            "plugin_on_no_terminal_outcome": lambda value: value["arms"][1].update(replacements=0, fallbacks=0),
+            "plugin_on_decline_without_fallback": lambda value: value["arms"][1].update(replacements=0, declines=1, fallbacks=0),
+            "decline_count_above_one": lambda value: value["arms"][1].__setitem__("declines", 2),
+            "fallback_count_above_one": lambda value: value["arms"][1].__setitem__("fallbacks", 2),
+        }
+        for name, mutate in mutations.items():
+            candidate = canonical_serialized_cost_evidence()
+            mutate(candidate)
+            with self.subTest(name=name), self.assertRaises(contract.ContractError):
+                contract.validate_benchmark(candidate)
+
+        fallback = canonical_serialized_cost_evidence()
+        fallback["arms"][1].update(replacements=0, declines=1, fallbacks=1)
+        derived = contract.derive_benchmark(fallback)
+        self.assertEqual(derived["pairs"][0]["status"], "pass")
+        self.assertEqual(contract.validate_benchmark(derived), derived)
+
     def test_missing_provider_usage_and_counters_derive_blocked_not_zero_or_pass(self):
-        for key in ("providerUsage", "appleAttempts", "replacements"):
+        for key in (
+            "providerUsage", "appleAttempts", "replacements", "declines",
+            "fallbacks",
+        ):
             candidate = canonical_serialized_cost_evidence()
             candidate["arms"][1][key] = None
             derived = contract.derive_benchmark(candidate)
@@ -1030,7 +1126,15 @@ class Dev142SchemaParityTests(unittest.TestCase):
         duplicate_identity = dict(identity, id="diagnostic-2")
         duplicate_result = {**result, "condensation": {**result["condensation"], "diagnostics": [identity, duplicate_identity]}}
         warning_result = {**result, "condensation": {**result["condensation"], "warningCount": 1, "omittedWarningCount": 2}}
-        for rejected in (duplicate_result, warning_result):
+        exact_warning_mismatch = {
+            **result,
+            "condensation": {
+                **result["condensation"],
+                "warningCount": 2,
+                "omittedWarningCount": 1,
+            },
+        }
+        for rejected in (duplicate_result, warning_result, exact_warning_mismatch):
             with self.subTest(result=rejected), self.assertRaises(contract.ContractError):
                 contract.validate_result(rejected)
             self.assertFalse(schema_accepts(result_schema, rejected))
@@ -1132,6 +1236,11 @@ class Dev142CommandParserTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertIsNotNone(contract.parse_command(command, self.root))
 
+        for option_like_path in (
+            "--recursive", "--strict", "--no-incremental", "--no-fix",
+            "--fix", "--unsafe-fixes",
+        ):
+            (self.root / option_like_path).write_text("synthetic option-like path\n")
         rejected = (
             "swift test --configuration debug --configuration release",
             "swift build --filter target",
@@ -1254,6 +1363,42 @@ class Dev142CommandParserTests(unittest.TestCase):
 
         run_with(disappears)
 
+        new_parent = self.root / "New"
+        new_parent.mkdir()
+        appeared_target = new_parent / "Derived"
+        parent_calls = 0
+
+        def appears_after_absence_capture(path):
+            nonlocal parent_calls
+            if Path(path).resolve(strict=False) == new_parent.resolve():
+                parent_calls += 1
+                if parent_calls == 2:
+                    appeared_target.mkdir()
+            return original_lstat(path)
+
+        contract._lstat = appears_after_absence_capture
+        try:
+            with self.assertRaises(contract.RouteDeclined) as caught:
+                contract.parse_command(
+                    "swift test --scratch-path New/Derived", self.root
+                )
+            self.assertEqual(caught.exception.reason, "command_not_allowed")
+        finally:
+            contract._lstat = original_lstat
+
+        original_abspath = contract.os.path.abspath
+
+        def unavailable_working_directory(_path):
+            raise FileNotFoundError("synthetic unavailable working directory")
+
+        contract.os.path.abspath = unavailable_working_directory
+        try:
+            with self.assertRaises(contract.RouteDeclined) as caught:
+                contract._repository_root(".")
+            self.assertEqual(caught.exception.reason, "command_not_allowed")
+        finally:
+            contract.os.path.abspath = original_abspath
+
 
 class Dev142RoutingTests(unittest.TestCase):
     def setUp(self):
@@ -1310,6 +1455,10 @@ class Dev142RoutingTests(unittest.TestCase):
             result = contract.route(request, self._context(command=command))
             self.assertEqual(result["outcome"], "applied")
 
+        missing_occupied_tokens = self._context()
+        missing_occupied_tokens.pop("occupiedTokens")
+        missing_context_size = self._context()
+        missing_context_size.pop("contextSize")
         declined = (
             (canonical_request(), self._context(eventName="PreToolUse"), "tool_not_allowed"),
             (canonical_request(), self._context(command="echo nope"), "command_not_allowed"),
@@ -1320,6 +1469,8 @@ class Dev142RoutingTests(unittest.TestCase):
             (canonical_request(), self._context(appleAvailable=False), "apple_unavailable"),
             (canonical_request(), self._context(localeSupported=False), "locale_unsupported"),
             (canonical_request(), self._context(occupiedTokens=6145), "context_budget_exceeded"),
+            (canonical_request(), missing_occupied_tokens, "context_budget_exceeded"),
+            (canonical_request(), missing_context_size, "context_budget_exceeded"),
         )
         for request, context, reason in declined:
             calls = []
@@ -1392,10 +1543,14 @@ class Dev142RoutingTests(unittest.TestCase):
         sensitive_values = (
             "Bearer synthetic-private-token-12345678",
             "password=synthetic-private-value",
+            "token=ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+            "ghp_abcdefghijklmnopqrstuvwxyz0123456789",
             "-----BEGIN PRIVATE KEY-----",
             "/Users/synthetic/private.txt",
             "/private/synthetic/private.txt",
+            "/etc/passwd",
             r"C:\\Users\\synthetic\\private.txt",
+            r"C:\\Temp\\customer-secret.txt",
             r"\\\\synthetic-server\\private-share",
         )
         for sensitive in sensitive_values:
@@ -1545,6 +1700,69 @@ class Dev142RoutingTests(unittest.TestCase):
         self.assertTrue(result["preserveOriginal"])
         self.assertIn(result["reasonCode"], ("command_not_allowed", "contract_invariant_failed", "invalid_response"))
 
+    def test_route_rejects_repository_replacement_during_bridge(self):
+        displaced_root = self.root.with_name(f"{self.root.name}-displaced")
+
+        def replacing_bridge(request):
+            self.root.rename(displaced_root)
+            self.root.mkdir()
+            (self.root / "Sources").mkdir()
+            (self.root / "Sources" / "App.swift").write_text(
+                "struct Replacement {}\n"
+            )
+            return self._bridge(request)
+
+        try:
+            result = contract.route(
+                canonical_request(), self._context(bridge=replacing_bridge)
+            )
+        finally:
+            if self.root.exists():
+                shutil.rmtree(self.root)
+            displaced_root.rename(self.root)
+
+        self.assertEqual(
+            result,
+            {
+                "outcome": "fail",
+                "reasonCode": "invalid_response",
+                "preserveOriginal": True,
+            },
+        )
+
+    def test_route_rechecks_command_operand_identity_after_bridge(self):
+        source = self.root / "Sources" / "App.swift"
+        displaced = self.root / "Sources" / "App.displaced.swift"
+        request = canonical_request()
+        request["commandClass"] = "typecheck"
+
+        def replacing_bridge(candidate):
+            source.rename(displaced)
+            source.write_text("struct Replacement {}\n")
+            return self._bridge(candidate)
+
+        try:
+            result = contract.route(
+                request,
+                self._context(
+                    command="swiftc -typecheck Sources/App.swift",
+                    bridge=replacing_bridge,
+                ),
+            )
+        finally:
+            if source.exists():
+                source.unlink()
+            displaced.rename(source)
+
+        self.assertEqual(
+            result,
+            {
+                "outcome": "fail",
+                "reasonCode": "invalid_response",
+                "preserveOriginal": True,
+            },
+        )
+
 
 class Dev142ProofTests(unittest.TestCase):
     """The repository-only proof is deterministic metadata, never runtime proof."""
@@ -1682,9 +1900,13 @@ class Dev142ProofTests(unittest.TestCase):
 
         unsafe_values = (
             "/private/synthetic/path",
+            "/etc/passwd",
             r"C:\\Users\\synthetic\\path",
+            r"D:\\build\\result.log",
             r"\\\\synthetic-server\\private-share",
             "api_key=synthetic-private-value",
+            "token=ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+            "ghp_abcdefghijklmnopqrstuvwxyz0123456789",
             "Bearer synthetic-private-token-12345678",
             "-----BEGIN PRIVATE KEY-----",
             "self-attested model correctness",
@@ -1694,6 +1916,18 @@ class Dev142ProofTests(unittest.TestCase):
             with self.subTest(unsafe=unsafe):
                 self.assertFalse(runner._safe_metadata({"safe": [{"value": unsafe}]}))
         self.assertFalse(runner._safe_metadata({"safe": {"rawPrompt": "nested"}}))
+
+    def test_safety_proof_requires_the_recursive_content_scanner(self):
+        with tempfile.TemporaryDirectory() as directory:
+            proof = self._run_proof(Path(directory) / "proof.json")
+        runner = self._runner()
+        original = runner._safe_metadata
+        runner._safe_metadata = lambda _value: True
+        try:
+            with self.assertRaises(ValueError):
+                runner._verify_safety(proof)
+        finally:
+            runner._safe_metadata = original
 
     def test_evidence_validator_exact_enums_every_check_and_boundary(self):
         with tempfile.TemporaryDirectory() as directory:
