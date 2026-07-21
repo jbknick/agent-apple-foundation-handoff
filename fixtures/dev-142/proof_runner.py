@@ -25,6 +25,27 @@ CHECK_IDS = (
     "P-SAFETY-001",
     "P-SCHEMA-001",
 )
+ROUTING_BOUNDARIES = (
+    "R-ACCEPT-TEST-001", "R-ACCEPT-TEST-002", "R-ACCEPT-TEST-003",
+    "R-ACCEPT-BUILD-001", "R-ACCEPT-BUILD-002", "R-ACCEPT-BUILD-003",
+    "R-ACCEPT-TYPECHECK-001", "R-ACCEPT-TYPECHECK-002", "R-ACCEPT-TYPECHECK-003",
+    "R-ACCEPT-LINT-001", "R-ACCEPT-LINT-002", "R-ACCEPT-LINT-003",
+    "R-EVENT-001", "R-TOOL-001", "R-ACTION-001", "R-POLICY-001",
+    "R-COMMAND-001", "R-COMPOUND-001", "R-INPUT-8191", "R-INPUT-8192",
+    "R-INPUT-65536", "R-INPUT-65537", "R-ESTIMATED-4095", "R-ESTIMATED-4096",
+    "R-REALIZED-4095", "R-REALIZED-4096", "R-OCCUPANCY-75-PASS",
+    "R-OCCUPANCY-75-FAIL", "R-CLASS-C2", "R-CLASS-C3", "R-CLASS-UNKNOWN",
+    "R-CLASS-UNCLASSIFIED", "R-PROVENANCE-MIXED", "R-FILE-INVALID",
+    "R-FILE-MISSING", "R-FILE-NONCONTAINED", "R-APPLE-UNAVAILABLE",
+    "R-LOCALE-UNSUPPORTED", "R-MALFORMED-RESPONSE", "R-BRIDGE-DECLINE",
+    "R-BRIDGE-FAIL", "R-BRIDGE-EXCEPTION", "R-APPLIED-001",
+)
+SAFETY_BOUNDARIES = (
+    "S-PRIVATE-KEY-001", "S-PRIVATE-PATH-001", "S-RAW-PROMPT-001",
+    "S-RAW-RESULT-001", "S-RAW-RESPONSE-001", "S-CREDENTIAL-001",
+    "S-TRACE-001", "S-XCRESULT-001", "S-SELF-ATTEST-001",
+    "S-EXTRA-KEY-001", "S-STATUS-001", "S-LIVE-CLAIM-001",
+)
 LIVE_CLAIMS = {
     "appleInvocation": "not_applicable",
     "codexHook": "not_applicable",
@@ -138,6 +159,7 @@ def _verify_schemas(contract):
         raise ValueError("unexpected schema count")
     for path in SCHEMA_PATHS:
         contract.load_closed_json(path)
+    return ("D-SCHEMA-001",)
 
 
 def _verify_corpus(contract, corpus):
@@ -148,6 +170,7 @@ def _verify_corpus(contract, corpus):
         raise ValueError("incomplete command classes")
     if set(case["commandForm"] for case in corpus["cases"]) != set(contract.Policy.APPROVED_BENCHMARK_COMMAND_FORMS):
         raise ValueError("incomplete command forms")
+    return ("D-CORPUS-001",)
 
 
 def _verify_quality(contract, corpus):
@@ -155,6 +178,7 @@ def _verify_quality(contract, corpus):
         score = contract.score_condensation(case, _canonical_result(contract, case))
         if not score.passed:
             raise ValueError("synthetic quality proof failed")
+    return ("D-QUALITY-001",)
 
 
 def _verify_boundaries(contract):
@@ -171,6 +195,29 @@ def _verify_boundaries(contract):
         raise ValueError("rejected input boundary accepted")
     if not contract.fits_apple_budget(6144, 8192) or contract.fits_apple_budget(6145, 8192):
         raise ValueError("context boundary failed")
+    return ("D-INPUT-001", "D-OCCUPANCY-001")
+
+
+def _route_result_with_size(contract, request, output_bytes):
+    result = _route_result(contract, request)
+    baseline = contract._response_bytes(result)
+    if output_bytes < baseline:
+        raise ValueError("invalid proof response size")
+    result["condensation"]["summary"] = "x" * (
+        len(result["condensation"]["summary"]) + output_bytes - baseline
+    )
+    if contract._response_bytes(result) != output_bytes:
+        raise ValueError("unstable proof response size")
+    return result
+
+
+def _non_applied_result(contract, request, outcome):
+    result = _route_result(contract, request)
+    result.pop("resultType")
+    result.pop("condensation")
+    result["outcome"] = outcome
+    result["reasonCode"] = "generation_declined"
+    return result
 
 
 def _verify_routing(contract):
@@ -179,48 +226,95 @@ def _verify_routing(contract):
         (root / "Sources").mkdir()
         (root / "Sources" / "App.swift").write_text("struct App {}\n", encoding="utf-8")
         (root / "App.xcodeproj").mkdir()
-        commands = {
-            "swift test", "xcodebuild test -project App.xcodeproj", "python3 -m pytest",
-            "swift build", "xcodebuild build -project App.xcodeproj", "pnpm build",
-            "swiftc -typecheck Sources/App.swift", "python3 -m mypy Sources", "npm run typecheck",
-            "swift format lint Sources", "python3 -m ruff check Sources", "pnpm lint",
+        accepted = (
+            ("R-ACCEPT-TEST-001", "swift test", "test"),
+            ("R-ACCEPT-TEST-002", "xcodebuild test -project App.xcodeproj", "test"),
+            ("R-ACCEPT-TEST-003", "python3 -m pytest", "test"),
+            ("R-ACCEPT-BUILD-001", "swift build", "build"),
+            ("R-ACCEPT-BUILD-002", "xcodebuild build -project App.xcodeproj", "build"),
+            ("R-ACCEPT-BUILD-003", "pnpm build", "build"),
+            ("R-ACCEPT-TYPECHECK-001", "swiftc -typecheck Sources/App.swift", "typecheck"),
+            ("R-ACCEPT-TYPECHECK-002", "python3 -m mypy Sources", "typecheck"),
+            ("R-ACCEPT-TYPECHECK-003", "npm run typecheck", "typecheck"),
+            ("R-ACCEPT-LINT-001", "swift format lint Sources", "lint"),
+            ("R-ACCEPT-LINT-002", "python3 -m ruff check Sources", "lint"),
+            ("R-ACCEPT-LINT-003", "pnpm lint", "lint"),
+        )
+        for boundary_id, command, command_class in accepted:
+            if contract.parse_command(command, root).command_class != command_class:
+                raise ValueError(f"failed {boundary_id}")
+
+        def route_case(boundary_id, request_change, context_change, bridge_factory, expected, expected_calls):
+            request = _canonical_request(contract)
+            request_change(request)
+            calls = []
+
+            def bridge(value):
+                calls.append(value)
+                return bridge_factory(value)
+
+            context = {
+                "eventName": contract.Policy.EVENT_NAME,
+                "command": "swift test",
+                "repoRoot": root,
+                "appleAvailable": True,
+                "localeSupported": True,
+                "occupiedTokens": 6144,
+                "contextSize": 8192,
+                "bridge": bridge,
+            }
+            context_change(context)
+            result = contract.route(request, context)
+            if result != expected(request) or len(calls) != expected_calls:
+                raise ValueError(f"failed {boundary_id}")
+
+        applied = lambda request: _route_result(contract, request)
+        fallback = lambda outcome, reason: lambda _request: {
+            "outcome": outcome, "reasonCode": reason, "preserveOriginal": True,
         }
-        classes = {contract.parse_command(command, root).command_class for command in commands}
-        if classes != {"test", "build", "typecheck", "lint"}:
-            raise ValueError("routing command matrix failed")
-        try:
-            contract.parse_command("swift test && pnpm test", root)
-        except contract.RouteDeclined:
-            pass
-        else:
-            raise ValueError("compound command accepted")
-        request = _canonical_request(contract)
-        result = contract.route(request, {
-            "eventName": contract.Policy.EVENT_NAME,
-            "command": "swift test",
-            "repoRoot": root,
-            "appleAvailable": True,
-            "localeSupported": True,
-            "occupiedTokens": 6144,
-            "contextSize": 8192,
-            "bridge": lambda value: _route_result(contract, value),
-        })
-        if result.get("outcome") != "applied":
-            raise ValueError("eligible route failed")
-        denied = _canonical_request(contract)
-        denied["fields"][0]["classification"] = "C2"
-        result = contract.route(denied, {
-            "eventName": contract.Policy.EVENT_NAME,
-            "command": "swift test",
-            "repoRoot": root,
-            "appleAvailable": True,
-            "localeSupported": True,
-            "occupiedTokens": 6144,
-            "contextSize": 8192,
-            "bridge": lambda value: _route_result(contract, value),
-        })
-        if result != {"outcome": "declined", "reasonCode": "data_policy_denied", "preserveOriginal": True}:
-            raise ValueError("data policy boundary failed")
+        no_request_change = lambda _request: None
+        no_context_change = lambda _context: None
+        preflight_rows = (
+            ("R-EVENT-001", no_request_change, lambda context: context.update(eventName="PreToolUse"), fallback("declined", "tool_not_allowed")),
+            ("R-TOOL-001", lambda request: request.update(toolName="Read"), no_context_change, fallback("declined", "tool_not_allowed")),
+            ("R-ACTION-001", lambda request: request.update(action="other"), no_context_change, fallback("fail", "contract_invariant_failed")),
+            ("R-POLICY-001", lambda request: request.update(policyVersion="diagnostic-condensation-v2"), no_context_change, fallback("fail", "contract_invariant_failed")),
+            ("R-COMMAND-001", no_request_change, lambda context: context.update(command="echo rejected"), fallback("declined", "command_not_allowed")),
+            ("R-COMPOUND-001", no_request_change, lambda context: context.update(command="swift test && pnpm test"), fallback("declined", "compound_command")),
+            ("R-INPUT-8191", lambda request: request.update(inputBytes=8191, estimatedSavingsBytes=4095), no_context_change, fallback("declined", "input_below_minimum")),
+            ("R-INPUT-65537", lambda request: request.update(inputBytes=65537, estimatedSavingsBytes=61441), no_context_change, fallback("declined", "input_above_maximum")),
+            ("R-ESTIMATED-4095", lambda request: request.update(estimatedSavingsBytes=4095), no_context_change, fallback("fail", "contract_invariant_failed")),
+            ("R-OCCUPANCY-75-FAIL", no_request_change, lambda context: context.update(occupiedTokens=6145), fallback("declined", "context_budget_exceeded")),
+            ("R-CLASS-C2", lambda request: request["fields"][0].update(classification="C2"), no_context_change, fallback("declined", "data_policy_denied")),
+            ("R-CLASS-C3", lambda request: request["fields"][0].update(classification="C3"), no_context_change, fallback("declined", "data_policy_denied")),
+            ("R-CLASS-UNKNOWN", lambda request: request["fields"][0].update(classification="C9"), no_context_change, fallback("declined", "data_policy_denied")),
+            ("R-CLASS-UNCLASSIFIED", lambda request: request["fields"][0].pop("classification"), no_context_change, fallback("declined", "data_policy_denied")),
+            ("R-PROVENANCE-MIXED", lambda request: request["fields"][0].update(origin="remote"), no_context_change, fallback("declined", "data_policy_denied")),
+            ("R-FILE-INVALID", lambda request: request.update(fields=[{**request["fields"][0], "name": "file", "value": "Sources\\App.swift"}]), no_context_change, fallback("declined", "data_policy_denied")),
+            ("R-FILE-MISSING", lambda request: request.update(fields=[{**request["fields"][0], "name": "file", "value": "Missing.swift"}]), no_context_change, fallback("declined", "data_policy_denied")),
+            ("R-FILE-NONCONTAINED", lambda request: request.update(fields=[{**request["fields"][0], "name": "file", "value": "../outside.swift"}]), no_context_change, fallback("declined", "data_policy_denied")),
+            ("R-APPLE-UNAVAILABLE", no_request_change, lambda context: context.update(appleAvailable=False), fallback("declined", "apple_unavailable")),
+            ("R-LOCALE-UNSUPPORTED", no_request_change, lambda context: context.update(localeSupported=False), fallback("declined", "locale_unsupported")),
+        )
+        for boundary_id, request_change, context_change, expected in preflight_rows:
+            route_case(boundary_id, request_change, context_change, applied, expected, 0)
+
+        postflight_rows = (
+            ("R-INPUT-8192", lambda request: request.update(inputBytes=8192, estimatedSavingsBytes=4096), no_context_change, applied, applied),
+            ("R-INPUT-65536", lambda request: request.update(inputBytes=65536, estimatedSavingsBytes=61440), no_context_change, applied, applied),
+            ("R-ESTIMATED-4096", lambda request: request.update(estimatedSavingsBytes=4096), no_context_change, applied, applied),
+            ("R-OCCUPANCY-75-PASS", no_request_change, no_context_change, applied, applied),
+            ("R-REALIZED-4095", no_request_change, no_context_change, lambda request: _route_result_with_size(contract, request, 4097), fallback("declined", "insufficient_realized_savings")),
+            ("R-REALIZED-4096", no_request_change, no_context_change, lambda request: _route_result_with_size(contract, request, 4096), lambda request: _route_result_with_size(contract, request, 4096)),
+            ("R-MALFORMED-RESPONSE", no_request_change, no_context_change, lambda _request: {"outcome": "applied"}, fallback("fail", "invalid_response")),
+            ("R-BRIDGE-DECLINE", no_request_change, no_context_change, lambda _request: (_ for _ in ()).throw(contract.RouteDeclined("generation_declined")), fallback("declined", "generation_declined")),
+            ("R-BRIDGE-FAIL", no_request_change, no_context_change, lambda request: _non_applied_result(contract, request, "fail"), fallback("fail", "generation_declined")),
+            ("R-BRIDGE-EXCEPTION", no_request_change, no_context_change, lambda _request: (_ for _ in ()).throw(RuntimeError("synthetic")), fallback("fail", "contract_invariant_failed")),
+            ("R-APPLIED-001", no_request_change, no_context_change, applied, applied),
+        )
+        for boundary_id, request_change, context_change, bridge_factory, expected in postflight_rows:
+            route_case(boundary_id, request_change, context_change, bridge_factory, expected, 1)
+    return tuple(sorted(ROUTING_BOUNDARIES))
 
 
 def _arm(contract, host, case_id, arm, input_tokens, output_tokens):
@@ -267,11 +361,48 @@ def _verify_normalization_and_release(contract):
             release.median_reduction_ppm, release.correctness_regressions,
             release.additional_parent_model_turns) != ("pass", 48, 0, 100000, 0, 0):
         raise ValueError("release gate failed")
+    return ("D-NORMALIZATION-001", "D-RELEASE-001")
 
 
 def _check(check_id, operation):
-    operation()
-    return {"id": check_id, "status": "pass"}
+    boundaries = operation()
+    if type(boundaries) is not tuple or not boundaries:
+        raise ValueError("missing proof boundaries")
+    return {"id": check_id, "status": "pass", "boundaries": sorted(boundaries)}
+
+
+def _evidence_copy(evidence):
+    return json.loads(json.dumps(evidence, ensure_ascii=False))
+
+
+def _verify_safety(evidence):
+    mutations = (
+        ("S-PRIVATE-KEY-001", lambda value: value.update(privateKey="redacted")),
+        ("S-PRIVATE-PATH-001", lambda value: value.update(privatePath="/Users/example/private")),
+        ("S-RAW-PROMPT-001", lambda value: value.update(rawPrompt="synthetic")),
+        ("S-RAW-RESULT-001", lambda value: value.update(rawResult="synthetic")),
+        ("S-RAW-RESPONSE-001", lambda value: value.update(rawResponse="synthetic")),
+        ("S-CREDENTIAL-001", lambda value: value.update(credential="redacted")),
+        ("S-TRACE-001", lambda value: value.update(trace="output.trace")),
+        ("S-XCRESULT-001", lambda value: value.update(xcresult="output.xcresult")),
+        ("S-SELF-ATTEST-001", lambda value: value.update(modelCorrectness="self-attested")),
+        ("S-EXTRA-KEY-001", lambda value: value.update(extra=True)),
+        ("S-STATUS-001", lambda value: value.update(status="blocked")),
+        ("S-LIVE-CLAIM-001", lambda value: value["liveClaims"].update(parentTokenReduction="pass")),
+    )
+    observed = []
+    for boundary_id, mutate in mutations:
+        candidate = _evidence_copy(evidence)
+        mutate(candidate)
+        try:
+            validate_evidence(candidate)
+        except ValueError:
+            observed.append(boundary_id)
+            continue
+        raise ValueError(f"unsafe evidence accepted: {boundary_id}")
+    if tuple(sorted(observed)) != tuple(sorted(SAFETY_BOUNDARIES)):
+        raise ValueError("incomplete safety proof")
+    return tuple(sorted(observed))
 
 
 def build_evidence():
@@ -285,7 +416,7 @@ def build_evidence():
         _check("P-ROUTING-001", lambda: _verify_routing(contract)),
         _check("P-NORMALIZATION-001", lambda: _verify_normalization_and_release(contract)),
         _check("P-RELEASE-001", lambda: _verify_normalization_and_release(contract)),
-        _check("P-SAFETY-001", lambda: None),
+        {"id": "P-SAFETY-001", "status": "pass", "boundaries": sorted(SAFETY_BOUNDARIES)},
     ]
     evidence = {
         "schemaVersion": 1,
@@ -300,6 +431,7 @@ def build_evidence():
         "checks": sorted(checks, key=lambda row: row["id"]),
         "liveClaims": dict(LIVE_CLAIMS),
     }
+    _verify_safety(evidence)
     validate_evidence(evidence)
     return evidence
 
@@ -345,8 +477,22 @@ def validate_evidence(evidence):
         raise ValueError("unordered checks")
     if {row.get("id") for row in checks if isinstance(row, dict)} != set(CHECK_IDS):
         raise ValueError("unexpected checks")
-    if any(not isinstance(row, dict) or set(row) != {"id", "status"} or row["status"] != "pass" for row in checks):
+    if any(
+        not isinstance(row, dict)
+        or set(row) != {"id", "status", "boundaries"}
+        or row["status"] != "pass"
+        or type(row["boundaries"]) is not list
+        or not row["boundaries"]
+        or row["boundaries"] != sorted(row["boundaries"])
+        or any(type(boundary) is not str or not boundary for boundary in row["boundaries"])
+        for row in checks
+    ):
         raise ValueError("invalid check")
+    rows = {row["id"]: row for row in checks}
+    if tuple(rows["P-ROUTING-001"]["boundaries"]) != tuple(sorted(ROUTING_BOUNDARIES)):
+        raise ValueError("incomplete routing proof")
+    if tuple(rows["P-SAFETY-001"]["boundaries"]) != tuple(sorted(SAFETY_BOUNDARIES)):
+        raise ValueError("incomplete safety proof")
     return evidence
 
 

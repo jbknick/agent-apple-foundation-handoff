@@ -2,34 +2,114 @@
   "action": "condense_diagnostic_output",
   "checks": [
     {
+      "boundaries": [
+        "D-INPUT-001",
+        "D-OCCUPANCY-001"
+      ],
       "id": "P-BOUNDARY-001",
       "status": "pass"
     },
     {
+      "boundaries": [
+        "D-CORPUS-001"
+      ],
       "id": "P-CORPUS-001",
       "status": "pass"
     },
     {
+      "boundaries": [
+        "D-NORMALIZATION-001",
+        "D-RELEASE-001"
+      ],
       "id": "P-NORMALIZATION-001",
       "status": "pass"
     },
     {
+      "boundaries": [
+        "D-QUALITY-001"
+      ],
       "id": "P-QUALITY-001",
       "status": "pass"
     },
     {
+      "boundaries": [
+        "D-NORMALIZATION-001",
+        "D-RELEASE-001"
+      ],
       "id": "P-RELEASE-001",
       "status": "pass"
     },
     {
+      "boundaries": [
+        "R-ACCEPT-BUILD-001",
+        "R-ACCEPT-BUILD-002",
+        "R-ACCEPT-BUILD-003",
+        "R-ACCEPT-LINT-001",
+        "R-ACCEPT-LINT-002",
+        "R-ACCEPT-LINT-003",
+        "R-ACCEPT-TEST-001",
+        "R-ACCEPT-TEST-002",
+        "R-ACCEPT-TEST-003",
+        "R-ACCEPT-TYPECHECK-001",
+        "R-ACCEPT-TYPECHECK-002",
+        "R-ACCEPT-TYPECHECK-003",
+        "R-ACTION-001",
+        "R-APPLE-UNAVAILABLE",
+        "R-APPLIED-001",
+        "R-BRIDGE-DECLINE",
+        "R-BRIDGE-EXCEPTION",
+        "R-BRIDGE-FAIL",
+        "R-CLASS-C2",
+        "R-CLASS-C3",
+        "R-CLASS-UNCLASSIFIED",
+        "R-CLASS-UNKNOWN",
+        "R-COMMAND-001",
+        "R-COMPOUND-001",
+        "R-ESTIMATED-4095",
+        "R-ESTIMATED-4096",
+        "R-EVENT-001",
+        "R-FILE-INVALID",
+        "R-FILE-MISSING",
+        "R-FILE-NONCONTAINED",
+        "R-INPUT-65536",
+        "R-INPUT-65537",
+        "R-INPUT-8191",
+        "R-INPUT-8192",
+        "R-LOCALE-UNSUPPORTED",
+        "R-MALFORMED-RESPONSE",
+        "R-OCCUPANCY-75-FAIL",
+        "R-OCCUPANCY-75-PASS",
+        "R-POLICY-001",
+        "R-PROVENANCE-MIXED",
+        "R-REALIZED-4095",
+        "R-REALIZED-4096",
+        "R-TOOL-001"
+      ],
       "id": "P-ROUTING-001",
       "status": "pass"
     },
     {
+      "boundaries": [
+        "S-CREDENTIAL-001",
+        "S-EXTRA-KEY-001",
+        "S-LIVE-CLAIM-001",
+        "S-PRIVATE-KEY-001",
+        "S-PRIVATE-PATH-001",
+        "S-RAW-PROMPT-001",
+        "S-RAW-RESPONSE-001",
+        "S-RAW-RESULT-001",
+        "S-SELF-ATTEST-001",
+        "S-STATUS-001",
+        "S-TRACE-001",
+        "S-XCRESULT-001"
+      ],
       "id": "P-SAFETY-001",
       "status": "pass"
     },
     {
+      "boundaries": [
+        "D-SCHEMA-001"
+      ],
       "id": "P-SCHEMA-001",
       "status": "pass"
     }
