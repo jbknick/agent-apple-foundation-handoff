@@ -630,6 +630,11 @@ class Dev142CostTests(unittest.TestCase):
         self.assertEqual(mismatch.status, "blocked")
         self.assertIn("pair_identity_mismatch", mismatch.reason_codes)
 
+    def test_score_pair_emits_pass_for_a_conforming_pair(self):
+        pair = self._pair(*contract.REQUIRED_PAIR_IDENTITIES[0])
+        self.assertEqual(pair.status, "pass")
+        self.assertEqual(pair.reduction_ppm, 100000)
+
     def test_release_uses_integer_even_median_and_exact_ten_percent_boundary(self):
         pairs = self._48_pairs()
         for index, pair in enumerate(pairs):
@@ -682,6 +687,27 @@ class Dev142CostTests(unittest.TestCase):
         self.assertEqual(score.median_reduction_ppm, 100000)
         self.assertEqual(score.correctness_regressions, 0)
         self.assertEqual(score.additional_parent_model_turns, 0)
+
+    def test_release_closed_validates_forged_pair_scores_before_aggregation(self):
+        pairs = self._48_pairs()
+        malformed = (
+            replace(pairs[0], status="valid"),
+            replace(pairs[0], status="pass", reduction_ppm=None),
+            replace(pairs[0], status="blocked", reduction_ppm=0, reason_codes=("blocked",)),
+            replace(pairs[0], reduction_ppm=1000001),
+            replace(pairs[0], correctness_regressions=True),
+            replace(pairs[0], additional_parent_model_turns=-1),
+            replace(pairs[0], reason_codes=("unexpected",)),
+        )
+        for forged in malformed:
+            with self.subTest(forged=forged), self.assertRaises(contract.ContractError):
+                contract.release_gate([forged, *pairs[1:]])
+
+        cancelled = list(pairs)
+        cancelled[0] = replace(cancelled[0], correctness_regressions=1)
+        cancelled[1] = replace(cancelled[1], correctness_regressions=-1)
+        with self.assertRaises(contract.ContractError):
+            contract.release_gate(cancelled)
 
 
 class Dev142SchemaParityTests(unittest.TestCase):
