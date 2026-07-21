@@ -17,9 +17,11 @@
     }
   },
   "integrationProvenance": {
-    "status": "tree_equivalent_rebase",
+    "status": "squash_merged_tree_equivalent",
     "originalBaseHead": "75c9c8ca8d38bcfd05dc3d82264d1b8219253bc6",
     "mergedBaseHead": "cdaa9bd5ce771c41d68603efa7835003ff46ee8c",
+    "reviewedHead": "5d6046f87471d341ea93aad4689fb234b88d9cdd",
+    "mergedHead": "c0644b860032f2cd460586f91b14885c91d476f7",
     "commitMappings": [
       {
         "captureHead": "464dd11938acebbed055df1bdbf5032c0fadbdb6",
