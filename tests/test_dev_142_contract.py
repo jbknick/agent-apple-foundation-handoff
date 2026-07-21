@@ -1,6 +1,7 @@
 import importlib.util
 import json
 import math
+import os
 from pathlib import Path
 import re
 import tempfile
@@ -531,6 +532,210 @@ class Dev142SchemaParityTests(unittest.TestCase):
             with self.subTest(evidence=rejected), self.assertRaises(contract.ContractError):
                 contract.validate_benchmark(rejected)
             self.assertFalse(schema_accepts(benchmark_schema, rejected))
+
+
+class Dev142CommandParserTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.root = Path(self.directory.name)
+        (self.root / "Sources").mkdir()
+        (self.root / "Tests").mkdir()
+        (self.root / "Scratch").mkdir()
+        (self.root / "Sources" / "App.swift").write_text("struct App {}\n")
+        (self.root / "Tests" / "test_app.py").write_text("def test_app(): pass\n")
+        (self.root / "App.xcodeproj").mkdir()
+        (self.root / "App.xcworkspace").mkdir()
+
+    def tearDown(self):
+        self.directory.cleanup()
+
+    def test_every_exact_prefix_selects_its_only_command_class(self):
+        accepted = {
+            "test": (
+                "swift test", "xcodebuild test -project App.xcodeproj", "npm test", "npm run test",
+                "pnpm test", "pnpm run test", "python3 -m unittest", "python3 -m pytest",
+            ),
+            "build": (
+                "swift build", "xcodebuild build -workspace App.xcworkspace", "npm run build", "pnpm build",
+                "pnpm run build", "python3 -m build",
+            ),
+            "typecheck": (
+                "swiftc -typecheck Sources/App.swift", "npm run typecheck", "pnpm typecheck",
+                "pnpm run typecheck", "python3 -m mypy Sources",
+            ),
+            "lint": (
+                "swift format lint Sources", "npm run lint", "pnpm lint", "pnpm run lint",
+                "python3 -m ruff check Sources",
+            ),
+        }
+        for expected_class, commands in accepted.items():
+            for command in commands:
+                with self.subTest(command=command):
+                    selection = contract.parse_command(command, self.root)
+                    self.assertEqual(selection.command_class, expected_class)
+                    self.assertEqual(selection.tokens, tuple(command.split()))
+
+    def test_suffix_terminals_are_closed(self):
+        accepted = (
+            "swift test --configuration debug --package-path Scratch --scratch-path Scratch --filter AppTests/test_one",
+            "swift build --configuration release --package-path Scratch --scratch-path Scratch",
+            "swiftc -typecheck Sources/App.swift",
+            "swift format lint --recursive --strict Sources",
+            "xcodebuild test -project App.xcodeproj -scheme App -configuration Debug -sdk iphonesimulator -destination platform=iOS -derivedDataPath Scratch -quiet",
+            "python3 -m unittest -v discover -s Tests -p test_*.py -t Tests",
+            "python3 -m unittest Tests.test_app",
+            "python3 -m pytest -q -v -x --maxfail=1 -k test_app -m unit Tests/test_app.py::test_app",
+            "python3 -m build --sdist --wheel",
+            "python3 -m mypy --strict --no-incremental Sources",
+            "python3 -m ruff check --no-fix --output-format concise Sources",
+        )
+        for command in accepted:
+            with self.subTest(command=command):
+                self.assertIsNotNone(contract.parse_command(command, self.root))
+
+        rejected = (
+            "swift test --configuration debug --configuration release",
+            "swift build --filter target",
+            "swiftc -typecheck --help Sources/App.swift",
+            "swift format lint --recursive --recursive Sources",
+            "xcodebuild test -project App.xcodeproj -workspace App.xcworkspace",
+            "python3 -m unittest discover -s Tests -s .",
+            "python3 -m pytest --maxfail=0",
+            "python3 -m build --sdist --sdist",
+            "python3 -m mypy Sources --strict",
+            "python3 -m ruff check --fix Sources",
+            "npm test -- --watch",
+        )
+        for command in rejected:
+            with self.subTest(command=command), self.assertRaises(contract.RouteDeclined):
+                contract.parse_command(command, self.root)
+
+    def test_parser_rejects_non_single_invocation_and_unsafe_paths(self):
+        rejected = (
+            "/usr/bin/swift test", "./swift test", "env X=1 swift test", "FOO=bar swift test",
+            "sudo swift test", "swift test\necho unsafe", "swift test && npm test", "swift test | cat",
+            "swift test > output", "swift test $(whoami)", "swift test $HOME", "swift test; npm test",
+            "swiftc -typecheck ../outside.swift", "python3 -m pytest /tmp/test.py",
+        )
+        for command in rejected:
+            with self.subTest(command=command), self.assertRaises(contract.RouteDeclined):
+                contract.parse_command(command, self.root)
+
+        (self.root / "outside.swift").write_text("struct Outside {}\n")
+        (self.root / "Linked.swift").symlink_to(self.root / "outside.swift")
+        with self.assertRaises(contract.RouteDeclined):
+            contract.parse_command("swiftc -typecheck Linked.swift", self.root)
+
+    def test_parser_rejects_filesystem_identity_drift(self):
+        target = (self.root / "Sources" / "App.swift").resolve()
+        original_lstat = contract._lstat
+        calls = 0
+
+        def drift(path):
+            nonlocal calls
+            stat = original_lstat(path)
+            if Path(path) == target:
+                calls += 1
+                if calls > 1:
+                    return os.stat_result((
+                        stat.st_mode, stat.st_ino + 1, stat.st_dev, stat.st_nlink,
+                        stat.st_uid, stat.st_gid, stat.st_size, stat.st_atime,
+                        stat.st_mtime, stat.st_ctime,
+                    ))
+            return stat
+
+        contract._lstat = drift
+        try:
+            with self.assertRaises(contract.RouteDeclined) as caught:
+                contract.parse_command("swiftc -typecheck Sources/App.swift", self.root)
+            self.assertEqual(caught.exception.reason, "command_not_allowed")
+        finally:
+            contract._lstat = original_lstat
+
+
+class Dev142RoutingTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.root = Path(self.directory.name)
+        (self.root / "Sources").mkdir()
+        (self.root / "Sources" / "App.swift").write_text("struct App {}\n")
+
+    def tearDown(self):
+        self.directory.cleanup()
+
+    def _context(self, **changes):
+        context = {
+            "eventName": "PostToolUse",
+            "command": "swift test",
+            "repoRoot": self.root,
+            "appleAvailable": True,
+            "localeSupported": True,
+            "occupiedTokens": 6144,
+            "contextSize": 8192,
+            "bridge": self._bridge,
+        }
+        context.update(changes)
+        return context
+
+    def _bridge(self, request):
+        result = canonical_result()
+        result["commandClass"] = request["commandClass"]
+        return result
+
+    def test_exact_size_and_budget_boundaries(self):
+        self.assertEqual(contract.estimate_savings(8192), 4096)
+        self.assertEqual(contract.estimate_savings(65536), 61440)
+        with self.assertRaises(contract.RouteDeclined) as caught:
+            contract.estimate_savings(8191)
+        self.assertEqual(caught.exception.reason, "input_below_minimum")
+        with self.assertRaises(contract.RouteDeclined) as caught:
+            contract.estimate_savings(65537)
+        self.assertEqual(caught.exception.reason, "input_above_maximum")
+        self.assertTrue(contract.fits_apple_budget(6144, 8192))
+        self.assertFalse(contract.fits_apple_budget(6145, 8192))
+
+    def test_routes_selected_commands_and_declines_every_preflight_gate_without_a_bridge_attempt(self):
+        for command, command_class in (
+            ("swift test", "test"), ("swift build", "build"),
+            ("swiftc -typecheck Sources/App.swift", "typecheck"), ("swift format lint Sources", "lint"),
+        ):
+            request = canonical_request()
+            request["commandClass"] = command_class
+            result = contract.route(request, self._context(command=command))
+            self.assertEqual(result["outcome"], "applied")
+
+        declined = (
+            (canonical_request(), self._context(eventName="PreToolUse"), "tool_not_allowed"),
+            (canonical_request(), self._context(command="echo nope"), "command_not_allowed"),
+            ({**canonical_request(), "toolName": "Read"}, self._context(), "tool_not_allowed"),
+            ({**canonical_request(), "inputBytes": 8191, "estimatedSavingsBytes": 4095}, self._context(), "input_below_minimum"),
+            ({**canonical_request(), "fields": [dict(canonical_request()["fields"][0], classification="C2")]}, self._context(), "data_policy_denied"),
+            ({**canonical_request(), "fields": [dict(canonical_request()["fields"][0], classification="C3")]}, self._context(), "data_policy_denied"),
+            (canonical_request(), self._context(appleAvailable=False), "apple_unavailable"),
+            (canonical_request(), self._context(localeSupported=False), "locale_unsupported"),
+            (canonical_request(), self._context(occupiedTokens=6145), "context_budget_exceeded"),
+        )
+        for request, context, reason in declined:
+            calls = []
+            context["bridge"] = lambda value: calls.append(value)
+            with self.subTest(reason=reason):
+                result = contract.route(request, context)
+                self.assertEqual(result, {"outcome": "declined", "reasonCode": reason, "preserveOriginal": True})
+                self.assertEqual(calls, [])
+
+    def test_calls_bridge_once_only_for_an_eligible_request_and_validates_the_response(self):
+        calls = []
+
+        def bridge(request):
+            calls.append(request)
+            return canonical_result()
+
+        result = contract.route(canonical_request(), self._context(bridge=bridge))
+        self.assertEqual(result["outcome"], "applied")
+        self.assertEqual(calls, [canonical_request()])
+
+        invalid_response = contract.route(canonical_request(), self._context(bridge=lambda request: {"outcome": "applied"}))
+        self.assertEqual(invalid_response, {"outcome": "fail", "reasonCode": "invalid_response", "preserveOriginal": True})
 
 
 if __name__ == "__main__":
