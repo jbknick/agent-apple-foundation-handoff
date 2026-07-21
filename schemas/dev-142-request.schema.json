@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dev-142-request.schema.json",
+  "$comment": "Draft 2020-12 covers structure. The closed x-dev142 vocabulary, enforced by the repository-local semantic evaluator and Python validator, covers cross-value invariants.",
+  "x-dev142-constraints": {
+    "uniqueBy": [{"array": "/fields", "keys": ["name"]}],
+    "repoRelativePath": [{"array": "/fields", "when": {"name": "file"}, "field": "value"}],
+    "derivedInteger": [{"source": "/inputBytes", "target": "/estimatedSavingsBytes", "subtract": 4096}],
+    "canonicalUtf8Bytes": [{"array": "/fields", "target": "/inputBytes"}]
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "policyVersion", "callID", "toolName", "toolVersion", "stateVersion", "action", "commandClass", "originalResultType", "originalResultDigest", "exitStatus", "interrupted", "inputBytes", "estimatedSavingsBytes", "fields"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "policyVersion": {"const": "diagnostic-condensation-v1"},
+    "callID": {"type": "string", "minLength": 1},
+    "toolName": {"const": "Bash"},
+    "toolVersion": {"type": "string", "minLength": 1},
+    "stateVersion": {"type": "string", "minLength": 1},
+    "action": {"const": "condense_diagnostic_output"},
+    "commandClass": {"type": "string", "enum": ["test", "build", "typecheck", "lint"]},
+    "originalResultType": {"type": "string", "minLength": 1},
+    "originalResultDigest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "exitStatus": {"type": ["integer", "null"], "minimum": 0, "maximum": 255},
+    "interrupted": {"type": "boolean"},
+    "inputBytes": {"type": "integer", "minimum": 8192, "maximum": 65536},
+    "estimatedSavingsBytes": {"type": "integer", "minimum": 4096},
+    "fields": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/field"}}
+  },
+  "allOf": [
+    {"if": {"properties": {"interrupted": {"const": false}}}, "then": {"properties": {"exitStatus": {"type": "integer"}}}}
+  ],
+  "$defs": {
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "value", "origin", "classification", "purpose", "destination", "retention", "redacted"],
+      "properties": {
+        "name": {"type": "string", "enum": ["severity", "code", "message", "file", "line", "column"]},
+        "value": {},
+        "origin": {"const": "trustedLocal"},
+        "classification": {"type": "string", "enum": ["C0", "C1"]},
+        "purpose": {"const": "diagnostic_condensation"},
+        "destination": {"const": "apple_on_device"},
+        "retention": {"const": "ephemeral"},
+        "redacted": {"type": "boolean"}
+      },
+      "allOf": [
+        {"if": {"properties": {"name": {"enum": ["line", "column"]}}}, "then": {"properties": {"value": {"type": "integer", "minimum": 1}}}},
+        {"if": {"properties": {"name": {"const": "file"}}}, "then": {"properties": {"value": {"type": "string", "minLength": 1}}}},
+        {"if": {"properties": {"name": {"enum": ["severity", "code", "message"]}}}, "then": {"properties": {"value": {"type": "string", "minLength": 1}}}}
+      ]
+    }
+  }
+}

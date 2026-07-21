@@ -1,0 +1,148 @@
+{
+  "action": "condense_diagnostic_output",
+  "checks": [
+    {
+      "boundaries": [
+        "D-INPUT-001",
+        "D-INTERRUPTION-001",
+        "D-OCCUPANCY-001"
+      ],
+      "id": "P-BOUNDARY-001",
+      "status": "pass"
+    },
+    {
+      "boundaries": [
+        "D-CORPUS-001"
+      ],
+      "id": "P-CORPUS-001",
+      "status": "pass"
+    },
+    {
+      "boundaries": [
+        "D-NORMALIZATION-ANTHROPIC-001",
+        "D-NORMALIZATION-OPENAI-001"
+      ],
+      "id": "P-NORMALIZATION-001",
+      "status": "pass"
+    },
+    {
+      "boundaries": [
+        "D-QUALITY-001"
+      ],
+      "id": "P-QUALITY-001",
+      "status": "pass"
+    },
+    {
+      "boundaries": [
+        "D-RELEASE-MATRIX-001"
+      ],
+      "id": "P-RELEASE-001",
+      "status": "pass"
+    },
+    {
+      "boundaries": [
+        "R-ACCEPT-BUILD-001",
+        "R-ACCEPT-BUILD-002",
+        "R-ACCEPT-BUILD-003",
+        "R-ACCEPT-LINT-001",
+        "R-ACCEPT-LINT-002",
+        "R-ACCEPT-LINT-003",
+        "R-ACCEPT-TEST-001",
+        "R-ACCEPT-TEST-002",
+        "R-ACCEPT-TEST-003",
+        "R-ACCEPT-TYPECHECK-001",
+        "R-ACCEPT-TYPECHECK-002",
+        "R-ACCEPT-TYPECHECK-003",
+        "R-ACTION-001",
+        "R-APPLE-UNAVAILABLE",
+        "R-APPLIED-001",
+        "R-BRIDGE-DECLINE",
+        "R-BRIDGE-EXCEPTION",
+        "R-BRIDGE-FAIL",
+        "R-CANONICAL-BYTES-001",
+        "R-CLASS-C2",
+        "R-CLASS-C3",
+        "R-CLASS-UNCLASSIFIED",
+        "R-CLASS-UNKNOWN",
+        "R-COMMAND-001",
+        "R-COMPOUND-001",
+        "R-ESTIMATED-4095",
+        "R-ESTIMATED-4096",
+        "R-EVENT-001",
+        "R-FILE-INVALID",
+        "R-FILE-MISSING",
+        "R-FILE-NONCONTAINED",
+        "R-FLAG-ORDER-001",
+        "R-INPUT-65536",
+        "R-INPUT-65537",
+        "R-INPUT-8191",
+        "R-INPUT-8192",
+        "R-ISOLATED-REQUEST-001",
+        "R-LOCALE-UNSUPPORTED",
+        "R-MALFORMED-RESPONSE",
+        "R-OCCUPANCY-75-FAIL",
+        "R-OCCUPANCY-75-PASS",
+        "R-PATH-RECHECK-001",
+        "R-POLICY-001",
+        "R-PROVENANCE-MIXED",
+        "R-QUOTED-PYTEST-001",
+        "R-REALIZED-4095",
+        "R-REALIZED-4096",
+        "R-RESPONSE-BINDINGS-001",
+        "R-RESPONSE-SEMANTICS-001",
+        "R-SECRET-001",
+        "R-TOOL-001"
+      ],
+      "id": "P-ROUTING-001",
+      "status": "pass"
+    },
+    {
+      "boundaries": [
+        "S-CREDENTIAL-001",
+        "S-CREDENTIAL-VALUE-001",
+        "S-EXTRA-KEY-001",
+        "S-LIVE-CLAIM-001",
+        "S-NESTED-KEY-001",
+        "S-PRIVATE-KEY-001",
+        "S-PRIVATE-PATH-001",
+        "S-PRIVATE-POSIX-001",
+        "S-RAW-PROMPT-001",
+        "S-RAW-RESPONSE-001",
+        "S-RAW-RESULT-001",
+        "S-SELF-ATTEST-001",
+        "S-STATUS-001",
+        "S-TRACE-001",
+        "S-UNC-PATH-001",
+        "S-WINDOWS-PATH-001",
+        "S-XCRESULT-001"
+      ],
+      "id": "P-SAFETY-001",
+      "status": "pass"
+    },
+    {
+      "boundaries": [
+        "D-SCHEMA-BENCHMARK-001",
+        "D-SCHEMA-REQUEST-001",
+        "D-SCHEMA-RESULT-001",
+        "D-SCHEMA-VOCABULARY-001"
+      ],
+      "id": "P-SCHEMA-001",
+      "status": "pass"
+    }
+  ],
+  "corpusSha256": "3d671c7e01892eb212b9ccbedeae0dcd13ea84848dbab744d3c3587e42730134",
+  "eligibleCaseCount": 24,
+  "issue": "DEV-142",
+  "liveClaims": {
+    "appleInvocation": "not_applicable",
+    "claudeHook": "not_applicable",
+    "codexHook": "not_applicable",
+    "parentTokenReduction": "blocked/provider_usage_not_executed"
+  },
+  "policyVersion": "diagnostic-condensation-v1",
+  "requiredArmCount": 96,
+  "requiredPairCount": 48,
+  "schemaCount": 3,
+  "schemaVersion": 1,
+  "status": "pass"
+}

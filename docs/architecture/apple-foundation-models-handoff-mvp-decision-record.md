@@ -414,6 +414,15 @@ reduction across eligible workflows, zero correctness regressions, and zero
 additional parent-model turns. DEV-138 fixtures are repository-only
 deterministic evidence, not runtime or savings proof.
 
+DEV-142 also supplies a repository-only proof for
+`diagnostic-condensation-v1` / `condense_diagnostic_output`. It semantically
+validates three closed schemas and their custom vocabulary, the hash-bound
+24-case corpus, parser/routing and policy boundaries, deterministic quality
+scoring, provider normalization, and the exact 96 arms and 48 required pair
+identities. Its metadata-only `pass` does not invoke Apple or a host hook and
+does not establish token savings; that live claim remains
+`blocked/provider_usage_not_executed` until paired provider usage executes.
+
 Statuses are only `pass`, `fail`, `blocked`, and `not_applicable`: `pass` means
 the gate ran and met its contract; `fail` means it ran and violated the
 contract; `blocked` means a named prerequisite is absent; and `not_applicable`

@@ -1,0 +1,773 @@
+{
+  "schemaVersion": 1,
+  "policyVersion": "diagnostic-condensation-v1",
+  "kind": "corpus",
+  "corpusVersion": "dev-142-v1",
+  "corpusSha256": "3d671c7e01892eb212b9ccbedeae0dcd13ea84848dbab744d3c3587e42730134",
+  "cases": [
+    {
+      "id": "test-swift-success-unicode-01",
+      "commandClass": "test",
+      "commandForm": "swift test",
+      "classification": "C0",
+      "renderedSha256": "ff178bfaba1a488c3971425fe4bcd040760037fae673f0b3bd091f96b622e338",
+      "expected": {
+        "exitStatus": 0,
+        "interrupted": false,
+        "commandOutcome": "success",
+        "warningCount": 2,
+        "warningRepresentativeIDs": [
+          "warning-01"
+        ],
+        "requiredDiagnosticIDs": [],
+        "failedTestIDs": [],
+        "summary": "synthetic swift test success",
+        "summaryFacts": [
+          "command-class=test",
+          "command-form=swift test",
+          "outcome=success",
+          "error-count=0",
+          "warning-count=2"
+        ],
+        "nextAction": "continue after successful swift test",
+        "completionFacts": [
+          "command-finished=true",
+          "task-complete=true"
+        ]
+      }
+    },
+    {
+      "id": "test-swift-failure-02",
+      "commandClass": "test",
+      "commandForm": "swift test",
+      "classification": "C1",
+      "renderedSha256": "c292110d0305a2ab5d8c34bec31def348cd7343664edd31e08beea76b31bae38",
+      "expected": {
+        "exitStatus": 1,
+        "interrupted": false,
+        "commandOutcome": "failure",
+        "warningCount": 3,
+        "warningRepresentativeIDs": [
+          "warning-02"
+        ],
+        "requiredDiagnosticIDs": [
+          "error-02"
+        ],
+        "failedTestIDs": [
+          "Tests.SwiftSuite/test_synthetic"
+        ],
+        "summary": "synthetic swift test failure",
+        "summaryFacts": [
+          "command-class=test",
+          "command-form=swift test",
+          "outcome=failure",
+          "error-count=1",
+          "warning-count=3"
+        ],
+        "nextAction": "inspect error-02 for swift test",
+        "completionFacts": [
+          "command-finished=true",
+          "task-complete=false"
+        ]
+      }
+    },
+    {
+      "id": "test-xcode-success-03",
+      "commandClass": "test",
+      "commandForm": "xcodebuild test",
+      "classification": "C0",
+      "renderedSha256": "e857b363b5301f36d72a91aaa6c69e55d158bd813742ced161bdb142383f75ed",
+      "expected": {
+        "exitStatus": 0,
+        "interrupted": false,
+        "commandOutcome": "success",
+        "warningCount": 0,
+        "warningRepresentativeIDs": [],
+        "requiredDiagnosticIDs": [],
+        "failedTestIDs": [],
+        "summary": "synthetic xcodebuild test success",
+        "summaryFacts": [
+          "command-class=test",
+          "command-form=xcodebuild test",
+          "outcome=success",
+          "error-count=0",
+          "warning-count=0"
+        ],
+        "nextAction": "continue after successful xcodebuild test",
+        "completionFacts": [
+          "command-finished=true",
+          "task-complete=true"
+        ]
+      }
+    },
+    {
+      "id": "test-xcode-failure-04",
+      "commandClass": "test",
+      "commandForm": "xcodebuild test",
+      "classification": "C1",
+      "renderedSha256": "ac17e0c3678d23717f4613f5f8c9946ce70c35c0e0df4e2bee64e0697b1797b5",
+      "expected": {
+        "exitStatus": 65,
+        "interrupted": false,
+        "commandOutcome": "failure",
+        "warningCount": 1,
+        "warningRepresentativeIDs": [
+          "warning-04"
+        ],
+        "requiredDiagnosticIDs": [
+          "fatal-04"
+        ],
+        "failedTestIDs": [
+          "Tests.XcodeSuite/test_synthetic"
+        ],
+        "summary": "synthetic xcodebuild test failure",
+        "summaryFacts": [
+          "command-class=test",
+          "command-form=xcodebuild test",
+          "outcome=failure",
+          "error-count=1",
+          "warning-count=1"
+        ],
+        "nextAction": "inspect fatal-04 for xcodebuild test",
+        "completionFacts": [
+          "command-finished=true",
+          "task-complete=false"
+        ]
+      }
+    },
+    {
+      "id": "test-pytest-success-05",
+      "commandClass": "test",
+      "commandForm": "python3 -m pytest",
+      "classification": "C1",
+      "renderedSha256": "5154919631a48c23729f589d299cb62ff79b46c629037b2b76920e4ba86393a2",
+      "expected": {
+        "exitStatus": 0,
+        "interrupted": false,
+        "commandOutcome": "success",
+        "warningCount": 2,
+        "warningRepresentativeIDs": [
+          "warning-05"
+        ],
+        "requiredDiagnosticIDs": [],
+        "failedTestIDs": [],
+        "summary": "synthetic python3 -m pytest success",
+        "summaryFacts": [
+          "command-class=test",
+          "command-form=python3 -m pytest",
+          "outcome=success",
+          "error-count=0",
+          "warning-count=2"
+        ],
+        "nextAction": "continue after successful python3 -m pytest",
+        "completionFacts": [
+          "command-finished=true",
+          "task-complete=true"
+        ]
+      }
+    },
+    {
+      "id": "test-pytest-failure-06",
+      "commandClass": "test",
+      "commandForm": "python3 -m pytest",
+      "classification": "C0",
+      "renderedSha256": "d0d722ac834f6653eeec75f56f9eb8e7153113cb154eb800f7da70784e90d187",
+      "expected": {
+        "exitStatus": 1,
+        "interrupted": false,
+        "commandOutcome": "failure",
+        "warningCount": 4,
+        "warningRepresentativeIDs": [
+          "warning-06"
+        ],
+        "requiredDiagnosticIDs": [
+          "error-06"
+        ],
+        "failedTestIDs": [
+          "tests.test_synthetic::test_failure"
+        ],
+        "summary": "synthetic python3 -m pytest failure",
+        "summaryFacts": [
+          "command-class=test",
+          "command-form=python3 -m pytest",
+          "outcome=failure",
+          "error-count=1",
+          "warning-count=4"
+        ],
+        "nextAction": "inspect error-06 for python3 -m pytest",
+        "completionFacts": [
+          "command-finished=true",
+          "task-complete=false"
+        ]
+      }
+    },
+    {
+      "id": "build-swift-success-07",
+      "commandClass": "build",
+      "commandForm": "swift build",
+      "classification": "C0",
+      "renderedSha256": "288c35b77f9eaf067f3c4278a0944b6aa59d4bee516e5a3f099e4df51a200b8f",
+      "expected": {
+        "exitStatus": 0,
+        "interrupted": false,
+        "commandOutcome": "success",
+        "warningCount": 0,
+        "warningRepresentativeIDs": [],
+        "requiredDiagnosticIDs": [],
+        "failedTestIDs": [],
+        "summary": "synthetic swift build success",
+        "summaryFacts": [
+          "command-class=build",
+          "command-form=swift build",
+          "outcome=success",
+          "error-count=0",
+          "warning-count=0"
+        ],
+        "nextAction": "continue after successful swift build",
+        "completionFacts": [
+          "command-finished=true",
+          "task-complete=true"
+        ]
+      }
+    },
+    {
+      "id": "build-swift-failure-08",
+      "commandClass": "build",
+      "commandForm": "swift build",
+      "classification": "C1",
+      "renderedSha256": "e22527a17a736d7246d97bafc65b09354bd301b0a857c5e7009c308709e8ce9a",
+      "expected": {
+        "exitStatus": 1,
+        "interrupted": false,
+        "commandOutcome": "failure",
+        "warningCount": 2,
+        "warningRepresentativeIDs": [
+          "warning-08"
+        ],
+        "requiredDiagnosticIDs": [
+          "fatal-08"
+        ],
+        "failedTestIDs": [],
+        "summary": "synthetic swift build failure",
+        "summaryFacts": [
+          "command-class=build",
+          "command-form=swift build",
+          "outcome=failure",
+          "error-count=1",
+          "warning-count=2"
+        ],
+        "nextAction": "inspect fatal-08 for swift build",
+        "completionFacts": [
+          "command-finished=true",
+          "task-complete=false"
+        ]
+      }
+    },
+    {
+      "id": "build-xcode-success-09",
+      "commandClass": "build",
+      "commandForm": "xcodebuild build",
+      "classification": "C1",
+      "renderedSha256": "fba3aea5ccca14d957bc4007143c3a0eea79cbd6a435245b4c25d0df1176981a",
+      "expected": {
+        "exitStatus": 0,
+        "interrupted": false,
+        "commandOutcome": "success",
+        "warningCount": 2,
+        "warningRepresentativeIDs": [
+          "warning-09"
+        ],
+        "requiredDiagnosticIDs": [],
+        "failedTestIDs": [],
+        "summary": "synthetic xcodebuild build success",
+        "summaryFacts": [
+          "command-class=build",
+          "command-form=xcodebuild build",
+          "outcome=success",
+          "error-count=0",
+          "warning-count=2"
+        ],
+        "nextAction": "continue after successful xcodebuild build",
+        "completionFacts": [
+          "command-finished=true",
+          "task-complete=true"
+        ]
+      }
+    },
+    {
+      "id": "build-xcode-failure-10",
+      "commandClass": "build",
+      "commandForm": "xcodebuild build",
+      "classification": "C0",
+      "renderedSha256": "7b3f41c3d36a57bd36b03bd6a386c3af63d964fb65825b88112bb182d3610a6a",
+      "expected": {
+        "exitStatus": 65,
+        "interrupted": false,
+        "commandOutcome": "failure",
+        "warningCount": 1,
+        "warningRepresentativeIDs": [
+          "warning-10"
+        ],
+        "requiredDiagnosticIDs": [
+          "error-10"
+        ],
+        "failedTestIDs": [],
+        "summary": "synthetic xcodebuild build failure",
+        "summaryFacts": [
+          "command-class=build",
+          "command-form=xcodebuild build",
+          "outcome=failure",
+          "error-count=1",
+          "warning-count=1"
+        ],
+        "nextAction": "inspect error-10 for xcodebuild build",
+        "completionFacts": [
+          "command-finished=true",
+          "task-complete=false"
+        ]
+      }
+    },
+    {
+      "id": "build-pnpm-success-11",
+      "commandClass": "build",
+      "commandForm": "pnpm build",
+      "classification": "C0",
+      "renderedSha256": "dcca04c095fb3d35abfee3cc2831ab2453e614a74b23658931079312ef8b4296",
+      "expected": {
+        "exitStatus": 0,
+        "interrupted": false,
+        "commandOutcome": "success",
+        "warningCount": 1,
+        "warningRepresentativeIDs": [
+          "warning-11"
+        ],
+        "requiredDiagnosticIDs": [],
+        "failedTestIDs": [],
+        "summary": "synthetic pnpm build success",
+        "summaryFacts": [
+          "command-class=build",
+          "command-form=pnpm build",
+          "outcome=success",
+          "error-count=0",
+          "warning-count=1"
+        ],
+        "nextAction": "continue after successful pnpm build",
+        "completionFacts": [
+          "command-finished=true",
+          "task-complete=true"
+        ]
+      }
+    },
+    {
+      "id": "build-pnpm-failure-12",
+      "commandClass": "build",
+      "commandForm": "pnpm build",
+      "classification": "C1",
+      "renderedSha256": "de55fed088d116cf9f6261065b9a608c02b1833b2f44ffe2181a308d0051a8ec",
+      "expected": {
+        "exitStatus": 1,
+        "interrupted": false,
+        "commandOutcome": "failure",
+        "warningCount": 3,
+        "warningRepresentativeIDs": [
+          "warning-12"
+        ],
+        "requiredDiagnosticIDs": [
+          "fatal-12"
+        ],
+        "failedTestIDs": [],
+        "summary": "synthetic pnpm build failure",
+        "summaryFacts": [
+          "command-class=build",
+          "command-form=pnpm build",
+          "outcome=failure",
+          "error-count=1",
+          "warning-count=3"
+        ],
+        "nextAction": "inspect fatal-12 for pnpm build",
+        "completionFacts": [
+          "command-finished=true",
+          "task-complete=false"
+        ]
+      }
+    },
+    {
+      "id": "typecheck-swiftc-success-13",
+      "commandClass": "typecheck",
+      "commandForm": "swiftc -typecheck",
+      "classification": "C0",
+      "renderedSha256": "2e0f7cce9d93e1476e5807ba2c3de076ac41b1760c7c281c1fd3e7ff5814b14f",
+      "expected": {
+        "exitStatus": 0,
+        "interrupted": false,
+        "commandOutcome": "success",
+        "warningCount": 0,
+        "warningRepresentativeIDs": [],
+        "requiredDiagnosticIDs": [],
+        "failedTestIDs": [],
+        "summary": "synthetic swiftc -typecheck success",
+        "summaryFacts": [
+          "command-class=typecheck",
+          "command-form=swiftc -typecheck",
+          "outcome=success",
+          "error-count=0",
+          "warning-count=0"
+        ],
+        "nextAction": "continue after successful swiftc -typecheck",
+        "completionFacts": [
+          "command-finished=true",
+          "task-complete=true"
+        ]
+      }
+    },
+    {
+      "id": "typecheck-swiftc-failure-14",
+      "commandClass": "typecheck",
+      "commandForm": "swiftc -typecheck",
+      "classification": "C1",
+      "renderedSha256": "68b09f87acf9eb3e799b0d370d826c5934229245a4fe68e19bc96c477ef5c22b",
+      "expected": {
+        "exitStatus": 1,
+        "interrupted": false,
+        "commandOutcome": "failure",
+        "warningCount": 2,
+        "warningRepresentativeIDs": [
+          "warning-14"
+        ],
+        "requiredDiagnosticIDs": [
+          "fatal-14"
+        ],
+        "failedTestIDs": [],
+        "summary": "synthetic swiftc -typecheck failure",
+        "summaryFacts": [
+          "command-class=typecheck",
+          "command-form=swiftc -typecheck",
+          "outcome=failure",
+          "error-count=1",
+          "warning-count=2"
+        ],
+        "nextAction": "inspect fatal-14 for swiftc -typecheck",
+        "completionFacts": [
+          "command-finished=true",
+          "task-complete=false"
+        ]
+      }
+    },
+    {
+      "id": "typecheck-mypy-success-15",
+      "commandClass": "typecheck",
+      "commandForm": "python3 -m mypy",
+      "classification": "C1",
+      "renderedSha256": "a2884330d9b0cc881ded0a80170a86860aa63473609499556a13f780e16fd5f4",
+      "expected": {
+        "exitStatus": 0,
+        "interrupted": false,
+        "commandOutcome": "success",
+        "warningCount": 3,
+        "warningRepresentativeIDs": [
+          "warning-15"
+        ],
+        "requiredDiagnosticIDs": [],
+        "failedTestIDs": [],
+        "summary": "synthetic python3 -m mypy success",
+        "summaryFacts": [
+          "command-class=typecheck",
+          "command-form=python3 -m mypy",
+          "outcome=success",
+          "error-count=0",
+          "warning-count=3"
+        ],
+        "nextAction": "continue after successful python3 -m mypy",
+        "completionFacts": [
+          "command-finished=true",
+          "task-complete=true"
+        ]
+      }
+    },
+    {
+      "id": "typecheck-mypy-failure-16",
+      "commandClass": "typecheck",
+      "commandForm": "python3 -m mypy",
+      "classification": "C0",
+      "renderedSha256": "3fee58e5cd83b11706a0fbe24e56ccf0a5c9c7f7ab1cdf164df028d47284e170",
+      "expected": {
+        "exitStatus": 1,
+        "interrupted": false,
+        "commandOutcome": "failure",
+        "warningCount": 1,
+        "warningRepresentativeIDs": [
+          "warning-16"
+        ],
+        "requiredDiagnosticIDs": [
+          "error-16"
+        ],
+        "failedTestIDs": [],
+        "summary": "synthetic python3 -m mypy failure",
+        "summaryFacts": [
+          "command-class=typecheck",
+          "command-form=python3 -m mypy",
+          "outcome=failure",
+          "error-count=1",
+          "warning-count=1"
+        ],
+        "nextAction": "inspect error-16 for python3 -m mypy",
+        "completionFacts": [
+          "command-finished=true",
+          "task-complete=false"
+        ]
+      }
+    },
+    {
+      "id": "typecheck-npm-success-17",
+      "commandClass": "typecheck",
+      "commandForm": "npm run typecheck",
+      "classification": "C0",
+      "renderedSha256": "d1d475aeaa2d0cbda789bb1b735afccdb1fc67fccb7c0363fe05b62071c0b548",
+      "expected": {
+        "exitStatus": 0,
+        "interrupted": false,
+        "commandOutcome": "success",
+        "warningCount": 0,
+        "warningRepresentativeIDs": [],
+        "requiredDiagnosticIDs": [],
+        "failedTestIDs": [],
+        "summary": "synthetic npm run typecheck success",
+        "summaryFacts": [
+          "command-class=typecheck",
+          "command-form=npm run typecheck",
+          "outcome=success",
+          "error-count=0",
+          "warning-count=0"
+        ],
+        "nextAction": "continue after successful npm run typecheck",
+        "completionFacts": [
+          "command-finished=true",
+          "task-complete=true"
+        ]
+      }
+    },
+    {
+      "id": "typecheck-npm-failure-18",
+      "commandClass": "typecheck",
+      "commandForm": "npm run typecheck",
+      "classification": "C1",
+      "renderedSha256": "12a01c3439fc17e6ae34990dd3770686e1334549bae272c82b1057faceb2f5a2",
+      "expected": {
+        "exitStatus": 2,
+        "interrupted": false,
+        "commandOutcome": "failure",
+        "warningCount": 2,
+        "warningRepresentativeIDs": [
+          "warning-18"
+        ],
+        "requiredDiagnosticIDs": [
+          "error-18"
+        ],
+        "failedTestIDs": [],
+        "summary": "synthetic npm run typecheck failure",
+        "summaryFacts": [
+          "command-class=typecheck",
+          "command-form=npm run typecheck",
+          "outcome=failure",
+          "error-count=1",
+          "warning-count=2"
+        ],
+        "nextAction": "inspect error-18 for npm run typecheck",
+        "completionFacts": [
+          "command-finished=true",
+          "task-complete=false"
+        ]
+      }
+    },
+    {
+      "id": "lint-swift-format-success-19",
+      "commandClass": "lint",
+      "commandForm": "swift format lint",
+      "classification": "C1",
+      "renderedSha256": "766beff60c9afcb630a870bffe54f5369fb814069e12696e74175b787a081986",
+      "expected": {
+        "exitStatus": 0,
+        "interrupted": false,
+        "commandOutcome": "success",
+        "warningCount": 2,
+        "warningRepresentativeIDs": [
+          "warning-19"
+        ],
+        "requiredDiagnosticIDs": [],
+        "failedTestIDs": [],
+        "summary": "synthetic swift format lint success",
+        "summaryFacts": [
+          "command-class=lint",
+          "command-form=swift format lint",
+          "outcome=success",
+          "error-count=0",
+          "warning-count=2"
+        ],
+        "nextAction": "continue after successful swift format lint",
+        "completionFacts": [
+          "command-finished=true",
+          "task-complete=true"
+        ]
+      }
+    },
+    {
+      "id": "lint-swift-format-failure-20",
+      "commandClass": "lint",
+      "commandForm": "swift format lint",
+      "classification": "C0",
+      "renderedSha256": "342c4f4160b86f97647eaef4904bffc3c6ed9c2d5a200a849ec6edb411ee47ba",
+      "expected": {
+        "exitStatus": 1,
+        "interrupted": false,
+        "commandOutcome": "failure",
+        "warningCount": 1,
+        "warningRepresentativeIDs": [
+          "warning-20"
+        ],
+        "requiredDiagnosticIDs": [
+          "error-20"
+        ],
+        "failedTestIDs": [],
+        "summary": "synthetic swift format lint failure",
+        "summaryFacts": [
+          "command-class=lint",
+          "command-form=swift format lint",
+          "outcome=failure",
+          "error-count=1",
+          "warning-count=1"
+        ],
+        "nextAction": "inspect error-20 for swift format lint",
+        "completionFacts": [
+          "command-finished=true",
+          "task-complete=false"
+        ]
+      }
+    },
+    {
+      "id": "lint-ruff-success-21",
+      "commandClass": "lint",
+      "commandForm": "python3 -m ruff check",
+      "classification": "C0",
+      "renderedSha256": "d915d356c4a9d3189b6d86c7e4146368c5fd97eee67e541843108f58700ca298",
+      "expected": {
+        "exitStatus": 0,
+        "interrupted": false,
+        "commandOutcome": "success",
+        "warningCount": 0,
+        "warningRepresentativeIDs": [],
+        "requiredDiagnosticIDs": [],
+        "failedTestIDs": [],
+        "summary": "synthetic python3 -m ruff check success",
+        "summaryFacts": [
+          "command-class=lint",
+          "command-form=python3 -m ruff check",
+          "outcome=success",
+          "error-count=0",
+          "warning-count=0"
+        ],
+        "nextAction": "continue after successful python3 -m ruff check",
+        "completionFacts": [
+          "command-finished=true",
+          "task-complete=true"
+        ]
+      }
+    },
+    {
+      "id": "lint-ruff-failure-22",
+      "commandClass": "lint",
+      "commandForm": "python3 -m ruff check",
+      "classification": "C1",
+      "renderedSha256": "1f307d4e6ac7e328968ad2101382c5cbb9435233afeb87cac94b68e57a1fe964",
+      "expected": {
+        "exitStatus": 1,
+        "interrupted": false,
+        "commandOutcome": "failure",
+        "warningCount": 3,
+        "warningRepresentativeIDs": [
+          "warning-22"
+        ],
+        "requiredDiagnosticIDs": [
+          "fatal-22"
+        ],
+        "failedTestIDs": [],
+        "summary": "synthetic python3 -m ruff check failure",
+        "summaryFacts": [
+          "command-class=lint",
+          "command-form=python3 -m ruff check",
+          "outcome=failure",
+          "error-count=1",
+          "warning-count=3"
+        ],
+        "nextAction": "inspect fatal-22 for python3 -m ruff check",
+        "completionFacts": [
+          "command-finished=true",
+          "task-complete=false"
+        ]
+      }
+    },
+    {
+      "id": "lint-pnpm-success-23",
+      "commandClass": "lint",
+      "commandForm": "pnpm lint",
+      "classification": "C1",
+      "renderedSha256": "ce993805881d4adc579f985aa9b934cf41e9e7ddfd091ea300609a13f82c67a4",
+      "expected": {
+        "exitStatus": 0,
+        "interrupted": false,
+        "commandOutcome": "success",
+        "warningCount": 1,
+        "warningRepresentativeIDs": [
+          "warning-23"
+        ],
+        "requiredDiagnosticIDs": [],
+        "failedTestIDs": [],
+        "summary": "synthetic pnpm lint success",
+        "summaryFacts": [
+          "command-class=lint",
+          "command-form=pnpm lint",
+          "outcome=success",
+          "error-count=0",
+          "warning-count=1"
+        ],
+        "nextAction": "continue after successful pnpm lint",
+        "completionFacts": [
+          "command-finished=true",
+          "task-complete=true"
+        ]
+      }
+    },
+    {
+      "id": "lint-pnpm-failure-24",
+      "commandClass": "lint",
+      "commandForm": "pnpm lint",
+      "classification": "C0",
+      "renderedSha256": "ebb3c9848dd17ab5d483486072585e3d18ffbde452da0e6e49f6bfcb96c402da",
+      "expected": {
+        "exitStatus": 1,
+        "interrupted": false,
+        "commandOutcome": "failure",
+        "warningCount": 2,
+        "warningRepresentativeIDs": [
+          "warning-24"
+        ],
+        "requiredDiagnosticIDs": [
+          "fatal-24"
+        ],
+        "failedTestIDs": [],
+        "summary": "synthetic pnpm lint failure",
+        "summaryFacts": [
+          "command-class=lint",
+          "command-form=pnpm lint",
+          "outcome=failure",
+          "error-count=1",
+          "warning-count=2"
+        ],
+        "nextAction": "inspect fatal-24 for pnpm lint",
+        "completionFacts": [
+          "command-finished=true",
+          "task-complete=false"
+        ]
+      }
+    }
+  ]
+}
