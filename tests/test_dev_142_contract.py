@@ -11,6 +11,7 @@ import tempfile
 import unittest
 from collections import Counter
 from dataclasses import replace
+from copy import deepcopy
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,8 +26,38 @@ assert SPEC.loader is not None
 SPEC.loader.exec_module(contract)
 
 
-def canonical_request():
-    return {
+FIELD_ORDER = ("severity", "code", "message", "file", "line", "column")
+
+
+def canonical_field_bytes(fields):
+    content = [
+        {"name": field["name"], "value": field["value"]}
+        for field in sorted(fields, key=lambda field: FIELD_ORDER.index(field["name"]))
+    ]
+    return json.dumps(
+        content, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+
+
+def bind_request_fields(request, fields, *, target_bytes=None):
+    request = deepcopy(request)
+    request["fields"] = deepcopy(fields)
+    if target_bytes is not None:
+        messages = [field for field in request["fields"] if field["name"] == "message"]
+        if len(messages) != 1 or type(messages[0]["value"]) is not str:
+            raise AssertionError("one string message field is required for padding")
+        messages[0]["value"] = ""
+        padding = target_bytes - len(canonical_field_bytes(request["fields"]))
+        if padding < 1:
+            raise AssertionError("target cannot hold canonical fields")
+        messages[0]["value"] = "x" * padding
+    request["inputBytes"] = len(canonical_field_bytes(request["fields"]))
+    request["estimatedSavingsBytes"] = request["inputBytes"] - 4096
+    return request
+
+
+def canonical_request(input_bytes=8192):
+    request = {
         "schemaVersion": 1,
         "policyVersion": "diagnostic-condensation-v1",
         "callID": "call-0001",
@@ -39,12 +70,12 @@ def canonical_request():
         "originalResultDigest": "a" * 64,
         "exitStatus": 1,
         "interrupted": False,
-        "inputBytes": 8192,
-        "estimatedSavingsBytes": 4096,
+        "inputBytes": input_bytes,
+        "estimatedSavingsBytes": input_bytes - 4096,
         "fields": [
             {
                 "name": "message",
-                "value": "synthetic test failure",
+                "value": "x",
                 "origin": "trustedLocal",
                 "classification": "C1",
                 "purpose": "diagnostic_condensation",
@@ -54,6 +85,7 @@ def canonical_request():
             }
         ],
     }
+    return bind_request_fields(request, request["fields"], target_bytes=input_bytes)
 
 
 def canonical_result(outcome="applied"):
@@ -75,18 +107,98 @@ def canonical_result(outcome="applied"):
     if outcome == "applied":
         result["resultType"] = "diagnostic_condensation"
         result["condensation"] = {
+            "commandOutcome": "failure",
             "summary": "1 test failed",
+            "summaryFacts": ["failed-test-count=1"],
             "diagnostics": [],
             "warningCount": 0,
             "omittedWarningCount": 0,
+            "nextAction": "inspect the synthetic failure",
+            "completionFacts": ["command-finished=true", "task-complete=false"],
         }
     else:
         result["reasonCode"] = "generation_declined"
     return result
 
 
+def canonical_source_facts(result=None):
+    result = canonical_result() if result is None else result
+    return deepcopy(result["condensation"])
+
+
 def canonical_benchmark():
     return contract.load_closed_json(CORPUS)
+
+
+def canonical_serialized_cost_evidence():
+    corpus = canonical_benchmark()
+    cases = {case["id"]: case for case in corpus["cases"]}
+    arms = []
+    pairs = []
+    for host, case_id in contract.REQUIRED_PAIR_IDENTITIES:
+        case = cases[case_id]
+        pair_id = f"{host}:{case_id}"
+        for role, input_tokens, output_tokens, attempts, replacements in (
+            ("pluginOff", 900, 100, 0, 0),
+            ("pluginOn", 810, 90, 1, 1),
+        ):
+            arms.append({
+                "id": f"{pair_id}:{role}",
+                "pairID": pair_id,
+                "arm": role,
+                "host": host,
+                "caseID": case_id,
+                "caseRenderedSha256": case["renderedSha256"],
+                "commandClass": case["commandClass"],
+                "workflow": "diagnostic-condensation",
+                "parentModel": "synthetic-parent-v1",
+                "provider": "openai-responses-usage-v1",
+                "normalizationVersion": "openai-responses-usage-v1",
+                "toolchain": "synthetic-toolchain-v1",
+                "policyVersion": contract.Policy.POLICY_VERSION,
+                "providerUsage": {
+                    "input_tokens": input_tokens,
+                    "cached_tokens": 0,
+                    "output_tokens": output_tokens,
+                    "reasoning_tokens": 0,
+                },
+                "parentTurns": 1,
+                "appleAttempts": attempts,
+                "replacements": replacements,
+                "declines": 0,
+                "fallbacks": 0,
+                "latencyMilliseconds": 1,
+                "qualityPassed": True,
+                "qualityReasonCodes": [],
+            })
+        pairs.append({
+            "id": pair_id,
+            "host": host,
+            "caseID": case_id,
+            "status": "pass",
+            "reductionPPM": 100000,
+            "correctnessRegressions": 0,
+            "additionalParentModelTurns": 0,
+            "reasonCodes": [],
+        })
+    return {
+        "schemaVersion": 1,
+        "policyVersion": contract.Policy.POLICY_VERSION,
+        "kind": "evidence",
+        "corpusSha256": corpus["corpusSha256"],
+        "arms": arms,
+        "pairs": pairs,
+        "release": {
+            "status": "pass",
+            "validRequiredPairs": 48,
+            "blockedRequiredPairs": 0,
+            "medianReductionPPM": 100000,
+            "correctnessRegressions": 0,
+            "additionalParentModelTurns": 0,
+            "exploratoryPairs": 0,
+            "reasonCodes": [],
+        },
+    }
 
 
 def schema_accepts(schema, value):
@@ -179,6 +291,22 @@ def schema_accepts(schema, value):
                 continue
             if type(left) is not int or type(right) is not int or left > right:
                 return False
+        for rule in vocabulary.get("canonicalUtf8Bytes", []):
+            fields = pointer(candidate, rule["array"])
+            declared = pointer(candidate, rule["target"])
+            if fields is None or declared is None:
+                continue
+            try:
+                actual = canonical_field_bytes(fields)
+            except (KeyError, TypeError, ValueError, UnicodeError):
+                return False
+            if type(declared) is not int or declared != len(actual):
+                return False
+        if vocabulary.get("benchmarkCostModel") is True and type(candidate) is dict and candidate.get("kind") == "evidence":
+            try:
+                contract.validate_benchmark(candidate)
+            except contract.ContractError:
+                return False
         return True
 
     def matches(node, candidate):
@@ -209,6 +337,8 @@ def schema_accepts(schema, value):
                 return False
         if type(candidate) is list:
             if len(candidate) < node.get("minItems", 0):
+                return False
+            if "maxItems" in node and len(candidate) > node["maxItems"]:
                 return False
             if not all(matches(node.get("items", {}), item) for item in candidate):
                 return False
@@ -323,42 +453,9 @@ class Dev142PolicySchemaTests(unittest.TestCase):
                 contract.validate_benchmark(mutated)
         with self.assertRaises(contract.ContractError):
             contract.validate_benchmark({**benchmark, "rawResult": "forbidden"})
-        evidence = {
-            "schemaVersion": 1,
-            "policyVersion": "diagnostic-condensation-v1",
-            "kind": "evidence",
-            "arms": [
-                {
-                    "id": "arm-1",
-                    "pairID": "pair-1",
-                    "arm": "pluginOff",
-                    "provider": "openai-responses-usage-v1",
-                    "inputTokens": 10,
-                    "cachedInputTokens": 0,
-                    "outputTokens": 5,
-                    "reasoningTokens": 0,
-                    "totalParentModelTokens": 15,
-                    "parentTurns": 1,
-                    "appleAttempts": 0,
-                    "replacements": 0,
-                    "declines": 0,
-                    "fallbacks": 0,
-                    "latencyMilliseconds": 1,
-                    "correct": True,
-                }
-            ],
-            "pairs": [{"id": "pair-1", "status": "valid", "reduction": 0.1}],
-            "release": {
-                "status": "blocked",
-                "validRequiredPairs": 0,
-                "blockedRequiredPairs": 48,
-                "medianReduction": None,
-                "correctnessRegressions": 0,
-                "additionalParentModelTurns": 0,
-            },
-        }
+        evidence = canonical_serialized_cost_evidence()
         self.assertEqual(contract.validate_benchmark(evidence), evidence)
-        evidence["pairs"][0]["reduction"] = math.nan
+        evidence["pairs"][0]["reductionPPM"] = math.nan
         with self.assertRaises(contract.ContractError):
             contract.validate_benchmark(evidence)
 
@@ -391,7 +488,11 @@ class Dev142PolicySchemaTests(unittest.TestCase):
 class Dev142CorpusTests(unittest.TestCase):
     def _result_for(self, case):
         diagnostics = []
-        for diagnostic_id in case["expected"]["requiredDiagnosticIDs"]:
+        diagnostic_ids = (
+            case["expected"]["requiredDiagnosticIDs"]
+            + case["expected"]["warningRepresentativeIDs"]
+        )
+        for diagnostic_id in diagnostic_ids:
             severity, ordinal = diagnostic_id.split("-", 1)
             index = int(ordinal)
             diagnostics.append({
@@ -409,10 +510,17 @@ class Dev142CorpusTests(unittest.TestCase):
         result["exitStatus"] = case["expected"]["exitStatus"]
         result["interrupted"] = case["expected"]["interrupted"]
         result["condensation"] = {
-            "summary": f"synthetic {case['commandForm']} summary",
+            "commandOutcome": case["expected"]["commandOutcome"],
+            "summary": case["expected"]["summary"],
+            "summaryFacts": list(case["expected"]["summaryFacts"]),
             "diagnostics": diagnostics,
             "warningCount": case["expected"]["warningCount"],
-            "omittedWarningCount": 0,
+            "omittedWarningCount": (
+                case["expected"]["warningCount"]
+                - len(case["expected"]["warningRepresentativeIDs"])
+            ),
+            "nextAction": case["expected"]["nextAction"],
+            "completionFacts": list(case["expected"]["completionFacts"]),
         }
         return result
 
@@ -446,6 +554,10 @@ class Dev142CorpusTests(unittest.TestCase):
             with self.subTest(command_form=command_form):
                 self.assertEqual(len(rows), 2)
                 self.assertEqual({row["expected"]["exitStatus"] == 0 for row in rows}, {False, True})
+                failure = next(row for row in rows if row["expected"]["commandOutcome"] == "failure")
+                self.assertIs(type(failure["expected"]["exitStatus"]), int)
+                self.assertGreater(failure["expected"]["exitStatus"], 0)
+                self.assertFalse(failure["expected"]["interrupted"])
         self.assertEqual(
             frozenset(grouped),
             contract.Policy.APPROVED_BENCHMARK_COMMAND_FORMS,
@@ -465,6 +577,61 @@ class Dev142CorpusTests(unittest.TestCase):
         )
         self.assertTrue(any(row["occupiedTokens"] == 6144 and row["contextSize"] == 8192 for row in boundaries))
         self.assertTrue(any(row["occupiedTokens"] == 6145 and row["contextSize"] == 8192 for row in boundaries))
+        interrupted = next(row for row in boundaries if row["id"] == "interrupted-command")
+        self.assertIsNone(interrupted["exitStatus"])
+        self.assertTrue(interrupted["interrupted"])
+
+    def test_quality_oracle_is_hash_bound_and_scores_omission_and_invention_independently(self):
+        corpus = contract.load_closed_json(CORPUS)
+        for case in corpus["cases"]:
+            expected = case["expected"]
+            self.assertEqual(
+                set(expected),
+                {
+                    "exitStatus", "interrupted", "commandOutcome", "warningCount",
+                    "warningRepresentativeIDs", "requiredDiagnosticIDs", "failedTestIDs",
+                    "summary", "summaryFacts", "nextAction", "completionFacts",
+                },
+            )
+            self.assertTrue(expected["summaryFacts"])
+            self.assertTrue(expected["completionFacts"])
+            self.assertTrue(expected["nextAction"])
+            self.assertLessEqual(
+                len(expected["warningRepresentativeIDs"]), expected["warningCount"]
+            )
+
+        failure = next(
+            case for case in corpus["cases"]
+            if case["expected"]["requiredDiagnosticIDs"]
+            and case["expected"]["warningRepresentativeIDs"]
+        )
+        passing = self._result_for(failure)
+        self.assertTrue(contract.score_condensation(failure, passing).passed)
+        mutations = {
+            "diagnostic_omission": lambda value: value["condensation"]["diagnostics"].pop(0),
+            "diagnostic_invention": lambda value: value["condensation"]["diagnostics"].append({
+                "id": "error-999", "severity": "error", "code": "INVENTED",
+                "message": "invented", "file": None, "line": None,
+                "column": None, "failedTestID": None,
+            }),
+            "warning_omission": lambda value: value["condensation"]["diagnostics"].pop(),
+            "warning_invention": lambda value: value["condensation"]["diagnostics"].append({
+                "id": "warning-999", "severity": "warning", "code": "INVENTED",
+                "message": "invented", "file": None, "line": None,
+                "column": None, "failedTestID": None,
+            }),
+            "summary_fact_omission": lambda value: value["condensation"]["summaryFacts"].pop(),
+            "summary_fact_invention": lambda value: value["condensation"]["summaryFacts"].append("invented=true"),
+            "completion_fact_omission": lambda value: value["condensation"]["completionFacts"].pop(),
+            "completion_fact_invention": lambda value: value["condensation"]["completionFacts"].append("invented=true"),
+        }
+        for reason, mutate in mutations.items():
+            candidate = deepcopy(passing)
+            mutate(candidate)
+            with self.subTest(reason=reason):
+                score = contract.score_condensation(failure, candidate)
+                self.assertFalse(score.passed)
+                self.assertIn(reason, score.reason_codes)
 
     def test_score_condensation_rejects_every_required_mutation(self):
         corpus = contract.load_closed_json(CORPUS)
@@ -546,7 +713,7 @@ class Dev142CostTests(unittest.TestCase):
             "reasoning_tokens": 0,
         })
 
-    def _arm(self, host, case_id, total, *, parent_turns=1, quality=None):
+    def _arm(self, host, case_id, role, total, *, parent_turns=1, quality=None):
         return {
             "host": host,
             "caseID": case_id,
@@ -557,16 +724,19 @@ class Dev142CostTests(unittest.TestCase):
             "toolchain": "synthetic-toolchain-v1",
             "policyVersion": contract.Policy.POLICY_VERSION,
             "commandClass": "test",
+            "arm": role,
             "usage": self._usage_for_total(total),
             "parentTurns": parent_turns,
+            "appleAttempts": 0 if role == "pluginOff" else 1,
+            "replacements": 0 if role == "pluginOff" else 1,
             "quality": contract.QualityScore(True, ()) if quality is None else quality,
         }
 
     def _pair(self, host, case_id, *, off_total=1000, on_total=900, **changes):
         off_changes = changes.pop("off", {})
         on_changes = changes.pop("on", {})
-        off = self._arm(host, case_id, off_total)
-        on = self._arm(host, case_id, on_total)
+        off = self._arm(host, case_id, "pluginOff", off_total)
+        on = self._arm(host, case_id, "pluginOn", on_total)
         off.update(off_changes)
         on.update(on_changes)
         for key, value in changes.items():
@@ -713,6 +883,74 @@ class Dev142CostTests(unittest.TestCase):
         with self.assertRaises(contract.ContractError):
             contract.release_gate(cancelled)
 
+    def test_serialized_cost_model_round_trips_exact_96_arms_and_48_derived_pairs(self):
+        evidence = canonical_serialized_cost_evidence()
+        self.assertEqual(len(evidence["arms"]), 96)
+        self.assertEqual(len(evidence["pairs"]), 48)
+        self.assertEqual(Counter(arm["arm"] for arm in evidence["arms"]), {
+            "pluginOff": 48, "pluginOn": 48,
+        })
+        self.assertEqual(contract.validate_benchmark(evidence), evidence)
+        self.assertEqual(contract.derive_benchmark(evidence), evidence)
+
+        corpus = {case["id"]: case for case in canonical_benchmark()["cases"]}
+        for arm in evidence["arms"]:
+            case = corpus[arm["caseID"]]
+            self.assertEqual(arm["caseRenderedSha256"], case["renderedSha256"])
+            self.assertEqual(arm["commandClass"], case["commandClass"])
+            self.assertEqual(arm["normalizationVersion"], arm["provider"])
+            if arm["arm"] == "pluginOff":
+                self.assertEqual((arm["appleAttempts"], arm["replacements"]), (0, 0))
+
+    def test_serialized_cost_model_rejects_unlinked_roles_hashes_classes_and_trusted_aggregates(self):
+        mutations = {
+            "missing_arm": lambda value: value["arms"].pop(),
+            "duplicate_role": lambda value: value["arms"][1].__setitem__("arm", "pluginOff"),
+            "case_hash": lambda value: value["arms"][0].__setitem__("caseRenderedSha256", "0" * 64),
+            "command_class": lambda value: value["arms"][0].__setitem__("commandClass", "lint"),
+            "normalization": lambda value: value["arms"][0].__setitem__("normalizationVersion", "anthropic-messages-usage-v1"),
+            "plugin_off_attempt": lambda value: value["arms"][0].__setitem__("appleAttempts", 1),
+            "pair_reduction": lambda value: value["pairs"][0].__setitem__("reductionPPM", 999999),
+            "release_status": lambda value: value["release"].__setitem__("status", "blocked"),
+            "release_median": lambda value: value["release"].__setitem__("medianReductionPPM", 0),
+        }
+        for name, mutate in mutations.items():
+            candidate = canonical_serialized_cost_evidence()
+            mutate(candidate)
+            with self.subTest(name=name), self.assertRaises(contract.ContractError):
+                contract.validate_benchmark(candidate)
+
+    def test_missing_provider_usage_and_counters_derive_blocked_not_zero_or_pass(self):
+        for key in ("providerUsage", "appleAttempts", "replacements"):
+            candidate = canonical_serialized_cost_evidence()
+            candidate["arms"][1][key] = None
+            derived = contract.derive_benchmark(candidate)
+            with self.subTest(key=key):
+                self.assertEqual(derived["pairs"][0]["status"], "blocked")
+                self.assertIsNone(derived["pairs"][0]["reductionPPM"])
+                self.assertEqual(derived["release"]["status"], "blocked")
+                self.assertEqual(derived["release"]["blockedRequiredPairs"], 1)
+                self.assertEqual(contract.validate_benchmark(derived), derived)
+
+    def test_serialized_provider_components_are_exact_and_totals_are_never_trusted(self):
+        candidate = canonical_serialized_cost_evidence()
+        usage = candidate["arms"][0]["providerUsage"]
+        usage["total_tokens"] = 1
+        with self.assertRaises(contract.ContractError):
+            contract.validate_benchmark(candidate)
+
+        candidate = canonical_serialized_cost_evidence()
+        candidate["arms"][0]["provider"] = "anthropic-messages-usage-v1"
+        candidate["arms"][0]["normalizationVersion"] = "anthropic-messages-usage-v1"
+        candidate["arms"][0]["providerUsage"] = {
+            "input_tokens": 700,
+            "cache_read_input_tokens": 100,
+            "cache_creation_input_tokens": 100,
+            "output_tokens": 100,
+        }
+        derived = contract.derive_benchmark(candidate)
+        self.assertNotEqual(derived["pairs"][0]["status"], "pass")
+
 
 class Dev142SchemaParityTests(unittest.TestCase):
     def _schema(self, name):
@@ -722,10 +960,13 @@ class Dev142SchemaParityTests(unittest.TestCase):
         schema = self._schema("dev-142-request.schema.json")
         accepted = canonical_request()
         line = dict(accepted["fields"][0], name="line", value=1)
-        accepted["fields"] = [line]
+        accepted = bind_request_fields(
+            accepted, [accepted["fields"][0], line], target_bytes=8192
+        )
         self.assertEqual(contract.validate_request(accepted), accepted)
         self.assertTrue(schema_accepts(schema, accepted))
-        rejected = dict(accepted, fields=[dict(line, value="1")])
+        rejected = deepcopy(accepted)
+        rejected["fields"][1]["value"] = "1"
         with self.assertRaises(contract.ContractError):
             contract.validate_request(rejected)
         self.assertFalse(schema_accepts(schema, rejected))
@@ -751,24 +992,17 @@ class Dev142SchemaParityTests(unittest.TestCase):
 
     def test_benchmark_schema_matches_blocked_and_plugin_off_contract(self):
         schema = self._schema("dev-142-benchmark.schema.json")
-        evidence = {
-            "schemaVersion": 1, "policyVersion": contract.Policy.POLICY_VERSION, "kind": "evidence",
-            "arms": [{
-                "id": "arm-1", "pairID": "pair-1", "arm": "pluginOff", "provider": "openai-responses-usage-v1",
-                "inputTokens": 1, "cachedInputTokens": 0, "outputTokens": 1, "reasoningTokens": 0,
-                "totalParentModelTokens": 2, "parentTurns": 1, "appleAttempts": 0, "replacements": 0,
-                "declines": 0, "fallbacks": 0, "latencyMilliseconds": 1, "correct": True,
-            }],
-            "pairs": [{"id": "pair-1", "status": "blocked", "reduction": None}],
-            "release": {"status": "blocked", "validRequiredPairs": 0, "blockedRequiredPairs": 1, "medianReduction": None, "correctnessRegressions": 0, "additionalParentModelTurns": 0},
-        }
+        evidence = canonical_serialized_cost_evidence()
         self.assertEqual(contract.validate_benchmark(evidence), evidence)
         self.assertTrue(schema_accepts(schema, evidence))
-        blocked_reduction = {**evidence, "pairs": [{"id": "pair-1", "status": "blocked", "reduction": 0.0}]}
+        blocked_reduction = deepcopy(evidence)
+        blocked_reduction["pairs"][0]["status"] = "blocked"
+        blocked_reduction["pairs"][0]["reductionPPM"] = 100000
         with self.assertRaises(contract.ContractError):
             contract.validate_benchmark(blocked_reduction)
         self.assertFalse(schema_accepts(schema, blocked_reduction))
-        plugin_off_attempt = {**evidence, "arms": [dict(evidence["arms"][0], appleAttempts=1)]}
+        plugin_off_attempt = deepcopy(evidence)
+        plugin_off_attempt["arms"][0]["appleAttempts"] = 1
         with self.assertRaises(contract.ContractError):
             contract.validate_benchmark(plugin_off_attempt)
         self.assertFalse(schema_accepts(schema, plugin_off_attempt))
@@ -827,19 +1061,11 @@ class Dev142SchemaParityTests(unittest.TestCase):
             self.assertFalse(schema_accepts(result_schema, rejected))
 
         benchmark_schema = self._schema("dev-142-benchmark.schema.json")
-        arm = {
-            "id": "arm-1", "pairID": "pair-1", "arm": "pluginOff", "provider": "openai-responses-usage-v1",
-            "inputTokens": 1, "cachedInputTokens": 0, "outputTokens": 1, "reasoningTokens": 0,
-            "totalParentModelTokens": 2, "parentTurns": 1, "appleAttempts": 0, "replacements": 0,
-            "declines": 0, "fallbacks": 0, "latencyMilliseconds": 1, "correct": True,
-        }
-        evidence = {
-            "schemaVersion": 1, "policyVersion": contract.Policy.POLICY_VERSION, "kind": "evidence",
-            "arms": [arm], "pairs": [{"id": "pair-1", "status": "blocked", "reduction": None}],
-            "release": {"status": "blocked", "validRequiredPairs": 0, "blockedRequiredPairs": 1, "medianReduction": None, "correctnessRegressions": 0, "additionalParentModelTurns": 0},
-        }
-        duplicate_arm = {**evidence, "arms": [arm, dict(arm, pairID="pair-2")]}
-        duplicate_pair = {**evidence, "pairs": [evidence["pairs"][0], {"id": "pair-1", "status": "valid", "reduction": None}]}
+        evidence = canonical_serialized_cost_evidence()
+        duplicate_arm = deepcopy(evidence)
+        duplicate_arm["arms"][1]["id"] = duplicate_arm["arms"][0]["id"]
+        duplicate_pair = deepcopy(evidence)
+        duplicate_pair["pairs"][1]["id"] = duplicate_pair["pairs"][0]["id"]
         for rejected in (duplicate_arm, duplicate_pair):
             with self.subTest(evidence=rejected), self.assertRaises(contract.ContractError):
                 contract.validate_benchmark(rejected)
@@ -897,6 +1123,7 @@ class Dev142CommandParserTests(unittest.TestCase):
             "python3 -m unittest -v discover -s Tests -p test_*.py -t Tests",
             "python3 -m unittest Tests.test_app",
             "python3 -m pytest -q -v -x --maxfail=1 -k test_app -m unit Tests/test_app.py::test_app",
+            'python3 -m pytest -k "test_app and (test_other)" Tests/test_app.py',
             "python3 -m build --sdist --wheel",
             "python3 -m mypy --strict --no-incremental Sources",
             "python3 -m ruff check --no-fix --output-format concise Sources",
@@ -915,6 +1142,9 @@ class Dev142CommandParserTests(unittest.TestCase):
             "python3 -m pytest --maxfail=0",
             "python3 -m build --sdist --sdist",
             "python3 -m mypy Sources --strict",
+            "python3 -m mypy --no-incremental --strict Sources",
+            "swift format lint --strict --recursive Sources",
+            "python3 -m ruff check --output-format concise --no-fix Sources",
             "python3 -m ruff check --fix Sources",
             "npm test -- --watch",
         )
@@ -969,6 +1199,61 @@ class Dev142CommandParserTests(unittest.TestCase):
         finally:
             contract._lstat = original_lstat
 
+    def test_parser_captures_root_ancestors_target_and_nearest_existing_parent(self):
+        original_lstat = contract._lstat
+        observed = Counter()
+
+        def recording_lstat(path):
+            observed[Path(path).resolve(strict=False)] += 1
+            return original_lstat(path)
+
+        contract._lstat = recording_lstat
+        try:
+            contract.parse_command("swiftc -typecheck Sources/App.swift", self.root)
+            contract.parse_command("swift test --scratch-path Scratch/New/Derived", self.root)
+        finally:
+            contract._lstat = original_lstat
+
+        resolved_root = self.root.resolve()
+        root_chain = (resolved_root, *resolved_root.parents)
+        for path in root_chain:
+            with self.subTest(path=path):
+                self.assertGreaterEqual(observed[path], 2)
+        self.assertGreaterEqual(observed[(self.root / "Sources" / "App.swift").resolve()], 2)
+        self.assertGreaterEqual(observed[(self.root / "Scratch").resolve()], 2)
+
+    def test_every_filesystem_failure_and_recheck_drift_normalizes_to_route_decline(self):
+        original_lstat = contract._lstat
+        target = (self.root / "Sources" / "App.swift").resolve()
+
+        def run_with(replacement):
+            contract._lstat = replacement
+            try:
+                with self.assertRaises(contract.RouteDeclined) as caught:
+                    contract.parse_command("swiftc -typecheck Sources/App.swift", self.root)
+                self.assertEqual(caught.exception.reason, "command_not_allowed")
+            finally:
+                contract._lstat = original_lstat
+
+        def permission_error(path):
+            if Path(path).resolve(strict=False) == target:
+                raise PermissionError("synthetic private diagnostic")
+            return original_lstat(path)
+
+        run_with(permission_error)
+
+        calls = 0
+
+        def disappears(path):
+            nonlocal calls
+            if Path(path).resolve(strict=False) == target:
+                calls += 1
+                if calls > 1:
+                    raise FileNotFoundError("synthetic disappearance")
+            return original_lstat(path)
+
+        run_with(disappears)
+
 
 class Dev142RoutingTests(unittest.TestCase):
     def setUp(self):
@@ -989,6 +1274,7 @@ class Dev142RoutingTests(unittest.TestCase):
             "localeSupported": True,
             "occupiedTokens": 6144,
             "contextSize": 8192,
+            "sourceFacts": canonical_source_facts(),
             "bridge": self._bridge,
         }
         context.update(changes)
@@ -997,6 +1283,9 @@ class Dev142RoutingTests(unittest.TestCase):
     def _bridge(self, request):
         result = canonical_result()
         result["commandClass"] = request["commandClass"]
+        result["condensation"]["commandOutcome"] = (
+            "success" if request["exitStatus"] == 0 else "failure"
+        )
         return result
 
     def test_exact_size_and_budget_boundaries(self):
@@ -1025,7 +1314,7 @@ class Dev142RoutingTests(unittest.TestCase):
             (canonical_request(), self._context(eventName="PreToolUse"), "tool_not_allowed"),
             (canonical_request(), self._context(command="echo nope"), "command_not_allowed"),
             ({**canonical_request(), "toolName": "Read"}, self._context(), "tool_not_allowed"),
-            ({**canonical_request(), "inputBytes": 8191, "estimatedSavingsBytes": 4095}, self._context(), "input_below_minimum"),
+            (canonical_request(8191), self._context(), "input_below_minimum"),
             ({**canonical_request(), "fields": [dict(canonical_request()["fields"][0], classification="C2")]}, self._context(), "data_policy_denied"),
             ({**canonical_request(), "fields": [dict(canonical_request()["fields"][0], classification="C3")]}, self._context(), "data_policy_denied"),
             (canonical_request(), self._context(appleAvailable=False), "apple_unavailable"),
@@ -1058,7 +1347,11 @@ class Dev142RoutingTests(unittest.TestCase):
         (self.root / "LinkedSources").symlink_to(self.root / "Sources", target_is_directory=True)
         for file_value in ("LinkedSources/App.swift", "Missing.swift", "/private/path", "Sources\\App.swift"):
             request = canonical_request()
-            request["fields"] = [dict(request["fields"][0], name="file", value=file_value)]
+            fields = [
+                request["fields"][0],
+                dict(request["fields"][0], name="file", value=file_value),
+            ]
+            request = bind_request_fields(request, fields, target_bytes=8192)
             calls = []
             result = contract.route(request, self._context(bridge=lambda value: calls.append(value)))
             with self.subTest(file_value=file_value):
@@ -1095,6 +1388,163 @@ class Dev142RoutingTests(unittest.TestCase):
                 )
                 self.assertEqual(calls, [canonical_request()])
 
+    def test_preflight_recursively_rejects_sensitive_values_and_recomputes_canonical_bytes(self):
+        sensitive_values = (
+            "Bearer synthetic-private-token-12345678",
+            "password=synthetic-private-value",
+            "-----BEGIN PRIVATE KEY-----",
+            "/Users/synthetic/private.txt",
+            "/private/synthetic/private.txt",
+            r"C:\\Users\\synthetic\\private.txt",
+            r"\\\\synthetic-server\\private-share",
+        )
+        for sensitive in sensitive_values:
+            request = canonical_request()
+            message = request["fields"][0]
+            message["value"] = sensitive + "x" * 8200
+            request = bind_request_fields(request, [message])
+            calls = []
+            with self.subTest(sensitive=sensitive):
+                self.assertEqual(
+                    contract.route(request, self._context(bridge=lambda value: calls.append(value))),
+                    {"outcome": "declined", "reasonCode": "data_policy_denied", "preserveOriginal": True},
+                )
+                self.assertEqual(calls, [])
+
+        request = canonical_request()
+        nested = dict(request["fields"][0], value={"safe": ["nested", {"value": "secret=synthetic"}]})
+        request["fields"] = [nested]
+        request["inputBytes"] = 8192
+        request["estimatedSavingsBytes"] = 4096
+        calls = []
+        self.assertEqual(
+            contract.route(request, self._context(bridge=lambda value: calls.append(value))),
+            {"outcome": "declined", "reasonCode": "data_policy_denied", "preserveOriginal": True},
+        )
+        self.assertEqual(calls, [])
+
+        exact = canonical_request()
+        self.assertEqual(len(canonical_field_bytes(exact["fields"])), exact["inputBytes"])
+        self.assertEqual(contract.route(exact, self._context())["outcome"], "applied")
+        for mutation in (
+            {**exact, "inputBytes": exact["inputBytes"] + 1, "estimatedSavingsBytes": exact["estimatedSavingsBytes"] + 1},
+            {**exact, "estimatedSavingsBytes": exact["estimatedSavingsBytes"] + 1},
+        ):
+            calls = []
+            with self.subTest(mutation=mutation):
+                result = contract.route(mutation, self._context(bridge=lambda value: calls.append(value)))
+                self.assertEqual(result["outcome"], "declined")
+                self.assertTrue(result["preserveOriginal"])
+                self.assertEqual(calls, [])
+
+    def test_bridge_receives_an_isolated_request_and_cannot_mutate_frozen_bindings_or_source_facts(self):
+        request = canonical_request()
+        original = deepcopy(request)
+        context = self._context()
+        frozen_source = deepcopy(context["sourceFacts"])
+        observed = []
+
+        def bridge(candidate):
+            observed.append(candidate)
+            candidate["callID"] = "invented-call"
+            context["sourceFacts"]["summary"] = "invented summary"
+            result = canonical_result()
+            result["callID"] = candidate["callID"]
+            result["condensation"]["summary"] = context["sourceFacts"]["summary"]
+            return result
+
+        result = contract.route(request, {**context, "bridge": bridge})
+        self.assertEqual(
+            result,
+            {"outcome": "fail", "reasonCode": "invalid_response", "preserveOriginal": True},
+        )
+        self.assertEqual(request, original)
+        self.assertIsNot(observed[0], request)
+        self.assertEqual(frozen_source["summary"], "1 test failed")
+
+    def test_all_response_outcomes_bind_to_the_frozen_request(self):
+        for outcome in ("applied", "declined", "fail"):
+            response = canonical_result(outcome)
+            response["callID"] = "invented-call"
+            with self.subTest(outcome=outcome):
+                self.assertEqual(
+                    contract.route(canonical_request(), self._context(bridge=lambda _request, response=response: response)),
+                    {"outcome": "fail", "reasonCode": "invalid_response", "preserveOriginal": True},
+                )
+
+    def test_applied_response_semantics_are_application_validated_before_replacement(self):
+        error = {
+            "id": "error-001", "severity": "error", "code": "E001",
+            "message": "synthetic failure", "file": "Sources/App.swift",
+            "line": 1, "column": 1, "failedTestID": "Tests.App/test_failure",
+        }
+        warning = {
+            "id": "warning-001", "severity": "warning", "code": "W001",
+            "message": "synthetic warning", "file": "Sources/App.swift",
+            "line": 2, "column": 1, "failedTestID": None,
+        }
+        valid = canonical_result()
+        valid["condensation"] = {
+            "commandOutcome": "failure",
+            "summary": "one synthetic test failed",
+            "summaryFacts": ["failed-test-count=1", "error-count=1"],
+            "diagnostics": [error, warning],
+            "warningCount": 1,
+            "omittedWarningCount": 0,
+            "nextAction": "inspect Sources/App.swift",
+            "completionFacts": ["command-finished=true", "task-complete=false"],
+        }
+        context = self._context(sourceFacts=canonical_source_facts(valid))
+        self.assertEqual(
+            contract.route(canonical_request(), {**context, "bridge": lambda _request: deepcopy(valid)}),
+            valid,
+        )
+        mutations = {
+            "commandOutcome": lambda value: value["condensation"].__setitem__("commandOutcome", "success"),
+            "summary": lambda value: value["condensation"].__setitem__("summary", "invented summary"),
+            "summaryFacts": lambda value: value["condensation"]["summaryFacts"].append("invented=true"),
+            "diagnosticOmission": lambda value: value["condensation"]["diagnostics"].pop(0),
+            "diagnosticInvention": lambda value: value["condensation"]["diagnostics"].append(dict(error, id="error-999")),
+            "warningCount": lambda value: value["condensation"].__setitem__("warningCount", 2),
+            "nextAction": lambda value: value["condensation"].__setitem__("nextAction", "delete everything"),
+            "completionFacts": lambda value: value["condensation"]["completionFacts"].append("task-complete=true"),
+            "path": lambda value: value["condensation"]["diagnostics"][0].__setitem__("file", "../outside.swift"),
+        }
+        for name, mutate in mutations.items():
+            candidate = deepcopy(valid)
+            mutate(candidate)
+            with self.subTest(name=name):
+                result = contract.route(
+                    canonical_request(),
+                    {**context, "bridge": lambda _request, candidate=candidate: candidate},
+                )
+                self.assertEqual(
+                    result,
+                    {"outcome": "fail", "reasonCode": "invalid_response", "preserveOriginal": True},
+                )
+
+    def test_route_normalizes_post_capture_filesystem_exceptions_to_original_preserving_envelopes(self):
+        original_lstat = contract._lstat
+        root_calls = 0
+        resolved_root = self.root.resolve()
+
+        def fails_on_recheck(path):
+            nonlocal root_calls
+            if Path(path).resolve(strict=False) == resolved_root:
+                root_calls += 1
+                if root_calls > 1:
+                    raise PermissionError("synthetic private host path")
+            return original_lstat(path)
+
+        contract._lstat = fails_on_recheck
+        try:
+            result = contract.route(canonical_request(), self._context())
+        finally:
+            contract._lstat = original_lstat
+        self.assertIn(result["outcome"], ("declined", "fail"))
+        self.assertTrue(result["preserveOriginal"])
+        self.assertIn(result["reasonCode"], ("command_not_allowed", "contract_invariant_failed", "invalid_response"))
+
 
 class Dev142ProofTests(unittest.TestCase):
     """The repository-only proof is deterministic metadata, never runtime proof."""
@@ -1113,12 +1563,28 @@ class Dev142ProofTests(unittest.TestCase):
         "R-FILE-MISSING", "R-FILE-NONCONTAINED", "R-APPLE-UNAVAILABLE",
         "R-LOCALE-UNSUPPORTED", "R-MALFORMED-RESPONSE", "R-BRIDGE-DECLINE",
         "R-BRIDGE-FAIL", "R-BRIDGE-EXCEPTION", "R-APPLIED-001",
+        "R-SECRET-001", "R-CANONICAL-BYTES-001", "R-ISOLATED-REQUEST-001",
+        "R-RESPONSE-BINDINGS-001", "R-RESPONSE-SEMANTICS-001",
+        "R-PATH-RECHECK-001", "R-QUOTED-PYTEST-001", "R-FLAG-ORDER-001",
     }
     SAFETY_BOUNDARIES = {
         "S-PRIVATE-KEY-001", "S-PRIVATE-PATH-001", "S-RAW-PROMPT-001",
         "S-RAW-RESULT-001", "S-RAW-RESPONSE-001", "S-CREDENTIAL-001",
         "S-TRACE-001", "S-XCRESULT-001", "S-SELF-ATTEST-001",
         "S-EXTRA-KEY-001", "S-STATUS-001", "S-LIVE-CLAIM-001",
+        "S-PRIVATE-POSIX-001", "S-WINDOWS-PATH-001", "S-UNC-PATH-001",
+        "S-CREDENTIAL-VALUE-001", "S-NESTED-KEY-001",
+    }
+    EXPECTED_BOUNDARIES = {
+        "P-BOUNDARY-001": {"D-INPUT-001", "D-OCCUPANCY-001", "D-INTERRUPTION-001"},
+        "P-CORPUS-001": {"D-CORPUS-001"},
+        "P-NORMALIZATION-001": {"D-NORMALIZATION-OPENAI-001", "D-NORMALIZATION-ANTHROPIC-001"},
+        "P-QUALITY-001": {"D-QUALITY-001"},
+        "P-RELEASE-001": {"D-RELEASE-MATRIX-001"},
+        "P-SCHEMA-001": {
+            "D-SCHEMA-REQUEST-001", "D-SCHEMA-RESULT-001",
+            "D-SCHEMA-BENCHMARK-001", "D-SCHEMA-VOCABULARY-001",
+        },
     }
 
     def _runner(self):
@@ -1150,7 +1616,7 @@ class Dev142ProofTests(unittest.TestCase):
 
         self.assertEqual(set(proof), {
             "schemaVersion", "issue", "status", "policyVersion", "action",
-            "schemaCount", "eligibleCaseCount", "requiredPairCount", "corpusSha256",
+            "schemaCount", "eligibleCaseCount", "requiredArmCount", "requiredPairCount", "corpusSha256",
             "checks", "liveClaims",
         })
         self.assertEqual(proof["schemaVersion"], 1)
@@ -1160,6 +1626,7 @@ class Dev142ProofTests(unittest.TestCase):
         self.assertEqual(proof["action"], contract.Policy.ACTION)
         self.assertEqual(proof["schemaCount"], 3)
         self.assertEqual(proof["eligibleCaseCount"], 24)
+        self.assertEqual(proof["requiredArmCount"], 96)
         self.assertEqual(proof["requiredPairCount"], 48)
         self.assertEqual(proof["corpusSha256"], contract.corpus_digest(canonical_benchmark()))
         self.assertEqual(proof["checks"], sorted(proof["checks"], key=lambda row: row["id"]))
@@ -1186,6 +1653,9 @@ class Dev142ProofTests(unittest.TestCase):
         rows = {row["id"]: row for row in proof["checks"]}
         self.assertEqual(set(rows["P-ROUTING-001"]["boundaries"]), self.ROUTING_BOUNDARIES)
         self.assertEqual(set(rows["P-SAFETY-001"]["boundaries"]), self.SAFETY_BOUNDARIES)
+        for check_id, boundaries in self.EXPECTED_BOUNDARIES.items():
+            with self.subTest(check_id=check_id):
+                self.assertEqual(set(rows[check_id]["boundaries"]), boundaries)
         self.assertEqual(runner._verify_routing(runner._contract()), tuple(sorted(self.ROUTING_BOUNDARIES)))
         self.assertEqual(runner._verify_safety(proof), tuple(sorted(self.SAFETY_BOUNDARIES)))
 
@@ -1210,6 +1680,31 @@ class Dev142ProofTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     runner.validate_evidence(mutated)
 
+        unsafe_values = (
+            "/private/synthetic/path",
+            r"C:\\Users\\synthetic\\path",
+            r"\\\\synthetic-server\\private-share",
+            "api_key=synthetic-private-value",
+            "Bearer synthetic-private-token-12345678",
+            "-----BEGIN PRIVATE KEY-----",
+            "self-attested model correctness",
+            "synthetic.trace",
+        )
+        for unsafe in unsafe_values:
+            with self.subTest(unsafe=unsafe):
+                self.assertFalse(runner._safe_metadata({"safe": [{"value": unsafe}]}))
+        self.assertFalse(runner._safe_metadata({"safe": {"rawPrompt": "nested"}}))
+
+    def test_evidence_validator_exact_enums_every_check_and_boundary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            proof = self._run_proof(Path(directory) / "proof.json")
+        runner = self._runner()
+        for row_index, row in enumerate(proof["checks"]):
+            mutated = deepcopy(proof)
+            mutated["checks"][row_index]["boundaries"][0] = "D-INVENTED-001"
+            with self.subTest(check=row["id"]), self.assertRaises(ValueError):
+                runner.validate_evidence(mutated)
+
     def test_committed_evidence_matches_the_runner_and_documentation_keeps_the_boundaries(self):
         with tempfile.TemporaryDirectory() as directory:
             generated = Path(directory) / "proof.json"
@@ -1220,10 +1715,10 @@ class Dev142ProofTests(unittest.TestCase):
             ROOT / "fixtures" / "dev-142" / "README.md": (
                 "python3 fixtures/dev-142/proof_runner.py --output",
                 "does not invoke Apple", "does not activate a host hook",
-                "provider_usage_not_executed",
+                "provider_usage_not_executed", "semantically validates", "96 arms",
             ),
             ROOT / "docs" / "architecture" / "apple-foundation-models-handoff-mvp-decision-record.md": (
-                "diagnostic-condensation-v1", "48", "provider_usage_not_executed",
+                "diagnostic-condensation-v1", "48", "96 arms", "provider_usage_not_executed",
             ),
             ROOT / "plugins" / "apple-foundation-models-handoff" / "references" / "orchestration-patterns.md": (
                 "PostToolUse", "condense_diagnostic_output", "at most one bridge attempt",
@@ -1232,7 +1727,7 @@ class Dev142ProofTests(unittest.TestCase):
                 "C0", "C1", "preserve the original result",
             ),
             ROOT / "plugins" / "apple-foundation-models-handoff" / "references" / "evaluation-and-observability.md": (
-                "24", "48", "provider_usage_not_executed",
+                "24", "48", "96 arms", "provider_usage_not_executed",
             ),
         }
         for path, fragments in required_text.items():
