@@ -1,4 +1,5 @@
 import importlib.util
+import hashlib
 import json
 import math
 import os
@@ -6,10 +7,12 @@ from pathlib import Path
 import re
 import tempfile
 import unittest
+from collections import Counter
 
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "fixtures" / "dev-142" / "runtime_contract.py"
+CORPUS = ROOT / "fixtures" / "dev-142" / "benchmark-corpus.json"
 SCHEMAS = ROOT / "schemas"
 SPEC = importlib.util.spec_from_file_location("dev142_runtime_contract", CONTRACT_PATH)
 contract = importlib.util.module_from_spec(SPEC)
@@ -400,6 +403,106 @@ class Dev142PolicySchemaTests(unittest.TestCase):
         }
         with self.assertRaises(contract.ContractError):
             contract.validate_benchmark(evidence)
+
+
+class Dev142CorpusTests(unittest.TestCase):
+    def _result_for(self, case):
+        diagnostics = []
+        for diagnostic_id in case["expected"]["requiredDiagnosticIDs"]:
+            severity, ordinal = diagnostic_id.split("-", 1)
+            index = int(ordinal)
+            diagnostics.append({
+                "id": diagnostic_id,
+                "severity": severity,
+                "code": f"{case['commandClass'].upper()}-{index:03d}",
+                "message": f"synthetic {case['commandForm']} {severity} diagnostic",
+                "file": f"Sources/{case['commandClass'].title()}Case{index}.swift",
+                "line": 100 + index,
+                "column": 1 + index,
+                "failedTestID": case["expected"]["failedTestIDs"][0] if case["expected"]["failedTestIDs"] else None,
+            })
+        return {
+            "exitStatus": case["expected"]["exitStatus"],
+            "interrupted": case["expected"]["interrupted"],
+            "condensation": {
+                "summary": f"synthetic {case['commandForm']} summary",
+                "diagnostics": diagnostics,
+                "warningCount": case["expected"]["warningCount"],
+                "omittedWarningCount": 0,
+            },
+        }
+
+    def test_corpus_is_exact_hash_bound_and_balanced(self):
+        self.assertTrue(CORPUS.exists())
+        corpus = contract.load_closed_json(CORPUS)
+        contract.validate_benchmark(corpus)
+        self.assertEqual(len(corpus["cases"]), 24)
+        self.assertEqual(Counter(row["commandClass"] for row in corpus["cases"]), {
+            "test": 6, "build": 6, "typecheck": 6, "lint": 6,
+        })
+        self.assertEqual(len({row["id"] for row in corpus["cases"]}), 24)
+        self.assertEqual(contract.corpus_digest(corpus), corpus["corpusSha256"])
+        for row in corpus["cases"]:
+            rendered = contract.render_case(row)
+            self.assertEqual(hashlib.sha256(rendered).hexdigest(), row["renderedSha256"])
+            self.assertGreaterEqual(len(rendered), 8192)
+            self.assertLessEqual(len(rendered), 65536)
+            self.assertTrue(rendered.endswith(b"\n"))
+
+    def test_corpus_covers_twelve_forms_success_failure_and_synthetic_unicode(self):
+        corpus = contract.load_closed_json(CORPUS)
+        grouped = {}
+        for row in corpus["cases"]:
+            grouped.setdefault(row["commandForm"], []).append(row)
+            self.assertIn(row["classification"], ("C0", "C1"))
+            self.assertNotIn(b"/Users/", contract.render_case(row))
+            self.assertNotIn(b"BEGIN PRIVATE", contract.render_case(row))
+        self.assertEqual(len(grouped), 12)
+        for command_form, rows in grouped.items():
+            with self.subTest(command_form=command_form):
+                self.assertEqual(len(rows), 2)
+                self.assertEqual({row["expected"]["exitStatus"] == 0 for row in rows}, {False, True})
+        unicode_case = next(row for row in corpus["cases"] if "unicode" in row["id"])
+        rendered = contract.render_case(unicode_case)
+        self.assertGreater(len(rendered), len(rendered.decode("utf-8").encode("ascii", "ignore")))
+        self.assertNotEqual(len(rendered), len(rendered.decode("utf-8").split()))
+
+    def test_boundary_fixtures_are_outside_the_eligible_corpus(self):
+        corpus = contract.load_closed_json(CORPUS)
+        boundaries = contract.benchmark_boundaries()
+        self.assertEqual({row["id"] for row in boundaries} & {row["id"] for row in corpus["cases"]}, set())
+        self.assertEqual(
+            {(row["inputBytes"], row["outputBytes"], row["realizedSavingsBytes"]) for row in boundaries},
+            {(8191, 4096, 4095), (8192, 4096, 4096), (65536, 61440, 61440), (65537, 61440, 4097), (8192, 4095, 4097)},
+        )
+        self.assertTrue(any(row["occupiedTokens"] == 6144 and row["contextSize"] == 8192 for row in boundaries))
+        self.assertTrue(any(row["occupiedTokens"] == 6145 and row["contextSize"] == 8192 for row in boundaries))
+
+    def test_score_condensation_rejects_every_required_mutation(self):
+        corpus = contract.load_closed_json(CORPUS)
+        failure = next(row for row in corpus["cases"] if row["commandClass"] == "test" and row["expected"]["exitStatus"] not in (0, None))
+        result = self._result_for(failure)
+        self.assertEqual(contract.score_condensation(failure, result), contract.QualityScore(True, ()))
+
+        mutations = {
+            "removed_fatal": lambda value: value["condensation"]["diagnostics"].pop(),
+            "invented_fatal": lambda value: value["condensation"]["diagnostics"].append(dict(value["condensation"]["diagnostics"][0], id="fatal-999")),
+            "exit": lambda value: value.__setitem__("exitStatus", 0),
+            "interruption": lambda value: value.__setitem__("interrupted", True),
+            "path": lambda value: value["condensation"]["diagnostics"][0].__setitem__("file", "Sources/Elsewhere.swift"),
+            "line": lambda value: value["condensation"]["diagnostics"][0].__setitem__("line", 999),
+            "code": lambda value: value["condensation"]["diagnostics"][0].__setitem__("code", "TEST-999"),
+            "test_id": lambda value: value["condensation"]["diagnostics"][0].__setitem__("failedTestID", "Tests.Other/test_other"),
+            "warnings": lambda value: value["condensation"].__setitem__("warningCount", value["condensation"]["warningCount"] + 1),
+            "oversize": lambda value: value["condensation"].__setitem__("summary", "x" * 4097),
+        }
+        for name, mutate in mutations.items():
+            candidate = json.loads(json.dumps(result))
+            mutate(candidate)
+            with self.subTest(name=name):
+                score = contract.score_condensation(failure, candidate)
+                self.assertFalse(score.passed)
+                self.assertEqual(score.reason_codes, tuple(sorted(score.reason_codes)))
 
 
 class Dev142SchemaParityTests(unittest.TestCase):
