@@ -626,6 +626,11 @@ class Dev142CommandParserTests(unittest.TestCase):
         with self.assertRaises(contract.RouteDeclined):
             contract.parse_command("swiftc -typecheck Linked.swift", self.root)
 
+        (self.root / "LinkedSources").symlink_to(self.root / "Sources", target_is_directory=True)
+        with self.assertRaises(contract.RouteDeclined) as caught:
+            contract.parse_command("swiftc -typecheck LinkedSources/App.swift", self.root)
+        self.assertEqual(caught.exception.reason, "command_not_allowed")
+
     def test_parser_rejects_filesystem_identity_drift(self):
         target = (self.root / "Sources" / "App.swift").resolve()
         original_lstat = contract._lstat
@@ -736,6 +741,47 @@ class Dev142RoutingTests(unittest.TestCase):
 
         invalid_response = contract.route(canonical_request(), self._context(bridge=lambda request: {"outcome": "applied"}))
         self.assertEqual(invalid_response, {"outcome": "fail", "reasonCode": "invalid_response", "preserveOriginal": True})
+
+    def test_file_fields_require_a_contained_non_symlink_repository_path_before_the_bridge(self):
+        (self.root / "LinkedSources").symlink_to(self.root / "Sources", target_is_directory=True)
+        for file_value in ("LinkedSources/App.swift", "Missing.swift", "/private/path", "Sources\\App.swift"):
+            request = canonical_request()
+            request["fields"] = [dict(request["fields"][0], name="file", value=file_value)]
+            calls = []
+            result = contract.route(request, self._context(bridge=lambda value: calls.append(value)))
+            with self.subTest(file_value=file_value):
+                self.assertEqual(result, {"outcome": "declined", "reasonCode": "data_policy_denied", "preserveOriginal": True})
+                self.assertEqual(calls, [])
+
+    def test_untrusted_response_serialization_failure_fails_closed_after_one_attempt(self):
+        calls = []
+
+        def bridge(request):
+            calls.append(request)
+            response = canonical_result()
+            response["condensation"]["summary"] = "\ud800"
+            return response
+
+        self.assertEqual(
+            contract.route(canonical_request(), self._context(bridge=bridge)),
+            {"outcome": "fail", "reasonCode": "invalid_response", "preserveOriginal": True},
+        )
+        self.assertEqual(calls, [canonical_request()])
+
+    def test_schema_valid_bridge_fail_and_decline_preserve_their_distinct_invocation_statuses(self):
+        for outcome, expected_status in (("fail", "fail"), ("declined", "declined")):
+            calls = []
+
+            def bridge(request, outcome=outcome):
+                calls.append(request)
+                return canonical_result(outcome)
+
+            with self.subTest(outcome=outcome):
+                self.assertEqual(
+                    contract.route(canonical_request(), self._context(bridge=bridge)),
+                    {"outcome": expected_status, "reasonCode": "generation_declined", "preserveOriginal": True},
+                )
+                self.assertEqual(calls, [canonical_request()])
 
 
 if __name__ == "__main__":
