@@ -288,6 +288,7 @@ EVIDENCE_KEYS = {
     "baselines",
     "limitations",
     "supersession",
+    "integrationProvenance",
 }
 
 SUPERSESSION_KEYS = {
@@ -298,6 +299,17 @@ SUPERSESSION_KEYS = {
     "capabilityEvidence",
 }
 CAPABILITY_EVIDENCE_KEYS = {"path", "role"}
+INTEGRATION_PROVENANCE_KEYS = {
+    "status",
+    "originalBaseHead",
+    "mergedBaseHead",
+    "commitMappings",
+}
+INTEGRATION_COMMIT_MAPPING_KEYS = {
+    "captureHead",
+    "rebasedEquivalentHead",
+    "treeSha",
+}
 
 BASELINE_ROW_KEYS = {
     "caseId",
@@ -314,8 +326,12 @@ BASELINE_ROW_KEYS = {
     "observedFailureClasses",
 }
 
-INITIAL_CAPTURE_HEAD = "ec2094ad9827488539c77a704b97882c69a4ee9e"
-REVIEW_RECAPTURE_HEAD = "35ac482a8e2a954525a24d7e6047d6732df41fbe"
+INITIAL_CAPTURE_HEAD = "464dd11938acebbed055df1bdbf5032c0fadbdb6"
+REVIEW_RECAPTURE_HEAD = "ba18d72e65b46939b1d494cf423f245cdd003231"
+REBASED_INITIAL_CAPTURE_HEAD = "ec2094ad9827488539c77a704b97882c69a4ee9e"
+REBASED_REVIEW_RECAPTURE_HEAD = "35ac482a8e2a954525a24d7e6047d6732df41fbe"
+ORIGINAL_BASE_HEAD = "75c9c8ca8d38bcfd05dc3d82264d1b8219253bc6"
+MERGED_BASE_HEAD = "cdaa9bd5ce771c41d68603efa7835003ff46ee8c"
 
 APPROVED_LIMITATIONS = (
     "The five responses were scored only as no-skill RED controls and are not capability evidence.",
@@ -521,7 +537,7 @@ FIXTURE_WITHOUT_OWNERS_SHA256 = (
     "aed1d8f41b6c24706243f03016e12fc17f58d8ea7c7c9e524723c77cf1da68f0"
 )
 HISTORICAL_EVIDENCE_CORE_SHA256 = (
-    "f9b3a20b9400fcf7871009f87b235af6105cbff4d092663663cc674accdf5b30"
+    "7f2df2c46dfaf6ea9367b62081c521029a234754fbb05740f261ea0e143311e1"
 )
 NON_POSITIVE_SCORER_SHA256 = (
     "27476f8047b24c330e2fb2c692e373c0aac4f121de4d9b2211b1206f3db02132"
@@ -1388,12 +1404,13 @@ class SkillBaselineEvidenceTests(unittest.TestCase):
 
         historical_core = copy.deepcopy(evidence)
         historical_core.pop("supersession")
+        historical_core.pop("integrationProvenance", None)
         self.assertEqual(
             HISTORICAL_EVIDENCE_CORE_SHA256,
             canonical_payload_sha256(historical_core),
         )
 
-    def test_capture_heads_resolve_and_follow_task_1_ancestry(self) -> None:
+    def test_capture_heads_and_rebased_equivalents_are_truthful(self) -> None:
         evidence = self.require_evidence()
         current_head = subprocess.run(
             ["git", "rev-parse", "HEAD"],
@@ -1410,6 +1427,23 @@ class SkillBaselineEvidenceTests(unittest.TestCase):
             )
             for case_id, *_ in EXPECTED_CASES[:5]
         }
+        provenance = evidence.get("integrationProvenance")
+        self.assertIsInstance(provenance, dict)
+        self.assertEqual(INTEGRATION_PROVENANCE_KEYS, set(provenance))
+        self.assertEqual("tree_equivalent_rebase", provenance["status"])
+        self.assertEqual(ORIGINAL_BASE_HEAD, provenance["originalBaseHead"])
+        self.assertEqual(MERGED_BASE_HEAD, provenance["mergedBaseHead"])
+        expected_equivalents = {
+            INITIAL_CAPTURE_HEAD: REBASED_INITIAL_CAPTURE_HEAD,
+            REVIEW_RECAPTURE_HEAD: REBASED_REVIEW_RECAPTURE_HEAD,
+        }
+        mappings = provenance["commitMappings"]
+        self.assertEqual(2, len(mappings))
+        self.assertEqual(
+            set(expected_equivalents),
+            {mapping["captureHead"] for mapping in mappings},
+        )
+        mapping_by_capture = {mapping["captureHead"]: mapping for mapping in mappings}
 
         for row in evidence["baselines"]:
             capture_head = row["repositoryHeadAtCapture"]
@@ -1424,17 +1458,52 @@ class SkillBaselineEvidenceTests(unittest.TestCase):
                 self.assertEqual(0, resolved.returncode, resolved.stderr)
                 self.assertEqual(capture_head, resolved.stdout.strip())
                 self.assertEqual(expected_by_case[row["caseId"]], capture_head)
-                for ancestor, descendant in (
-                    (INITIAL_CAPTURE_HEAD, capture_head),
-                    (capture_head, current_head),
-                ):
-                    ancestry = subprocess.run(
-                        ["git", "merge-base", "--is-ancestor", ancestor, descendant],
-                        cwd=ROOT,
-                        capture_output=True,
-                        text=True,
-                    )
-                    self.assertEqual(0, ancestry.returncode, ancestry.stderr)
+                mapping = mapping_by_capture[capture_head]
+                self.assertEqual(INTEGRATION_COMMIT_MAPPING_KEYS, set(mapping))
+                rebased_head = mapping["rebasedEquivalentHead"]
+                self.assertEqual(expected_equivalents[capture_head], rebased_head)
+                capture_tree = subprocess.run(
+                    ["git", "show", "-s", "--format=%T", capture_head],
+                    cwd=ROOT,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip()
+                rebased_tree = subprocess.run(
+                    ["git", "show", "-s", "--format=%T", rebased_head],
+                    cwd=ROOT,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip()
+                self.assertEqual(capture_tree, rebased_tree)
+                self.assertEqual(capture_tree, mapping["treeSha"])
+                ancestry = subprocess.run(
+                    ["git", "merge-base", "--is-ancestor", rebased_head, current_head],
+                    cwd=ROOT,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(0, ancestry.returncode, ancestry.stderr)
+
+        base_trees = {
+            subprocess.run(
+                ["git", "show", "-s", "--format=%T", head],
+                cwd=ROOT,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            for head in (ORIGINAL_BASE_HEAD, MERGED_BASE_HEAD)
+        }
+        self.assertEqual(1, len(base_trees))
+        base_ancestry = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", MERGED_BASE_HEAD, current_head],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(0, base_ancestry.returncode, base_ancestry.stderr)
 
     def test_evidence_contains_no_raw_host_payload_fields_or_local_paths(self) -> None:
         evidence = self.require_evidence()
@@ -2200,7 +2269,7 @@ class ContractMutationReproductionTests(unittest.TestCase):
                 validator.evidence = mutant
                 validator.fixture = self.fixture
                 with self.assertRaises(AssertionError):
-                    validator.test_capture_heads_resolve_and_follow_task_1_ancestry()
+                    validator.test_capture_heads_and_rebased_equivalents_are_truthful()
 
 
 def _forward_fixture(*case_ids: str) -> dict:
