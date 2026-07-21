@@ -39,6 +39,12 @@ class Policy(metaclass=_FrozenPolicy):
     MAXIMUM_APPLE_RESPONSE_TOKENS = 1024
     MAXIMUM_APPLE_CONTEXT_NUMERATOR = 3
     MAXIMUM_APPLE_CONTEXT_DENOMINATOR = 4
+    APPROVED_BENCHMARK_COMMAND_FORMS = frozenset((
+        "swift test", "xcodebuild test", "python3 -m pytest",
+        "swift build", "xcodebuild build", "pnpm build",
+        "swiftc -typecheck", "python3 -m mypy", "npm run typecheck",
+        "swift format lint", "python3 -m ruff check", "pnpm lint",
+    ))
 
 
 class ContractError(ValueError):
@@ -379,6 +385,7 @@ def validate_benchmark(value):
             if case["id"] in ids:
                 raise ContractError("duplicate case id")
             ids.add(case["id"])
+        _validate_corpus_invariants(value)
     else:
         _closed(value, ("schemaVersion", "policyVersion", "kind", "arms", "pairs", "release"))
         _integer(value["schemaVersion"], "schemaVersion", minimum=Policy.SCHEMA_VERSION, maximum=Policy.SCHEMA_VERSION)
@@ -399,6 +406,34 @@ def validate_benchmark(value):
             pair_ids.add(pair["id"])
         _validate_release(value["release"])
     return value
+
+
+def _validate_corpus_invariants(corpus):
+    cases = corpus["cases"]
+    if len(cases) != 24:
+        raise ContractError("invalid corpus case count")
+    counts = {command_class: 0 for command_class in _COMMAND_CLASSES}
+    forms = {command_form: [] for command_form in Policy.APPROVED_BENCHMARK_COMMAND_FORMS}
+    for case in cases:
+        counts[case["commandClass"]] += 1
+        if case["commandForm"] not in forms:
+            raise ContractError("invalid corpus command form")
+        forms[case["commandForm"]].append(case)
+        rendered = render_case(case)
+        if not Policy.MINIMUM_INPUT_BYTES <= len(rendered) <= Policy.MAXIMUM_INPUT_BYTES:
+            raise ContractError("invalid rendered case size")
+        if hashlib.sha256(rendered).hexdigest() != case["renderedSha256"]:
+            raise ContractError("invalid rendered case hash")
+    if counts != {command_class: 6 for command_class in _COMMAND_CLASSES}:
+        raise ContractError("invalid corpus command class balance")
+    for form_cases in forms.values():
+        if len(form_cases) != 2:
+            raise ContractError("invalid corpus command form balance")
+        successes = sum(case["expected"]["exitStatus"] == 0 for case in form_cases)
+        if successes != 1:
+            raise ContractError("invalid corpus command outcome balance")
+    if corpus_digest(corpus) != corpus["corpusSha256"]:
+        raise ContractError("invalid corpus hash")
 
 
 _SYNTHETIC_NOISE_LINE = "synthetic-noise|unicode=\u00e9\u6f22\U0001f642|classification={classification}|case={case_id}|repeat={repeat}\n"
@@ -529,17 +564,32 @@ def _invented_facts(case, result):
     return False
 
 
+def _semantic_command_outcome(exit_status, interrupted):
+    if interrupted:
+        return "interrupted"
+    return "success" if exit_status == 0 else "failure"
+
+
 def score_condensation(case, result):
     """Score a normalized condensation against its immutable synthetic case."""
     _validate_case(case)
-    reasons = []
     try:
-        if result["exitStatus"] != case["expected"]["exitStatus"]:
-            reasons.append("exit_status_regression")
-        if result["interrupted"] != case["expected"]["interrupted"]:
-            reasons.append("interruption_regression")
-    except (KeyError, TypeError):
-        reasons.extend(("exit_status_regression", "interruption_regression"))
+        validate_result(result)
+    except ContractError:
+        return QualityScore(False, ("invalid_result",))
+    reasons = []
+    expected = case["expected"]
+    if result["exitStatus"] != expected["exitStatus"]:
+        reasons.append("exit_status_regression")
+    if result["interrupted"] != expected["interrupted"]:
+        reasons.append("interruption_regression")
+    if (
+        result["outcome"] != "applied"
+        or result["commandClass"] != case["commandClass"]
+        or _semantic_command_outcome(result["exitStatus"], result["interrupted"])
+        != _semantic_command_outcome(expected["exitStatus"], expected["interrupted"])
+    ):
+        reasons.append("command_outcome_regression")
     if _diagnostic_identities(result) != _required_identities(case):
         reasons.append("diagnostic_identity_regression")
     if _invented_facts(case, result):
