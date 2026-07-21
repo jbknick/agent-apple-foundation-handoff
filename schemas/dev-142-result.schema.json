@@ -5,7 +5,8 @@
   "x-dev142-constraints": {
     "uniqueBy": [{"array": "/condensation/diagnostics", "keys": ["severity", "code", "message", "file", "line", "column", "failedTestID"]}],
     "repoRelativePath": [{"array": "/condensation/diagnostics", "when": {}, "field": "file", "nullable": true}],
-    "lessThanOrEqual": [{"left": "/condensation/omittedWarningCount", "right": "/condensation/warningCount"}]
+    "lessThanOrEqual": [{"left": "/condensation/omittedWarningCount", "right": "/condensation/warningCount"}],
+    "warningAccounting": [{"array": "/condensation/diagnostics", "severityField": "severity", "warningValue": "warning", "omitted": "/condensation/omittedWarningCount", "total": "/condensation/warningCount"}]
   },
   "oneOf": [{"$ref": "#/$defs/applied"}, {"$ref": "#/$defs/nonApplied"}],
   "$defs": {

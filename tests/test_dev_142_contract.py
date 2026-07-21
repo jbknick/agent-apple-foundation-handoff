@@ -800,6 +800,8 @@ class Dev142CostTests(unittest.TestCase):
             "parentTurns": parent_turns,
             "appleAttempts": 0 if role == "pluginOff" else 1,
             "replacements": 0 if role == "pluginOff" else 1,
+            "declines": 0,
+            "fallbacks": 0,
             "quality": contract.QualityScore(True, ()) if quality is None else quality,
         }
 

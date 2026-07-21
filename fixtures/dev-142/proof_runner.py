@@ -77,18 +77,31 @@ EVIDENCE_KEYS = {
     "eligibleCaseCount", "requiredArmCount", "requiredPairCount", "corpusSha256", "checks", "liveClaims",
 }
 FORBIDDEN_METADATA_KEYS = {
-    "api_key", "access_token", "password", "secret", "credential", "authorization",
-    "private_key", "private_path", "raw_prompt", "raw_result", "raw_response",
+    "api_key", "access_token", "token", "password", "secret", "credential",
+    "authorization", "client_secret", "signing_key", "private_key", "private_path",
+    "raw_prompt", "raw_result", "raw_response",
     "raw_reasoning", "hidden_reasoning", "chain_of_thought", "trace", "raw_trace",
     "xcresult", "model_correctness", "self_attested", "self_attestation",
 }
 FORBIDDEN_METADATA_PATTERNS = (
-    re.compile(r"-----BEGIN (?:RSA |OPENSSH |EC )?PRIVATE KEY-----", re.IGNORECASE),
+    re.compile(r"-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----", re.IGNORECASE),
     re.compile(r"/(?:Users|home|private)/[^\s]+", re.IGNORECASE),
-    re.compile(r"\b[A-Za-z]:[\\/](?:Users|home|private)[\\/]", re.IGNORECASE),
+    re.compile(r"(?<![:/A-Za-z0-9_])/(?!/)(?:[^/\s]+/)*[^/\s,;]+"),
+    re.compile(r"\bfile:(?://)?/[^\s]+", re.IGNORECASE),
+    re.compile(r"\b[A-Za-z]:[\\/][^\s]+", re.IGNORECASE),
     re.compile(r"(?:\\\\|//)[A-Za-z0-9_.-]+[\\/][^\s]+"),
     re.compile(r"\bBearer\s+[A-Za-z0-9._~+/-]{8,}", re.IGNORECASE),
-    re.compile(r"\b(?:api[_ -]?key|access[_ -]?token|password|secret|credential)\b\s*[:=]\s*[^\s,}]+", re.IGNORECASE),
+    re.compile(
+        r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|"
+        r"sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|"
+        r"xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{20,})\b"
+    ),
+    re.compile(
+        r"\b(?:api[_ -]?key|access[_ -]?token|token|password|secret|credential|"
+        r"authorization|private[_ -]?key|client[_ -]?secret|signing[_ -]?key)\b"
+        r"\s*[:=]\s*[^\s,}]+",
+        re.IGNORECASE,
+    ),
     re.compile(r"\bself[-_ ](?:attested|attestation)\b", re.IGNORECASE),
     re.compile(r"\.(?:trace|xcresult)(?:\b|$)", re.IGNORECASE),
 )
@@ -266,7 +279,7 @@ def _schema_accepts(contract, schema, value):
                     path = item.get(rule["field"])
                     if path is None and rule.get("nullable"):
                         continue
-                    if type(path) is not str or not path or path.startswith("/") or "\x00" in path:
+                    if type(path) is not str or not path or path.startswith("/") or "\\" in path or "\x00" in path:
                         return False
                     if any(part in ("", ".", "..") for part in path.split("/")):
                         return False
@@ -281,6 +294,25 @@ def _schema_accepts(contract, schema, value):
             if left is not None and right is not None and (
                 type(left) is not int or type(right) is not int or left > right
             ):
+                return False
+        for rule in vocabulary.get("warningAccounting", []):
+            diagnostics = pointer(candidate, rule["array"])
+            omitted = pointer(candidate, rule["omitted"])
+            total = pointer(candidate, rule["total"])
+            if diagnostics is None and omitted is None and total is None:
+                continue
+            if (
+                type(diagnostics) is not list
+                or type(omitted) is not int
+                or type(total) is not int
+                or any(type(item) is not dict for item in diagnostics)
+            ):
+                return False
+            warning_count = sum(
+                item.get(rule["severityField"]) == rule["warningValue"]
+                for item in diagnostics
+            )
+            if warning_count + omitted != total:
                 return False
         for rule in vocabulary.get("canonicalUtf8Bytes", []):
             fields, declared = pointer(candidate, rule["array"]), pointer(candidate, rule["target"])
@@ -364,9 +396,8 @@ def _verify_schemas(contract, corpus):
         raise ValueError("valid semantic schema value rejected")
     invalid_request = dict(request, inputBytes=request["inputBytes"] + 1, estimatedSavingsBytes=request["estimatedSavingsBytes"] + 1)
     invalid_result = json.loads(json.dumps(result))
-    invalid_result["condensation"]["omittedWarningCount"] = (
-        invalid_result["condensation"]["warningCount"] + 1
-    )
+    invalid_result["condensation"]["warningCount"] = 2
+    invalid_result["condensation"]["omittedWarningCount"] = 1
     invalid_benchmark = json.loads(json.dumps(benchmark))
     invalid_benchmark["pairs"][0]["reductionPPM"] += 1
     invalid = {
@@ -378,7 +409,10 @@ def _verify_schemas(contract, corpus):
         raise ValueError("invalid semantic schema value accepted")
     expected_vocabularies = {
         "dev-142-request.schema.json": {"uniqueBy", "repoRelativePath", "derivedInteger", "canonicalUtf8Bytes"},
-        "dev-142-result.schema.json": {"uniqueBy", "repoRelativePath", "lessThanOrEqual"},
+        "dev-142-result.schema.json": {
+            "uniqueBy", "repoRelativePath", "lessThanOrEqual",
+            "warningAccounting",
+        },
         "dev-142-benchmark.schema.json": {"uniqueBy", "benchmarkCostModel"},
     }
     if any(set(schemas[name].get("x-dev142-constraints", {})) != expected for name, expected in expected_vocabularies.items()):
@@ -410,6 +444,25 @@ def _verify_quality(contract, corpus):
 
 def _verify_boundaries(contract):
     rows = {row["id"]: row for row in contract.benchmark_boundaries()}
+    expected_ids = {
+        "below-input-minimum", "minimum-input", "maximum-input",
+        "above-input-maximum", "above-output-maximum", "interrupted-command",
+    }
+    if set(rows) != expected_ids:
+        raise ValueError("unexpected boundary identities")
+    if {row["inputBytes"] for row in rows.values()} != {8191, 8192, 65536, 65537}:
+        raise ValueError("incomplete input byte boundaries")
+    if {row["outputBytes"] for row in rows.values()} != {4096, 4097}:
+        raise ValueError("incomplete output byte boundaries")
+    if not {4095, 4096}.issubset(
+        {row["realizedSavingsBytes"] for row in rows.values()}
+    ):
+        raise ValueError("incomplete realized savings boundaries")
+    if any(
+        row["realizedSavingsBytes"] != row["inputBytes"] - row["outputBytes"]
+        for row in rows.values()
+    ):
+        raise ValueError("inconsistent realized savings boundary")
     if contract.estimate_savings(rows["minimum-input"]["inputBytes"]) != 4096:
         raise ValueError("minimum input boundary failed")
     if contract.estimate_savings(rows["maximum-input"]["inputBytes"]) != 61440:
@@ -680,6 +733,8 @@ def _arm(contract, host, case, arm, input_tokens, output_tokens, quality):
         "parentTurns": 1,
         "appleAttempts": 0 if arm == "pluginOff" else 1,
         "replacements": 0 if arm == "pluginOff" else 1,
+        "declines": 0,
+        "fallbacks": 0,
         "quality": quality,
     }
 
@@ -774,28 +829,30 @@ def _evidence_copy(evidence):
 
 def _verify_safety(evidence):
     mutations = (
-        ("S-PRIVATE-KEY-001", lambda value: value.update(privateKey="redacted")),
-        ("S-PRIVATE-PATH-001", lambda value: value.update(privatePath="/Users/example/private")),
-        ("S-RAW-PROMPT-001", lambda value: value.update(rawPrompt="synthetic")),
-        ("S-RAW-RESULT-001", lambda value: value.update(rawResult="synthetic")),
-        ("S-RAW-RESPONSE-001", lambda value: value.update(rawResponse="synthetic")),
-        ("S-CREDENTIAL-001", lambda value: value.update(credential="redacted")),
-        ("S-TRACE-001", lambda value: value.update(trace="output.trace")),
-        ("S-XCRESULT-001", lambda value: value.update(xcresult="output.xcresult")),
-        ("S-SELF-ATTEST-001", lambda value: value.update(modelCorrectness="self-attested")),
-        ("S-EXTRA-KEY-001", lambda value: value.update(extra=True)),
-        ("S-STATUS-001", lambda value: value.update(status="blocked")),
-        ("S-LIVE-CLAIM-001", lambda value: value["liveClaims"].update(parentTokenReduction="pass")),
-        ("S-PRIVATE-POSIX-001", lambda value: value.update(issue="/private/synthetic/path")),
-        ("S-WINDOWS-PATH-001", lambda value: value.update(issue=r"C:\Users\synthetic\path")),
-        ("S-UNC-PATH-001", lambda value: value.update(issue=r"\\synthetic-server\private-share")),
-        ("S-CREDENTIAL-VALUE-001", lambda value: value.update(issue="Bearer synthetic-private-token-12345678")),
-        ("S-NESTED-KEY-001", lambda value: value["liveClaims"].update(rawPrompt="nested")),
+        ("S-PRIVATE-KEY-001", True, lambda value: value.update(privateKey="redacted")),
+        ("S-PRIVATE-PATH-001", True, lambda value: value.update(privatePath="/Users/example/private")),
+        ("S-RAW-PROMPT-001", True, lambda value: value.update(rawPrompt="synthetic")),
+        ("S-RAW-RESULT-001", True, lambda value: value.update(rawResult="synthetic")),
+        ("S-RAW-RESPONSE-001", True, lambda value: value.update(rawResponse="synthetic")),
+        ("S-CREDENTIAL-001", True, lambda value: value.update(credential="redacted")),
+        ("S-TRACE-001", True, lambda value: value.update(trace="output.trace")),
+        ("S-XCRESULT-001", True, lambda value: value.update(xcresult="output.xcresult")),
+        ("S-SELF-ATTEST-001", True, lambda value: value.update(modelCorrectness="self-attested")),
+        ("S-EXTRA-KEY-001", False, lambda value: value.update(extra=True)),
+        ("S-STATUS-001", False, lambda value: value.update(status="blocked")),
+        ("S-LIVE-CLAIM-001", False, lambda value: value["liveClaims"].update(parentTokenReduction="pass")),
+        ("S-PRIVATE-POSIX-001", True, lambda value: value.update(issue="/etc/passwd")),
+        ("S-WINDOWS-PATH-001", True, lambda value: value.update(issue=r"D:\build\result.log")),
+        ("S-UNC-PATH-001", True, lambda value: value.update(issue=r"\\synthetic-server\private-share")),
+        ("S-CREDENTIAL-VALUE-001", True, lambda value: value.update(issue="token=ghp_abcdefghijklmnopqrstuvwxyz0123456789")),
+        ("S-NESTED-KEY-001", True, lambda value: value["liveClaims"].update(rawPrompt="nested")),
     )
     observed = []
-    for boundary_id, mutate in mutations:
+    for boundary_id, scanner_owned, mutate in mutations:
         candidate = _evidence_copy(evidence)
         mutate(candidate)
+        if scanner_owned and _safe_metadata(candidate):
+            raise ValueError(f"content scanner missed: {boundary_id}")
         try:
             validate_evidence(candidate)
         except ValueError:

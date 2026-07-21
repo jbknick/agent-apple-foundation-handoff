@@ -94,8 +94,8 @@
         "parentTurns": {"type": ["integer", "null"], "minimum": 0},
         "appleAttempts": {"type": ["integer", "null"], "minimum": 0, "maximum": 1},
         "replacements": {"type": ["integer", "null"], "minimum": 0, "maximum": 1},
-        "declines": {"type": ["integer", "null"], "minimum": 0},
-        "fallbacks": {"type": ["integer", "null"], "minimum": 0},
+        "declines": {"type": ["integer", "null"], "minimum": 0, "maximum": 1},
+        "fallbacks": {"type": ["integer", "null"], "minimum": 0, "maximum": 1},
         "latencyMilliseconds": {"type": ["integer", "null"], "minimum": 0},
         "qualityPassed": {"type": ["boolean", "null"]},
         "qualityReasonCodes": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
@@ -103,7 +103,7 @@
       "allOf": [
         {"if": {"properties": {"provider": {"const": "openai-responses-usage-v1"}}}, "then": {"properties": {"providerUsage": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/openAIUsage"}]}}}},
         {"if": {"properties": {"provider": {"const": "anthropic-messages-usage-v1"}}}, "then": {"properties": {"providerUsage": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/anthropicUsage"}]}}}},
-        {"if": {"properties": {"arm": {"const": "pluginOff"}}}, "then": {"properties": {"appleAttempts": {"enum": [0, null]}, "replacements": {"enum": [0, null]}}}}
+        {"if": {"properties": {"arm": {"const": "pluginOff"}}}, "then": {"properties": {"appleAttempts": {"enum": [0, null]}, "replacements": {"enum": [0, null]}, "declines": {"enum": [0, null]}, "fallbacks": {"enum": [0, null]}}}}
       ]
     },
     "pair": {

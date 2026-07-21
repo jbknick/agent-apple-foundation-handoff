@@ -62,6 +62,7 @@ class RouteDeclined(ValueError):
 class CommandSelection:
     command_class: str
     tokens: tuple
+    path_state: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -244,13 +245,29 @@ def _validated_arm(arm):
         raise BlockedEvidence("invalid_arm_role")
     apple_attempts = arm.get("appleAttempts")
     replacements = arm.get("replacements")
+    declines = arm.get("declines")
+    fallbacks = arm.get("fallbacks")
     if (
         type(apple_attempts) is not int
         or type(replacements) is not int
+        or type(declines) is not int
+        or type(fallbacks) is not int
         or not 0 <= apple_attempts <= 1
         or not 0 <= replacements <= 1
+        or not 0 <= declines <= 1
+        or not 0 <= fallbacks <= 1
         or replacements > apple_attempts
-        or (role == "pluginOff" and (apple_attempts != 0 or replacements != 0))
+        or (
+            role == "pluginOff"
+            and any(
+                value != 0
+                for value in (apple_attempts, replacements, declines, fallbacks)
+            )
+        )
+        or (
+            role == "pluginOn"
+            and (replacements + fallbacks != 1 or declines > fallbacks)
+        )
     ):
         raise BlockedEvidence("invalid_apple_counters")
     if type(quality.reason_codes) is not tuple or any(
@@ -407,13 +424,21 @@ _SEVERITIES = frozenset(("fatal", "error", "warning", "info"))
 _COMMAND_OUTCOMES = frozenset(("success", "failure", "interrupted"))
 _FIELD_ORDER = ("severity", "code", "message", "file", "line", "column")
 _SENSITIVE_TEXT_PATTERNS = (
-    re.compile(r"-----BEGIN (?:RSA |OPENSSH |EC )?PRIVATE KEY-----", re.IGNORECASE),
+    re.compile(r"-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----", re.IGNORECASE),
     re.compile(r"/(?:Users|home|private)/[^\s]+", re.IGNORECASE),
-    re.compile(r"\b[A-Za-z]:[\\/](?:Users|home|private)[\\/]", re.IGNORECASE),
+    re.compile(r"(?<![:/A-Za-z0-9_])/(?!/)(?:[^/\s]+/)*[^/\s,;]+"),
+    re.compile(r"\bfile:(?://)?/[^\s]+", re.IGNORECASE),
+    re.compile(r"\b[A-Za-z]:[\\/][^\s]+", re.IGNORECASE),
     re.compile(r"(?:\\\\|//)[A-Za-z0-9_.-]+[\\/][^\s]+"),
     re.compile(r"\bBearer\s+[A-Za-z0-9._~+/-]{8,}", re.IGNORECASE),
     re.compile(
-        r"\b(?:api[_ -]?key|access[_ -]?token|password|secret|credential)\b"
+        r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|"
+        r"sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|"
+        r"xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{20,})\b"
+    ),
+    re.compile(
+        r"\b(?:api[_ -]?key|access[_ -]?token|token|password|secret|credential|"
+        r"authorization|private[_ -]?key|client[_ -]?secret|signing[_ -]?key)\b"
         r"\s*[:=]\s*(?!<redacted>|\[redacted\]|null\b)[^\s,}]+",
         re.IGNORECASE,
     ),
@@ -463,10 +488,10 @@ def _integer(value, label, *, minimum=None, maximum=None):
     return value
 
 
-def _optional_integer(value, label, *, minimum=0):
+def _optional_integer(value, label, *, minimum=0, maximum=None):
     if value is None:
         return value
-    return _integer(value, label, minimum=minimum)
+    return _integer(value, label, minimum=minimum, maximum=maximum)
 
 
 def _finite_number(value, label, *, minimum=None, maximum=None, nullable=False):
@@ -506,7 +531,7 @@ def _exit_status(exit_status, interrupted):
 
 def _path(value, label):
     _string(value, label)
-    if value.startswith("/") or "\x00" in value or any(part in ("", ".", "..") for part in value.split("/")):
+    if value.startswith("/") or "\\" in value or "\x00" in value or any(part in ("", ".", "..") for part in value.split("/")):
         raise ContractError(f"invalid {label}")
     return value
 
@@ -750,8 +775,10 @@ def _validate_arm(value):
             normalize_usage(value["provider"], value["providerUsage"])
         except BlockedEvidence as error:
             raise ContractError("invalid provider usage") from error
-    for key in ("parentTurns", "declines", "fallbacks", "latencyMilliseconds"):
+    for key in ("parentTurns", "latencyMilliseconds"):
         _optional_integer(value[key], key)
+    for key in ("declines", "fallbacks"):
+        _optional_integer(value[key], key, maximum=1)
     for key in ("appleAttempts", "replacements"):
         if value[key] is not None:
             _integer(value[key], key, minimum=0, maximum=1)
@@ -765,10 +792,29 @@ def _validate_arm(value):
         raise ContractError("passing quality has reasons")
     if value["qualityPassed"] is False and not value["qualityReasonCodes"]:
         raise ContractError("failing quality lacks reasons")
-    if value["arm"] == "pluginOff" and (value["appleAttempts"] not in (None, 0) or value["replacements"] not in (None, 0)):
-        raise ContractError("pluginOff cannot use Apple or replace output")
+    if value["arm"] == "pluginOff" and any(
+        value[key] not in (None, 0)
+        for key in ("appleAttempts", "replacements", "declines", "fallbacks")
+    ):
+        raise ContractError("pluginOff cannot use the plugin route")
     if value["appleAttempts"] is not None and value["replacements"] is not None and value["replacements"] > value["appleAttempts"]:
         raise ContractError("replacement exceeds attempt")
+    if value["replacements"] == 1 and value["fallbacks"] == 1:
+        raise ContractError("replacement and fallback are exclusive")
+    if value["replacements"] == 1 and value["declines"] == 1:
+        raise ContractError("replacement and decline are exclusive")
+    if value["declines"] == 1 and value["fallbacks"] == 0:
+        raise ContractError("decline requires fallback")
+    route_counters = tuple(
+        value[key]
+        for key in ("appleAttempts", "replacements", "declines", "fallbacks")
+    )
+    if (
+        value["arm"] == "pluginOn"
+        and all(counter is not None for counter in route_counters)
+        and value["replacements"] + value["fallbacks"] != 1
+    ):
+        raise ContractError("pluginOn terminal outcome missing")
     return value
 
 
@@ -913,6 +959,8 @@ def _serialized_arm_for_scoring(arm):
         "parentTurns": arm["parentTurns"],
         "appleAttempts": arm["appleAttempts"],
         "replacements": arm["replacements"],
+        "declines": arm["declines"],
+        "fallbacks": arm["fallbacks"],
         "quality": QualityScore(
             arm["qualityPassed"], tuple(arm["qualityReasonCodes"])
         ),
@@ -1149,6 +1197,8 @@ def _semantic_command_outcome(exit_status, interrupted):
 def score_condensation(case, result):
     """Score a normalized condensation against its immutable synthetic case."""
     _validate_case(case)
+    if hashlib.sha256(render_case(case)).hexdigest() != case["renderedSha256"]:
+        raise ContractError("stale case oracle hash")
     reasons = []
     try:
         validate_result(result)
@@ -1157,6 +1207,13 @@ def score_condensation(case, result):
     if type(result) is not dict or any(
         key not in result for key in ("exitStatus", "interrupted", "outcome", "commandClass")
     ):
+        return QualityScore(False, tuple(sorted(set(reasons + ["invalid_result"]))))
+    raw_condensation = result.get("condensation")
+    if raw_condensation is None and result.get("outcome") != "applied":
+        condensation = {}
+    elif type(raw_condensation) is dict:
+        condensation = raw_condensation
+    else:
         return QualityScore(False, tuple(sorted(set(reasons + ["invalid_result"]))))
     expected = case["expected"]
     if result["exitStatus"] != expected["exitStatus"]:
@@ -1168,7 +1225,7 @@ def score_condensation(case, result):
         or result["commandClass"] != case["commandClass"]
         or _semantic_command_outcome(result["exitStatus"], result["interrupted"])
         != _semantic_command_outcome(expected["exitStatus"], expected["interrupted"])
-        or result.get("condensation", {}).get("commandOutcome") != expected["commandOutcome"]
+        or condensation.get("commandOutcome") != expected["commandOutcome"]
     ):
         reasons.append("command_outcome_regression")
     observed = _diagnostic_identities(result)
@@ -1189,7 +1246,6 @@ def score_condensation(case, result):
             reasons.append("warning_invention")
         if any(identity[1] == "info" for identity in observed):
             reasons.append("diagnostic_invention")
-    condensation = result.get("condensation", {})
     if condensation.get("summary") != expected["summary"]:
         reasons.extend(("summary_omission", "summary_invention"))
     for field, omission, invention in (
@@ -1198,7 +1254,9 @@ def score_condensation(case, result):
     ):
         observed_facts = condensation.get(field)
         expected_facts = expected[field]
-        if type(observed_facts) is list:
+        if type(observed_facts) is list and all(
+            type(fact) is str for fact in observed_facts
+        ):
             if set(expected_facts) - set(observed_facts):
                 reasons.append(omission)
             if set(observed_facts) - set(expected_facts):
@@ -1228,9 +1286,9 @@ def benchmark_boundaries():
     return (
         {"id": "below-input-minimum", "inputBytes": 8191, "outputBytes": 4096, "realizedSavingsBytes": 4095, "occupiedTokens": 6144, "contextSize": 8192, "exitStatus": 1, "interrupted": False},
         {"id": "minimum-input", "inputBytes": 8192, "outputBytes": 4096, "realizedSavingsBytes": 4096, "occupiedTokens": 6144, "contextSize": 8192, "exitStatus": 1, "interrupted": False},
-        {"id": "maximum-input", "inputBytes": 65536, "outputBytes": 61440, "realizedSavingsBytes": 61440, "occupiedTokens": 6144, "contextSize": 8192, "exitStatus": 1, "interrupted": False},
-        {"id": "above-input-maximum", "inputBytes": 65537, "outputBytes": 61440, "realizedSavingsBytes": 4097, "occupiedTokens": 6145, "contextSize": 8192, "exitStatus": 1, "interrupted": False},
-        {"id": "below-output-minimum", "inputBytes": 8192, "outputBytes": 4095, "realizedSavingsBytes": 4097, "occupiedTokens": 6145, "contextSize": 8192, "exitStatus": 1, "interrupted": False},
+        {"id": "maximum-input", "inputBytes": 65536, "outputBytes": 4096, "realizedSavingsBytes": 61440, "occupiedTokens": 6144, "contextSize": 8192, "exitStatus": 1, "interrupted": False},
+        {"id": "above-input-maximum", "inputBytes": 65537, "outputBytes": 4097, "realizedSavingsBytes": 61440, "occupiedTokens": 6145, "contextSize": 8192, "exitStatus": 1, "interrupted": False},
+        {"id": "above-output-maximum", "inputBytes": 8192, "outputBytes": 4097, "realizedSavingsBytes": 4095, "occupiedTokens": 6145, "contextSize": 8192, "exitStatus": 1, "interrupted": False},
         {"id": "interrupted-command", "inputBytes": 8192, "outputBytes": 4096, "realizedSavingsBytes": 4096, "occupiedTokens": 6144, "contextSize": 8192, "exitStatus": None, "interrupted": True},
     )
 
@@ -1309,6 +1367,17 @@ def _recheck_snapshot(snapshot):
             raise RouteDeclined("command_not_allowed")
 
 
+def _recheck_absence(paths):
+    for path in paths:
+        try:
+            _lstat(path)
+        except (FileNotFoundError, NotADirectoryError):
+            continue
+        except (OSError, RuntimeError, ValueError) as error:
+            raise RouteDeclined("command_not_allowed") from error
+        raise RouteDeclined("command_not_allowed")
+
+
 def _capture_chain(path):
     path = Path(path)
     chain = tuple(reversed((path, *path.parents)))
@@ -1331,8 +1400,8 @@ def _contained(candidate, root):
 def _repository_root(repo_root):
     if not isinstance(repo_root, (str, Path)):
         raise RouteDeclined("command_not_allowed")
-    root = Path(os.path.abspath(os.fspath(repo_root)))
     try:
+        root = Path(os.path.abspath(os.fspath(repo_root)))
         root_identity = _identity(root)
         if stat.S_ISLNK(root_identity[2]) or not stat.S_ISDIR(root_identity[2]):
             raise RouteDeclined("command_not_allowed")
@@ -1347,7 +1416,12 @@ def _repository_root(repo_root):
 
 
 def _path_value(token):
-    if type(token) is not str or not token or token.startswith("/") or "\\" in token:
+    if (
+        type(token) is not str
+        or not token
+        or token.startswith(("/", "-"))
+        or "\\" in token
+    ):
         raise RouteDeclined("command_not_allowed")
     if any(part in ("", ".", "..") for part in token.split("/")):
         raise RouteDeclined("command_not_allowed")
@@ -1388,10 +1462,14 @@ def _nearest_existing_snapshot(candidate, root):
         raise RouteDeclined("command_not_allowed") from error
     _contained(resolved_parent, root)
     _recheck_snapshot(snapshot)
+    _recheck_absence(missing)
     return current, tuple(snapshot), tuple(missing)
 
 
-def _resolve_repo_path(token, root, *, directory=False, suffix=None, regular=False):
+def _resolve_repo_path(
+    token, root, *, directory=False, suffix=None, regular=False,
+    snapshot_sink=None,
+):
     token = _path_value(token)
     candidate = root / token
     existing, snapshot, missing = _nearest_existing_snapshot(candidate, root)
@@ -1414,6 +1492,9 @@ def _resolve_repo_path(token, root, *, directory=False, suffix=None, regular=Fal
     if suffix is not None and not token.endswith(suffix):
         raise RouteDeclined("command_not_allowed")
     _recheck_snapshot(snapshot)
+    _recheck_absence(missing)
+    if snapshot_sink is not None:
+        snapshot_sink.append(snapshot)
     return token
 
 
@@ -1437,7 +1518,7 @@ def _safe_expression(value):
         raise RouteDeclined("command_not_allowed")
 
 
-def _take_pairs(tokens, allowed, root, *, values=None):
+def _take_pairs(tokens, allowed, root, *, values=None, snapshot_sink=None):
     seen = set()
     index = 0
     while index < len(tokens):
@@ -1448,7 +1529,9 @@ def _take_pairs(tokens, allowed, root, *, values=None):
         value = tokens[index + 1]
         validator = allowed[option]
         if validator == "directory":
-            _resolve_repo_path(value, root, directory=True)
+            _resolve_repo_path(
+                value, root, directory=True, snapshot_sink=snapshot_sink
+            )
         elif validator == "configuration":
             if value not in values:
                 raise RouteDeclined("command_not_allowed")
@@ -1460,21 +1543,27 @@ def _take_pairs(tokens, allowed, root, *, values=None):
         index += 2
 
 
-def _swift_suffix(tokens, root, *, build=False):
+def _swift_suffix(tokens, root, snapshot_sink, *, build=False):
     allowed = {"--configuration": "configuration", "--package-path": "directory", "--scratch-path": "directory"}
     if not build:
         allowed["--filter"] = "selector"
-    _take_pairs(tokens, allowed, root, values=frozenset(("debug", "release")))
+    _take_pairs(
+        tokens, allowed, root, values=frozenset(("debug", "release")),
+        snapshot_sink=snapshot_sink,
+    )
 
 
-def _swiftc_suffix(tokens, root):
+def _swiftc_suffix(tokens, root, snapshot_sink):
     if not tokens:
         raise RouteDeclined("command_not_allowed")
     for token in tokens:
-        _resolve_repo_path(token, root, suffix=".swift", regular=True)
+        _resolve_repo_path(
+            token, root, suffix=".swift", regular=True,
+            snapshot_sink=snapshot_sink,
+        )
 
 
-def _swift_format_suffix(tokens, root):
+def _swift_format_suffix(tokens, root, snapshot_sink):
     if tokens and tokens[0] == "--recursive":
         tokens.pop(0)
     if tokens and tokens[0] == "--strict":
@@ -1482,10 +1571,10 @@ def _swift_format_suffix(tokens, root):
     if not tokens:
         raise RouteDeclined("command_not_allowed")
     for token in tokens:
-        _resolve_repo_path(token, root)
+        _resolve_repo_path(token, root, snapshot_sink=snapshot_sink)
 
 
-def _xcodebuild_suffix(tokens, root):
+def _xcodebuild_suffix(tokens, root, snapshot_sink):
     paired = {
         "-project": "project", "-workspace": "workspace", "-scheme": "selector",
         "-configuration": "configuration", "-sdk": "selector", "-destination": "selector",
@@ -1507,14 +1596,22 @@ def _xcodebuild_suffix(tokens, root):
         value = tokens[index + 1]
         kind = paired[option]
         if kind == "project":
-            _resolve_repo_path(value, root, suffix=".xcodeproj", directory=True)
+            _resolve_repo_path(
+                value, root, suffix=".xcodeproj", directory=True,
+                snapshot_sink=snapshot_sink,
+            )
         elif kind == "workspace":
-            _resolve_repo_path(value, root, suffix=".xcworkspace", directory=True)
+            _resolve_repo_path(
+                value, root, suffix=".xcworkspace", directory=True,
+                snapshot_sink=snapshot_sink,
+            )
         elif kind == "configuration":
             if value not in ("Debug", "Release"):
                 raise RouteDeclined("command_not_allowed")
         elif kind == "directory":
-            _resolve_repo_path(value, root, directory=True)
+            _resolve_repo_path(
+                value, root, directory=True, snapshot_sink=snapshot_sink
+            )
         else:
             _safe_selector(value)
         index += 2
@@ -1522,7 +1619,7 @@ def _xcodebuild_suffix(tokens, root):
         raise RouteDeclined("command_not_allowed")
 
 
-def _unittest_suffix(tokens, root):
+def _unittest_suffix(tokens, root, snapshot_sink):
     if tokens and tokens[0] in ("-v", "-q"):
         tokens.pop(0)
     if not tokens:
@@ -1533,10 +1630,13 @@ def _unittest_suffix(tokens, root):
                 raise RouteDeclined("command_not_allowed")
         return
     tokens.pop(0)
-    _take_pairs(tokens, {"-s": "directory", "-p": "glob", "-t": "directory"}, root)
+    _take_pairs(
+        tokens, {"-s": "directory", "-p": "glob", "-t": "directory"},
+        root, snapshot_sink=snapshot_sink,
+    )
 
 
-def _pytest_suffix(tokens, root):
+def _pytest_suffix(tokens, root, snapshot_sink):
     seen = set()
     operands = False
     index = 0
@@ -1559,18 +1659,18 @@ def _pytest_suffix(tokens, root):
         else:
             operands = True
             path, separator, selector = token.partition("::")
-            _resolve_repo_path(path, root)
+            _resolve_repo_path(path, root, snapshot_sink=snapshot_sink)
             if separator and (not selector or any(not _PYTHON_IDENTIFIER.fullmatch(part) for part in selector.split("::"))):
                 raise RouteDeclined("command_not_allowed")
         index += 1
 
 
-def _build_suffix(tokens):
+def _build_suffix(tokens, _root, _snapshot_sink):
     if len(tokens) > 2 or len(set(tokens)) != len(tokens) or any(token not in ("--sdist", "--wheel") for token in tokens):
         raise RouteDeclined("command_not_allowed")
 
 
-def _mypy_suffix(tokens, root):
+def _mypy_suffix(tokens, root, snapshot_sink):
     if tokens and tokens[0] == "--strict":
         tokens.pop(0)
     if tokens and tokens[0] == "--no-incremental":
@@ -1578,10 +1678,10 @@ def _mypy_suffix(tokens, root):
     if not tokens:
         raise RouteDeclined("command_not_allowed")
     for token in tokens:
-        _resolve_repo_path(token, root)
+        _resolve_repo_path(token, root, snapshot_sink=snapshot_sink)
 
 
-def _ruff_suffix(tokens, root):
+def _ruff_suffix(tokens, root, snapshot_sink):
     seen = set()
     if tokens and tokens[0] == "--no-fix":
         seen.add(tokens.pop(0))
@@ -1594,21 +1694,21 @@ def _ruff_suffix(tokens, root):
     if not tokens:
         raise RouteDeclined("command_not_allowed")
     for token in tokens:
-        _resolve_repo_path(token, root)
+        _resolve_repo_path(token, root, snapshot_sink=snapshot_sink)
 
 
 _COMMAND_PREFIXES = (
     (("python3", "-m", "ruff", "check"), "lint", _ruff_suffix),
     (("python3", "-m", "unittest"), "test", _unittest_suffix),
     (("python3", "-m", "pytest"), "test", _pytest_suffix),
-    (("python3", "-m", "build"), "build", lambda tokens, root: _build_suffix(tokens)),
+    (("python3", "-m", "build"), "build", _build_suffix),
     (("python3", "-m", "mypy"), "typecheck", _mypy_suffix),
     (("swift", "format", "lint"), "lint", _swift_format_suffix),
     (("swiftc", "-typecheck"), "typecheck", _swiftc_suffix),
     (("xcodebuild", "test"), "test", _xcodebuild_suffix),
     (("xcodebuild", "build"), "build", _xcodebuild_suffix),
-    (("swift", "test"), "test", lambda tokens, root: _swift_suffix(tokens, root)),
-    (("swift", "build"), "build", lambda tokens, root: _swift_suffix(tokens, root, build=True)),
+    (("swift", "test"), "test", lambda tokens, root, snapshots: _swift_suffix(tokens, root, snapshots)),
+    (("swift", "build"), "build", lambda tokens, root, snapshots: _swift_suffix(tokens, root, snapshots, build=True)),
     (("npm", "run", "test"), "test", None), (("npm", "test"), "test", None),
     (("pnpm", "run", "test"), "test", None), (("pnpm", "test"), "test", None),
     (("npm", "run", "build"), "build", None), (("pnpm", "run", "build"), "build", None),
@@ -1648,13 +1748,19 @@ def parse_command(command, repo_root):
         if tuple(tokens[:len(prefix)]) != prefix:
             continue
         suffix = tokens[len(prefix):]
+        path_snapshots = []
         if validator is None:
             if suffix:
                 raise RouteDeclined("command_not_allowed")
         else:
-            validator(list(suffix), root)
+            validator(list(suffix), root, path_snapshots)
         _recheck_snapshot(root_snapshot)
-        return CommandSelection(command_class, tuple(tokens))
+        for snapshot in path_snapshots:
+            _recheck_snapshot(snapshot)
+        return CommandSelection(
+            command_class, tuple(tokens),
+            (root_snapshot, tuple(path_snapshots)),
+        )
     raise RouteDeclined("command_not_allowed")
 
 
@@ -1692,12 +1798,24 @@ def _response_semantics_match(request, response, source_facts):
     )
 
 
-def _validate_contained_diagnostic_paths(condensation, repo_root):
+def _capture_contained_diagnostic_paths(condensation, repo_root):
     root, root_snapshot = _repository_root(repo_root)
+    path_snapshots = []
     for diagnostic in condensation["diagnostics"]:
         if diagnostic["file"] is not None:
-            _resolve_repo_path(diagnostic["file"], root, regular=True)
+            _resolve_repo_path(
+                diagnostic["file"], root, regular=True,
+                snapshot_sink=path_snapshots,
+            )
     _recheck_snapshot(root_snapshot)
+    return root_snapshot, tuple(path_snapshots)
+
+
+def _recheck_contained_path_state(path_states):
+    for root_snapshot, path_snapshots in path_states:
+        _recheck_snapshot(root_snapshot)
+        for snapshot in path_snapshots:
+            _recheck_snapshot(snapshot)
 
 
 def _response_bytes(result):
@@ -1731,14 +1849,22 @@ def route(request, context):
             or request.get("estimatedSavingsBytes") != actual_estimate
         ):
             return _fallback("declined", "contract_invariant_failed")
+        field_path_states = []
         for field in fields:
             if type(field) is not dict or field.get("origin") != "trustedLocal" or field.get("classification") not in ("C0", "C1"):
                 return _fallback("declined", "data_policy_denied")
             if field.get("name") == "file":
                 try:
                     root, root_snapshot = _repository_root(context.get("repoRoot"))
-                    _resolve_repo_path(field.get("value"), root, regular=True)
+                    field_snapshots = []
+                    _resolve_repo_path(
+                        field.get("value"), root, regular=True,
+                        snapshot_sink=field_snapshots,
+                    )
                     _recheck_snapshot(root_snapshot)
+                    field_path_states.append(
+                        (root_snapshot, tuple(field_snapshots))
+                    )
                 except RouteDeclined:
                     return _fallback("declined", "data_policy_denied")
         validate_request(request)
@@ -1751,14 +1877,28 @@ def route(request, context):
             return _fallback("declined", "apple_unavailable")
         if context.get("localeSupported") is not True:
             return _fallback("declined", "locale_unsupported")
-        if not fits_apple_budget(context.get("occupiedTokens"), context.get("contextSize")):
+        try:
+            within_apple_budget = fits_apple_budget(
+                context.get("occupiedTokens"), context.get("contextSize")
+            )
+        except ContractError:
+            return _fallback("declined", "context_budget_exceeded")
+        if not within_apple_budget:
             return _fallback("declined", "context_budget_exceeded")
         bridge = context.get("bridge")
         if not callable(bridge):
             raise ContractError("invalid bridge")
         source_facts = _json_clone(context.get("sourceFacts"), "source facts")
         _validate_source_facts(source_facts)
-        _validate_contained_diagnostic_paths(source_facts, context.get("repoRoot"))
+        source_path_state = _capture_contained_diagnostic_paths(
+            source_facts, context.get("repoRoot")
+        )
+        frozen_path_states = (
+            (selection.path_state,)
+            + tuple(field_path_states)
+            + (source_path_state,)
+        )
+        _recheck_contained_path_state(frozen_path_states)
         frozen_request = _json_clone(request, "request")
         frozen_source_facts = _json_clone(source_facts, "source facts")
     except RouteDeclined as error:
@@ -1780,7 +1920,7 @@ def route(request, context):
             return _fallback(response["outcome"], response["reasonCode"])
         if not _response_semantics_match(frozen_request, response, frozen_source_facts):
             raise ContractError("invalid response semantics")
-        _validate_contained_diagnostic_paths(response["condensation"], context.get("repoRoot"))
+        _recheck_contained_path_state(frozen_path_states)
         output_bytes = _response_bytes(response)
         if output_bytes > Policy.MAXIMUM_CONDENSED_BYTES or frozen_request["inputBytes"] - output_bytes < Policy.MINIMUM_REALIZED_SAVINGS_BYTES:
             return _fallback("declined", "insufficient_realized_savings")
