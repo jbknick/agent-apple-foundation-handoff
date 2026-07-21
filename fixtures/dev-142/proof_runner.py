@@ -364,7 +364,9 @@ def _verify_schemas(contract, corpus):
         raise ValueError("valid semantic schema value rejected")
     invalid_request = dict(request, inputBytes=request["inputBytes"] + 1, estimatedSavingsBytes=request["estimatedSavingsBytes"] + 1)
     invalid_result = json.loads(json.dumps(result))
-    invalid_result["condensation"]["commandOutcome"] = "invented"
+    invalid_result["condensation"]["omittedWarningCount"] = (
+        invalid_result["condensation"]["warningCount"] + 1
+    )
     invalid_benchmark = json.loads(json.dumps(benchmark))
     invalid_benchmark["pairs"][0]["reductionPPM"] += 1
     invalid = {
