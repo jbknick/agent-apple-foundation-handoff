@@ -10,14 +10,6 @@
   },
   "oneOf": [{"$ref": "#/$defs/applied"}, {"$ref": "#/$defs/nonApplied"}],
   "$defs": {
-    "commonProperties": {
-      "schemaVersion": {"const": 1}, "policyVersion": {"const": "diagnostic-condensation-v1"},
-      "callID": {"type": "string", "minLength": 1}, "toolName": {"const": "Bash"},
-      "toolVersion": {"type": "string", "minLength": 1}, "stateVersion": {"type": "string", "minLength": 1},
-      "action": {"const": "condense_diagnostic_output"}, "commandClass": {"type": "string", "enum": ["test", "build", "typecheck", "lint"]},
-      "originalResultType": {"type": "string", "minLength": 1}, "originalResultDigest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-      "exitStatus": {"type": ["integer", "null"], "minimum": 0, "maximum": 255}, "interrupted": {"type": "boolean"}
-    },
     "diagnostic": {
       "type": "object", "additionalProperties": false,
       "required": ["id", "severity", "code", "message", "file", "line", "column", "failedTestID"],

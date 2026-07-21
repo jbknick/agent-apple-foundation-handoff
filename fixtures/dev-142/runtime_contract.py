@@ -17,9 +17,7 @@ from pathlib import Path
 
 class _FrozenPolicy(type):
     def __setattr__(cls, name, value):
-        if name in cls.__dict__:
-            raise AttributeError("Policy is immutable")
-        super().__setattr__(name, value)
+        raise AttributeError("Policy is immutable")
 
     def __delattr__(cls, name):
         raise AttributeError("Policy is immutable")
@@ -1338,10 +1336,7 @@ def estimate_savings(input_bytes):
         raise RouteDeclined("input_below_minimum")
     if input_bytes > Policy.MAXIMUM_INPUT_BYTES:
         raise RouteDeclined("input_above_maximum")
-    estimate = input_bytes - Policy.MAXIMUM_CONDENSED_BYTES
-    if estimate < Policy.MINIMUM_ESTIMATED_SAVINGS_BYTES:
-        raise RouteDeclined("estimated_savings_below_minimum")
-    return estimate
+    return input_bytes - Policy.MAXIMUM_CONDENSED_BYTES
 
 
 def fits_apple_budget(occupied_tokens, context_size):
