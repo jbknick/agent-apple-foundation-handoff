@@ -15,6 +15,12 @@ completed diagnostic result through a local process interface and returns exactl
 one typed terminal result. It does not own host-hook discovery, result
 replacement, benchmark measurement, parent fallback, or tool execution.
 
+Implementation may begin only after DEV-246 records a passing, exact Codex
+`0.144.5` model-visible result-replacement contract. A blocked or failed
+DEV-246 result blocks this issue; it does not authorize a feedback-only,
+transcript-rewrite, MCP, additional-turn, mobile, Claude, or external-model
+fallback.
+
 The immutable authority is:
 
 - `docs/superpowers/specs/2026-07-21-dev-142-runtime-cost-routing-and-benchmark-design.md`;

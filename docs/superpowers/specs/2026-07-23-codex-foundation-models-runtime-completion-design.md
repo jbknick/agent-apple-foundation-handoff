@@ -24,6 +24,7 @@ The remaining runtime outcome is deliberately narrow:
 completed eligible Codex Bash result
   -> trusted Codex plugin PostToolUse boundary
   -> DEV-142 deterministic cost router
+  -> DEV-246 exact-host result-replacement capability gate
   -> DEV-143 local Apple Foundation Models bridge
   -> DEV-144 validated Codex continuation
 ```
@@ -79,20 +80,33 @@ Current official Codex documentation establishes that:
   byte-for-byte replacement or suppression contract for the original tool
   result.
 
-DEV-144 must therefore start with an exact-host capability probe before
-implementing the adapter. The probe must use the captured Codex CLI `0.144.5`
+DEV-246 therefore owns an exact-host capability probe before any production
+implementation begins. The probe must use the captured Codex CLI `0.144.5`
 executable and prove whether the plugin hook can prevent the original eligible
 tool result from entering the next parent-model request while supplying the
 validated compact result.
 
-If the captured host cannot do this, DEV-144 is `blocked` with normalized
-evidence. Feedback-only output, an additional parent turn, transcript mutation,
-an MCP/model-selected detour, or sending both the original and condensed result
-does not satisfy the product outcome and must not be adopted as a fallback.
-Any alternative interface or task-boundary change returns to Sol and the user
-for a new architecture decision.
+If the captured host cannot do this, DEV-246 records `blocked` with normalized
+evidence and DEV-143 and every downstream issue remain blocked. Feedback-only
+output, an additional parent turn, transcript mutation, an MCP/model-selected
+detour, or sending both the original and condensed result does not satisfy the
+product outcome and must not be adopted as a fallback. Any alternative
+interface or task-boundary change returns to Sol and the user for a new
+architecture decision.
 
 ## Responsibility boundaries
+
+### DEV-246: Codex capability discovery boundary
+
+DEV-246 owns only the synthetic, exact-host experiment that determines whether
+Codex CLI `0.144.5` exposes a trusted `PostToolUse` contract capable of replacing
+or suppressing the original tool result before the next parent-model request.
+It freezes the observed input/output schema, captures normalized evidence, and
+returns `pass`, `blocked`, or `fail`.
+
+It does not add production runtime code, invoke Apple Foundation Models, mutate
+real transcripts, claim capability from model prose, or choose an alternative
+architecture.
 
 ### DEV-143: local Apple provider boundary
 
@@ -160,6 +174,7 @@ The approved sequential chain is:
 
 ```text
 DEV-142 Done
+  -> DEV-246 Codex result-replacement capability discovery
   -> DEV-143 local Apple bridge
   -> DEV-144 Codex plugin runtime
   -> DEV-139 Codex runtime and cost evidence
@@ -169,15 +184,16 @@ DEV-142 Done
 
 The Linear planning update will:
 
-1. reset DEV-143 to `Backlog` until its completed plan is linked;
-2. retain DEV-144 in `Backlog`;
-3. cancel DEV-145, remove it from the active blocker chain, and record the
+1. create DEV-246 in `Backlog` as the sole prerequisite for DEV-143;
+2. reset DEV-143 to `Backlog` until its completed plan is linked;
+3. retain DEV-144 in `Backlog`;
+4. cancel DEV-145, remove it from the active blocker chain, and record the
    Codex-only decision;
-4. narrow DEV-139, DEV-140, and DEV-141 to the responsibilities above and set
+5. narrow DEV-139, DEV-140, and DEV-141 to the responsibilities above and set
    them to `Backlog` until their plans are linked;
-5. encode each active issue as blocked only by the immediately preceding issue;
-6. leave DEV-133 `In Review` and outside this chain; and
-7. add a bounded scope-propagation record to DEV-142 without reopening its
+6. encode each active issue as blocked only by the immediately preceding issue;
+7. leave DEV-133 `In Review` and outside this chain; and
+8. add a bounded scope-propagation record to DEV-142 without reopening its
    completed implementation.
 
 Each active implementation issue receives one Sol-authored plan and one
@@ -264,9 +280,13 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_*.py' -
 
 Issue-specific verification additionally requires:
 
+- DEV-246: exact Codex `0.144.5` executable capture, isolated plugin
+  installation and trust, a hash-bound synthetic sentinel probe, direct
+  model-boundary visibility evidence, and normalized `pass`, `blocked`, or
+  `fail` output;
 - DEV-143: `swift test`, `swift build`, protocol-process tests, SDK interface
   verification, and opt-in live `LanguageModelSession` proof;
-- DEV-144: exact Codex `0.144.5` capability probe, hook-schema tests, plugin
+- DEV-144: the frozen passing DEV-246 contract, hook-schema tests, plugin
   generation and cache tests, selected/declined/failure/fallback tests, and a
   fresh installed-plugin run;
 - DEV-139: the full 24-case/48-arm paired Codex harness, provider usage and
