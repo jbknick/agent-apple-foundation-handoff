@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "issue": "DEV-246",
+  "status": "blocked",
+  "reason": "host_replacement_unavailable",
+  "codexVersion": "0.145.0",
+  "codexExecutable": "<host-path>",
+  "exitCode": 0,
+  "manualSha256": "6cff0c5701d5a8b10ae497b5dda6ee70f478518d4fa029558168ee2bcc18918b",
+  "pluginSha256": "6cab520ee0981bcc7060b0789b181d10ddb59faa6d9d5da53ca10182369cb212",
+  "originalSha256": "ce7f81e1cb6d3fe9ca802c5c66b52049ae7981591428d1d0b69bf904649a3185",
+  "compactSha256": "8404763eee4ccda3d6491b0bbe4cda5ea431e5b213ff0c776fba23ad4ae4f862",
+  "boundarySource": null,
+  "originalAbsentFromNextRequest": null,
+  "compactPresentInNextRequest": null,
+  "additionalParentModelTurns": 0,
+  "hookInvocations": 0,
+  "trustConfirmed": false,
+  "cleanupStatus": "complete"
+}

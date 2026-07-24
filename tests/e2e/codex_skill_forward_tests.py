@@ -23,7 +23,7 @@ PASS = 0
 FAIL = 1
 BLOCKED = 2
 EXPECTED_MODEL = "gpt-5.6-sol"
-EXPECTED_CODEX_VERSION = "0.144.5"
+EXPECTED_CODEX_VERSION = "0.145.0"
 
 SOURCE_ROOT = Path(__file__).resolve().parents[2]
 ROOT = SOURCE_ROOT
@@ -3154,7 +3154,7 @@ def default_prerequisite_checker(
         **captured,
         "version": observed_version,
         "authenticated": authenticated,
-        # Codex 0.144.5 exposes no model-list preflight. Exact model access is
+        # Codex 0.145.0 exposes no model-list preflight. Exact model access is
         # therefore attemptable here and classified from the actual exec result.
         "modelAvailable": None,
         "pluginAvailable": plugin_available,

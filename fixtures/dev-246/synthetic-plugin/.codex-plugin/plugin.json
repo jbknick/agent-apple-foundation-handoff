@@ -1,0 +1,6 @@
+{
+  "name": "dev-246-result-replacement-probe",
+  "version": "0.0.1",
+  "description": "Synthetic Codex PostToolUse result-replacement capability probe.",
+  "hooks": "./hooks/codex/hooks.json"
+}
