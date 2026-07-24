@@ -93,12 +93,13 @@ def normalize_verdict(observation: Mapping[str, Any]) -> dict[str, Any]:
         _require_sha256(observation[key])
 
     boundary_source = observation["boundarySource"]
-    hook_invocations = observation["hookInvocations"]
-    additional_turns = observation["additionalParentModelTurns"]
     original_absent = observation["originalAbsentFromNextRequest"]
     compact_present = observation["compactPresentInNextRequest"]
 
-    if hook_invocations != 1 or additional_turns != 0:
+    if (
+        observation["hookInvocations"] != 1
+        or observation["additionalParentModelTurns"] != 0
+    ):
         status, reason = "fail", "execution_invariant_failed"
     elif boundary_source in NON_BOUNDARY_SOURCES:
         status, reason = "blocked", "model_boundary_not_observable"
@@ -125,8 +126,8 @@ def normalize_verdict(observation: Mapping[str, Any]) -> dict[str, Any]:
         "boundarySource": boundary_source,
         "originalAbsentFromNextRequest": original_absent,
         "compactPresentInNextRequest": compact_present,
-        "additionalParentModelTurns": additional_turns,
-        "hookInvocations": hook_invocations,
+        "additionalParentModelTurns": observation["additionalParentModelTurns"],
+        "hookInvocations": observation["hookInvocations"],
         "trustConfirmed": observation["trustConfirmed"],
         "cleanupStatus": observation["cleanupStatus"],
     }

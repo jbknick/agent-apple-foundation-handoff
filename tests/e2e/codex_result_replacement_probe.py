@@ -17,6 +17,10 @@ VERSION_LINE = b"codex-cli 0.144.5\n"
 MARKETPLACE_NAME = "dev-246-synthetic"
 PLUGIN_NAME = "dev-246-result-replacement-probe"
 PLUGIN_SELECTOR = f"{PLUGIN_NAME}@{MARKETPLACE_NAME}"
+DIRECT_BOUNDARY_SOURCE = "provider_next_request"
+NON_BOUNDARY_SOURCES = frozenset(
+    {"hook_stdout", "system_message", "transcript", "model_response", None}
+)
 HostSnapshot = tuple[int, int, int, int, int, int, int]
 
 
@@ -215,6 +219,41 @@ def capture_preflight(
         manual_sha256=manual_sha256,
         plugin_sha256=plugin_sha256,
     )
+
+
+def inspect_model_boundary(
+    *,
+    boundary_source: str | None,
+    request_items: Iterable[bytes] | None,
+    original_sha256: str,
+    compact_sha256: str,
+    additional_parent_model_turns: int,
+    hook_invocations: int,
+) -> dict[str, object]:
+    if boundary_source in NON_BOUNDARY_SOURCES:
+        if request_items is not None and boundary_source is None:
+            raise ProbeFailure("boundary_source_missing")
+        original_absent: bool | None = None
+        compact_present: bool | None = None
+    elif boundary_source == DIRECT_BOUNDARY_SOURCE:
+        if request_items is None:
+            raise ProbeFailure("direct_boundary_missing")
+        observed_hashes: set[str] = set()
+        for item in request_items:
+            if not isinstance(item, bytes):
+                raise ProbeFailure("direct_boundary_item_invalid")
+            observed_hashes.add(hashlib.sha256(item).hexdigest())
+        original_absent = original_sha256 not in observed_hashes
+        compact_present = compact_sha256 in observed_hashes
+    else:
+        raise ProbeFailure("boundary_source_invalid")
+    return {
+        "boundarySource": boundary_source,
+        "originalAbsentFromNextRequest": original_absent,
+        "compactPresentInNextRequest": compact_present,
+        "additionalParentModelTurns": additional_parent_model_turns,
+        "hookInvocations": hook_invocations,
+    }
 
 
 def _write_json(path: Path, value: object) -> None:

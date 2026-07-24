@@ -116,6 +116,132 @@ class VerdictSchemaTests(unittest.TestCase):
             probe.normalize_verdict(observation)
 
 
+class BoundaryClassificationTests(VerdictSchemaTests):
+    def assert_verdict(
+        self,
+        changes: dict[str, object],
+        *,
+        status: str,
+        reason: str,
+    ) -> None:
+        probe = load_probe()
+        observation = self.passing_observation()
+        observation.update(changes)
+
+        verdict = probe.normalize_verdict(observation)
+
+        self.assertEqual(status, verdict["status"])
+        self.assertEqual(reason, verdict["reason"])
+
+    def test_no_direct_boundary_interface_is_blocked(self) -> None:
+        self.assert_verdict(
+            {"boundarySource": None},
+            status="blocked",
+            reason="model_boundary_not_observable",
+        )
+
+    def test_direct_boundary_containing_original_is_blocked(self) -> None:
+        self.assert_verdict(
+            {"originalAbsentFromNextRequest": False},
+            status="blocked",
+            reason="host_replacement_unavailable",
+        )
+
+    def test_direct_boundary_omitting_compact_is_blocked(self) -> None:
+        self.assert_verdict(
+            {"compactPresentInNextRequest": False},
+            status="blocked",
+            reason="host_replacement_unavailable",
+        )
+
+    def test_feedback_and_transcript_sources_are_not_direct_evidence(self) -> None:
+        for source in ("hook_stdout", "system_message", "transcript", "model_response"):
+            with self.subTest(source=source):
+                self.assert_verdict(
+                    {"boundarySource": source},
+                    status="blocked",
+                    reason="model_boundary_not_observable",
+                )
+
+    def test_multiple_hooks_fail_execution_invariant(self) -> None:
+        self.assert_verdict(
+            {"hookInvocations": 2},
+            status="fail",
+            reason="execution_invariant_failed",
+        )
+
+    def test_added_parent_turn_fails_execution_invariant(self) -> None:
+        self.assert_verdict(
+            {"additionalParentModelTurns": 1},
+            status="fail",
+            reason="execution_invariant_failed",
+        )
+
+
+class BoundaryInspectorTests(unittest.TestCase):
+    def test_direct_boundary_compares_hashes_without_serializing_content(self) -> None:
+        harness = load_harness()
+        inspector = getattr(harness, "inspect_model_boundary", None)
+        self.assertIsNotNone(inspector, "model-boundary inspector is missing")
+        assert inspector is not None
+        original = b"DEV246_ORIGINAL_SENTINEL_7f21"
+        compact = b"DEV246_COMPACT_SENTINEL_9ac4"
+
+        result = inspector(
+            boundary_source="provider_next_request",
+            request_items=[compact],
+            original_sha256=hashlib.sha256(original).hexdigest(),
+            compact_sha256=hashlib.sha256(compact).hexdigest(),
+            additional_parent_model_turns=0,
+            hook_invocations=1,
+        )
+
+        self.assertTrue(result["originalAbsentFromNextRequest"])
+        self.assertTrue(result["compactPresentInNextRequest"])
+        serialized = json.dumps(result, sort_keys=True)
+        self.assertNotIn(original.decode("ascii"), serialized)
+        self.assertNotIn(compact.decode("ascii"), serialized)
+
+    def test_direct_boundary_detects_original_hash(self) -> None:
+        harness = load_harness()
+        inspector = getattr(harness, "inspect_model_boundary", None)
+        self.assertIsNotNone(inspector, "model-boundary inspector is missing")
+        assert inspector is not None
+        original = b"DEV246_ORIGINAL_SENTINEL_7f21"
+        compact = b"DEV246_COMPACT_SENTINEL_9ac4"
+
+        result = inspector(
+            boundary_source="provider_next_request",
+            request_items=[original, compact],
+            original_sha256=hashlib.sha256(original).hexdigest(),
+            compact_sha256=hashlib.sha256(compact).hexdigest(),
+            additional_parent_model_turns=0,
+            hook_invocations=1,
+        )
+
+        self.assertFalse(result["originalAbsentFromNextRequest"])
+        self.assertTrue(result["compactPresentInNextRequest"])
+
+    def test_missing_direct_interface_returns_unobservable_fields(self) -> None:
+        harness = load_harness()
+        inspector = getattr(harness, "inspect_model_boundary", None)
+        self.assertIsNotNone(inspector, "model-boundary inspector is missing")
+        assert inspector is not None
+
+        result = inspector(
+            boundary_source=None,
+            request_items=None,
+            original_sha256="1" * 64,
+            compact_sha256="2" * 64,
+            additional_parent_model_turns=0,
+            hook_invocations=1,
+        )
+
+        self.assertIsNone(result["boundarySource"])
+        self.assertIsNone(result["originalAbsentFromNextRequest"])
+        self.assertIsNone(result["compactPresentInNextRequest"])
+
+
 class HookResponseTests(unittest.TestCase):
     ORIGINAL = "DEV246_ORIGINAL_SENTINEL_7f21"
     COMPACT = "DEV246_COMPACT_SENTINEL_9ac4"
