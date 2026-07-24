@@ -100,8 +100,10 @@ configuration, and session data remain excluded.
 
 ## Scope, privacy, and nonclaims
 
-- Exact DEV-133 scope is six paths: `CLAUDE.md`, generated `AGENTS.md`, the
-  shared generator, its tests, this evidence file, and the DEV-133 plan.
+- The merged DEV-133 implementation scope was exactly six paths: `CLAUDE.md`,
+  generated `AGENTS.md`, the shared generator, its tests, this evidence file,
+  and the original DEV-133 plan. The later deferred-validation closure plan is
+  a separate planning artifact and does not reopen that implementation scope.
 - The adapter is generated only from canonical `CLAUDE.md`; it was not edited
   directly. Private-path, raw-host-artifact, cache, and diff checks pass.
 - DEV-133 remains guidance-only. This evidence does not claim plugin metadata,
