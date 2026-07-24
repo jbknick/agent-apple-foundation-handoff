@@ -682,6 +682,7 @@ class DiscoverySerializationTests(IsolatedLifecycleTests):
         self.assertFalse(verdict["trustConfirmed"])
         self.assertEqual("complete", verdict["cleanupStatus"])
         self.assertEqual("<host-path>", verdict["codexExecutable"])
+        self.assertEqual(0, verdict["exitCode"])
         self.assertEqual(
             [
                 "schemaVersion",
@@ -690,6 +691,7 @@ class DiscoverySerializationTests(IsolatedLifecycleTests):
                 "reason",
                 "codexVersion",
                 "codexExecutable",
+                "exitCode",
                 "manualSha256",
                 "pluginSha256",
                 "originalSha256",

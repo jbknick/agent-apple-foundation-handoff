@@ -26,6 +26,7 @@ configuration, credential, or private executable path.
 - Synthetic plugin SHA-256: read from the normalized evidence and verified
   against the clean fixture by the deterministic test suite.
 - Executable identity: `<host-path>`
+- Strict version preflight exit code: `0`
 - Hook invocations: `0`
 - Trust confirmed: `false`
 - Cleanup: `complete`

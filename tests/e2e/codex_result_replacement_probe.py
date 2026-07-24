@@ -39,6 +39,7 @@ VERDICT_KEYS = (
     "reason",
     "codexVersion",
     "codexExecutable",
+    "exitCode",
     "manualSha256",
     "pluginSha256",
     "originalSha256",
@@ -149,6 +150,7 @@ class HostCapture:
         "codex_version",
         "environment",
         "executable",
+        "exit_code",
         "manual_bytes",
         "manual_sha256",
         "normalized_executable",
@@ -171,6 +173,7 @@ class HostCapture:
         self.codex_version = "0.145.0"
         self.environment = environment
         self.executable = executable
+        self.exit_code = 0
         self.manual_bytes = manual_bytes
         self.manual_sha256 = manual_sha256
         self.normalized_executable = "<host-path>"
@@ -472,6 +475,7 @@ def _verdict(
         "reason": reason,
         "codexVersion": capture.codex_version if capture else None,
         "codexExecutable": capture.normalized_executable if capture else None,
+        "exitCode": capture.exit_code if capture else None,
         "manualSha256": capture.manual_sha256 if capture else None,
         "pluginSha256": capture.plugin_sha256 if capture else None,
         "originalSha256": hashlib.sha256(ORIGINAL_SENTINEL).hexdigest(),

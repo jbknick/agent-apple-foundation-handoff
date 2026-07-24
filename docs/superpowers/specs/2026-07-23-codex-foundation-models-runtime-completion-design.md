@@ -22,15 +22,14 @@ fresh fetch. DEV-142 is complete and supplies the frozen
 benchmark corpus contracts. The repository does not yet contain a production
 Apple bridge or Codex runtime hook.
 
-The remaining runtime outcome is deliberately narrow:
+The approved conditional runtime path was deliberately narrow:
 
 ```text
 completed eligible Codex Bash result
   -> trusted Codex plugin PostToolUse boundary
   -> DEV-142 deterministic cost router
   -> DEV-246 exact-host result-replacement capability gate
-  -> DEV-143 local Apple Foundation Models bridge
-  -> DEV-144 validated Codex continuation
+  -> blocked: host_replacement_unavailable
 ```
 
 Apple Foundation Models is the only generation provider in this path. The
@@ -52,22 +51,13 @@ their downstream runtime scope:
 - current official Codex plugin and hook documentation
 - the installed SDK interfaces and executed evidence required by `AGENTS.md`
 
-The baseline amendment specifically supersedes the `0.144.5` prerequisite in
-the 2026-07-21 DEV-143 design. Its remaining bridge contract stays
-authoritative. DEV-143 now requires a passing exact `0.145.0` DEV-246 result.
-
 DEV-142's versioned request, routing, validation, privacy, fallback, and
 correctness contracts remain unchanged. Its former two-host runtime ownership
-and release matrix are narrowed as follows:
+and release matrix were conditionally narrowed as follows:
 
-- DEV-144 is the only host runtime adapter.
 - DEV-145's Claude Code runtime adapter is canceled as out of scope.
-- The retained corpus is 24 hash-bound cases for Codex CLI `0.145.0`.
-- The required paired runtime matrix is therefore 24 plugin-off/plugin-on pairs,
-  or 48 arms.
 - Historical 48-pair/96-arm cross-host deterministic evidence remains truthful
-  for DEV-142's completed contract work, but it is not the downstream release
-  requirement.
+  for DEV-142's completed contract work.
 
 This is a product-scope amendment, not permission to weaken the DEV-142 cost
 floor, correctness requirements, privacy policy, original-result preservation,
@@ -94,7 +84,7 @@ tool result from entering the next parent-model request while supplying the
 validated compact result.
 
 If the captured host cannot do this, DEV-246 records `blocked` with normalized
-evidence and DEV-143 and every downstream issue remain blocked. Feedback-only
+evidence and the conditional downstream issues are canceled. Feedback-only
 output, an additional parent turn, transcript mutation, an MCP/model-selected
 detour, or sending both the original and condensed result does not satisfy the
 product outcome and must not be adopted as a fallback. Any alternative
@@ -132,7 +122,7 @@ not published. Resumption requires a later owner-approved Codex baseline whose
 official contract supports model-visible replacement, followed by a new
 brainstorming decision, refreshed spec, and Sol-authored plans.
 
-## Responsibility boundaries
+## Closed responsibility boundaries
 
 ### DEV-246: Codex capability discovery boundary
 
@@ -146,58 +136,6 @@ It does not add production runtime code, invoke Apple Foundation Models, mutate
 real transcripts, claim capability from model prose, or choose an alternative
 architecture.
 
-### DEV-143: local Apple provider boundary
-
-DEV-143 owns one standalone Swift package at
-`runtime/apple-foundation-models-bridge`. It accepts one versioned request on
-standard input, repeats every deterministic eligibility and policy gate, makes
-at most one local Foundation Models attempt, validates the generated result,
-and emits one terminal `applied`, `declined`, or `fail` envelope.
-
-It does not own Codex hook discovery, host result replacement, plugin trust,
-parent continuation, provider telemetry, benchmark arithmetic, or original
-tool execution.
-
-### DEV-144: Codex plugin runtime boundary
-
-DEV-144 owns the Codex plugin lifecycle hook, hook input normalization, immutable
-original-result preservation, deterministic router invocation, one bridge
-attempt, bridge-result validation, safe continuation, and Codex-specific
-benchmark capture.
-
-It may add canonical hook inputs and generated Codex metadata only through the
-repository's existing generation ownership model. It does not modify the five
-workflow skills, the non-positive preselection router, DEV-142 policy values, or
-DEV-143 provider behavior.
-
-### DEV-139: integrated evidence boundary
-
-DEV-139 owns a reproducible Codex-only evidence harness covering installed
-plugin identity, trust and hook loading, exact-host activation, selected and
-nonselected routing, local Apple application or normalized blocker, fallback,
-at-most-once behavior, result visibility, provider usage, correctness, latency,
-and cost arithmetic.
-
-Structural discovery, file presence, compile-only evidence, or a fake bridge
-cannot prove the runtime capability or savings claim.
-
-### DEV-140: documentation boundary
-
-DEV-140 owns contributor and user documentation for Codex installation,
-explicit hook trust, supported command classes, Apple availability, local-only
-data handling, deterministic and live verification, cost evidence, fallback,
-and limitations.
-
-It documents only commands and outcomes proven by prior issues. It does not
-claim a release, marketplace availability, savings, or live Apple execution
-without evidence.
-
-### DEV-141: final acceptance boundary
-
-DEV-141 owns the independent Codex-only regression, privacy, evidence, and
-release-readiness decision. It does not implement or repair the runtime. Missing
-required host, Apple, or provider-usage evidence remains `blocked`.
-
 ### DEV-133: separate deferred validation debt
 
 DEV-133 remains `In Review` outside the runtime blocker chain. Its repository
@@ -205,104 +143,6 @@ guidance implementation is already merged and has an existing issue plan at
 `docs/superpowers/plans/2026-07-17-dev-133-repository-guidance.md`.
 Its deferred Claude semantic and missing-tool validation debt remains truthful;
 this Codex runtime amendment neither completes nor expands it.
-
-## Ordered Linear issue chain
-
-The approved sequential chain is:
-
-```text
-DEV-142 Done
-  -> DEV-246 Codex result-replacement capability discovery
-  -> DEV-143 local Apple bridge
-  -> DEV-144 Codex plugin runtime
-  -> DEV-139 Codex runtime and cost evidence
-  -> DEV-140 Codex documentation
-  -> DEV-141 Codex final acceptance
-```
-
-The Linear planning update will:
-
-1. create DEV-246 in `Backlog` as the sole prerequisite for DEV-143;
-2. reset DEV-143 to `Backlog` until its completed plan is linked;
-3. retain DEV-144 in `Backlog`;
-4. cancel DEV-145, remove it from the active blocker chain, and record the
-   Codex-only decision;
-5. narrow DEV-139, DEV-140, and DEV-141 to the responsibilities above and set
-   them to `Backlog` until their plans are linked;
-6. encode each active issue as blocked only by the immediately preceding issue;
-7. leave DEV-133 `In Review` and outside this chain; and
-8. add a bounded scope-propagation record to DEV-142 without reopening its
-   completed implementation.
-
-Each active implementation issue receives one Sol-authored plan and one
-issue-scoped PR. No dependent issue starts until its predecessor has local
-verification, required Sol review, green CI, merged-PR evidence when code
-changed, Linear completion proof, synchronized `main`, and clean local state.
-
-## Public interfaces and data flow
-
-### Bridge process interface
-
-DEV-143 consumes and returns the exact DEV-142 schema identities:
-
-```text
-schemaVersion = 1
-policyVersion = diagnostic-condensation-v1
-action = condense_diagnostic_output
-resultType = diagnostic_condensation
-```
-
-The process accepts exactly one UTF-8 JSON request and emits exactly one UTF-8
-JSON terminal envelope. The Codex adapter invokes it through an argument vector,
-never a shell. Unknown keys, duplicate values, future versions, identity drift,
-invalid provenance, disallowed data, or invalid bounds fail closed.
-
-### Codex plugin interface
-
-The plugin bundles a trusted lifecycle hook within the installed plugin root.
-The adapter accepts only a `PostToolUse` event whose canonical tool name is
-`Bash`, uses documented hook fields, and does not depend on the unstable
-transcript format.
-
-The immutable original result stays host-owned for fallback. Only a
-schema-valid, provenance-bound, size-valid `applied` response is eligible for
-model-visible use. Every decline or failure preserves the untouched original
-result and never reruns the command.
-
-### Evidence interface
-
-Committed evidence is normalized and metadata-only. It may include stable
-status and reason codes, counts, hashes, versions, exit codes, timings, provider
-usage totals, and bounded correctness verdicts. It excludes raw prompts,
-responses, reasoning, tool inputs/results, Apple output, credentials, private
-configuration, literal host paths, transcripts, `.trace`, and `.xcresult`.
-
-## Project acceptance criteria
-
-The remaining project is complete only when:
-
-- a fresh installed and trusted Codex plugin loads the approved hook from its
-  cached package;
-- exact-host evidence proves that an eligible completed `Bash` result invokes
-  the local Apple bridge at most once and that only the validated compact result
-  reaches the next parent-model request;
-- nonselected, undersized, oversized, disallowed, unavailable, malformed,
-  timed-out, canceled, and invalid-result rows preserve the original result and
-  never rerun the underlying command;
-- a supported Apple environment produces a live schema-valid local result, or
-  the required live row remains explicitly `blocked`;
-- the 24-case/48-arm Codex paired matrix records provider-reported usage,
-  correctness, parent turns, latency, replacement ratio, and fallback rate;
-- release arithmetic shows at least 10% median total parent-token reduction,
-  zero correctness regressions, zero added parent turns, and zero blocked
-  required pairs;
-- default validation remains deterministic, offline, credential-free,
-  Apple-generation-free, and network-free;
-- documentation matches the verified install, trust, runtime, fallback, and
-  limitation evidence;
-- independent final review finds no unresolved contract, privacy, evidence, or
-  release-readiness issue; and
-- the final repository and Linear state are synchronized, reviewed, and clean.
 
 ## Verification plan
 
@@ -316,41 +156,16 @@ python3 scripts/sync_generated_artifacts.py --check
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-Issue-specific verification additionally requires:
-
-- DEV-246: exact Codex `0.145.0` executable capture, pinned official-manual
-  provenance, hash-bound synthetic plugin identity, and normalized `pass`,
-  `blocked`, or `fail` output. When the pinned manual records unsupported
-  `PostToolUse` suppression, the terminal manual-only blocker stops before
-  authentication, installation, trust, or a model task. Installation, trust,
-  sentinel execution, and direct model-boundary evidence are required only
-  under a refreshed plan after the manual contract permits live discovery;
-- DEV-143: `swift test`, `swift build`, protocol-process tests, SDK interface
-  verification, and opt-in live `LanguageModelSession` proof;
-- DEV-144: the frozen passing DEV-246 contract, hook-schema tests, plugin
-  generation and cache tests, selected/declined/failure/fallback tests, and a
-  fresh installed-plugin run;
-- DEV-139: the full 24-case/48-arm paired Codex harness, provider usage and
-  correctness calculation, privacy scans, and deterministic cleanup;
-- DEV-140: command/link verification and clean-session documentation
-  walkthroughs using only already-proven behavior; and
-- DEV-141: full merged-tree regression, exact evidence hashes, independent Sol
-  review, blocker audit, release arithmetic, and clean-state verification.
+DEV-246 additionally requires exact Codex `0.145.0` executable capture, pinned
+official-manual provenance, hash-bound synthetic plugin identity, and normalized
+`pass`, `blocked`, or `fail` output. When the pinned manual records unsupported
+`PostToolUse` suppression, the terminal manual-only blocker stops before
+authentication, installation, trust, or a model task.
 
 Missing prerequisites are blockers, never passes. Compile-only, mock-only,
 structural, version, or file-presence evidence cannot substitute for live
 runtime or model-visible replacement proof.
 
-## Assumptions and defaults
-
-- Work proceeds sequentially through the active blocker chain.
-- `gpt-5.6-sol` with `reasoning_effort: medium` executes implementation, tests,
-  debugging, proof capture, and routine Linear/PR operations from linked plans.
-- Sol owns every implementation plan, architecture or fallback change, formal
-  non-trivial diff review, re-review, and merge-readiness judgment.
-- One issue produces at most one implementation PR; planning-only changes do
-  not authorize implementation.
-- The repository's captured Codex CLI `0.145.0` and installed SDK requirements
-  remain the executed baselines until separately amended.
-- Final push, merge, tag, marketplace publication, or release requires the
-  authority and gates stated by the repository workflow.
+The canceled downstream work has no approved implementation interface,
+acceptance gate, or execution order. A future baseline may resume it only
+through the new decision process recorded in the terminal capability decision.
