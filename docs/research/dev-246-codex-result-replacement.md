@@ -36,9 +36,10 @@ This row records the authoritative host-contract blocker. It does not infer
 capability from model prose or feedback and it does not claim a direct
 next-request observation.
 
-DEV-143, DEV-144, DEV-139, DEV-140, and DEV-141 remain blocked behind DEV-246.
-The chain must not adopt feedback-only output, transcript mutation, an
-additional parent turn, an MCP detour, or another runtime. Resumption requires
-a later owner-approved Codex baseline whose official contract supports
-model-visible replacement, followed by a refreshed Sol plan and exact-host
+DEV-143, DEV-144, DEV-139, DEV-140, and DEV-141 are canceled after this
+terminal blocker rather than advertised as implementation-ready. The project
+must not adopt feedback-only output, transcript mutation, an additional parent
+turn, an MCP detour, or another runtime. Resumption requires a later
+owner-approved Codex baseline whose official contract supports model-visible
+replacement, followed by a refreshed spec, Sol-authored plans, and exact-host
 proof.

@@ -48,7 +48,6 @@ The following sources remain authoritative unless this design expressly narrows
 their downstream runtime scope:
 
 - `docs/superpowers/specs/2026-07-21-dev-142-runtime-cost-routing-and-benchmark-design.md`
-- `docs/superpowers/specs/2026-07-21-dev-143-local-bridge-design.md`
 - `docs/architecture/apple-foundation-models-handoff-mvp-decision-record.md`
 - current official Codex plugin and hook documentation
 - the installed SDK interfaces and executed evidence required by `AGENTS.md`
@@ -118,6 +117,20 @@ The manual-only blocker is valid only for pinned official-manual SHA-256
 `6cff0c5701d5a8b10ae497b5dda6ee70f478518d4fa029558168ee2bcc18918b`.
 Caller-supplied bytes with another digest fail as
 `official_manual_hash_mismatch`.
+
+## Terminal capability decision — 2026-07-24
+
+DEV-246 verified the pinned manual and recorded
+`blocked:host_replacement_unavailable`. Codex CLI `0.145.0` parses
+`PostToolUse.suppressOutput` but does not implement or support that effect.
+The probe therefore stopped before authentication, installation, trust, or a
+model task.
+
+DEV-143, DEV-144, DEV-139, DEV-140, and DEV-141 are canceled rather than
+advertised as implementation-ready. Their conditional plans are intentionally
+not published. Resumption requires a later owner-approved Codex baseline whose
+official contract supports model-visible replacement, followed by a new
+brainstorming decision, refreshed spec, and Sol-authored plans.
 
 ## Responsibility boundaries
 
@@ -331,8 +344,8 @@ runtime or model-visible replacement proof.
 ## Assumptions and defaults
 
 - Work proceeds sequentially through the active blocker chain.
-- Terra executes implementation, tests, debugging, proof capture, and routine
-  Linear/PR operations from the linked plans.
+- `gpt-5.6-sol` with `reasoning_effort: medium` executes implementation, tests,
+  debugging, proof capture, and routine Linear/PR operations from linked plans.
 - Sol owns every implementation plan, architecture or fallback change, formal
   non-trivial diff review, re-review, and merge-readiness judgment.
 - One issue produces at most one implementation PR; planning-only changes do

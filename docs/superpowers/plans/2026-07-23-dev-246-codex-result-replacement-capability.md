@@ -1,4 +1,4 @@
-# DEV-246 Codex Result-Replacement Capability Discovery Plan
+# DEV-246 Codex Result-Replacement Capability Discovery Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to execute this discovery plan task-by-task. Do not implement production runtime code from this issue.
 
@@ -241,6 +241,10 @@ git commit -m "test: classify Codex replacement evidence"
 - Create: `fixtures/dev-246/README.md`
 - Create: `docs/research/evidence/dev-246-codex-result-replacement.json`
 - Create: `docs/research/dev-246-codex-result-replacement.md`
+
+**Interfaces:**
+- Consumes: captured Codex CLI `0.145.0`, the pinned official-manual bytes, and the reviewed synthetic plugin.
+- Produces: one normalized `pass`, `blocked`, or `fail` evidence record and one bounded interpretation.
 
 - [ ] **Step 1: Capture the approved manual and explicit host**
 
