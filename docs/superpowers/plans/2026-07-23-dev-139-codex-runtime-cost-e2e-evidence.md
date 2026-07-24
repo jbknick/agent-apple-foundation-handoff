@@ -6,13 +6,13 @@
 
 **Architecture:** Add a Codex-specific scorer around the frozen DEV-142 corpus without rewriting its historical two-host proof. Execute each case once plugin-off and once plugin-on through the merged installed-plugin path, bind paired arms by corpus and environment identity, and serialize hashes and aggregate arithmetic only.
 
-**Tech Stack:** Python 3 standard library, Codex CLI `0.144.5`, DEV-142 corpus/contracts, DEV-144 installed plugin, `unittest`, SHA-256.
+**Tech Stack:** Python 3 standard library, Codex CLI `0.145.0`, DEV-142 corpus/contracts, DEV-144 installed plugin, `unittest`, SHA-256.
 
 ## Global Constraints
 
 - Prerequisite: DEV-144 is merged with passing exact-host and live Apple activation evidence.
 - Do not modify `fixtures/dev-142/runtime_contract.py`, `proof_runner.py`, `benchmark-corpus.json`, or their historical 48-pair/96-arm claims.
-- Required downstream matrix: 24 corpus cases × 2 modes = 48 arms and 24 valid pairs, all on `codex-cli-0.144.5`.
+- Required downstream matrix: 24 corpus cases × 2 modes = 48 arms and 24 valid pairs, all on `codex-cli-0.145.0`.
 - Plugin-off and plugin-on arms must share command hash, corpus hash, machine/SDK identity, working-tree head, locale, and environment class.
 - Provider usage must be application-owned evidence that Apple was attempted exactly once on selected applied rows and never on ineligible/fallback rows. Model prose is not evidence.
 - Passing release arithmetic requires zero correctness failures, zero privacy failures, zero added parent turns, complete pairs, and the unchanged DEV-142 cost/savings floor.
@@ -84,7 +84,7 @@ git commit -m "test: define Codex runtime cost evidence"
 
 - [ ] **Step 1: Add failing fake-host tests**
 
-Require strict Codex `0.144.5` capture/recheck, isolated installed plugin, explicit trust, deterministic 24-case order, plugin-off before plugin-on for each case, no retries, deadline handling, cleanup, and drift detection.
+Require strict Codex `0.145.0` capture/recheck, isolated installed plugin, explicit trust, deterministic 24-case order, plugin-off before plugin-on for each case, no retries, deadline handling, cleanup, and drift detection.
 
 - [ ] **Step 2: Run focused tests and confirm RED**
 
@@ -155,4 +155,3 @@ Expected: PASS; status contains only DEV-139 paths.
 - [ ] **Step 5: Sol review and handoff**
 
 Sol verifies pair binding, arithmetic, provider-use authority, privacy, host identity, and the release verdict. Merge only with complete passing required evidence; then synchronize `main`, prove clean state, and unblock DEV-140.
-

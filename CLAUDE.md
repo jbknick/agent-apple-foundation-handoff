@@ -47,11 +47,11 @@ Never edit `AGENTS.md` directly; update `CLAUDE.md`, then use `scripts/sync_gene
 ### Host, security, and evidence boundaries
 
 - Capture one explicit executable before each host row, invoke only it, and recheck resolution and version afterward.
-  Baselines: Claude Code `2.1.91` and Codex CLI `0.144.5`; Claude Code `2.1.140` is diagnostic only and cannot substitute.
+  Baselines: Claude Code `2.1.91` and Codex CLI `0.145.0`; Claude Code `2.1.140` is diagnostic only and cannot substitute.
 - Claude Code uses the captured approved `2.1.91` executable with session-only `--plugin-dir <repo>` or an isolated
-  install for packaging and cache tests. Codex `0.144.5` uses the captured executable with isolated `CODEX_HOME`,
+  install for packaging and cache tests. Codex `0.145.0` uses the captured executable with isolated `CODEX_HOME`,
   marketplace registration, plugin install/add, and then a fresh task. `codex --plugin-dir` is not an approved
-  workflow for Codex `0.144.5`.
+  workflow for Codex `0.145.0`.
 - DEV-135 provides metadata for structural discovery and installation. DEV-136 host evidence is Codex-only.
   Claude execution and cross-host comparison are `blocked/owner-deferred`.
   Behavioral capability claims require fresh exact-model DEV-136 forward evidence.

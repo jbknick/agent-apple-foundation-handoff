@@ -12,7 +12,7 @@
 
 - Prerequisite: DEV-139 is merged with complete, passing required evidence.
 - Documentation sources are the merged issue plans/specs and normalized evidence JSON, not historical comments or model prose.
-- Scope is Codex CLI `0.144.5` only, using Apple Foundation Models locally through the plugin system.
+- Scope is Codex CLI `0.145.0` only, using Apple Foundation Models locally through the plugin system.
 - State clearly that there is no mobile app, Claude runtime adapter, external LLM, PCC, remote fallback, credential, paid service, or network inference.
 - Document explicit hook trust, plugin-cache behavior, supported completed `Bash` eligibility, original-result fallback, and exact blocker semantics.
 - Do not claim marketplace publication, release, savings percentage, live Apple execution, supported SDK, or replacement capability beyond merged evidence.
@@ -39,7 +39,7 @@
 Require:
 
 ```text
-Codex version 0.144.5
+Codex version 0.145.0
 Apple Foundation Models only
 explicit plugin hook trust
 24 pairs / 48 arms
@@ -142,4 +142,3 @@ Expected: PASS; status contains only DEV-140 documentation/test paths.
 - [ ] **Step 7: Sol review and handoff**
 
 Sol compares each claim/command to merged evidence and checks scope language, privacy, and historical distinction. Merge after green CI, synchronize `main`, prove clean state, and unblock DEV-141.
-

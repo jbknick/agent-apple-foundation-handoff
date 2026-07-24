@@ -6,7 +6,7 @@
 
 **Architecture:** Keep production adapter sources at repository root, generate their plugin-local cache payload through the existing artifact generator, and point the generated Codex manifest at `hooks/codex/hooks.json`. The adapter validates a closed host event, preserves the original result in memory, applies deterministic policy, invokes the mirrored Swift executable once, validates its terminal envelope, and either performs the frozen replacement or leaves the original host behavior untouched.
 
-**Tech Stack:** Python 3 standard library, Codex CLI `0.144.5`, Codex plugin hooks, generated JSON metadata, Swift Package Manager, `unittest`.
+**Tech Stack:** Python 3 standard library, Codex CLI `0.145.0`, Codex plugin hooks, generated JSON metadata, Swift Package Manager, `unittest`.
 
 ## Global Constraints
 
@@ -257,4 +257,3 @@ Expected: deterministic gates PASS; exact-host/live activation PASS or truthful 
 - [ ] **Step 6: Sol review and dependency handoff**
 
 Sol reviews the DEV-246 contract use, generator ownership, Claude exclusion, replacement/fallback semantics, privacy, and exact-host evidence. Merge only after green CI and passing required live evidence; then synchronize `main`, prove clean state, and unblock DEV-139.
-

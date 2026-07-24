@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 PLUGIN_ID = "apple-foundation-models-handoff"
 MARKETPLACE = "agent-apple-foundation-handoff"
 PLUGIN_ROOT = ROOT / "plugins" / PLUGIN_ID
-VERSION_RE = re.compile(r"^codex-cli 0\.144\.5$")
+VERSION_RE = re.compile(r"^codex-cli 0\.145\.0$")
 REFERENCE_FILES = {
     f"references/{name}"
     for name in (
@@ -587,7 +587,7 @@ def probe(
             "evidenceId": EVIDENCE_ID,
             "host": "codex",
             "hostPath": "<host-path>",
-            "hostVersion": "0.144.5",
+            "hostVersion": "0.145.0",
             "marketplace": MARKETPLACE,
             "pluginId": SELECTOR,
             "pluginVersion": PLUGIN_VERSION,

@@ -6,7 +6,7 @@
 
 **Architecture:** Add a read-only acceptance harness that verifies merged-tree hashes, runs deterministic gates, validates required live evidence and release arithmetic, audits blockers/Linear state, and emits one normalized `pass`, `blocked`, or `fail` record. Any product defect returns to its owning issue; this issue does not patch it.
 
-**Tech Stack:** Python 3 standard library, Swift Package Manager, Codex CLI `0.144.5`, repository generator, Git, normalized JSON evidence.
+**Tech Stack:** Python 3 standard library, Swift Package Manager, Codex CLI `0.145.0`, repository generator, Git, normalized JSON evidence.
 
 ## Global Constraints
 
@@ -174,4 +174,3 @@ Expected: PASS; status contains only DEV-141 evidence/narrative paths before com
 - [ ] **Step 5: Close without unauthorized release actions**
 
 Attach the normalized verdict, merged PR links, commit hashes, and required evidence to Linear. Mark DEV-141 Done only on `pass`. On `blocked` or `fail`, keep it open with the exact owner/action. Do not push, merge, tag, publish, or release unless separately authorized.
-

@@ -10,6 +10,10 @@ Models only during Codex runs through the Codex plugin system. The previously
 suggested mobile/TestFlight scope belonged to another project and is excluded.
 The user approved the corrected issue breakdown with `lgtm`.
 
+Baseline amendment: on `2026-07-24`, the user replaced the active and future
+Codex execution baseline with exact Codex CLI `0.145.0`. Historical evidence
+captured on `0.144.5` remains immutable and may not satisfy a current host row.
+
 ## Summary and baseline
 
 The repository baseline is `main` at `b6b2289`, matching `origin/main` after a
@@ -49,13 +53,17 @@ their downstream runtime scope:
 - current official Codex plugin and hook documentation
 - the installed SDK interfaces and executed evidence required by `AGENTS.md`
 
+The baseline amendment specifically supersedes the `0.144.5` prerequisite in
+the 2026-07-21 DEV-143 design. Its remaining bridge contract stays
+authoritative. DEV-143 now requires a passing exact `0.145.0` DEV-246 result.
+
 DEV-142's versioned request, routing, validation, privacy, fallback, and
 correctness contracts remain unchanged. Its former two-host runtime ownership
 and release matrix are narrowed as follows:
 
 - DEV-144 is the only host runtime adapter.
 - DEV-145's Claude Code runtime adapter is canceled as out of scope.
-- The retained corpus is 24 hash-bound cases for Codex CLI `0.144.5`.
+- The retained corpus is 24 hash-bound cases for Codex CLI `0.145.0`.
 - The required paired runtime matrix is therefore 24 plugin-off/plugin-on pairs,
   or 48 arms.
 - Historical 48-pair/96-arm cross-host deterministic evidence remains truthful
@@ -81,7 +89,7 @@ Current official Codex documentation establishes that:
   result.
 
 DEV-246 therefore owns an exact-host capability probe before any production
-implementation begins. The probe must use the captured Codex CLI `0.144.5`
+implementation begins. The probe must use the captured Codex CLI `0.145.0`
 executable and prove whether the plugin hook can prevent the original eligible
 tool result from entering the next parent-model request while supplying the
 validated compact result.
@@ -94,12 +102,29 @@ product outcome and must not be adopted as a fallback. Any alternative
 interface or task-boundary change returns to Sol and the user for a new
 architecture decision.
 
+For exact Codex CLI `0.145.0`, an official-manual statement that `PostToolUse`
+`suppressOutput` is parsed but not implemented or supported is sufficient to
+record `blocked:host_replacement_unavailable` before authentication or live
+execution. The project must not copy a credential or run an unsupported effect
+merely to reproduce the documented limitation.
+
+The DEV-246 executable is intentionally exact-version. If the frozen
+`0.145.0` manual no longer contains both unsupported-effect statements, the
+row fails as `official_manual_contract_drift` and returns to Sol/user. It does
+not infer or exercise a new trust, task, or boundary interface without a
+refreshed architecture.
+
+The manual-only blocker is valid only for pinned official-manual SHA-256
+`6cff0c5701d5a8b10ae497b5dda6ee70f478518d4fa029558168ee2bcc18918b`.
+Caller-supplied bytes with another digest fail as
+`official_manual_hash_mismatch`.
+
 ## Responsibility boundaries
 
 ### DEV-246: Codex capability discovery boundary
 
 DEV-246 owns only the synthetic, exact-host experiment that determines whether
-Codex CLI `0.144.5` exposes a trusted `PostToolUse` contract capable of replacing
+Codex CLI `0.145.0` exposes a trusted `PostToolUse` contract capable of replacing
 or suppressing the original tool result before the next parent-model request.
 It freezes the observed input/output schema, captures normalized evidence, and
 returns `pass`, `blocked`, or `fail`.
@@ -280,10 +305,13 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_*.py' -
 
 Issue-specific verification additionally requires:
 
-- DEV-246: exact Codex `0.144.5` executable capture, isolated plugin
-  installation and trust, a hash-bound synthetic sentinel probe, direct
-  model-boundary visibility evidence, and normalized `pass`, `blocked`, or
-  `fail` output;
+- DEV-246: exact Codex `0.145.0` executable capture, pinned official-manual
+  provenance, hash-bound synthetic plugin identity, and normalized `pass`,
+  `blocked`, or `fail` output. When the pinned manual records unsupported
+  `PostToolUse` suppression, the terminal manual-only blocker stops before
+  authentication, installation, trust, or a model task. Installation, trust,
+  sentinel execution, and direct model-boundary evidence are required only
+  under a refreshed plan after the manual contract permits live discovery;
 - DEV-143: `swift test`, `swift build`, protocol-process tests, SDK interface
   verification, and opt-in live `LanguageModelSession` proof;
 - DEV-144: the frozen passing DEV-246 contract, hook-schema tests, plugin
@@ -309,7 +337,7 @@ runtime or model-visible replacement proof.
   non-trivial diff review, re-review, and merge-readiness judgment.
 - One issue produces at most one implementation PR; planning-only changes do
   not authorize implementation.
-- The repository's captured Codex CLI `0.144.5` and installed SDK requirements
+- The repository's captured Codex CLI `0.145.0` and installed SDK requirements
   remain the executed baselines until separately amended.
 - Final push, merge, tag, marketplace publication, or release requires the
   authority and gates stated by the repository workflow.

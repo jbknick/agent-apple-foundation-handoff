@@ -1771,7 +1771,11 @@ class CodexRouterHostEvidenceTests(unittest.TestCase):
         minimum_passed_count: int,
         maximum_failed_count: int,
     ) -> None:
-        _assert_forward_evidence_schema(self, evidence)
+        _assert_forward_evidence_schema(
+            self,
+            evidence,
+            expected_codex_version="0.144.5",
+        )
         self.assertEqual("host", evidence["mode"])
         self.assertRegex(evidence["captureCommit"], COMMIT_SHA_PATTERN)
         self.assertEqual(OFFICIAL_FIXTURE_SHA256, evidence["fixtureSha256"])
@@ -2372,7 +2376,7 @@ def _passing_prerequisites(executable: str | None = None) -> dict:
         **capture,
         "resolvedExecutable": str(path),
         "executableSha256": executable_bytes_sha256(path),
-        "version": "0.144.5",
+        "version": "0.145.0",
         "authenticated": True,
         "modelAvailable": True,
         "pluginAvailable": True,
@@ -2532,6 +2536,8 @@ def _unrelated_forward_plugin_entry(
 def _assert_forward_evidence_schema(
     test: unittest.TestCase,
     evidence: dict,
+    *,
+    expected_codex_version: str = "0.145.0",
 ) -> None:
     test.assertEqual(FORWARD_EVIDENCE_KEYS, set(evidence))
     test.assertEqual("1.0", evidence["schemaVersion"])
@@ -2540,7 +2546,7 @@ def _assert_forward_evidence_schema(
     test.assertIn(evidence["mode"], {"offline", "host"})
     test.assertIn(evidence["status"], FORWARD_STATUSES)
     test.assertEqual("gpt-5.6-sol", evidence["model"])
-    test.assertEqual("0.144.5", evidence["codexVersion"])
+    test.assertEqual(expected_codex_version, evidence["codexVersion"])
     test.assertRegex(evidence["captureCommit"], COMMIT_SHA_PATTERN)
     test.assertRegex(evidence["fixtureSha256"], SHA256_PATTERN)
     test.assertEqual(ALL_CAPABILITIES, tuple(evidence["skillPayloadSha256"]))
@@ -2560,7 +2566,7 @@ def _assert_forward_evidence_schema(
     host = evidence["host"]
     test.assertEqual(FORWARD_HOST_KEYS, set(host))
     test.assertEqual("codex", host["name"])
-    test.assertEqual("0.144.5", host["version"])
+    test.assertEqual(evidence["codexVersion"], host["version"])
     test.assertEqual("gpt-5.6-sol", host["model"])
     test.assertEqual("explicit_cli_argument", host["modelSelection"])
     test.assertIn(host["sessionMode"], {"not_applicable", "fresh_ephemeral"})
@@ -3576,7 +3582,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
             (self.runner.PASS, self.runner.FAIL, self.runner.BLOCKED),
         )
         self.assertEqual("gpt-5.6-sol", self.runner.EXPECTED_MODEL)
-        self.assertEqual("0.144.5", self.runner.EXPECTED_CODEX_VERSION)
+        self.assertEqual("0.145.0", self.runner.EXPECTED_CODEX_VERSION)
 
         fixture = _forward_fixture("DEV136-FWD-DESIGN-001")
         timeline: list[str] = []
@@ -3716,7 +3722,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                 "--model",
                 "gpt-5.6-sol",
                 "--codex-version",
-                "0.144.5",
+                "0.145.0",
                 "--cases",
                 str(FIXTURE_PATH),
                 "--case-id",
@@ -3769,7 +3775,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                     "--model",
                     "gpt-5.6-sol",
                     "--codex-version",
-                    "0.144.5",
+                    "0.145.0",
                     "--cases",
                     str(FIXTURE_PATH),
                     *[
@@ -4049,7 +4055,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
             scorer.calls,
         )
         self.assertEqual(
-            [(str(TEST_EXECUTABLE_PATH), "gpt-5.6-sol", "0.144.5")] * 4,
+            [(str(TEST_EXECUTABLE_PATH), "gpt-5.6-sol", "0.145.0")] * 4,
             checker.calls,
         )
         self.assertEqual([1, 2], [row["sessionOrdinal"] for row in evidence["cases"]])
@@ -5846,7 +5852,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                 snapshot = self.runner.default_prerequisite_checker(
                     str(source_path),
                     "gpt-5.6-sol",
-                    "0.144.5",
+                    "0.145.0",
                     source_capture=expected_source_capture(),
                 )
 
@@ -5906,7 +5912,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                 snapshot = self.runner.default_prerequisite_checker(
                     str(source_path),
                     "gpt-5.6-sol",
-                    "0.144.5",
+                    "0.145.0",
                     source_capture=expected_source_capture(),
                 )
 
@@ -5974,7 +5980,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                     snapshot = self.runner.default_prerequisite_checker(
                         str(source_path),
                         "gpt-5.6-sol",
-                        "0.144.5",
+                        "0.145.0",
                         source_capture=expected_source_capture(),
                     )
 
@@ -6035,7 +6041,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                 snapshot = self.runner.default_prerequisite_checker(
                     str(source_path),
                     "gpt-5.6-sol",
-                    "0.144.5",
+                    "0.145.0",
                     source_capture=expected_source_capture(),
                 )
 
@@ -6131,7 +6137,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                     snapshot = self.runner.default_prerequisite_checker(
                         str(source_path),
                         "gpt-5.6-sol",
-                        "0.144.5",
+                        "0.145.0",
                         source_capture=expected_source_capture(),
                     )
 
@@ -6230,7 +6236,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                         snapshot = self.runner.default_prerequisite_checker(
                             str(source_path),
                             "gpt-5.6-sol",
-                            "0.144.5",
+                            "0.145.0",
                             source_capture=expected_source_capture(),
                         )
                     except Exception as error:  # pragma: no cover - RED capture
@@ -6360,7 +6366,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                     snapshot = self.runner.default_prerequisite_checker(
                         str(source_path),
                         "gpt-5.6-sol",
-                        "0.144.5",
+                        "0.145.0",
                         source_capture=expected_source_capture(),
                     )
 
@@ -6489,7 +6495,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                     "executableSha256": hashlib.sha256(
                         source_bytes
                     ).hexdigest(),
-                    "version": "0.144.5",
+                    "version": "0.145.0",
                     "authenticated": True,
                     "modelAvailable": True,
                     "pluginAvailable": True,
@@ -6659,7 +6665,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                     snapshot = self.runner.default_prerequisite_checker(
                         str(source_path),
                         "gpt-5.6-sol",
-                        "0.144.5",
+                        "0.145.0",
                         source_capture=expected_source_capture(),
                     )
 
@@ -6846,7 +6852,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                     snapshot = self.runner.default_prerequisite_checker(
                         str(source_path),
                         "gpt-5.6-sol",
-                        "0.144.5",
+                        "0.145.0",
                         source_capture=expected_source_capture(),
                     )
 
@@ -6938,7 +6944,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
             snapshot = self.runner.default_prerequisite_checker(
                 str(TEST_EXECUTABLE_PATH),
                 "gpt-5.6-sol",
-                "0.144.5",
+                "0.145.0",
                 source_capture=expected_source_capture(),
             )
 
@@ -7004,7 +7010,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
             snapshot = self.runner.default_prerequisite_checker(
                 str(TEST_EXECUTABLE_PATH),
                 "gpt-5.6-sol",
-                "0.144.5",
+                "0.145.0",
                 source_capture=expected_source_capture(),
             )
 
@@ -7348,7 +7354,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                         "--model",
                         "gpt-5.6-sol",
                         "--codex-version",
-                        "0.144.5",
+                        "0.145.0",
                         "--cases",
                         str(FIXTURE_PATH),
                         "--evidence",
@@ -7397,7 +7403,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                         "--model",
                         "gpt-5.6-sol",
                         "--codex-version",
-                        "0.144.5",
+                        "0.145.0",
                         "--cases",
                         str(FIXTURE_PATH),
                         "--evidence",
@@ -7431,7 +7437,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                 "--model",
                 "gpt-5.6-sol",
                 "--codex-version",
-                "0.144.5",
+                "0.145.0",
                 "--cases",
                 str(FIXTURE_PATH),
                 "--evidence",
@@ -7972,7 +7978,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                 snapshot = self.runner.default_prerequisite_checker(
                     str(nonexecutable),
                     "gpt-5.6-sol",
-                    "0.144.5",
+                    "0.145.0",
                 )
                 self.assertEqual(
                     "nonexecutable_binary",
@@ -8048,7 +8054,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
             version_probe = subprocess.CompletedProcess(
                 ["codex", "--version"],
                 0,
-                "codex-cli 0.144.5\n",
+                "codex-cli 0.145.0\n",
                 "",
             )
             exact_auth_probe = subprocess.CompletedProcess(
@@ -8071,7 +8077,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                 snapshot = self.runner.default_prerequisite_checker(
                     str(TEST_EXECUTABLE_PATH),
                     "gpt-5.6-sol",
-                    "0.144.5",
+                    "0.145.0",
                 )
             self.assertTrue(snapshot["authenticated"])
             self.assertTrue(snapshot["pluginAvailable"])
@@ -8107,7 +8113,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                     snapshot = self.runner.default_prerequisite_checker(
                         str(TEST_EXECUTABLE_PATH),
                         "gpt-5.6-sol",
-                        "0.144.5",
+                        "0.145.0",
                     )
                     self.assertFalse(snapshot["authenticated"])
 
@@ -8349,7 +8355,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                 "--model",
                 "gpt-5.6-sol",
                 "--codex-version",
-                "0.144.5",
+                "0.145.0",
                 "--cases",
                 str(cases),
                 "--evidence",
@@ -8696,7 +8702,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                 )
             )
             if command[1:] == ["--version"]:
-                return subprocess.CompletedProcess(command, 0, "codex-cli 0.144.5\n", "")
+                return subprocess.CompletedProcess(command, 0, "codex-cli 0.145.0\n", "")
             if command[1:] == ["login", "status"]:
                 return subprocess.CompletedProcess(command, 0, "", "Logged in using ChatGPT\n")
             return subprocess.CompletedProcess(command, 0, "{}", "")
@@ -8709,7 +8715,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
             self.runner, "_plugin_is_installed_enabled_with_capabilities", return_value=True
         ):
             snapshot = self.runner.default_prerequisite_checker(
-                original, "gpt-5.6-sol", "0.144.5"
+                original, "gpt-5.6-sol", "0.145.0"
             )
         with self.subTest(bound_probe="version_auth_plugin"):
             overrides = [probe[1] for probe in probes]
@@ -8939,7 +8945,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                 events = self.runner._tool_events(paired_stream(web_search))
             except ValueError as error:
                 self.fail(
-                    "Codex 0.144.5 web_search duplicate-id compatibility is missing: "
+                    "Codex 0.145.0 web_search duplicate-id compatibility is missing: "
                     f"{error}"
                 )
             self.assertEqual(1, len(events))
@@ -9128,7 +9134,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
                 str(error),
             )
             self.fail(
-                "Codex 0.144.5 official web-search lifecycle is rejected because "
+                "Codex 0.145.0 official web-search lifecycle is rejected because "
                 "query/action are still classified as immutable"
             )
         self.assertEqual(1, len(events))
@@ -10612,7 +10618,7 @@ class CodexForwardRunnerContractTests(unittest.TestCase):
         def command(cases: Path, scorer: Path, evidence: Path) -> list[str]:
             return [
                 sys.executable, str(RUNNER_PATH), "--mode", "offline",
-                "--model", "gpt-5.6-sol", "--codex-version", "0.144.5",
+                "--model", "gpt-5.6-sol", "--codex-version", "0.145.0",
                 "--cases", str(cases), "--evidence", str(evidence),
                 "--scorer-outputs", str(scorer),
             ]

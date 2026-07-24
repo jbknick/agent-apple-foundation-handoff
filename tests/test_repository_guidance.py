@@ -756,7 +756,7 @@ class RepositoryGuidanceTests(unittest.TestCase):
             "effective cached plugin payload",
             "repository-only docs, research, fixtures, tests, and private state",
             "Claude Code `2.1.91`",
-            "Codex CLI `0.144.5`",
+            "Codex CLI `0.145.0`",
             "Before host operations, a missing/non-runnable executable",
             "baseline mismatch emits normalized `blocked`",
             "After capture, resolution or version drift emits normalized `fail`",
@@ -861,9 +861,9 @@ class RepositoryGuidanceTests(unittest.TestCase):
             "Claude Code uses the captured approved `2.1.91` executable with "
             "session-only `--plugin-dir <repo>` or an isolated install for packaging "
             "and cache tests.",
-            "Codex `0.144.5` uses the captured executable with isolated `CODEX_HOME`, "
+            "Codex `0.145.0` uses the captured executable with isolated `CODEX_HOME`, "
             "marketplace registration, plugin install/add, and then a fresh task.",
-            "`codex --plugin-dir` is not an approved workflow for Codex `0.144.5`.",
+            "`codex --plugin-dir` is not an approved workflow for Codex `0.145.0`.",
             "Claude Code `2.1.140` is diagnostic only and cannot substitute.",
             "DEV-135 provides metadata for structural discovery and installation.",
             "Normalize repository location as `<repo>` and executable identity as "

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
 from contextlib import contextmanager
 import hashlib
 import json
@@ -9,17 +10,46 @@ from pathlib import Path
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 from typing import Callable, Iterable, Iterator
 
 
-VERSION_LINE = b"codex-cli 0.144.5\n"
+VERSION_LINE = b"codex-cli 0.145.0\n"
 MARKETPLACE_NAME = "dev-246-synthetic"
 PLUGIN_NAME = "dev-246-result-replacement-probe"
 PLUGIN_SELECTOR = f"{PLUGIN_NAME}@{MARKETPLACE_NAME}"
 DIRECT_BOUNDARY_SOURCE = "provider_next_request"
 NON_BOUNDARY_SOURCES = frozenset(
     {"hook_stdout", "system_message", "transcript", "model_response", None}
+)
+ORIGINAL_SENTINEL = b"DEV246_ORIGINAL_SENTINEL_7f21"
+COMPACT_SENTINEL = b"DEV246_COMPACT_SENTINEL_9ac4"
+OFFICIAL_MANUAL_SHA256 = (
+    "6cff0c5701d5a8b10ae497b5dda6ee70f478518d4fa029558168ee2bcc18918b"
+)
+POST_TOOL_USE_UNSUPPORTED_MARKERS = (
+    b"`suppressOutput` | Parsed today but not yet implemented",
+    b"`suppressOutput` is parsed but not currently supported for that event",
+)
+VERDICT_KEYS = (
+    "schemaVersion",
+    "issue",
+    "status",
+    "reason",
+    "codexVersion",
+    "codexExecutable",
+    "manualSha256",
+    "pluginSha256",
+    "originalSha256",
+    "compactSha256",
+    "boundarySource",
+    "originalAbsentFromNextRequest",
+    "compactPresentInNextRequest",
+    "additionalParentModelTurns",
+    "hookInvocations",
+    "trustConfirmed",
+    "cleanupStatus",
 )
 HostSnapshot = tuple[int, int, int, int, int, int, int]
 
@@ -119,6 +149,7 @@ class HostCapture:
         "codex_version",
         "environment",
         "executable",
+        "manual_bytes",
         "manual_sha256",
         "normalized_executable",
         "plugin_sha256",
@@ -133,12 +164,14 @@ class HostCapture:
         resolved: Path,
         snapshot: HostSnapshot,
         environment: dict[str, str],
+        manual_bytes: bytes,
         manual_sha256: str,
         plugin_sha256: str,
     ) -> None:
-        self.codex_version = "0.144.5"
+        self.codex_version = "0.145.0"
         self.environment = environment
         self.executable = executable
+        self.manual_bytes = manual_bytes
         self.manual_sha256 = manual_sha256
         self.normalized_executable = "<host-path>"
         self.plugin_sha256 = plugin_sha256
@@ -207,15 +240,15 @@ def capture_preflight(
     except OSError:
         raise ProbeFailure("host_resolution_or_version_drift") from None
 
-    manual_sha256 = hashlib.sha256(
-        _regular_file_bytes(manual, "official_manual_unavailable")
-    ).hexdigest()
+    manual_bytes = _regular_file_bytes(manual, "official_manual_unavailable")
+    manual_sha256 = hashlib.sha256(manual_bytes).hexdigest()
     plugin_sha256 = _tree_sha256(plugin)
     return HostCapture(
         executable=codex_executable,
         resolved=resolved,
         snapshot=snapshot,
         environment=environment,
+        manual_bytes=manual_bytes,
         manual_sha256=manual_sha256,
         plugin_sha256=plugin_sha256,
     )
@@ -339,6 +372,32 @@ def _run_json(
     return value
 
 
+def _require_authenticated(
+    executable: Path,
+    environment: dict[str, str],
+) -> None:
+    try:
+        completed = subprocess.run(
+            [str(executable), "login", "status"],
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            shell=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        raise ProbeBlocked("isolated_auth_unavailable") from None
+    if completed.returncode != 0:
+        raise ProbeBlocked("isolated_auth_unavailable")
+
+
+def _manual_blocks_replacement(manual_bytes: bytes) -> bool:
+    return all(
+        marker in manual_bytes for marker in POST_TOOL_USE_UNSUPPORTED_MARKERS
+    )
+
+
 class LifecycleContext:
     __slots__ = ("cleanup_status", "environment", "trust_confirmed")
 
@@ -362,10 +421,18 @@ def isolated_lifecycle(
         marketplace = temporary_root / "marketplace"
         codex_home.mkdir()
         _materialize_marketplace(plugin, marketplace)
+        installed_plugin = marketplace / "plugins" / PLUGIN_NAME
+        try:
+            installed_sha256 = _tree_sha256(installed_plugin)
+        except ProbeBlocked:
+            raise ProbeFailure("synthetic_plugin_drift") from None
+        if installed_sha256 != capture.plugin_sha256:
+            raise ProbeFailure("synthetic_plugin_drift")
         environment = dict(capture.environment)
         environment["CODEX_HOME"] = str(codex_home)
         try:
             capture.recheck()
+            _require_authenticated(capture.resolved, environment)
             _run_json(
                 capture.resolved,
                 ["plugin", "marketplace", "add", str(marketplace), "--json"],
@@ -388,3 +455,204 @@ def isolated_lifecycle(
             if context is not None:
                 context.cleanup_status = "complete"
             capture.recheck()
+
+
+def _verdict(
+    *,
+    status: str,
+    reason: str,
+    capture: HostCapture | None,
+    trust_confirmed: bool,
+    cleanup_status: str,
+) -> dict[str, object]:
+    values: dict[str, object] = {
+        "schemaVersion": 1,
+        "issue": "DEV-246",
+        "status": status,
+        "reason": reason,
+        "codexVersion": capture.codex_version if capture else None,
+        "codexExecutable": capture.normalized_executable if capture else None,
+        "manualSha256": capture.manual_sha256 if capture else None,
+        "pluginSha256": capture.plugin_sha256 if capture else None,
+        "originalSha256": hashlib.sha256(ORIGINAL_SENTINEL).hexdigest(),
+        "compactSha256": hashlib.sha256(COMPACT_SENTINEL).hexdigest(),
+        "boundarySource": None,
+        "originalAbsentFromNextRequest": None,
+        "compactPresentInNextRequest": None,
+        "additionalParentModelTurns": 0,
+        "hookInvocations": 0,
+        "trustConfirmed": trust_confirmed,
+        "cleanupStatus": cleanup_status,
+    }
+    return {key: values[key] for key in VERDICT_KEYS}
+
+
+def run_discovery(
+    codex_executable: Path,
+    manual: Path,
+    plugin: Path,
+    *,
+    trust_hook: Callable[[dict[str, str]], bool],
+    expected_manual_sha256: str = OFFICIAL_MANUAL_SHA256,
+) -> dict[str, object]:
+    capture: HostCapture | None = None
+    trust_confirmed = False
+
+    try:
+        capture = capture_preflight(codex_executable, manual, plugin)
+        capture.recheck()
+        if capture.manual_sha256 != expected_manual_sha256:
+            return _verdict(
+                status="fail",
+                reason="official_manual_hash_mismatch",
+                capture=capture,
+                trust_confirmed=False,
+                cleanup_status="complete",
+            )
+        if not _manual_blocks_replacement(capture.manual_bytes):
+            return _verdict(
+                status="fail",
+                reason="official_manual_contract_drift",
+                capture=capture,
+                trust_confirmed=False,
+                cleanup_status="complete",
+            )
+        return _verdict(
+            status="blocked",
+            reason="host_replacement_unavailable",
+            capture=capture,
+            trust_confirmed=False,
+            cleanup_status="complete",
+        )
+    except ProbeBlocked as failure:
+        return _verdict(
+            status="blocked",
+            reason=str(failure),
+            capture=capture,
+            trust_confirmed=trust_confirmed,
+            cleanup_status="complete",
+        )
+    except ProbeFailure as failure:
+        return _verdict(
+            status="fail",
+            reason=str(failure),
+            capture=capture,
+            trust_confirmed=trust_confirmed,
+            cleanup_status="complete",
+        )
+    except subprocess.TimeoutExpired:
+        return _verdict(
+            status="fail",
+            reason="host_timeout",
+            capture=capture,
+            trust_confirmed=trust_confirmed,
+            cleanup_status="complete",
+        )
+    except OSError:
+        return _verdict(
+            status="fail",
+            reason="lifecycle_filesystem_failed",
+            capture=capture,
+            trust_confirmed=trust_confirmed,
+            cleanup_status="incomplete",
+        )
+
+
+def _interactive_trust_unavailable(_: dict[str, str]) -> bool:
+    return False
+
+
+def _parse_arguments(arguments: list[str] | None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--codex-executable", type=Path, required=True)
+    parser.add_argument("--manual", type=Path, required=True)
+    parser.add_argument("--plugin", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    return parser.parse_args(arguments)
+
+
+def _atomic_write_json(path: Path, value: object) -> None:
+    parent = path.parent.resolve(strict=True)
+    if not parent.is_dir() or path.parent.is_symlink():
+        raise OSError("output_parent_invalid")
+    destination = parent / path.name
+    try:
+        metadata = destination.lstat()
+    except FileNotFoundError:
+        metadata = None
+    if metadata is not None and (
+        stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode)
+    ):
+        raise OSError("output_destination_invalid")
+    before = (
+        None
+        if metadata is None
+        else (
+            metadata.st_dev,
+            metadata.st_ino,
+            metadata.st_mode,
+            metadata.st_size,
+            metadata.st_mtime_ns,
+        )
+    )
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=parent,
+    )
+    temporary: Path | None = Path(temporary_name)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as stream:
+            descriptor = -1
+            stream.write(json.dumps(value, ensure_ascii=True, indent=2) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        try:
+            current = destination.lstat()
+        except FileNotFoundError:
+            current = None
+        current_snapshot = (
+            None
+            if current is None
+            else (
+                current.st_dev,
+                current.st_ino,
+                current.st_mode,
+                current.st_size,
+                current.st_mtime_ns,
+            )
+        )
+        if current_snapshot != before:
+            raise OSError("output_destination_drift")
+        os.replace(temporary, destination)
+        temporary = None
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        if temporary is not None and temporary.exists():
+            temporary.unlink()
+
+
+def main(
+    arguments: list[str] | None = None,
+    *,
+    trust_hook: Callable[[dict[str, str]], bool] | None = None,
+) -> int:
+    options = _parse_arguments(arguments)
+    verdict = run_discovery(
+        options.codex_executable,
+        options.manual,
+        options.plugin,
+        trust_hook=trust_hook or _interactive_trust_unavailable,
+    )
+    try:
+        _atomic_write_json(options.output, verdict)
+    except OSError:
+        return 1
+    status = verdict["status"]
+    return 0 if status == "pass" else 2 if status == "blocked" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

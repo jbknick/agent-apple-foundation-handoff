@@ -708,7 +708,7 @@ class CodexProbeRaceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             locator = Path(directory) / "codex"
             locator.write_text(
-                "#!/bin/sh\nprintf 'codex-cli 0.144.5\\n'\n",
+                "#!/bin/sh\nprintf 'codex-cli 0.145.0\\n'\n",
                 encoding="utf-8",
                 newline="\n",
             )
@@ -795,13 +795,13 @@ class CodexProbeRaceTests(unittest.TestCase):
             locator = Path(directory) / "codex"
             replacement = Path(directory) / "replacement"
             marker = Path(directory) / "executed"
-            script = "#!/bin/sh\nprintf 'codex-cli 0.144.5\\n'\n"
+            script = "#!/bin/sh\nprintf 'codex-cli 0.145.0\\n'\n"
             locator.write_text(script, encoding="utf-8", newline="\n")
             locator.chmod(0o700)
             initial_resolution = locator.resolve(strict=True)
             initial_snapshot = codex_probe.metadata_snapshot(locator.stat())
             replacement.write_text(
-                f"#!/bin/sh\ntouch '{marker}'\nprintf 'codex-cli 0.144.5\\n'\n",
+                f"#!/bin/sh\ntouch '{marker}'\nprintf 'codex-cli 0.145.0\\n'\n",
                 encoding="utf-8",
                 newline="\n",
             )
@@ -827,13 +827,13 @@ class CodexProbeRaceTests(unittest.TestCase):
             locator.write_text(
                 "#!/bin/sh\n"
                 'mv "$0.replacement" "$0"\n'
-                "printf 'codex-cli 0.144.5\\n'\n",
+                "printf 'codex-cli 0.145.0\\n'\n",
                 encoding="utf-8",
                 newline="\n",
             )
             locator.chmod(0o700)
             replacement.write_text(
-                "#!/bin/sh\nprintf 'codex-cli 0.144.5\\n'\n",
+                "#!/bin/sh\nprintf 'codex-cli 0.145.0\\n'\n",
                 encoding="utf-8",
                 newline="\n",
             )

@@ -5,8 +5,10 @@ import hashlib
 import json
 from pathlib import Path
 import shlex
+import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,6 +22,14 @@ PROBE_PATH = (
     / "probe.py"
 )
 HARNESS_PATH = ROOT / "tests" / "e2e" / "codex_result_replacement_probe.py"
+PLUGIN_PATH = ROOT / "fixtures" / "dev-246" / "synthetic-plugin"
+EVIDENCE_PATH = (
+    ROOT
+    / "docs"
+    / "research"
+    / "evidence"
+    / "dev-246-codex-result-replacement.json"
+)
 
 
 def load_probe():
@@ -29,7 +39,12 @@ def load_probe():
     if spec is None or spec.loader is None:
         raise AssertionError("probe module could not be loaded")
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    previous = sys.dont_write_bytecode
+    try:
+        sys.dont_write_bytecode = True
+        spec.loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = previous
     return module
 
 
@@ -49,7 +64,7 @@ class VerdictSchemaTests(unittest.TestCase):
         return {
             "schemaVersion": 1,
             "issue": "DEV-246",
-            "codexVersion": "0.144.5",
+            "codexVersion": "0.145.0",
             "codexExecutable": "/captured/codex",
             "manualSha256": "1" * 64,
             "pluginSha256": "2" * 64,
@@ -351,7 +366,7 @@ class ExactHostPreflightTests(unittest.TestCase):
     def test_non_runnable_executable_is_blocked(self) -> None:
         harness = load_harness()
         with tempfile.TemporaryDirectory() as directory:
-            executable = self.make_executable(directory, "codex-cli 0.144.5\n")
+            executable = self.make_executable(directory, "codex-cli 0.145.0\n")
             executable.chmod(0o600)
             manual, plugin = self.make_inputs(directory)
             with self.assertRaisesRegex(
@@ -362,10 +377,10 @@ class ExactHostPreflightTests(unittest.TestCase):
     def test_malformed_or_wrong_versions_are_blocked(self) -> None:
         harness = load_harness()
         rejected = (
-            "codex-cli 0.144.5\nextra\n",
-            "/private/path/codex-cli 0.144.5\n",
-            "codex-cli 0.145.0\n",
-            "codex-cli 0.144.5",
+            "codex-cli 0.145.0\nextra\n",
+            "/private/path/codex-cli 0.145.0\n",
+            "codex-cli 0.144.5\n",
+            "codex-cli 0.145.0",
         )
         for index, version_output in enumerate(rejected):
             with self.subTest(version_output=version_output):
@@ -381,7 +396,7 @@ class ExactHostPreflightTests(unittest.TestCase):
     def test_missing_manual_is_blocked(self) -> None:
         harness = load_harness()
         with tempfile.TemporaryDirectory() as directory:
-            executable = self.make_executable(directory, "codex-cli 0.144.5\n")
+            executable = self.make_executable(directory, "codex-cli 0.145.0\n")
             _, plugin = self.make_inputs(directory)
             with self.assertRaisesRegex(
                 harness.ProbeBlocked, "official_manual_unavailable"
@@ -393,12 +408,12 @@ class ExactHostPreflightTests(unittest.TestCase):
     def test_capture_hashes_manual_and_plugin_without_raw_paths(self) -> None:
         harness = load_harness()
         with tempfile.TemporaryDirectory() as directory:
-            executable = self.make_executable(directory, "codex-cli 0.144.5\n")
+            executable = self.make_executable(directory, "codex-cli 0.145.0\n")
             manual, plugin = self.make_inputs(directory)
 
             capture = harness.capture_preflight(executable, manual, plugin)
 
-            self.assertEqual("0.144.5", capture.codex_version)
+            self.assertEqual("0.145.0", capture.codex_version)
             self.assertEqual("<host-path>", capture.normalized_executable)
             self.assertRegex(capture.manual_sha256, r"^[0-9a-f]{64}$")
             self.assertRegex(capture.plugin_sha256, r"^[0-9a-f]{64}$")
@@ -406,12 +421,12 @@ class ExactHostPreflightTests(unittest.TestCase):
     def test_post_capture_executable_drift_fails(self) -> None:
         harness = load_harness()
         with tempfile.TemporaryDirectory() as directory:
-            executable = self.make_executable(directory, "codex-cli 0.144.5\n")
+            executable = self.make_executable(directory, "codex-cli 0.145.0\n")
             manual, plugin = self.make_inputs(directory)
             capture = harness.capture_preflight(executable, manual, plugin)
             replacement = Path(directory) / "replacement"
             replacement.write_text(
-                "#!/bin/sh\nprintf 'codex-cli 0.144.5\\n'\n",
+                "#!/bin/sh\nprintf 'codex-cli 0.145.0\\n'\n",
                 encoding="utf-8",
                 newline="\n",
             )
@@ -425,15 +440,29 @@ class ExactHostPreflightTests(unittest.TestCase):
 
 
 class IsolatedLifecycleTests(ExactHostPreflightTests):
-    def make_fake_host(self, directory: str, log: Path) -> Path:
+    def make_fake_host(
+        self,
+        directory: str,
+        log: Path,
+        *,
+        authenticated: bool = True,
+    ) -> Path:
+        login_result = (
+            "  printf 'Logged in using synthetic auth\\n'\n  exit 0\n"
+            if authenticated
+            else "  printf 'Not logged in\\n'\n  exit 1\n"
+        )
         executable = Path(directory) / "codex"
         executable.write_text(
             "#!/bin/sh\n"
             f"printf '%s|%s\\n' \"$CODEX_HOME\" \"$*\" >> {shlex.quote(str(log))}\n"
             "if [ \"$1\" = \"--version\" ]; then\n"
-            "  printf 'codex-cli 0.144.5\\n'\n"
+            "  printf 'codex-cli 0.145.0\\n'\n"
             "  exit 0\n"
             "fi\n"
+            "if [ \"$1\" = \"login\" ] && [ \"$2\" = \"status\" ]; then\n"
+            + login_result
+            + "fi\n"
             "printf '{\"ok\":true}\\n'\n",
             encoding="utf-8",
             newline="\n",
@@ -531,6 +560,244 @@ class IsolatedLifecycleTests(ExactHostPreflightTests):
                                 pass
                     self.assertEqual(1, len(observed))
                     self.assertFalse(observed[0].exists())
+
+
+class DiscoverySerializationTests(IsolatedLifecycleTests):
+    def test_normalized_evidence_binds_clean_plugin(self) -> None:
+        harness = load_harness()
+        evidence = json.loads(EVIDENCE_PATH.read_text(encoding="utf-8"))
+        transient = [
+            path
+            for path in PLUGIN_PATH.rglob("*")
+            if path.name == "__pycache__" or path.suffix == ".pyc"
+        ]
+
+        self.assertEqual([], transient)
+        self.assertEqual(
+            harness._tree_sha256(PLUGIN_PATH),
+            evidence["pluginSha256"],
+        )
+        self.assertEqual(
+            harness.OFFICIAL_MANUAL_SHA256,
+            evidence["manualSha256"],
+        )
+
+    def test_manual_contract_drift_stops_before_auth_and_trust(self) -> None:
+        harness = load_harness()
+        runner = getattr(harness, "run_discovery", None)
+        self.assertIsNotNone(runner, "discovery runner is missing")
+        assert runner is not None
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "commands.log"
+            executable = self.make_fake_host(
+                directory,
+                log,
+                authenticated=False,
+            )
+            manual, plugin = self.make_inputs(directory)
+            trust_called = False
+
+            def trust_hook(_environment: dict[str, str]) -> bool:
+                nonlocal trust_called
+                trust_called = True
+                return True
+
+            verdict = runner(
+                executable,
+                manual,
+                plugin,
+                trust_hook=trust_hook,
+                expected_manual_sha256=hashlib.sha256(
+                    manual.read_bytes()
+                ).hexdigest(),
+            )
+
+        self.assertEqual("fail", verdict["status"])
+        self.assertEqual("official_manual_contract_drift", verdict["reason"])
+        self.assertFalse(trust_called)
+        self.assertFalse(verdict["trustConfirmed"])
+
+    def test_authoritative_manual_blocker_stops_before_auth_and_trust(self) -> None:
+        harness = load_harness()
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "commands.log"
+            executable = self.make_fake_host(
+                directory,
+                log,
+                authenticated=False,
+            )
+            manual, plugin = self.make_inputs(directory)
+            manual.write_bytes(
+                b"\n".join(harness.POST_TOOL_USE_UNSUPPORTED_MARKERS) + b"\n"
+            )
+            trust_called = False
+
+            def trust_hook(_environment: dict[str, str]) -> bool:
+                nonlocal trust_called
+                trust_called = True
+                return True
+
+            verdict = harness.run_discovery(
+                executable,
+                manual,
+                plugin,
+                trust_hook=trust_hook,
+                expected_manual_sha256=hashlib.sha256(
+                    manual.read_bytes()
+                ).hexdigest(),
+            )
+            commands = log.read_text(encoding="utf-8")
+
+        self.assertEqual("blocked", verdict["status"])
+        self.assertEqual("host_replacement_unavailable", verdict["reason"])
+        self.assertFalse(trust_called)
+        self.assertFalse(verdict["trustConfirmed"])
+        self.assertNotIn("login status", commands)
+
+    def test_unavailable_explicit_trust_writes_closed_blocker(self) -> None:
+        harness = load_harness()
+        runner = getattr(harness, "run_discovery", None)
+        self.assertIsNotNone(runner, "discovery runner is missing")
+        assert runner is not None
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "commands.log"
+            executable = self.make_fake_host(directory, log)
+            manual, plugin = self.make_inputs(directory)
+            manual.write_bytes(
+                b"\n".join(harness.POST_TOOL_USE_UNSUPPORTED_MARKERS) + b"\n"
+            )
+
+            verdict = runner(
+                executable,
+                manual,
+                plugin,
+                trust_hook=lambda _environment: False,
+                expected_manual_sha256=hashlib.sha256(
+                    manual.read_bytes()
+                ).hexdigest(),
+            )
+
+        self.assertEqual("blocked", verdict["status"])
+        self.assertEqual("host_replacement_unavailable", verdict["reason"])
+        self.assertFalse(verdict["trustConfirmed"])
+        self.assertEqual("complete", verdict["cleanupStatus"])
+        self.assertEqual("<host-path>", verdict["codexExecutable"])
+        self.assertEqual(
+            [
+                "schemaVersion",
+                "issue",
+                "status",
+                "reason",
+                "codexVersion",
+                "codexExecutable",
+                "manualSha256",
+                "pluginSha256",
+                "originalSha256",
+                "compactSha256",
+                "boundarySource",
+                "originalAbsentFromNextRequest",
+                "compactPresentInNextRequest",
+                "additionalParentModelTurns",
+                "hookInvocations",
+                "trustConfirmed",
+                "cleanupStatus",
+            ],
+            list(verdict),
+        )
+        serialized = json.dumps(verdict, sort_keys=True)
+        self.assertNotIn(directory, serialized)
+        self.assertNotIn("DEV246_ORIGINAL_SENTINEL", serialized)
+        self.assertNotIn("DEV246_COMPACT_SENTINEL", serialized)
+
+    def test_installed_plugin_must_match_captured_hash(self) -> None:
+        harness = load_harness()
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "commands.log"
+            executable = self.make_fake_host(directory, log)
+            manual, plugin = self.make_inputs(directory)
+            capture = harness.capture_preflight(executable, manual, plugin)
+            (plugin / ".codex-plugin" / "plugin.json").write_text(
+                '{"name":"changed-after-capture"}\n',
+                encoding="utf-8",
+                newline="\n",
+            )
+
+            with self.assertRaisesRegex(
+                harness.ProbeFailure,
+                "synthetic_plugin_drift",
+            ):
+                with harness.isolated_lifecycle(
+                    capture,
+                    plugin,
+                    trust_hook=lambda _environment: True,
+                ):
+                    pass
+
+    def test_main_writes_one_normalized_json_document(self) -> None:
+        harness = load_harness()
+        entrypoint = getattr(harness, "main", None)
+        self.assertIsNotNone(entrypoint, "CLI entrypoint is missing")
+        assert entrypoint is not None
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "commands.log"
+            executable = self.make_fake_host(directory, log)
+            manual, plugin = self.make_inputs(directory)
+            output = Path(directory) / "evidence.json"
+
+            exit_code = entrypoint(
+                [
+                    "--codex-executable",
+                    str(executable),
+                    "--manual",
+                    str(manual),
+                    "--plugin",
+                    str(plugin),
+                    "--output",
+                    str(output),
+                ],
+                trust_hook=lambda _environment: False,
+            )
+
+            evidence = json.loads(output.read_text(encoding="utf-8"))
+        self.assertEqual(1, exit_code)
+        self.assertEqual("fail", evidence["status"])
+        self.assertEqual("official_manual_hash_mismatch", evidence["reason"])
+
+    def test_atomic_writer_rejects_symlink_without_touching_target(self) -> None:
+        harness = load_harness()
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "target.json"
+            target.write_text("owner-data\n", encoding="utf-8")
+            output = Path(directory) / "evidence.json"
+            output.symlink_to(target)
+
+            with self.assertRaises(OSError):
+                harness._atomic_write_json(output, {"status": "blocked"})
+
+            self.assertEqual("owner-data\n", target.read_text(encoding="utf-8"))
+
+    def test_atomic_writer_preserves_existing_file_on_replace_failure(self) -> None:
+        harness = load_harness()
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            output.write_text("prior-evidence\n", encoding="utf-8")
+
+            with mock.patch.object(
+                harness.os,
+                "replace",
+                side_effect=OSError("synthetic replace failure"),
+            ):
+                with self.assertRaises(OSError):
+                    harness._atomic_write_json(output, {"status": "blocked"})
+
+            self.assertEqual(
+                "prior-evidence\n",
+                output.read_text(encoding="utf-8"),
+            )
+            self.assertEqual(
+                [],
+                list(Path(directory).glob(".evidence.json.*.tmp")),
+            )
 
 
 if __name__ == "__main__":

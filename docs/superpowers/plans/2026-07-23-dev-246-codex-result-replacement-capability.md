@@ -2,23 +2,42 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to execute this discovery plan task-by-task. Do not implement production runtime code from this issue.
 
-**Goal:** Prove or block, on the captured Codex CLI `0.144.5`, the exact trusted `PostToolUse` contract required to replace or suppress an original tool result before the next parent-model request.
+**Goal:** Prove or block, on the captured Codex CLI `0.145.0`, the exact trusted `PostToolUse` contract required to replace or suppress an original tool result before the next parent-model request.
 
 **Architecture:** Build a repository-only synthetic plugin and a deterministic probe harness. The harness freezes official-manual and plugin hashes, installs the plugin into an isolated `CODEX_HOME`, enables trust, emits unique synthetic sentinels, and inspects only an approved direct model-boundary representation. It serializes one closed `pass`, `blocked`, or `fail` verdict; model prose is never evidence.
 
-**Tech Stack:** Python 3 standard library, Codex CLI `0.144.5`, Codex plugin manifest and lifecycle hooks, `unittest`, SHA-256.
+**Tech Stack:** Python 3 standard library, Codex CLI `0.145.0`, Codex plugin manifest and lifecycle hooks, `unittest`, SHA-256.
+
+**Baseline refresh:** The user approved exact Codex CLI `0.145.0` on
+`2026-07-24`. Re-run every live DEV-246 host row on `0.145.0`; do not reuse
+historical `0.144.5` evidence as current proof.
 
 ## Global Constraints
 
 - Spec source: `docs/superpowers/specs/2026-07-23-codex-foundation-models-runtime-completion-design.md`.
 - DEV-142 is Done. DEV-246 blocks DEV-143 and every downstream runtime issue.
-- Capture one explicit Codex executable before the host row, require strict single-line version `0.144.5`, and recheck resolution/version afterward.
+- Capture one explicit Codex executable before the host row, require strict single-line version `0.145.0`, and recheck resolution/version afterward.
 - Use an isolated temporary `CODEX_HOME`, marketplace registration, plugin install/add, explicit hook trust, and a fresh task. `codex --plugin-dir` is prohibited.
 - The stimulus is synthetic and hash-bound. Do not use real user data, repository secrets, raw prompts, raw model responses, reasoning, private configuration, or live tool output.
 - A passing verdict requires direct evidence of the exact next parent-model request boundary: compact sentinel present exactly once, original sentinel absent, and zero additional parent-model turns.
 - Hook stdout, `systemMessage`, `continue`, `stopReason`, transcript files, or model acknowledgement alone cannot prove replacement.
 - If no approved host interface exposes the model-boundary representation, return `blocked` with reason `model_boundary_not_observable`.
 - If the exact host exposes feedback/control but not replacement/suppression, return `blocked` with reason `host_replacement_unavailable`.
+- If the frozen official `0.145.0` manual explicitly states that
+  `PostToolUse` `suppressOutput` is parsed but not implemented/supported, that
+  authoritative contract is a terminal `host_replacement_unavailable` blocker
+  before authentication, trust, or a live task. Do not request or copy a
+  credential to exercise a documented unsupported effect.
+- This runner is exact-version discovery, not a generic future-host probe. If
+  either frozen manual marker is absent, return
+  `fail:official_manual_contract_drift` and refresh the Sol plan before any
+  authentication, trust, or live task. Do not silently fall through to an
+  unplanned interface.
+- Accept the manual blocker only when the captured bytes match pinned official
+  manual SHA-256
+  `6cff0c5701d5a8b10ae497b5dda6ee70f478518d4fa029558168ee2bcc18918b`.
+  A different digest is `fail:official_manual_hash_mismatch`, even when the
+  supplied file contains the expected phrases.
 - Schema drift, executable drift, version drift, malformed output, sentinel leakage, or invariant failure is `fail`.
 - No production plugin, Swift bridge, workflow skill, reference, canonical manifest, generator, or DEV-142 contract is modified.
 
@@ -140,7 +159,7 @@ git commit -m "test: define Codex replacement capability probe"
 
 - [ ] **Step 1: Add failing preflight tests**
 
-Cover missing executable, non-runnable file, multiline version, path-bearing version, non-`0.144.5` version, manual missing/hash failure, and post-run resolution/version drift.
+Cover missing executable, non-runnable file, multiline version, path-bearing version, non-`0.145.0` version, manual missing/hash failure, and post-run resolution/version drift.
 
 - [ ] **Step 2: Run the focused tests and confirm RED**
 
@@ -225,7 +244,7 @@ git commit -m "test: classify Codex replacement evidence"
 
 - [ ] **Step 1: Capture the approved manual and explicit host**
 
-Resolve the current official Codex manual through the `openai-docs` workflow. Record only its SHA-256. Resolve the intended executable once, verify `0.144.5`, and pass its explicit path to the harness.
+Resolve the current official Codex manual through the `openai-docs` workflow. Record only its SHA-256. Resolve the intended executable once, verify `0.145.0`, and pass its explicit path to the harness.
 
 - [ ] **Step 2: Run the real isolated probe**
 
@@ -238,7 +257,10 @@ PYTHONDONTWRITEBYTECODE=1 python3 \
   --output docs/research/evidence/dev-246-codex-result-replacement.json
 ```
 
-Expected: one normalized `pass`, `blocked`, or `fail` result. `blocked` is the expected safe result when direct next-request visibility or replacement is unavailable; do not turn it into a pass.
+Expected on exact `0.145.0`: `blocked:host_replacement_unavailable` when both
+frozen manual markers are present. Missing markers are
+`fail:official_manual_contract_drift` and require a refreshed plan; do not turn
+either outcome into a pass.
 
 - [ ] **Step 3: Run privacy and structure scans**
 
@@ -271,4 +293,3 @@ Expected: generation check and tests PASS; diff check clean; status contains onl
 - [ ] **Step 6: Request Sol review and close conditionally**
 
 Sol verifies host identity, direct-boundary provenance, hashes, privacy, and verdict arithmetic. If `pass`, link the frozen contract and unblock DEV-143. If `blocked` or `fail`, keep DEV-143 blocked, record the truthful reason in Linear, and stop the runtime chain.
-

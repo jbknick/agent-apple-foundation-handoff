@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - Spec sources: `docs/superpowers/specs/2026-07-23-codex-foundation-models-runtime-completion-design.md` and `docs/superpowers/specs/2026-07-21-dev-143-local-bridge-design.md`.
-- Prerequisites: DEV-142 is Done at merged baseline `b6b2289`, and DEV-246 has recorded a passing exact Codex `0.144.5` model-visible result-replacement contract. Do not implement if DEV-246 is blocked or failed. Refresh this plan with Sol if the DEV-142 schema, reason codes, merged baseline, or DEV-246 capability boundary changes.
+- Prerequisites: DEV-142 is Done at merged baseline `b6b2289`, and DEV-246 has recorded a passing exact Codex `0.145.0` model-visible result-replacement contract. Do not implement if DEV-246 is blocked or failed. Refresh this plan with Sol if the DEV-142 schema, reason codes, merged baseline, or DEV-246 capability boundary changes.
 - Exact identities are `schemaVersion = 1`, `policyVersion = diagnostic-condensation-v1`, `action = condense_diagnostic_output`, and `resultType = diagnostic_condensation`.
 - Input is 8,192–65,536 canonical UTF-8 bytes; applied output is at most 4,096 bytes and saves at least 4,096 bytes.
 - Apple response budget is at most 1,024 tokens and total occupancy is at most 75 percent of `contextSize`.
