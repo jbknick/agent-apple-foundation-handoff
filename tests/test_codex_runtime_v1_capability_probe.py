@@ -1,6 +1,8 @@
 import hashlib
 import importlib.util
 import json
+import shutil
+import subprocess
 import unittest
 from copy import deepcopy
 from pathlib import Path
@@ -13,6 +15,11 @@ ADAPTER = (
     / "hooks/codex/probe.py"
 )
 CONTRACT = ROOT / "fixtures/dev-142/runtime_contract.py"
+SWIFT_SOURCE = (
+    ROOT
+    / "fixtures/runtime-v1-capability/synthetic-plugin"
+    / "runtime/DiagnosticCondenser.swift"
+)
 
 
 def load_module(name: str, path: Path):
@@ -311,3 +318,62 @@ class AdapterTests(unittest.TestCase):
             "RUNTIME_V1_ORIGINAL_SENTINEL",
             json.dumps(observed, sort_keys=True),
         )
+
+
+class SwiftBridgeTests(unittest.TestCase):
+    def test_source_uses_one_local_structured_response(self):
+        source = SWIFT_SOURCE.read_text(encoding="utf-8")
+        self.assertEqual(source.count("try await session.respond("), 1)
+        self.assertIn("SystemLanguageModel.default", source)
+        self.assertIn("tools: []", source)
+        self.assertIn("maximumResponseTokens: 1024", source)
+        self.assertIn("tokenCount(for: instructions)", source)
+        self.assertIn("tokenCount(for: prompt)", source)
+        self.assertIn(
+            "tokenCount(\n"
+            "            for: DiagnosticCondensation.generationSchema",
+            source,
+        )
+        self.assertNotIn("Transcript(", source)
+        self.assertNotIn("expectedCondensation", source)
+        self.assertNotIn("http://", source)
+        self.assertNotIn("https://", source)
+
+    def test_source_typechecks_against_sdk_26_5(self):
+        xcrun = shutil.which("xcrun")
+        swiftc = shutil.which("swiftc")
+        if xcrun is None or swiftc is None:
+            self.skipTest("blocked/missing_swift_toolchain")
+        sdk_version = subprocess.run(
+            [xcrun, "--sdk", "macosx", "--show-sdk-version"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+        if sdk_version.returncode != 0 or sdk_version.stdout != "26.5\n":
+            self.skipTest("blocked/sdk_26_5_unavailable")
+        sdk_path = subprocess.run(
+            [xcrun, "--sdk", "macosx", "--show-sdk-path"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
+        ).stdout.strip()
+        completed = subprocess.run(
+            [
+                swiftc,
+                "-typecheck",
+                "-parse-as-library",
+                "-target",
+                "arm64-apple-macos26.4",
+                "-sdk",
+                sdk_path,
+                str(SWIFT_SOURCE),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
