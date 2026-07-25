@@ -3,6 +3,7 @@ import importlib.util
 import json
 import shutil
 import subprocess
+import tempfile
 import unittest
 from copy import deepcopy
 from pathlib import Path
@@ -20,6 +21,7 @@ SWIFT_SOURCE = (
     / "fixtures/runtime-v1-capability/synthetic-plugin"
     / "runtime/DiagnosticCondenser.swift"
 )
+HARNESS = ROOT / "tests/e2e/codex_runtime_v1_capability_probe.py"
 
 
 def load_module(name: str, path: Path):
@@ -377,3 +379,138 @@ class SwiftBridgeTests(unittest.TestCase):
             timeout=60,
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
+
+
+def digest(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def hooks_list(current_hash: str, trust_status: str) -> dict[str, object]:
+    return {
+        "data": [
+            {
+                "cwd": str(ROOT),
+                "hooks": [
+                    {
+                        "key": (
+                            "runtime-v1-capability-probe@"
+                            "runtime-v1-capability:"
+                            "hooks/codex/hooks.json:post_tool_use:0:0"
+                        ),
+                        "matcher": "Bash",
+                        "handlerType": "command",
+                        "source": "plugin",
+                        "pluginId": (
+                            "runtime-v1-capability-probe@"
+                            "runtime-v1-capability"
+                        ),
+                        "enabled": True,
+                        "isManaged": False,
+                        "currentHash": current_hash,
+                        "trustStatus": trust_status,
+                    }
+                ],
+                "warnings": [],
+                "errors": [],
+            }
+        ]
+    }
+
+
+class FakeRpc:
+    def __init__(self, responses):
+        self.responses = iter(responses)
+        self.methods = []
+
+    def call(self, method, params):
+        self.methods.append(method)
+        return next(self.responses)
+
+
+class HarnessTests(unittest.TestCase):
+    def setUp(self):
+        self.assertTrue(HARNESS.is_file(), "harness not implemented")
+        self.harness = load_module("runtime_v1_harness", HARNESS)
+
+    def test_strict_codex_capture_requires_exact_0145(self):
+        with tempfile.TemporaryDirectory() as directory:
+            executable = Path(directory) / "codex"
+            executable.write_text(
+                "#!/bin/sh\nprintf 'codex-cli 0.145.0\\n'\n",
+                encoding="utf-8",
+            )
+            executable.chmod(0o700)
+            captured = self.harness.capture_codex(executable)
+            captured.recheck()
+            executable.write_text(
+                "#!/bin/sh\nprintf 'codex-cli 0.146.0\\n'\n",
+                encoding="utf-8",
+            )
+            executable.chmod(0o700)
+            with self.assertRaises(self.harness.ProbeFailure):
+                captured.recheck()
+
+    def test_trust_uses_list_hash_batch_write_and_readback(self):
+        rpc = FakeRpc(
+            [
+                hooks_list("sha256:reviewed", "untrusted"),
+                {},
+                hooks_list("sha256:reviewed", "trusted"),
+            ]
+        )
+        result = self.harness.trust_hook(
+            rpc,
+            cwd=ROOT,
+            plugin_id=(
+                "runtime-v1-capability-probe@runtime-v1-capability"
+            ),
+            approved_hash="sha256:reviewed",
+        )
+        self.assertTrue(result)
+        self.assertEqual(
+            rpc.methods,
+            ["hooks/list", "config/batchWrite", "hooks/list"],
+        )
+
+    def test_second_request_contains_replacement_not_original(self):
+        row = self.harness.classify_row(
+            row_id="direct_fake_applied",
+            bridge_kind="fake",
+            stimulus=b"original",
+            approved_stimulus_sha256=digest(b"original"),
+            hook_input_sha256=digest(b"original"),
+            replacement_sha256=digest(b"replacement"),
+            next_output=b"replacement",
+            baseline_provider_requests=2,
+            provider_requests=2,
+            command_executions=1,
+            hook_invocations=1,
+            apple_attempts=0,
+        )
+        self.assertTrue(row["originalAbsentFromNextRequest"])
+        self.assertTrue(row["replacementPresentInNextRequest"])
+        self.assertEqual(row["additionalParentModelTurns"], 0)
+
+    def test_no_output_preserves_normal_codex_envelope(self):
+        stimulus = b"RUNTIME_V1_ORIGINAL_SENTINEL\nsafe\n"
+        row = self.harness.classify_row(
+            row_id="bridge_crash",
+            bridge_kind="crash",
+            stimulus=stimulus,
+            approved_stimulus_sha256=digest(stimulus),
+            hook_input_sha256=digest(stimulus),
+            replacement_sha256=None,
+            next_output=(
+                b"Exit code: 0\n"
+                b"Wall time: 0.1 seconds\n"
+                b"Output:\n"
+                + stimulus
+            ),
+            baseline_provider_requests=2,
+            provider_requests=2,
+            command_executions=1,
+            hook_invocations=1,
+            apple_attempts=0,
+        )
+        self.assertTrue(row["originalPreserved"])
+        self.assertEqual(row["status"], "pass")
