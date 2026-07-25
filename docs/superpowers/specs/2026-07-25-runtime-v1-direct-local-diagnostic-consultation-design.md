@@ -5,9 +5,9 @@ Project:
 
 Decision date: `2026-07-25`
 
-Status: conversational design approved with `lgtm`; this written specification
-awaits user review. Implementation planning, runtime work, and Linear mutations
-remain unauthorized.
+Status: written specification approved with `lgtm` on `2026-07-25`.
+Successor capability-gate implementation planning is authorized. Runtime work
+and Linear mutations remain unauthorized.
 
 ## Executive decision
 
