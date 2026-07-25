@@ -1,6 +1,7 @@
 import hashlib
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -268,6 +269,10 @@ class AdapterTests(unittest.TestCase):
                     if row["event"] == "consultation_completed"
                 ]
                 self.assertEqual(completed[0]["appleAttempts"], 0)
+                self.assertEqual(
+                    completed[0]["reasonCode"],
+                    consultation["reasonCode"],
+                )
 
     def test_malformed_or_invalid_consultation_falls_back(self):
         output = self.eligible_output()
@@ -379,6 +384,22 @@ class SwiftBridgeTests(unittest.TestCase):
             timeout=60,
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
+
+    def test_harness_compiles_bridge_without_invoking_it(self):
+        harness = load_module("runtime_v1_compile_harness", HARNESS)
+        xcrun = shutil.which("xcrun")
+        swiftc = shutil.which("swiftc")
+        if xcrun is None or swiftc is None:
+            self.skipTest("blocked/missing_swift_toolchain")
+        with tempfile.TemporaryDirectory() as directory:
+            executable = harness.compile_swift_bridge(
+                xcrun=Path(xcrun),
+                swiftc=Path(swiftc),
+                source=SWIFT_SOURCE,
+                output=Path(directory) / "DiagnosticCondenser",
+            )
+            self.assertTrue(executable.is_file())
+            self.assertTrue(executable.stat().st_mode & 0o100)
 
 
 def digest(value: bytes) -> str:
@@ -514,3 +535,420 @@ class HarnessTests(unittest.TestCase):
         )
         self.assertTrue(row["originalPreserved"])
         self.assertEqual(row["status"], "pass")
+
+    def test_fake_bridge_modes_are_process_real(self):
+        python = Path(shutil.which("python3"))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for mode in ("valid", "malformed", "crash"):
+                with self.subTest(mode=mode):
+                    bridge = self.harness.materialize_fake_bridge(
+                        root / mode,
+                        python,
+                        mode,
+                    )
+                    completed = subprocess.run(
+                        [str(bridge)],
+                        input=b'{"diagnosticText":"safe"}',
+                        capture_output=True,
+                        check=False,
+                    )
+                    if mode == "crash":
+                        self.assertNotEqual(completed.returncode, 0)
+                    elif mode == "malformed":
+                        self.assertEqual(completed.stdout, b"{}\n")
+                    else:
+                        self.assertEqual(
+                            json.loads(completed.stdout)["status"],
+                            "applied",
+                        )
+
+    def test_failure_matrix_configuration_is_closed(self):
+        expected = {
+            "plugin_off_baseline": (False, "valid", "none", False, False),
+            "direct_fake_applied": (True, "valid", "none", False, False),
+            "composed_live_apple_applied": (
+                True,
+                "apple",
+                "none",
+                False,
+                False,
+            ),
+            "decline_unapproved_stimulus": (
+                True,
+                "valid",
+                "none",
+                True,
+                False,
+            ),
+            "bridge_malformed": (
+                True,
+                "malformed",
+                "none",
+                False,
+                False,
+            ),
+            "bridge_crash": (True, "crash", "none", False, False),
+            "adapter_crash": (
+                True,
+                "valid",
+                "adapter_crash",
+                False,
+                False,
+            ),
+            "hook_timeout": (
+                True,
+                "valid",
+                "hook_timeout",
+                False,
+                True,
+            ),
+        }
+        for row_id, values in expected.items():
+            with self.subTest(row_id=row_id):
+                config = self.harness.row_configuration(row_id)
+                self.assertEqual(
+                    (
+                        config["pluginEnabled"],
+                        config["bridgeMode"],
+                        config["faultMode"],
+                        config["unapprovedStimulus"],
+                        config["timeoutPlugin"],
+                    ),
+                    values,
+                )
+
+    def test_row_collection_stops_at_first_non_pass(self):
+        calls = []
+
+        def runner(row_id, baseline):
+            calls.append((row_id, baseline))
+            return {
+                "id": row_id,
+                "status": (
+                    "fail"
+                    if row_id == "direct_fake_applied"
+                    else "pass"
+                ),
+                "providerRequests": 2,
+            }
+
+        rows = self.harness.collect_rows("complete", runner)
+        self.assertEqual(
+            [row["id"] for row in rows],
+            ["plugin_off_baseline", "direct_fake_applied"],
+        )
+        self.assertEqual(calls, [
+            ("plugin_off_baseline", 2),
+            ("direct_fake_applied", 2),
+        ])
+
+    def test_workspace_variants_match_precomputed_stimuli(self):
+        python = Path(shutil.which("python3"))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for unapproved in (False, True):
+                workspace = root / str(unapproved)
+                self.harness.materialize_workspace(
+                    workspace,
+                    unapproved=unapproved,
+                )
+                environment = {
+                    **os.environ,
+                    "NO_COLOR": "1",
+                    "PYTHON_COLORS": "0",
+                    "RUNTIME_V1_COMMAND_COUNTER": str(
+                        root / f"counter-{unapproved}"
+                    ),
+                }
+                completed = subprocess.run(
+                    [
+                        str(python),
+                        "-m",
+                        "unittest",
+                        "-q",
+                        "diagnostic_fixture",
+                    ],
+                    cwd=workspace,
+                    env=environment,
+                    capture_output=True,
+                    check=False,
+                )
+                self.assertEqual(completed.returncode, 0)
+                self.assertEqual(
+                    completed.stdout + completed.stderr,
+                    self.harness.stimulus_bytes(
+                        unapproved=unapproved
+                    ),
+                )
+        self.assertEqual(
+            self.harness.stimulus_for_row(
+                "decline_unapproved_stimulus"
+            ),
+            self.harness.stimulus_bytes(unapproved=True),
+        )
+
+
+class GateNormalizerTests(unittest.TestCase):
+    APPROVED = "a" * 64
+
+    def setUp(self):
+        self.harness = load_module("runtime_v1_gate", HARNESS)
+
+    def row(self, row_id):
+        replacement = row_id in {
+            "direct_fake_applied",
+            "composed_live_apple_applied",
+        }
+        original = (
+            "b" * 64
+            if row_id == "decline_unapproved_stimulus"
+            else self.APPROVED
+        )
+        return {
+            "id": row_id,
+            "status": "pass",
+            "reason": (
+                "replacement_observed"
+                if replacement
+                else "untouched_original_observed"
+            ),
+            "bridgeKind": "synthetic",
+            "commandExecutions": 1,
+            "hookInvocations": (
+                0 if row_id == "plugin_off_baseline" else 1
+            ),
+            "appleAttempts": (
+                1 if row_id == "composed_live_apple_applied" else 0
+            ),
+            "appleValidResults": (
+                1 if row_id == "composed_live_apple_applied" else 0
+            ),
+            "providerRequests": 2,
+            "additionalParentModelTurns": 0,
+            "originalSha256": original,
+            "hookInputSha256": (
+                None if row_id == "plugin_off_baseline" else original
+            ),
+            "replacementSha256": "c" * 64 if replacement else None,
+            "nextRequestOutputSha256": "d" * 64,
+            "originalAbsentFromNextRequest": replacement,
+            "replacementPresentInNextRequest": replacement,
+            "originalPreserved": not replacement,
+            "replacementBytes": 512 if replacement else 0,
+            "spooled": False,
+            "cleanupStatus": "complete",
+        }
+
+    def rows(self):
+        return [
+            self.row(row_id)
+            for row_id in self.harness.REQUIRED_ROW_IDS
+        ]
+
+    def derive(
+        self,
+        rows=None,
+        *,
+        blocker_reason=None,
+        unsafe_findings=0,
+        cleanup_status="complete",
+    ):
+        return self.harness.derive_gate_status(
+            self.rows() if rows is None else rows,
+            approved_stimulus_sha256=self.APPROVED,
+            blocker_reason=blocker_reason,
+            unsafe_findings=unsafe_findings,
+            cleanup_status=cleanup_status,
+        )
+
+    def evidence(self):
+        return {
+            "schemaVersion": 1,
+            "gate": "runtime-v1-successor-capability",
+            "status": "pass",
+            "reason": "capability_proven",
+            "codexVersion": "0.145.0",
+            "codexExecutable": "<host-path>",
+            "sdkVersion": "26.5",
+            "swiftVersion": "6.3.3",
+            "pluginSha256": "e" * 64,
+            "hookCurrentHash": "sha256:" + ("f" * 64),
+            "hookTrustStatus": "trusted",
+            "approvedStimulusSha256": self.APPROVED,
+            "contextClassification": "C0",
+            "contextGrantStatus": "approved_exact_synthetic_hash",
+            "directToolMode": True,
+            "codeModeEnabled": False,
+            "rows": self.rows(),
+            "unsafeCommittedEvidenceFindings": 0,
+            "cleanupStatus": "complete",
+        }
+
+    def test_complete_gate_passes(self):
+        self.assertEqual(self.derive(), ("pass", "capability_proven"))
+
+    def test_declared_prerequisite_blockers_remain_blocked(self):
+        for reason in (
+            "missing_binary_or_version_mismatch",
+            "sdk_26_5_unavailable",
+            "apple_unavailable",
+            "locale_unsupported",
+            "hook_trust_unavailable",
+        ):
+            with self.subTest(reason=reason):
+                self.assertEqual(
+                    self.derive(blocker_reason=reason),
+                    ("blocked", reason),
+                )
+
+    def test_invariant_failures_are_not_normalized_away(self):
+        mutations = (
+            (
+                "replacement_invariant_failed",
+                "direct_fake_applied",
+                "originalAbsentFromNextRequest",
+                False,
+            ),
+            (
+                "untouched_original_invariant_failed",
+                "bridge_crash",
+                "originalPreserved",
+                False,
+            ),
+            (
+                "hook_input_invariant_failed",
+                "bridge_crash",
+                "hookInputSha256",
+                "0" * 64,
+            ),
+            (
+                "context_grant_invariant_failed",
+                "decline_unapproved_stimulus",
+                "originalSha256",
+                self.APPROVED,
+            ),
+            (
+                "command_execution_invariant_failed",
+                "bridge_crash",
+                "commandExecutions",
+                2,
+            ),
+            (
+                "apple_attempt_invariant_failed",
+                "composed_live_apple_applied",
+                "appleAttempts",
+                0,
+            ),
+            (
+                "parent_turn_invariant_failed",
+                "bridge_crash",
+                "additionalParentModelTurns",
+                1,
+            ),
+        )
+        for expected, row_id, key, value in mutations:
+            rows = self.rows()
+            row = next(row for row in rows if row["id"] == row_id)
+            row[key] = value
+            if key == "originalSha256":
+                row["hookInputSha256"] = value
+            with self.subTest(reason=expected):
+                self.assertEqual(self.derive(rows)[1], expected)
+
+    def test_safety_and_cleanup_precedence(self):
+        self.assertEqual(
+            self.derive(unsafe_findings=1),
+            ("fail", "evidence_safety_failed"),
+        )
+        self.assertEqual(
+            self.derive(cleanup_status="incomplete"),
+            ("blocked", "cleanup_incomplete"),
+        )
+
+    def test_unknown_evidence_or_row_key_is_rejected(self):
+        for target in ("evidence", "row"):
+            value = self.evidence()
+            if target == "evidence":
+                value["unknown"] = True
+            else:
+                value["rows"][0]["unknown"] = True
+            with self.subTest(target=target):
+                with self.assertRaises(self.harness.ProbeFailure):
+                    self.harness.validate_evidence(value)
+
+    def test_inspection_record_is_closed_and_normalized(self):
+        value = self.harness.inspection_record(
+            plugin_sha256="1" * 64,
+            hook_current_hash="sha256:" + ("2" * 64),
+            approved_stimulus_sha256="3" * 64,
+            cleanup_status="complete",
+        )
+        self.assertEqual(
+            set(value),
+            {
+                "pluginSha256",
+                "hookCurrentHash",
+                "approvedStimulusSha256",
+                "contextClassification",
+                "contextGrantStatus",
+                "codexVersion",
+                "codexExecutable",
+                "cleanupStatus",
+            },
+        )
+        self.assertNotIn(str(ROOT), json.dumps(value))
+
+    def test_outer_gate_prefix_and_evidence_are_closed(self):
+        self.assertEqual(
+            self.harness.phases_for("direct"),
+            (
+                "plugin_off_baseline",
+                "direct_fake_applied",
+            ),
+        )
+        self.assertEqual(
+            self.harness.phases_for("composed"),
+            self.harness.REQUIRED_ROW_IDS[:3],
+        )
+        value = self.harness.build_evidence(
+            rows=self.rows(),
+            approved_stimulus_sha256=self.APPROVED,
+            plugin_sha256="e" * 64,
+            hook_current_hash="sha256:" + ("f" * 64),
+            blocker_reason=None,
+            cleanup_status="complete",
+        )
+        self.assertEqual(value["status"], "pass")
+        self.assertEqual(set(value), set(self.harness.EVIDENCE_KEYS))
+
+    def test_outer_parser_requires_reviewed_gate_inputs(self):
+        options = self.harness._parse_arguments(
+            [
+                "--codex-executable",
+                "/bin/true",
+                "--python-executable",
+                "/bin/true",
+                "--xcrun-executable",
+                "/bin/true",
+                "--swiftc-executable",
+                "/bin/true",
+                "--plugin",
+                "plugin",
+                "--approved-plugin-sha256",
+                "a" * 64,
+                "--approved-hook-hash",
+                "sha256:" + ("b" * 64),
+                "--approved-stimulus-sha256",
+                "c" * 64,
+                "--through",
+                "direct",
+                "--output",
+                "evidence.json",
+            ]
+        )
+        self.assertEqual(options.through, "direct")
+        self.harness.validate_outer_options(options)
+        options.approved_hook_hash = None
+        with self.assertRaises(self.harness.ProbeFailure):
+            self.harness.validate_outer_options(options)

@@ -218,6 +218,7 @@ def evaluate(
                 "appleValidResults": int(
                     consultation["status"] == "applied"
                 ),
+                "reasonCode": consultation["reasonCode"],
             }
         )
 
