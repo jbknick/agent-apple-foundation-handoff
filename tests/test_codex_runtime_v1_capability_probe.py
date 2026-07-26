@@ -521,6 +521,22 @@ class AdapterTests(unittest.TestCase):
 
 
 class SwiftBridgeTests(unittest.TestCase):
+    def test_source_encodes_closed_optional_keys_as_null(self):
+        source = SWIFT_SOURCE.read_text(encoding="utf-8")
+        for key in (
+            "file",
+            "line",
+            "column",
+            "failedTestID",
+            "reasonCode",
+            "condensation",
+        ):
+            with self.subTest(key=key):
+                self.assertIn(
+                    f"try container.encodeNil(forKey: .{key})",
+                    source,
+                )
+
     def test_source_maps_sdk_generation_errors_without_error_content(self):
         source = SWIFT_SOURCE.read_text(encoding="utf-8")
         expected = {

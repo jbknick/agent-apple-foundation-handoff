@@ -14,6 +14,39 @@ struct GeneratedDiagnostic: Codable {
     let line: Int?
     let column: Int?
     let failedTestID: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, severity, code, message
+        case file, line, column, failedTestID
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(severity, forKey: .severity)
+        try container.encode(code, forKey: .code)
+        try container.encode(message, forKey: .message)
+        if let file {
+            try container.encode(file, forKey: .file)
+        } else {
+            try container.encodeNil(forKey: .file)
+        }
+        if let line {
+            try container.encode(line, forKey: .line)
+        } else {
+            try container.encodeNil(forKey: .line)
+        }
+        if let column {
+            try container.encode(column, forKey: .column)
+        } else {
+            try container.encodeNil(forKey: .column)
+        }
+        if let failedTestID {
+            try container.encode(failedTestID, forKey: .failedTestID)
+        } else {
+            try container.encodeNil(forKey: .failedTestID)
+        }
+    }
 }
 
 @available(macOS 26.4, *)
@@ -45,6 +78,31 @@ struct BridgeOutput: Encodable {
     let occupiedTokens: Int
     let appleAttempts: Int
     let condensation: DiagnosticCondensation?
+
+    enum CodingKeys: String, CodingKey {
+        case status, reasonCode, appleAvailable, localeSupported
+        case contextSize, occupiedTokens, appleAttempts, condensation
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(status, forKey: .status)
+        if let reasonCode {
+            try container.encode(reasonCode, forKey: .reasonCode)
+        } else {
+            try container.encodeNil(forKey: .reasonCode)
+        }
+        try container.encode(appleAvailable, forKey: .appleAvailable)
+        try container.encode(localeSupported, forKey: .localeSupported)
+        try container.encode(contextSize, forKey: .contextSize)
+        try container.encode(occupiedTokens, forKey: .occupiedTokens)
+        try container.encode(appleAttempts, forKey: .appleAttempts)
+        if let condensation {
+            try container.encode(condensation, forKey: .condensation)
+        } else {
+            try container.encodeNil(forKey: .condensation)
+        }
+    }
 }
 
 @available(macOS 26.4, *)
