@@ -5,8 +5,9 @@ Project:
 
 Decision date: `2026-07-26`
 
-Status: conversational design approved on `2026-07-26`; written
-specification awaits user review before any Linear mutation.
+Status: written specification approved on `2026-07-26`; Linear shell creation
+and issue-keyed planning are authorized. Runtime implementation remains
+unauthorized.
 
 ## Summary
 
@@ -33,12 +34,12 @@ merged, verified, complete in Linear, and followed by a plan-baseline refresh.
   `934285f38e67d0f956f0848d150d0afa33dbfb4e`.
 - The clean planning branch is
   `codex/runtime-v1-supported-handoff-design` at
-  `07e185e7cd3422d8aedcb0770491f20473c3e21e`, six commits ahead of
+  `bcb6c302ea6acdcd15e0b77eb455c4efa43bd97d`, seven commits ahead of
   `origin/main`.
 - The approved architecture is
   [Runtime V1 Direct Local Diagnostic Consultation](2026-07-25-runtime-v1-direct-local-diagnostic-consultation-design.md).
 - The prepared capability work is described by
-  [Runtime V1 Successor Capability Gate Implementation Plan](../plans/2026-07-25-runtime-v1-successor-capability-gate.md).
+  [DEV-253 Runtime V1 Successor Capability Gate Implementation Plan](../plans/2026-07-26-dev-253-runtime-v1-successor-capability-gate.md).
 - Live Linear on `2026-07-26` contains 20 project issues and no Runtime V1
   successor issue.
 - DEV-142 is Done and remains the immutable
