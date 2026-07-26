@@ -41,6 +41,33 @@ STATE_VERSION = "runtime-v1-direct-consultation-v1"
 TOOL_VERSION = "codex-cli-0.145.0"
 APPROVED_COMMAND = "python3 -m unittest -q diagnostic_fixture"
 APPROVED_CALL_ID = "call-runtime-v1"
+BRIDGE_PROCESS_OUTCOMES = {
+    "launch_unavailable",
+    "timed_out",
+    "nonzero_exit",
+    "stderr_nonempty",
+    "stdout_shape_invalid",
+    "json_invalid",
+    "result_shape_invalid",
+    "result_observed",
+}
+BRIDGE_REASON_CODES = {
+    "apple_unavailable",
+    "locale_unsupported",
+    "context_budget_exceeded",
+    "generation_preflight_unavailable",
+    "generation_assets_unavailable",
+    "generation_unsupported_language_or_locale",
+    "generation_rate_limited",
+    "generation_concurrent_requests",
+    "generation_exceeded_context_window_size",
+    "generation_guardrail_violation",
+    "generation_unsupported_guide",
+    "generation_decoding_failure",
+    "generation_refusal",
+    "generation_unknown_error",
+    "contract_invariant_failed",
+}
 
 
 def source_facts(exit_status: int) -> dict[str, Any]:
@@ -102,6 +129,36 @@ def complete_result(
         "outcome": consultation["status"],
         "reasonCode": consultation["reasonCode"],
     }
+
+
+def bridge_result_is_closed(value: object) -> bool:
+    if type(value) is not dict or set(value) != set(CONSULTATION_KEYS):
+        return False
+    if (
+        value["status"] not in {"applied", "declined", "fail"}
+        or type(value["appleAvailable"]) is not bool
+        or type(value["localeSupported"]) is not bool
+        or type(value["contextSize"]) is not int
+        or value["contextSize"] < 1
+        or type(value["occupiedTokens"]) is not int
+        or value["occupiedTokens"] < 0
+        or type(value["appleAttempts"]) is not int
+        or value["appleAttempts"] not in {0, 1}
+    ):
+        return False
+    if value["status"] == "applied":
+        return (
+            value["reasonCode"] is None
+            and value["appleAvailable"] is True
+            and value["localeSupported"] is True
+            and value["appleAttempts"] == 1
+            and type(value["condensation"]) is dict
+        )
+    return (
+        type(value["reasonCode"]) is str
+        and value["reasonCode"] in BRIDGE_REASON_CODES
+        and value["condensation"] is None
+    )
 
 
 def evaluate(
@@ -187,28 +244,7 @@ def evaluate(
 
         expected = source_facts(exit_status)
         consultation = dict(consult(copy.deepcopy(request)))
-        if set(consultation) != set(CONSULTATION_KEYS):
-            return None
-        if (
-            consultation["status"] not in {"applied", "declined", "fail"}
-            or type(consultation["appleAvailable"]) is not bool
-            or type(consultation["localeSupported"]) is not bool
-            or type(consultation["contextSize"]) is not int
-            or consultation["contextSize"] < 1
-            or type(consultation["occupiedTokens"]) is not int
-            or consultation["occupiedTokens"] < 0
-            or consultation["appleAttempts"] not in {0, 1}
-        ):
-            return None
-        if consultation["status"] == "applied":
-            if (
-                consultation["reasonCode"] is not None
-                or consultation["appleAvailable"] is not True
-                or consultation["localeSupported"] is not True
-                or consultation["appleAttempts"] != 1
-            ):
-                return None
-        elif type(consultation["reasonCode"]) is not str:
+        if not bridge_result_is_closed(consultation):
             return None
         observe(
             {
@@ -274,32 +310,68 @@ def run_bridge_process(
     *,
     executable: Path,
     timeout_seconds: float,
-) -> Mapping[str, Any]:
+    observe: Callable[[Mapping[str, Any]], None],
+) -> Mapping[str, Any] | None:
     encoded = json.dumps(
         {"diagnosticText": request["fields"][0]["value"]},
         ensure_ascii=False,
         separators=(",", ":"),
         sort_keys=True,
     ).encode("utf-8")
-    completed = subprocess.run(
-        [str(executable)],
-        input=encoded,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-        shell=False,
-        timeout=timeout_seconds,
+    call_id = request["callID"]
+
+    def finish(outcome: str) -> None:
+        observe(
+            {
+                "event": "bridge_process_completed",
+                "callID": call_id,
+                "bridgeProcessOutcome": outcome,
+            }
+        )
+
+    observe(
+        {
+            "event": "bridge_process_started",
+            "callID": call_id,
+        }
     )
+    try:
+        completed = subprocess.run(
+            [str(executable)],
+            input=encoded,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            shell=False,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        finish("timed_out")
+        return None
+    except OSError:
+        finish("launch_unavailable")
+        return None
+    if completed.returncode != 0:
+        finish("nonzero_exit")
+        return None
+    if completed.stderr != b"":
+        finish("stderr_nonempty")
+        return None
     if (
-        completed.returncode != 0
-        or completed.stderr != b""
-        or not completed.stdout.endswith(b"\n")
+        not completed.stdout.endswith(b"\n")
         or completed.stdout.count(b"\n") != 1
     ):
-        raise OSError("bridge_process_failed")
-    decoded = json.loads(completed.stdout)
-    if type(decoded) is not dict:
-        raise ValueError("bridge_output_invalid")
+        finish("stdout_shape_invalid")
+        return None
+    try:
+        decoded = json.loads(completed.stdout)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        finish("json_invalid")
+        return None
+    if not bridge_result_is_closed(decoded):
+        finish("result_shape_invalid")
+        return None
+    finish("result_observed")
     return decoded
 
 
@@ -371,6 +443,7 @@ def main() -> int:
                 request,
                 executable=bridge_executable,
                 timeout_seconds=30,
+                observe=observe,
             ),
             repo_root=approved_workspace,
             approved_stimulus_sha256=approved_stimulus_sha256,

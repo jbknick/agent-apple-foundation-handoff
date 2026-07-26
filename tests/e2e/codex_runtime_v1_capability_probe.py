@@ -28,6 +28,15 @@ PLUGIN_NAME = "runtime-v1-capability-probe"
 PLUGIN_ID = f"{PLUGIN_NAME}@{MARKETPLACE_NAME}"
 VERSION_LINE = b"codex-cli 0.145.0\n"
 APPROVED_COMMAND = "python3 -m unittest -q diagnostic_fixture"
+APPROVED_CALL_ID = "call-runtime-v1"
+DIRECT_TOOL_NAMES = (
+    "exec_command",
+    "multi_agent_v1",
+    "request_user_input",
+    "update_plan",
+    "view_image",
+    "write_stdin",
+)
 ROW_KEYS = (
     "id",
     "status",
@@ -35,6 +44,9 @@ ROW_KEYS = (
     "bridgeKind",
     "commandExecutions",
     "hookInvocations",
+    "bridgeStartObservations",
+    "bridgeCompletionObservations",
+    "bridgeProcessOutcome",
     "appleAttempts",
     "appleValidResults",
     "providerRequests",
@@ -61,14 +73,142 @@ REQUIRED_ROW_IDS = (
     "hook_timeout",
 )
 FALLBACK_ROW_IDS = REQUIRED_ROW_IDS[3:]
-ALLOWED_BLOCKERS = {
-    "missing_binary_or_version_mismatch",
-    "sdk_26_5_unavailable",
+GENERATION_BLOCKER_REASONS = {
+    "generation_assets_unavailable",
+    "generation_unsupported_language_or_locale",
+    "generation_rate_limited",
+    "generation_concurrent_requests",
+}
+GENERATION_FAILURE_REASONS = {
+    "generation_exceeded_context_window_size",
+    "generation_guardrail_violation",
+    "generation_unsupported_guide",
+    "generation_decoding_failure",
+    "generation_refusal",
+    "generation_unknown_error",
+}
+APPLE_PREFLIGHT_BLOCKER_REASONS = {
     "apple_unavailable",
     "locale_unsupported",
+    "generation_preflight_unavailable",
+}
+BRIDGE_PROCESS_OUTCOMES = {
+    "launch_unavailable",
+    "timed_out",
+    "nonzero_exit",
+    "stderr_nonempty",
+    "stdout_shape_invalid",
+    "json_invalid",
+    "result_shape_invalid",
+    "result_observed",
+}
+BRIDGE_OBSERVATION_OUTCOMES = {
+    "start_observation_missing",
+    "completion_observation_missing",
+    "observation_invalid",
+}
+BRIDGE_PROCESS_BLOCKERS = {"launch_unavailable", "timed_out"}
+OBSERVATION_REASON_CODES = (
+    APPLE_PREFLIGHT_BLOCKER_REASONS
+    | GENERATION_BLOCKER_REASONS
+    | GENERATION_FAILURE_REASONS
+    | {"context_budget_exceeded", "contract_invariant_failed"}
+)
+BRIDGE_EXPECTED_ROW_IDS = {
+    "direct_fake_applied",
+    "composed_live_apple_applied",
+    "bridge_malformed",
+    "bridge_crash",
+}
+FIXTURE_ZERO_ATTEMPT_ROW_IDS = set(REQUIRED_ROW_IDS) - {
+    "composed_live_apple_applied"
+}
+ROW_BRIDGE_KINDS = {
+    "plugin_off_baseline": "valid",
+    "direct_fake_applied": "valid",
+    "composed_live_apple_applied": "apple",
+    "decline_unapproved_stimulus": "valid",
+    "bridge_malformed": "malformed",
+    "bridge_crash": "crash",
+    "adapter_crash": "valid",
+    "hook_timeout": "valid",
+}
+ROW_PASS_PROCESS_OUTCOMES = {
+    "plugin_off_baseline": None,
+    "direct_fake_applied": "result_observed",
+    "composed_live_apple_applied": "result_observed",
+    "decline_unapproved_stimulus": None,
+    "bridge_malformed": "result_shape_invalid",
+    "bridge_crash": "nonzero_exit",
+    "adapter_crash": None,
+    "hook_timeout": None,
+}
+ROW_INVARIANT_FAILURES = {
+    "replacement_invariant_failed",
+    "untouched_original_invariant_failed",
+    "bridge_process_invariant_failed",
+}
+ROW_INVARIANT_FAILURE_IDS = {
+    "replacement_invariant_failed": {
+        "direct_fake_applied",
+        "composed_live_apple_applied",
+    },
+    "untouched_original_invariant_failed": set(REQUIRED_ROW_IDS)
+    - {
+        "direct_fake_applied",
+        "composed_live_apple_applied",
+    },
+    "bridge_process_invariant_failed": BRIDGE_EXPECTED_ROW_IDS,
+}
+ALLOWED_BLOCKERS = {
+    "historical_helpers_unavailable",
+    "missing_binary_or_version_mismatch",
+    "sdk_26_5_unavailable",
     "hook_trust_unavailable",
     "cleanup_incomplete",
-}
+} | (
+    APPLE_PREFLIGHT_BLOCKER_REASONS
+    | GENERATION_BLOCKER_REASONS
+    | BRIDGE_PROCESS_BLOCKERS
+)
+TERMINAL_FAILURE_REASONS = {
+    "app_server_early_exit",
+    "app_server_json_invalid",
+    "app_server_request_failed",
+    "app_server_response_id_invalid",
+    "app_server_result_invalid",
+    "app_server_start_failed",
+    "app_server_stderr",
+    "app_server_timeout",
+    "app_server_write_failed",
+    "blocker_reason_invalid",
+    "codex_process_nonzero",
+    "codex_stderr_nonempty",
+    "direct_tool_mode_unavailable",
+    "duplicate_row",
+    "evidence_digest_invalid",
+    "evidence_safety_failed",
+    "evidence_shape_invalid",
+    "evidence_value_invalid",
+    "fake_bridge_mode_invalid",
+    "gate_phase_invalid",
+    "generation_error_invariant_failed",
+    "generation_reason_invalid",
+    "host_resolution_or_version_drift",
+    "hook_timeout_variant_invalid",
+    "inspection_failed",
+    "inspection_value_invalid",
+    "marketplace_materialization_failed",
+    "observation_invalid",
+    "outer_gate_arguments_invalid",
+    "plugin_command_failed",
+    "provider_request_count_invalid",
+    "provider_request_invalid",
+    "row_id_invalid",
+    "stimulus_grant_invalid",
+    "stimulus_variant_invalid",
+    "synthetic_plugin_drift",
+} | GENERATION_FAILURE_REASONS
 EVIDENCE_KEYS = (
     "schemaVersion",
     "gate",
@@ -80,6 +220,8 @@ EVIDENCE_KEYS = (
     "swiftVersion",
     "pluginSha256",
     "hookCurrentHash",
+    "timeoutPluginSha256",
+    "timeoutHookCurrentHash",
     "hookTrustStatus",
     "approvedStimulusSha256",
     "contextClassification",
@@ -196,6 +338,60 @@ def capture_codex(path: Path) -> CapturedExecutable:
     return captured
 
 
+@dataclass(frozen=True)
+class CapturedPython:
+    locator: Path
+    resolved: Path
+    snapshot: tuple[int, ...]
+    version: bytes
+
+    def recheck(self) -> None:
+        _recheck_runnable(self.locator, self.resolved, self.snapshot)
+        if _python_version(self.resolved) != self.version:
+            raise ProbeFailure("host_resolution_or_version_drift")
+
+
+def _python_version(executable: Path) -> bytes:
+    try:
+        completed = subprocess.run(
+            [str(executable), "--version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            shell=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return b""
+    output = completed.stdout or completed.stderr
+    if (
+        completed.returncode != 0
+        or bool(completed.stdout) == bool(completed.stderr)
+        or re.fullmatch(rb"Python [0-9]+(?:\.[0-9]+)+\n", output)
+        is None
+    ):
+        return b""
+    return output
+
+
+def capture_python(path: Path) -> CapturedPython:
+    resolved, snapshot = _capture_runnable(path)
+    version = _python_version(resolved)
+    if not version:
+        raise ProbeBlocked("missing_binary_or_version_mismatch")
+    captured = CapturedPython(path, resolved, snapshot, version)
+    captured.recheck()
+    return captured
+
+
+def run_with_python_bracket(captured: CapturedPython, operation):
+    captured.recheck()
+    try:
+        return operation()
+    finally:
+        captured.recheck()
+
+
 def _hook_from_list(
     value: Mapping[str, Any],
     *,
@@ -281,6 +477,294 @@ def trust_hook(
     return True
 
 
+_COMPLETED_EXEC_ENVELOPE_HEADER = re.compile(
+    rb"Chunk ID: [0-9a-f]+\n"
+    rb"Wall time: (?:0|[1-9][0-9]*)\.[0-9]+ seconds\n"
+    rb"Process exited with code 0\n"
+    rb"Original token count: (?:0|[1-9][0-9]*)\n"
+    rb"Output:\n"
+)
+
+
+def preserves_untouched_original(
+    output: bytes,
+    original: bytes,
+) -> bool:
+    header = _COMPLETED_EXEC_ENVELOPE_HEADER.match(output)
+    return header is not None and output[header.end() :] == original
+
+
+def generation_error_gate_result(reason: str) -> str:
+    if reason in GENERATION_BLOCKER_REASONS:
+        return "blocked"
+    if reason in GENERATION_FAILURE_REASONS:
+        return "fail"
+    raise ProbeFailure("generation_reason_invalid")
+
+
+def observations_are_closed(
+    observations: list[Mapping[str, object]],
+    *,
+    call_id: str,
+) -> bool:
+    event_keys = {
+        "hook_invoked": {"event", "callID", "hookInvocations"},
+        "original_observed": {
+            "event",
+            "callID",
+            "originalSha256",
+        },
+        "bridge_process_started": {"event", "callID"},
+        "bridge_process_completed": {
+            "event",
+            "callID",
+            "bridgeProcessOutcome",
+        },
+        "consultation_completed": {
+            "event",
+            "callID",
+            "appleAttempts",
+            "appleValidResults",
+            "reasonCode",
+        },
+        "replacement_emitted": {
+            "event",
+            "callID",
+            "replacementSha256",
+            "replacementBytes",
+            "appleAttempts",
+        },
+    }
+    seen: dict[str, Mapping[str, object]] = {}
+    positions: dict[str, int] = {}
+    for position, value in enumerate(observations):
+        if type(value) is not dict:
+            return False
+        event = value.get("event")
+        if (
+            type(event) is not str
+            or event not in event_keys
+            or event in seen
+            or set(value) != event_keys[event]
+            or value.get("callID") != call_id
+        ):
+            return False
+        seen[event] = value
+        positions[event] = position
+        if event == "hook_invoked" and (
+            type(value["hookInvocations"]) is not int
+            or value["hookInvocations"] != 1
+        ):
+            return False
+        if event == "original_observed" and not _digest(
+            value["originalSha256"]
+        ):
+            return False
+        if event == "bridge_process_completed" and (
+            type(value["bridgeProcessOutcome"]) is not str
+            or value["bridgeProcessOutcome"]
+            not in BRIDGE_PROCESS_OUTCOMES
+        ):
+            return False
+        if event == "consultation_completed":
+            attempts = value["appleAttempts"]
+            valid = value["appleValidResults"]
+            reason = value["reasonCode"]
+            if (
+                type(attempts) is not int
+                or attempts not in {0, 1}
+                or type(valid) is not int
+                or valid not in {0, 1}
+                or (
+                    valid == 1
+                    and (attempts != 1 or reason is not None)
+                )
+                or (
+                    valid == 0
+                    and (
+                        type(reason) is not str
+                        or reason not in OBSERVATION_REASON_CODES
+                    )
+                )
+            ):
+                return False
+        if event == "replacement_emitted":
+            if (
+                not _digest(value["replacementSha256"])
+                or type(value["replacementBytes"]) is not int
+                or not 1 <= value["replacementBytes"] <= 4096
+                or type(value["appleAttempts"]) is not int
+                or value["appleAttempts"] not in {0, 1}
+            ):
+                return False
+    if not observations:
+        return True
+    if "hook_invoked" not in seen:
+        return False
+    if (
+        set(seen) - {"hook_invoked", "original_observed"}
+        and "original_observed" not in seen
+    ):
+        return False
+    ordered_pairs = (
+        ("hook_invoked", "original_observed"),
+        ("original_observed", "bridge_process_started"),
+        ("bridge_process_started", "bridge_process_completed"),
+        ("bridge_process_completed", "consultation_completed"),
+        ("consultation_completed", "replacement_emitted"),
+    )
+    if any(
+        later in seen
+        and earlier in seen
+        and positions[earlier] >= positions[later]
+        for earlier, later in ordered_pairs
+    ):
+        return False
+    consultation = seen.get("consultation_completed")
+    completion = seen.get("bridge_process_completed")
+    if consultation is not None and (
+        completion is None
+        or completion["bridgeProcessOutcome"] != "result_observed"
+    ):
+        return False
+    if "replacement_emitted" in seen and (
+        consultation is None
+        or consultation["appleValidResults"] != 1
+        or consultation["appleAttempts"]
+        != seen["replacement_emitted"]["appleAttempts"]
+    ):
+        return False
+    return True
+
+
+def summarize_bridge_observations(
+    observations: list[Mapping[str, object]],
+    *,
+    call_id: str,
+    bridge_expected: bool,
+) -> tuple[str | None, int, int]:
+    process = [
+        value
+        for value in observations
+        if value.get("event")
+        in {"bridge_process_started", "bridge_process_completed"}
+    ]
+    starts = [
+        value
+        for value in process
+        if value.get("event") == "bridge_process_started"
+    ]
+    completions = [
+        value
+        for value in process
+        if value.get("event") == "bridge_process_completed"
+    ]
+    start_count = int(bool(starts))
+    completion_count = int(bool(completions))
+    if not bridge_expected:
+        return (
+            ("observation_invalid" if process else None),
+            start_count,
+            completion_count,
+        )
+    if not starts:
+        return (
+            "start_observation_missing",
+            0,
+            completion_count,
+        )
+    if len(starts) == 1 and not completions:
+        return "completion_observation_missing", 1, 0
+    if len(starts) != 1 or len(completions) != 1:
+        return "observation_invalid", start_count, completion_count
+    start = starts[0]
+    completion = completions[0]
+    if (
+        set(start) != {"event", "callID"}
+        or start["callID"] != call_id
+        or set(completion)
+        != {"event", "callID", "bridgeProcessOutcome"}
+        or completion["callID"] != call_id
+        or completion["bridgeProcessOutcome"]
+        not in BRIDGE_PROCESS_OUTCOMES
+    ):
+        return "observation_invalid", 1, 1
+    return completion["bridgeProcessOutcome"], 1, 1
+
+
+def replacement_observation_matches(
+    observations: list[Mapping[str, object]],
+    *,
+    next_output: bytes,
+    bridge_process_outcome: str | None,
+) -> bool:
+    if not observations_are_closed(
+        observations,
+        call_id=APPROVED_CALL_ID,
+    ):
+        return False
+    replacements = [
+        value
+        for value in observations
+        if value["event"] == "replacement_emitted"
+    ]
+    consultations = [
+        value
+        for value in observations
+        if value["event"] == "consultation_completed"
+    ]
+    applied = (
+        bridge_process_outcome == "result_observed"
+        and len(consultations) == 1
+        and consultations[0]["appleValidResults"] == 1
+    )
+    if not applied:
+        return not replacements
+    if len(replacements) != 1:
+        return False
+    replacement = replacements[0]
+    return (
+        replacement["replacementBytes"] == len(next_output)
+        and replacement["replacementSha256"]
+        == hashlib.sha256(next_output).hexdigest()
+        and replacement["appleAttempts"]
+        == consultations[0]["appleAttempts"]
+    )
+
+
+def enforce_composed_terminal(
+    reasons: list[object],
+    row: Mapping[str, object],
+) -> None:
+    if not reasons:
+        return
+    if len(reasons) != 1 or type(reasons[0]) is not str:
+        raise ProbeFailure("generation_reason_invalid")
+    reason = reasons[0]
+    expected_attempts = (
+        0 if reason in APPLE_PREFLIGHT_BLOCKER_REASONS else 1
+    )
+    if (
+        row.get("status") != "pass"
+        or row.get("appleAttempts") != expected_attempts
+        or row.get("appleValidResults") != 0
+        or row.get("originalPreserved") is not True
+        or row.get("replacementPresentInNextRequest") is not False
+        or row.get("replacementBytes") != 0
+        or row.get("spooled") is not False
+        or row.get("commandExecutions") != 1
+        or row.get("hookInvocations") != 1
+        or row.get("providerRequests") != 2
+        or row.get("additionalParentModelTurns") != 0
+    ):
+        raise ProbeFailure("generation_error_invariant_failed")
+    if reason in APPLE_PREFLIGHT_BLOCKER_REASONS:
+        raise ProbeBlocked(reason)
+    if generation_error_gate_result(reason) == "blocked":
+        raise ProbeBlocked(reason)
+    raise ProbeFailure(reason)
+
+
 def classify_row(
     *,
     row_id: str,
@@ -294,8 +778,11 @@ def classify_row(
     provider_requests: int,
     command_executions: int,
     hook_invocations: int,
-    apple_attempts: int,
+    apple_attempts: int | None,
     apple_valid_results: int = 0,
+    bridge_start_observations: int = 0,
+    bridge_completion_observations: int = 0,
+    bridge_process_outcome: str | None = None,
     cleanup_status: str = "complete",
 ) -> dict[str, object]:
     if (
@@ -352,14 +839,10 @@ def classify_row(
     else:
         original_absent = False
         replacement_present = False
-        envelope = re.fullmatch(
-            rb"Exit code: 0\n"
-            rb"Wall time: (?:0|[1-9][0-9]*)(?:\.[0-9]+)? seconds\n"
-            rb"Output:\n"
-            + re.escape(stimulus),
+        original_preserved = preserves_untouched_original(
             next_output,
+            stimulus,
         )
-        original_preserved = envelope is not None
         replacement_bytes = 0
         spooled = False
         core_passed = (
@@ -384,6 +867,9 @@ def classify_row(
         "bridgeKind": bridge_kind,
         "commandExecutions": command_executions,
         "hookInvocations": hook_invocations,
+        "bridgeStartObservations": bridge_start_observations,
+        "bridgeCompletionObservations": bridge_completion_observations,
+        "bridgeProcessOutcome": bridge_process_outcome,
         "appleAttempts": apple_attempts,
         "appleValidResults": apple_valid_results,
         "providerRequests": provider_requests,
@@ -400,6 +886,100 @@ def classify_row(
         "cleanupStatus": cleanup_status,
     }
     return {key: values[key] for key in ROW_KEYS}
+
+
+def row_observability_is_valid(row: Mapping[str, object]) -> bool:
+    row_id = row.get("id")
+    outcome = row.get("bridgeProcessOutcome")
+    starts = row.get("bridgeStartObservations")
+    completions = row.get("bridgeCompletionObservations")
+    attempts = row.get("appleAttempts")
+    valid_results = row.get("appleValidResults")
+    if (
+        type(row_id) is not str
+        or row_id not in REQUIRED_ROW_IDS
+        or (outcome is not None and type(outcome) is not str)
+        or type(starts) is not int
+        or starts not in {0, 1}
+        or type(completions) is not int
+        or completions not in {0, 1}
+        or (
+            attempts is not None
+            and (type(attempts) is not int or attempts not in {0, 1})
+        )
+        or type(valid_results) is not int
+        or valid_results not in {0, 1}
+    ):
+        return False
+    if outcome is None:
+        return (
+            row_id not in BRIDGE_EXPECTED_ROW_IDS
+            and starts == completions == 0
+            and attempts == 0
+            and valid_results == 0
+        )
+    if outcome == "result_observed":
+        if starts != 1 or completions != 1 or attempts not in {0, 1}:
+            return False
+        if row_id == "composed_live_apple_applied":
+            return (
+                valid_results in {0, 1}
+                if row.get("status") == "pass"
+                else valid_results == 0
+            )
+        return (
+            row_id in FIXTURE_ZERO_ATTEMPT_ROW_IDS
+            and attempts == 0
+            and valid_results == 0
+            and row.get("status") == "pass"
+        )
+    if outcome in BRIDGE_PROCESS_OUTCOMES - {"result_observed"}:
+        if starts != 1 or completions != 1 or valid_results != 0:
+            return False
+    elif outcome == "start_observation_missing":
+        if starts != 0 or valid_results != 0:
+            return False
+    elif outcome == "completion_observation_missing":
+        if starts != 1 or completions != 0 or valid_results != 0:
+            return False
+    elif outcome == "observation_invalid":
+        if valid_results != 0:
+            return False
+    else:
+        return False
+    if outcome in BRIDGE_OBSERVATION_OUTCOMES:
+        return attempts is None and row.get("status") == "fail"
+    if row_id == "composed_live_apple_applied":
+        expected_status = (
+            "blocked" if outcome in BRIDGE_PROCESS_BLOCKERS else "fail"
+        )
+        return attempts is None and row.get("status") == expected_status
+    return (
+        row_id in FIXTURE_ZERO_ATTEMPT_ROW_IDS
+        and attempts == 0
+        and row.get("status") == "pass"
+    )
+
+
+def apply_live_process_outcome(row: dict[str, object]) -> None:
+    outcome = row["bridgeProcessOutcome"]
+    if outcome == "result_observed":
+        return
+    if (
+        outcome is None
+        or row["originalPreserved"] is not True
+        or row["replacementPresentInNextRequest"] is not False
+        or row["commandExecutions"] != 1
+        or row["providerRequests"] != 2
+        or row["additionalParentModelTurns"] != 0
+    ):
+        row["status"] = "fail"
+        row["reason"] = "bridge_process_invariant_failed"
+        return
+    row["status"] = (
+        "blocked" if outcome in BRIDGE_PROCESS_BLOCKERS else "fail"
+    )
+    row["reason"] = outcome
 
 
 def derive_gate_status(
@@ -420,6 +1000,9 @@ def derive_gate_status(
         return "fail", "command_execution_invariant_failed"
     if any(row["additionalParentModelTurns"] != 0 for row in rows):
         return "fail", "parent_turn_invariant_failed"
+    if any(not row_observability_is_valid(row) for row in rows):
+        return "fail", "bridge_observation_invariant_failed"
+    composed = by_id.get("composed_live_apple_applied")
     for row in rows:
         expected_hook_sha = (
             None
@@ -435,19 +1018,48 @@ def derive_gate_status(
             row["originalSha256"] == approved_stimulus_sha256
         ) is not expected_grant_match:
             return "fail", "context_grant_invariant_failed"
+    for row in rows:
+        if row["bridgeProcessOutcome"] in (
+            BRIDGE_PROCESS_OUTCOMES - {"result_observed"}
+        ) | BRIDGE_OBSERVATION_OUTCOMES and (
+            row["originalAbsentFromNextRequest"] is not False
+            or row["replacementPresentInNextRequest"] is not False
+            or row["replacementSha256"] is not None
+            or row["replacementBytes"] != 0
+            or row["spooled"] is not False
+        ):
+            return "fail", "replacement_invariant_failed"
+        if (
+            row["bridgeProcessOutcome"]
+            in (
+                BRIDGE_PROCESS_OUTCOMES - {"result_observed"}
+            )
+            | BRIDGE_OBSERVATION_OUTCOMES
+            and row["originalPreserved"] is not True
+        ):
+            return "fail", "untouched_original_invariant_failed"
     for row_id in (
         "direct_fake_applied",
         "composed_live_apple_applied",
     ):
         row = by_id.get(row_id)
-        if row is not None and (
+        if (
+            row is not None
+            and row["bridgeProcessOutcome"] == "result_observed"
+            and (
             row["originalAbsentFromNextRequest"] is not True
             or row["replacementPresentInNextRequest"] is not True
             or row["spooled"] is not False
             or row["status"] == "fail"
+            )
         ):
             return "fail", "replacement_invariant_failed"
-    composed = by_id.get("composed_live_apple_applied")
+    for row in rows:
+        if (
+            row["bridgeProcessOutcome"] is not None
+            and row["status"] in {"blocked", "fail"}
+        ):
+            return row["status"], row["reason"]
     if composed is not None and (
         composed["appleAttempts"] != 1
         or composed["appleValidResults"] != 1
@@ -481,15 +1093,159 @@ def _digest(value: object, *, prefixed: bool = False) -> bool:
     return type(value) is str and re.fullmatch(pattern, value) is not None
 
 
+def row_values_are_closed(
+    row: Mapping[str, object],
+    *,
+    approved_stimulus_sha256: str,
+) -> bool:
+    row_id = row.get("id")
+    status = row.get("status")
+    if (
+        row_id not in REQUIRED_ROW_IDS
+        or row.get("bridgeKind") != ROW_BRIDGE_KINDS[row_id]
+        or type(status) is not str
+        or status not in {"pass", "fail", "blocked"}
+        or type(row.get("reason")) is not str
+        or type(row.get("commandExecutions")) is not int
+        or row.get("commandExecutions") != 1
+        or type(row.get("hookInvocations")) is not int
+        or row.get("hookInvocations")
+        != (0 if row_id == "plugin_off_baseline" else 1)
+        or type(row.get("providerRequests")) is not int
+        or row.get("providerRequests") != 2
+        or type(row.get("additionalParentModelTurns")) is not int
+        or row.get("additionalParentModelTurns") != 0
+        or row.get("cleanupStatus") != "complete"
+        or type(row.get("originalAbsentFromNextRequest")) is not bool
+        or type(row.get("replacementPresentInNextRequest")) is not bool
+        or type(row.get("originalPreserved")) is not bool
+        or type(row.get("spooled")) is not bool
+        or type(row.get("replacementBytes")) is not int
+        or not _digest(row.get("originalSha256"))
+        or not _digest(row.get("nextRequestOutputSha256"))
+    ):
+        return False
+    original = row["originalSha256"]
+    expected_grant = row_id != "decline_unapproved_stimulus"
+    if (
+        (original == approved_stimulus_sha256) is not expected_grant
+        or row.get("hookInputSha256")
+        != (None if row_id == "plugin_off_baseline" else original)
+    ):
+        return False
+    replacement = row["replacementPresentInNextRequest"]
+    if replacement:
+        if (
+            row_id
+            not in {
+                "direct_fake_applied",
+                "composed_live_apple_applied",
+            }
+            or not _digest(row.get("replacementSha256"))
+            or row["originalAbsentFromNextRequest"] is not True
+            or row["originalPreserved"] is not False
+            or not 1 <= row["replacementBytes"] <= 4096
+            or row["spooled"] is not False
+        ):
+            return False
+    elif (
+        row.get("replacementSha256") is not None
+        or row["originalAbsentFromNextRequest"] is not False
+        or row["replacementBytes"] != 0
+        or row["spooled"] is not False
+    ):
+        return False
+    outcome = row["bridgeProcessOutcome"]
+    status = row["status"]
+    reason = row["reason"]
+    if status == "pass":
+        expected_replacement = row_id in {
+            "direct_fake_applied",
+            "composed_live_apple_applied",
+        }
+        return (
+            reason
+            == (
+                "replacement_observed"
+                if expected_replacement
+                else "untouched_original_observed"
+            )
+            and outcome == ROW_PASS_PROCESS_OUTCOMES[row_id]
+            and replacement is expected_replacement
+            and row["originalPreserved"] is (not expected_replacement)
+            and row["appleAttempts"]
+            == (1 if row_id == "composed_live_apple_applied" else 0)
+            and row["appleValidResults"]
+            == (1 if row_id == "composed_live_apple_applied" else 0)
+        )
+    if outcome in BRIDGE_OBSERVATION_OUTCOMES:
+        return (
+            status == "fail"
+            and reason == outcome
+            and row["appleAttempts"] is None
+            and row["appleValidResults"] == 0
+            and row["originalPreserved"] is True
+        )
+    if outcome in BRIDGE_PROCESS_OUTCOMES - {"result_observed"}:
+        return (
+            row_id in BRIDGE_EXPECTED_ROW_IDS
+            and status
+            == (
+                "blocked"
+                if outcome in BRIDGE_PROCESS_BLOCKERS
+                else "fail"
+            )
+            and reason == outcome
+            and row["appleAttempts"] is None
+            and row["appleValidResults"] == 0
+            and row["originalPreserved"] is True
+        )
+    if status != "fail" or reason not in ROW_INVARIANT_FAILURES:
+        return False
+    if row_id not in ROW_INVARIANT_FAILURE_IDS[reason]:
+        return False
+    if reason == "replacement_invariant_failed":
+        return outcome == "result_observed"
+    if reason == "bridge_process_invariant_failed":
+        return outcome in (
+            BRIDGE_PROCESS_OUTCOMES - {"result_observed"}
+        ) | BRIDGE_OBSERVATION_OUTCOMES
+    return outcome == ROW_PASS_PROCESS_OUTCOMES[row_id]
+
+
 def validate_evidence(value: Mapping[str, object]) -> dict[str, object]:
     if type(value) is not dict or set(value) != set(EVIDENCE_KEYS):
         raise ProbeFailure("evidence_shape_invalid")
     rows = value["rows"]
-    if type(rows) is not list:
+    if (
+        type(rows) is not list
+        or type(value.get("status")) is not str
+        or type(value.get("reason")) is not str
+    ):
         raise ProbeFailure("evidence_shape_invalid")
     for row in rows:
         if type(row) is not dict or set(row) != set(ROW_KEYS):
             raise ProbeFailure("evidence_shape_invalid")
+        if (
+            not row_observability_is_valid(row)
+            or not row_values_are_closed(
+                row,
+                approved_stimulus_sha256=value.get(
+                    "approvedStimulusSha256"
+                ),
+            )
+        ):
+            raise ProbeFailure("evidence_value_invalid")
+        if (
+            row["id"] == "composed_live_apple_applied"
+            and row["status"] == "pass"
+            and (
+                row["bridgeProcessOutcome"] != "result_observed"
+                or row["appleAttempts"] != 1
+                or row["appleValidResults"] != 1
+            )
+        ):
+            raise ProbeFailure("evidence_value_invalid")
         if (
             not _digest(row["originalSha256"])
             or not _digest(row["nextRequestOutputSha256"])
@@ -503,26 +1259,159 @@ def validate_evidence(value: Mapping[str, object]) -> dict[str, object]:
             )
         ):
             raise ProbeFailure("evidence_digest_invalid")
+    terminal = not rows and value["status"] in {"fail", "blocked"}
+    if rows:
+        expected_status, expected_reason = derive_gate_status(
+            rows,
+            approved_stimulus_sha256=value.get(
+                "approvedStimulusSha256"
+            ),
+            blocker_reason=None,
+            unsafe_findings=value.get(
+                "unsafeCommittedEvidenceFindings"
+            ),
+            cleanup_status=value.get("cleanupStatus"),
+        )
+        if (value.get("status"), value.get("reason")) != (
+            expected_status,
+            expected_reason,
+        ):
+            raise ProbeFailure("evidence_value_invalid")
+    elif not (
+        (
+            value.get("status") == "blocked"
+            and value.get("reason") in ALLOWED_BLOCKERS
+        )
+        or (
+            value.get("status") == "fail"
+            and value.get("reason") in TERMINAL_FAILURE_REASONS
+        )
+    ):
+        raise ProbeFailure("evidence_value_invalid")
     if (
-        value["schemaVersion"] != 1
+        type(value["schemaVersion"]) is not int
+        or value["schemaVersion"] != 1
+        or type(value["gate"]) is not str
         or value["gate"] != "runtime-v1-successor-capability"
         or value["status"] not in {"pass", "fail", "blocked"}
-        or type(value["reason"]) is not str
-        or value["codexVersion"] != "0.145.0"
+        or type(value["codexExecutable"]) is not str
         or value["codexExecutable"] != "<host-path>"
-        or value["sdkVersion"] != "26.5"
-        or value["swiftVersion"] != "6.3.3"
-        or not _digest(value["pluginSha256"])
-        or not _digest(value["hookCurrentHash"], prefixed=True)
-        or value["hookTrustStatus"] != "trusted"
-        or not _digest(value["approvedStimulusSha256"])
+        or (
+            terminal
+            and (
+                (
+                    value["codexVersion"] is not None
+                    and (
+                        type(value["codexVersion"]) is not str
+                        or value["codexVersion"] != "0.145.0"
+                    )
+                )
+                or (
+                    value["sdkVersion"] is not None
+                    and (
+                        type(value["sdkVersion"]) is not str
+                        or value["sdkVersion"] != "26.5"
+                    )
+                )
+                or (
+                    value["swiftVersion"] is not None
+                    and (
+                        type(value["swiftVersion"]) is not str
+                        or value["swiftVersion"] != "6.3.3"
+                    )
+                )
+                or type(value["hookTrustStatus"]) is not str
+                or value["hookTrustStatus"]
+                not in {"blocked", "trusted"}
+                or (
+                    value["directToolMode"] is not None
+                    and value["directToolMode"] is not True
+                )
+                or (
+                    value["codeModeEnabled"] is not None
+                    and value["codeModeEnabled"] is not False
+                )
+            )
+        )
+        or (
+            not terminal
+            and (
+                type(value["codexVersion"]) is not str
+                or value["codexVersion"] != "0.145.0"
+                or type(value["sdkVersion"]) is not str
+                or value["sdkVersion"] != "26.5"
+                or type(value["swiftVersion"]) is not str
+                or value["swiftVersion"] != "6.3.3"
+                or type(value["hookTrustStatus"]) is not str
+                or value["hookTrustStatus"] != "trusted"
+                or value["directToolMode"] is not True
+                or value["codeModeEnabled"] is not False
+            )
+        )
+        or (
+            value["pluginSha256"] is not None
+            and not _digest(value["pluginSha256"])
+        )
+        or (
+            value["hookCurrentHash"] is not None
+            and not _digest(value["hookCurrentHash"], prefixed=True)
+        )
+        or (
+            not terminal
+            and (
+                value["pluginSha256"] is None
+                or value["hookCurrentHash"] is None
+            )
+        )
+        or (
+            value["timeoutPluginSha256"] is not None
+            and not _digest(value["timeoutPluginSha256"])
+        )
+        or (
+            value["timeoutHookCurrentHash"] is not None
+            and not _digest(
+                value["timeoutHookCurrentHash"],
+                prefixed=True,
+            )
+        )
+        or (
+            (value["timeoutPluginSha256"] is None)
+            != (value["timeoutHookCurrentHash"] is None)
+        )
+        or (
+            len(rows) == len(REQUIRED_ROW_IDS)
+            and value["timeoutPluginSha256"] is None
+        )
+        or (
+            value["timeoutPluginSha256"] is not None
+            and value["timeoutPluginSha256"] == value["pluginSha256"]
+        )
+        or (
+            value["timeoutHookCurrentHash"] is not None
+            and value["timeoutHookCurrentHash"] == value["hookCurrentHash"]
+        )
+        or (
+            value["approvedStimulusSha256"] is not None
+            and not _digest(value["approvedStimulusSha256"])
+        )
+        or (
+            not terminal and value["approvedStimulusSha256"] is None
+        )
+        or type(value["contextClassification"]) is not str
         or value["contextClassification"] != "C0"
-        or value["contextGrantStatus"]
-        != "approved_exact_synthetic_hash"
-        or value["directToolMode"] is not True
-        or value["codeModeEnabled"] is not False
+        or type(value["contextGrantStatus"]) is not str
+        or value["contextGrantStatus"] not in {
+            "approved_exact_synthetic_hash",
+            "blocked",
+        }
+        or (
+            not terminal
+            and value["contextGrantStatus"]
+            != "approved_exact_synthetic_hash"
+        )
         or type(value["unsafeCommittedEvidenceFindings"]) is not int
         or value["unsafeCommittedEvidenceFindings"] < 0
+        or type(value["cleanupStatus"]) is not str
         or value["cleanupStatus"] not in {"complete", "incomplete"}
     ):
         raise ProbeFailure("evidence_value_invalid")
@@ -553,6 +1442,8 @@ def build_evidence(
     approved_stimulus_sha256: str,
     plugin_sha256: str,
     hook_current_hash: str,
+    timeout_plugin_sha256: str | None,
+    timeout_hook_current_hash: str | None,
     blocker_reason: str | None,
     cleanup_status: str,
 ) -> dict[str, object]:
@@ -574,6 +1465,8 @@ def build_evidence(
         "swiftVersion": "6.3.3",
         "pluginSha256": plugin_sha256,
         "hookCurrentHash": hook_current_hash,
+        "timeoutPluginSha256": timeout_plugin_sha256,
+        "timeoutHookCurrentHash": timeout_hook_current_hash,
         "hookTrustStatus": "trusted",
         "approvedStimulusSha256": approved_stimulus_sha256,
         "contextClassification": "C0",
@@ -585,6 +1478,68 @@ def build_evidence(
         "cleanupStatus": cleanup_status,
     }
     return validate_evidence(value)
+
+
+def terminal_evidence(
+    options,
+    status: str,
+    reason: str,
+    cleanup_status: str = "complete",
+) -> dict[str, object]:
+    def digest_or_none(value, *, prefixed=False):
+        return value if _digest(value, prefixed=prefixed) else None
+
+    plugin_sha256 = digest_or_none(options.approved_plugin_sha256)
+    hook_hash = digest_or_none(
+        options.approved_hook_hash,
+        prefixed=True,
+    )
+    timeout_plugin_sha256 = digest_or_none(
+        options.approved_timeout_plugin_sha256
+    )
+    timeout_hook_hash = digest_or_none(
+        options.approved_timeout_hook_hash,
+        prefixed=True,
+    )
+    if (
+        timeout_plugin_sha256 is None
+        or timeout_hook_hash is None
+        or timeout_plugin_sha256 == plugin_sha256
+        or timeout_hook_hash == hook_hash
+    ):
+        timeout_plugin_sha256 = None
+        timeout_hook_hash = None
+    return validate_evidence(
+        {
+            "schemaVersion": 1,
+            "gate": "runtime-v1-successor-capability",
+            "status": status,
+            "reason": reason,
+            "codexVersion": None,
+            "codexExecutable": "<host-path>",
+            "sdkVersion": None,
+            "swiftVersion": None,
+            "pluginSha256": plugin_sha256,
+            "hookCurrentHash": hook_hash,
+            "timeoutPluginSha256": timeout_plugin_sha256,
+            "timeoutHookCurrentHash": timeout_hook_hash,
+            "hookTrustStatus": "blocked",
+            "approvedStimulusSha256": digest_or_none(
+                options.approved_stimulus_sha256
+            ),
+            "contextClassification": "C0",
+            "contextGrantStatus": (
+                "approved_exact_synthetic_hash"
+                if _digest(options.approved_stimulus_sha256)
+                else "blocked"
+            ),
+            "directToolMode": None,
+            "codeModeEnabled": None,
+            "rows": [],
+            "unsafeCommittedEvidenceFindings": 0,
+            "cleanupStatus": cleanup_status,
+        }
+    )
 
 
 def sse(events: list[dict[str, object]]) -> bytes:
@@ -623,12 +1578,9 @@ def _provider_events(index: int) -> list[dict[str, object]]:
             "item": {
                 "type": "function_call",
                 "call_id": "call-runtime-v1",
-                "name": "shell_command",
+                "name": "exec_command",
                 "arguments": json.dumps(
-                    {
-                        "command": APPROVED_COMMAND,
-                        "timeout_ms": 30_000,
-                    },
+                    {"cmd": APPROVED_COMMAND},
                     separators=(",", ":"),
                 ),
             },
@@ -1064,7 +2016,7 @@ def inspect_trust(
     hook_timeout_seconds: int | None = None,
 ) -> dict[str, object]:
     codex = capture_codex(codex_executable)
-    python, python_snapshot = _capture_runnable(python_executable)
+    python = capture_python(python_executable)
     temporary_path = None
     with tempfile.TemporaryDirectory() as directory:
         temporary_path = Path(directory).resolve(strict=True)
@@ -1080,7 +2032,7 @@ def inspect_trust(
             codex,
             reviewed_plugin,
             temporary_path,
-            python,
+            python.resolved,
         )
         if tree_sha256(installed) != plugin_sha256:
             raise ProbeFailure("synthetic_plugin_drift")
@@ -1091,11 +2043,7 @@ def inspect_trust(
                 plugin_id=PLUGIN_ID,
             )
         codex.recheck()
-        _recheck_runnable(
-            python_executable,
-            python,
-            python_snapshot,
-        )
+        python.recheck()
         hook_current_hash = hook["currentHash"]
     if temporary_path is None or temporary_path.exists():
         raise ProbeBlocked("cleanup_incomplete")
@@ -1134,6 +2082,8 @@ def build_exec_arguments(
         "--disable",
         "code_mode_only",
         "-c",
+        'web_search="disabled"',
+        "-c",
         provider,
         "-c",
         'model_provider="runtime-v1-local"',
@@ -1165,19 +2115,52 @@ def _function_output(request: Mapping[str, Any]) -> bytes:
     return matching[0]["output"].encode("utf-8")
 
 
-def _require_direct_shell(request: Mapping[str, Any]) -> None:
-    tools = request.get("tools")
-    if type(tools) is not list:
+def require_direct_exec_requests(
+    requests: list[Mapping[str, Any]],
+) -> None:
+    if len(requests) != 2:
+        raise ProbeFailure("provider_request_invalid")
+    calls = []
+    for request in requests:
+        tools = request.get("tools")
+        items = request.get("input")
+        if (
+            type(tools) is not list
+            or len(tools) != len(DIRECT_TOOL_NAMES)
+            or {
+                tool.get("name")
+                for tool in tools
+                if type(tool) is dict
+                and type(tool.get("name")) is str
+            }
+            != set(DIRECT_TOOL_NAMES)
+            or type(items) is not list
+        ):
+            raise ProbeFailure("direct_tool_mode_unavailable")
+        calls.extend(
+            item
+            for item in items
+            if type(item) is dict
+            and item.get("type") == "function_call"
+        )
+    if len(calls) != 1 or not {
+        "type",
+        "call_id",
+        "name",
+        "arguments",
+    } <= set(calls[0]):
         raise ProbeFailure("direct_tool_mode_unavailable")
-    names = {
-        tool.get("name")
-        for tool in tools
-        if type(tool) is dict and type(tool.get("name")) is str
-    }
-    if "shell_command" not in names or any(
-        name in names for name in ("exec", "write_stdin")
+    try:
+        arguments = json.loads(calls[0]["arguments"])
+    except (TypeError, json.JSONDecodeError):
+        raise ProbeFailure("direct_tool_mode_unavailable") from None
+    if (
+        calls[0]["call_id"] != "call-runtime-v1"
+        or calls[0]["name"] != "exec_command"
+        or arguments != {"cmd": APPROVED_COMMAND}
     ):
         raise ProbeFailure("direct_tool_mode_unavailable")
+    _function_output(requests[1])
 
 
 def stimulus_bytes(*, unapproved: bool = False) -> bytes:
@@ -1219,6 +2202,8 @@ from pathlib import Path
 import os
 import sys
 import unittest
+
+sys.stderr = sys.stdout
 
 counter = Path(os.environ["RUNTIME_V1_COMMAND_COUNTER"])
 previous = int(counter.read_text() or "0") if counter.exists() else 0
@@ -1485,6 +2470,19 @@ def collect_rows(
     return rows
 
 
+def validate_installed_row_result(
+    returncode: int,
+    stderr: bytes,
+    provider_request_count: int,
+) -> None:
+    if returncode != 0:
+        raise ProbeFailure("codex_process_nonzero")
+    if stderr:
+        raise ProbeFailure("codex_stderr_nonempty")
+    if provider_request_count != 2:
+        raise ProbeFailure("provider_request_count_invalid")
+
+
 def run_row(
     *,
     codex: CapturedExecutable,
@@ -1551,41 +2549,68 @@ def run_row(
             environment["RUNTIME_V1_FAULT_MODE"] = config["faultMode"]
         with responses_server() as server:
             host, port = server.server_address
-            completed = subprocess.run(
-                [
-                    str(codex.resolved),
-                    *build_exec_arguments(
-                        f"http://{host}:{port}",
-                        workspace,
-                    ),
-                ],
-                env=environment,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                check=False,
-                shell=False,
-                timeout=90,
-            )
+            master_fd, slave_fd = os.openpty()
+            try:
+                completed = subprocess.run(
+                    [
+                        str(codex.resolved),
+                        *build_exec_arguments(
+                            f"http://{host}:{port}",
+                            workspace,
+                        ),
+                    ],
+                    env=environment,
+                    stdin=slave_fd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=False,
+                    shell=False,
+                    timeout=90,
+                )
+            finally:
+                try:
+                    os.close(slave_fd)
+                finally:
+                    os.close(master_fd)
         codex.recheck()
-        if (
-            completed.returncode != 0
-            or completed.stderr
-            or len(server.requests) != 2
-        ):
-            raise ProbeFailure("installed_row_failed")
-        _require_direct_shell(server.requests[0])
+        validate_installed_row_result(
+            completed.returncode,
+            completed.stderr,
+            len(server.requests),
+        )
+        require_direct_exec_requests(server.requests)
         next_output = _function_output(server.requests[1])
         if not counter.is_file() or counter.read_text() != "1":
             command_executions = -1
         else:
             command_executions = 1
         rows = []
+        observation_parse_invalid = False
         if observations.is_file():
-            for line in observations.read_text(encoding="utf-8").splitlines():
-                value = json.loads(line)
+            try:
+                observation_lines = observations.read_text(
+                    encoding="utf-8"
+                ).splitlines()
+            except UnicodeDecodeError:
+                observation_lines = []
+                observation_parse_invalid = True
+            for line in observation_lines:
+                try:
+                    value = json.loads(line)
+                except json.JSONDecodeError:
+                    observation_parse_invalid = True
+                    continue
                 if type(value) is not dict:
-                    raise ProbeFailure("observation_invalid")
+                    observation_parse_invalid = True
+                    continue
                 rows.append(value)
+        if not observations_are_closed(
+            rows,
+            call_id=APPROVED_CALL_ID,
+        ):
+            observation_parse_invalid = True
+        if observation_parse_invalid:
+            raise ProbeFailure("observation_invalid")
         original = stimulus_for_row(phase)
         hook_rows = [
             row for row in rows if row.get("event") == "original_observed"
@@ -1598,23 +2623,53 @@ def run_row(
             for row in rows
             if row.get("event") == "consultation_completed"
         ]
-        if phase == "composed_live_apple_applied":
-            reasons = [
-                row.get("reasonCode")
-                for row in consultation_rows
-                if row.get("reasonCode") is not None
-            ]
-            if reasons == ["apple_unavailable"]:
-                raise ProbeBlocked("apple_unavailable")
-            if reasons == ["locale_unsupported"]:
-                raise ProbeBlocked("locale_unsupported")
-        apple_attempts = sum(
-            row.get("appleAttempts", 0)
-            for row in consultation_rows
+        bridge_process_outcome, bridge_starts, bridge_completions = (
+            summarize_bridge_observations(
+                rows,
+                call_id=APPROVED_CALL_ID,
+                bridge_expected=phase in BRIDGE_EXPECTED_ROW_IDS,
+            )
         )
+        if (
+            bridge_process_outcome == "result_observed"
+        ) != (len(consultation_rows) == 1):
+            bridge_process_outcome = "observation_invalid"
+        if not replacement_observation_matches(
+            rows,
+            next_output=next_output,
+            bridge_process_outcome=bridge_process_outcome,
+        ):
+            raise ProbeFailure("observation_invalid")
+        reasons = [
+            row.get("reasonCode")
+            for row in consultation_rows
+            if row.get("reasonCode") is not None
+        ]
+        if (
+            bridge_process_outcome == "result_observed"
+            and len(consultation_rows) == 1
+            and type(consultation_rows[0].get("appleAttempts")) is int
+            and consultation_rows[0]["appleAttempts"] in {0, 1}
+        ):
+            apple_attempts = consultation_rows[0]["appleAttempts"]
+        elif bridge_process_outcome in BRIDGE_OBSERVATION_OUTCOMES:
+            apple_attempts = None
+        elif phase in FIXTURE_ZERO_ATTEMPT_ROW_IDS:
+            apple_attempts = 0
+        else:
+            apple_attempts = None
         if phase == "direct_fake_applied":
             apple_attempts = 0
-        return classify_row(
+        apple_valid_results = sum(
+            row.get("appleValidResults", 0)
+            for row in consultation_rows
+            if type(row.get("appleValidResults")) is int
+        )
+        if bridge_process_outcome != "result_observed":
+            apple_valid_results = 0
+        if phase == "direct_fake_applied":
+            apple_valid_results = 0
+        classified = classify_row(
             row_id=phase,
             bridge_kind=config["bridgeMode"],
             stimulus=original,
@@ -1641,11 +2696,19 @@ def run_row(
                 ]
             ),
             apple_attempts=apple_attempts,
-            apple_valid_results=sum(
-                row.get("appleValidResults", 0)
-                for row in consultation_rows
-            ),
+            apple_valid_results=apple_valid_results,
+            bridge_start_observations=bridge_starts,
+            bridge_completion_observations=bridge_completions,
+            bridge_process_outcome=bridge_process_outcome,
         )
+        if bridge_process_outcome in BRIDGE_OBSERVATION_OUTCOMES:
+            apply_live_process_outcome(classified)
+        elif phase == "composed_live_apple_applied":
+            if bridge_process_outcome == "result_observed":
+                enforce_composed_terminal(reasons, classified)
+            else:
+                apply_live_process_outcome(classified)
+        return classified
 
 
 def validate_outer_options(options) -> None:
@@ -1664,6 +2727,14 @@ def validate_outer_options(options) -> None:
             options.approved_timeout_hook_hash,
             prefixed=True,
         )
+        or (
+            options.approved_timeout_plugin_sha256
+            == options.approved_plugin_sha256
+        )
+        or (
+            options.approved_timeout_hook_hash
+            == options.approved_hook_hash
+        )
     ):
         raise ProbeFailure("outer_gate_arguments_invalid")
 
@@ -1671,9 +2742,7 @@ def validate_outer_options(options) -> None:
 def execute_outer_gate(options) -> dict[str, object]:
     validate_outer_options(options)
     codex = capture_codex(options.codex_executable)
-    python, python_snapshot = _capture_runnable(
-        options.python_executable
-    )
+    python = capture_python(options.python_executable)
     xcrun, xcrun_snapshot = _capture_runnable(
         options.xcrun_executable
     )
@@ -1692,7 +2761,7 @@ def execute_outer_gate(options) -> dict[str, object]:
         bridges = {
             mode: materialize_fake_bridge(
                 temporary_path / f"bridge-{mode}",
-                python,
+                python.resolved,
                 mode,
             )
             for mode in ("valid", "malformed", "crash")
@@ -1735,36 +2804,34 @@ def execute_outer_gate(options) -> dict[str, object]:
                 if config["timeoutPlugin"]
                 else options.approved_hook_hash
             )
-            return run_row(
-                codex=codex,
-                python=python,
-                plugin=selected_plugin,
-                approved_plugin_sha256=selected_plugin_sha256,
-                approved_hook_hash=selected_hook_hash,
-                approved_stimulus_sha256=(
-                    options.approved_stimulus_sha256
+            return run_with_python_bracket(
+                python,
+                lambda: run_row(
+                    codex=codex,
+                    python=python.resolved,
+                    plugin=selected_plugin,
+                    approved_plugin_sha256=selected_plugin_sha256,
+                    approved_hook_hash=selected_hook_hash,
+                    approved_stimulus_sha256=(
+                        options.approved_stimulus_sha256
+                    ),
+                    bridge_executable=bridges[
+                        config["bridgeMode"]
+                    ],
+                    phase=row_id,
+                    baseline_provider_requests=baseline,
                 ),
-                bridge_executable=bridges[config["bridgeMode"]],
-                phase=row_id,
-                baseline_provider_requests=baseline,
             )
 
         try:
             collect_rows(options.through, runner, rows)
         except ProbeBlocked as error:
-            if error.args[0] not in {
-                "apple_unavailable",
-                "locale_unsupported",
-            }:
+            if error.args[0] not in ALLOWED_BLOCKERS:
                 raise
             blocker_reason = error.args[0]
 
         codex.recheck()
-        _recheck_runnable(
-            options.python_executable,
-            python,
-            python_snapshot,
-        )
+        python.recheck()
         _recheck_runnable(
             options.xcrun_executable,
             xcrun,
@@ -1782,6 +2849,12 @@ def execute_outer_gate(options) -> dict[str, object]:
         approved_stimulus_sha256=options.approved_stimulus_sha256,
         plugin_sha256=plugin_sha256,
         hook_current_hash=options.approved_hook_hash,
+        timeout_plugin_sha256=(
+            options.approved_timeout_plugin_sha256
+        ),
+        timeout_hook_current_hash=(
+            options.approved_timeout_hook_hash
+        ),
         blocker_reason=blocker_reason,
         cleanup_status="complete",
     )
@@ -1830,10 +2903,29 @@ def main(arguments=None) -> int:
             len(rows) != len(expected)
             or any(row["status"] != "pass" for row in rows)
         )
-    except (ProbeBlocked, ProbeFailure) as error:
+    except ProbeBlocked as error:
+        value = terminal_evidence(options, "blocked", error.args[0])
+        atomic_write_json(options.output, value)
         print(error.args[0], file=sys.stderr)
         return 2
-    except (OSError, ValueError):
+    except ProbeFailure as error:
+        value = terminal_evidence(options, "fail", error.args[0])
+        atomic_write_json(options.output, value)
+        print(error.args[0], file=sys.stderr)
+        return 2
+    except OSError:
+        value = terminal_evidence(
+            options,
+            "blocked",
+            "cleanup_incomplete",
+            cleanup_status="incomplete",
+        )
+        atomic_write_json(options.output, value)
+        print("cleanup_incomplete", file=sys.stderr)
+        return 2
+    except ValueError:
+        value = terminal_evidence(options, "fail", "inspection_failed")
+        atomic_write_json(options.output, value)
         print("inspection_failed", file=sys.stderr)
         return 2
 

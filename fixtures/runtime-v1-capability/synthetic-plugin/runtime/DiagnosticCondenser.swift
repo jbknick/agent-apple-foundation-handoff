@@ -48,6 +48,34 @@ struct BridgeOutput: Encodable {
 }
 
 @available(macOS 26.4, *)
+func classifyGenerationError(
+    _ error: LanguageModelSession.GenerationError
+) -> (status: String, reasonCode: String) {
+    switch error {
+    case .assetsUnavailable:
+        return ("declined", "generation_assets_unavailable")
+    case .unsupportedLanguageOrLocale:
+        return ("declined", "generation_unsupported_language_or_locale")
+    case .rateLimited:
+        return ("declined", "generation_rate_limited")
+    case .concurrentRequests:
+        return ("declined", "generation_concurrent_requests")
+    case .exceededContextWindowSize:
+        return ("fail", "generation_exceeded_context_window_size")
+    case .guardrailViolation:
+        return ("fail", "generation_guardrail_violation")
+    case .unsupportedGuide:
+        return ("fail", "generation_unsupported_guide")
+    case .decodingFailure:
+        return ("fail", "generation_decoding_failure")
+    case .refusal:
+        return ("fail", "generation_refusal")
+    @unknown default:
+        return ("fail", "generation_unknown_error")
+    }
+}
+
+@available(macOS 26.4, *)
 func consult(_ input: BridgeInput) async -> BridgeOutput {
     let model = SystemLanguageModel.default
     let contextSize = model.contextSize
@@ -93,7 +121,7 @@ func consult(_ input: BridgeInput) async -> BridgeOutput {
     )
     let responseReserve = 1024
 
-    var appleAttempts = 0
+    let occupiedTokens: Int
     do {
         let instructionTokens =
             try await model.tokenCount(for: instructions)
@@ -101,27 +129,40 @@ func consult(_ input: BridgeInput) async -> BridgeOutput {
         let schemaTokens = try await model.tokenCount(
             for: DiagnosticCondensation.generationSchema
         )
-        let occupiedTokens =
+        occupiedTokens =
             instructionTokens + promptTokens + schemaTokens + responseReserve
-        guard occupiedTokens * 4 <= contextSize * 3 else {
-            return BridgeOutput(
-                status: "declined",
-                reasonCode: "context_budget_exceeded",
-                appleAvailable: true,
-                localeSupported: true,
-                contextSize: contextSize,
-                occupiedTokens: occupiedTokens,
-                appleAttempts: 0,
-                condensation: nil
-            )
-        }
-
-        let session = LanguageModelSession(
-            model: model,
-            tools: [],
-            instructions: instructions
+    } catch {
+        return BridgeOutput(
+            status: "declined",
+            reasonCode: "generation_preflight_unavailable",
+            appleAvailable: true,
+            localeSupported: true,
+            contextSize: contextSize,
+            occupiedTokens: 0,
+            appleAttempts: 0,
+            condensation: nil
         )
-        appleAttempts = 1
+    }
+    guard occupiedTokens * 4 <= contextSize * 3 else {
+        return BridgeOutput(
+            status: "declined",
+            reasonCode: "context_budget_exceeded",
+            appleAvailable: true,
+            localeSupported: true,
+            contextSize: contextSize,
+            occupiedTokens: occupiedTokens,
+            appleAttempts: 0,
+            condensation: nil
+        )
+    }
+
+    let session = LanguageModelSession(
+        model: model,
+        tools: [],
+        instructions: instructions
+    )
+    let appleAttempts = 1
+    do {
         let response = try await session.respond(
             to: prompt,
             generating: DiagnosticCondensation.self,
@@ -140,10 +181,23 @@ func consult(_ input: BridgeInput) async -> BridgeOutput {
             appleAttempts: appleAttempts,
             condensation: response.content
         )
+    } catch let generationError
+        as LanguageModelSession.GenerationError {
+        let classification = classifyGenerationError(generationError)
+        return BridgeOutput(
+            status: classification.status,
+            reasonCode: classification.reasonCode,
+            appleAvailable: true,
+            localeSupported: true,
+            contextSize: contextSize,
+            occupiedTokens: 0,
+            appleAttempts: appleAttempts,
+            condensation: nil
+        )
     } catch {
         return BridgeOutput(
             status: "fail",
-            reasonCode: "generation_declined",
+            reasonCode: "generation_unknown_error",
             appleAvailable: true,
             localeSupported: true,
             contextSize: contextSize,

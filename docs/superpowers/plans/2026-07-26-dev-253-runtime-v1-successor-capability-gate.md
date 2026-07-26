@@ -29,15 +29,192 @@ e856e19 test: add installed Codex boundary harness
 
 The implementation starts with the two missing timeout trust fields. Existing fixture, adapter, bridge, harness, and deterministic tests are inputs, not new production code.
 
+### Observed Codex `0.145.0` direct-tool interface refresh
+
+After explicit owner approval of all five trust identities, the first authorized
+direct row reached child exit `0`, empty stderr after the PTY correction, and
+exactly two provider requests. Both requests advertised these exact six named
+tools:
+`exec_command`, `multi_agent_v1`, `request_user_input`, `update_plan`,
+`view_image`, and `write_stdin`. A subsequent exact no-command structural probe
+also found a seventh nameless
+`{type: "web_search", external_web_access: true}` tool entry in both requests,
+even though it was not invoked. `code_mode` and `code_mode_only` were
+explicitly disabled. The reviewed normalized `exec_command` provider schema
+requires only `cmd`, and the current Codex manual requires top-level
+`web_search = "disabled"` to remove the web-search tool under
+`danger-full-access`.
+
+The row was correctly rejected before Apple because the prepared provider
+fixture still emitted `shell_command` and the prepared direct-mode assertion
+rejected `exec_command` and the advertised `write_stdin` companion. The
+structural probe is also rejected because the enabled web-search surface
+violates the binding no-network-fallback boundary. These are supported
+installed-interface corrections, not trust, provider, topology, or
+runtime-policy changes. Refresh the fixture to emit
+`exec_command({"cmd": APPROVED_COMMAND})`; require `exec_command` to be present,
+code-mode-only and web-search tools to be absent, and no `write_stdin` call or
+event. Mere advertisement of `write_stdin` is not an invocation. No capability
+row is accepted from either rejected observation.
+
+After those interface corrections, `direct_fake_applied` passed with
+`hookInputSha256 =
+dfb7f1221f87b5450ae6135e980c558b8cd45bacffd77df834a17c673fe4b0c0`,
+the approved raw stimulus SHA, an exact raw
+replacement-only second-request output, one command, one hook, two provider
+requests, and zero added parent turns. The plugin-off baseline was rejected
+solely because the prepared parser expected the obsolete `Exit code...`
+wrapper. Codex `0.145.0` now returns the supported completed
+`exec_command` envelope:
+
+```text
+Chunk ID: <lower-hex>
+Wall time: <decimal> seconds
+Process exited with code 0
+Original token count: <nonnegative integer>
+Output:
+<exact raw stimulus once>
+```
+
+This observation refreshes only fallback-envelope parsing. The dynamic chunk
+ID, wall time, and token count are transport metadata; they are not trust
+identities and do not enter committed evidence. The five approved identities
+remain unchanged, and the passing applied path continues to require the exact
+raw replacement SHA without this envelope. The isolated applied-row pass does
+not satisfy Task 2, authorize Apple, or constitute capability acceptance while
+the baseline remains rejected.
+
+After Task 2 passed both rows, the first composed harness preflight made zero
+Apple attempts and preserved the original. A separately bounded invocation
+using the same approved C0 stimulus then proved
+`SystemLanguageModel.default` available, locale supported, `contextSize =
+4096`, exactly one Apple attempt, zero condensations, process exit `0`, empty
+stderr, and `status = fail` with the opaque reason `generation_declined`. No
+retry occurred. This is a truthful failed Apple attempt, not a valid structured
+response or capability pass.
+
+SDK 26.5 exposes these
+`LanguageModelSession.GenerationError` cases. Replace the opaque catch result
+with this closed application-owned classification:
+
+| SDK case | Bridge status | Stable reason code | Gate result |
+|---|---|---|---|
+| `assetsUnavailable` | `declined` | `generation_assets_unavailable` | `blocked` |
+| `unsupportedLanguageOrLocale` | `declined` | `generation_unsupported_language_or_locale` | `blocked` |
+| `rateLimited` | `declined` | `generation_rate_limited` | `blocked` |
+| `concurrentRequests` | `declined` | `generation_concurrent_requests` | `blocked` |
+| `exceededContextWindowSize` after successful preflight | `fail` | `generation_exceeded_context_window_size` | `fail` |
+| `guardrailViolation` | `fail` | `generation_guardrail_violation` | `fail` |
+| `unsupportedGuide` | `fail` | `generation_unsupported_guide` | `fail` |
+| `decodingFailure` | `fail` | `generation_decoding_failure` | `fail` |
+| `refusal` | `fail` | `generation_refusal` | `fail` |
+| any non-`GenerationError` or future unknown error | `fail` | `generation_unknown_error` | `fail` |
+
+Pre-response model or service unavailability remains the existing
+`apple_unavailable` blocker. Any throw while computing instruction, prompt, or
+schema token counts or other pre-`respond` generation preparation maps only to
+bridge status `declined`, stable reason
+`generation_preflight_unavailable`, gate result `blocked`, and
+`appleAttempts = 0`. Never serialize or inspect
+`Context.debugDescription`, `LocalizedError` text, refusal transcript entries
+or explanations, Apple output, or the raw error.
+
+After the stream-order fixture correction formally passed, both direct rows
+passed. The next `composed_live_apple_applied` row preserved the exact original
+but recorded only `hook_invoked` and `original_observed`: it recorded no
+`consultation_completed` and no replacement. The outer harness reported
+`appleAttempts = 0`, but the missing bridge observation makes the real attempt
+state unknown; zero is therefore unsupported. The row truthfully failed with
+`replacement_invariant_failed`, two provider requests, zero added turns, no
+retry, and complete cleanup.
+
+Close this observability gap at the bridge-process boundary. For the live Apple
+bridge or any unexpected process outcome, record only one application-owned
+outcome class and bounded observation counters:
+
+| Bridge-process outcome | Gate result | Apple attempts |
+|---|---|---|
+| `result_observed` with a closed valid bridge result | result-dependent | trusted structured `0` or `1` |
+| `launch_unavailable` | `blocked` | `null` |
+| `timed_out` | `blocked` | `null` |
+| `nonzero_exit` | `fail` | `null` |
+| `stderr_nonempty` | `fail` | `null` |
+| `stdout_shape_invalid` | `fail` | `null` |
+| `json_invalid` | `fail` | `null` |
+| `result_shape_invalid` | `fail` | `null` |
+| `start_observation_missing` | `fail` | `null` |
+| `completion_observation_missing` | `fail` | `null` |
+| `observation_invalid` | `fail` | `null` |
+
+Use that precedence exactly: launch, timeout, nonzero, stderr, stdout shape,
+JSON, result shape, valid result. Record `bridgeStartObservations` and
+`bridgeCompletionObservations` as observation counters, each restricted to
+`0` or `1`; they do not claim an unobserved process or Apple action did not
+occur. Only a closed valid bridge result may supply an Apple-attempt count.
+Every other process outcome serializes `appleAttempts = null`, never `0`, and
+can never pass.
+
+Observation integrity precedes terminal process classification: a missing
+start, missing completion, duplicate, or contradictory observation uses its
+closed observation outcome above. Only exactly one start plus one completion
+may be classified by the launch-through-valid-result precedence.
+
+The controlled non-Apple failure-matrix bridges and pre-bridge fault injections
+are the sole exception: their reviewed fixture identity proves Apple is not
+reachable, so they may record `appleAttempts = 0` and pass only their exact
+fallback oracle. That fixture-only zero is not live Apple process evidence and
+cannot satisfy the composed capability row.
+
 ## Constraints
 
-- Direct tool mode only; code mode remains disabled.
+- Direct tool mode only: `exec_command` is present, code-mode-only tools are
+  absent, and `code_mode` plus `code_mode_only` remain explicitly disabled.
+  `write_stdin` may be advertised as the installed direct-tool companion but
+  must never be called or emitted for this completed-output row.
+- Every run passes `-c 'web_search="disabled"'`; both provider requests must
+  omit the `web_search` tool entry. Network fallback remains prohibited.
 - Capture and recheck exact executables before and after every host phase.
 - Use isolated marketplace registration and `plugin add`; never use `codex --plugin-dir` or a trust bypass.
 - The approved command executes once per row. Neither hook nor bridge can execute or retry it.
 - One plugin-on row permits at most one Apple attempt and no retry.
+- Isolate token-count, schema, and other generation preflight work in its own
+  catch. Any preflight throw emits only
+  `declined/generation_preflight_unavailable`, is `blocked`, reports zero
+  attempts and no condensation, and preserves the exact original without
+  inspecting the error.
+- Set `appleAttempts = 1` only after every preflight operation and the existing
+  context-budget guard succeed, immediately before the single `respond`.
+  Classified errors thrown by that `respond` retain exactly one attempt.
+- Classify a thrown Apple generation error only by its SDK enum case into the
+  closed stable reason-code table above. Missing assets, locale, service,
+  rate, or concurrency prerequisites are `blocked`; post-preflight context
+  overflow, guardrail, unsupported guide, decoding, refusal, and unknown
+  errors are `fail`.
+- Every classified Apple error emits no condensation and preserves the exact
+  original through the supported `exec_command` envelope. No case permits a
+  retry or a second Apple attempt.
+- Emit one stable bridge-start observation before process launch and one
+  stable terminal process-outcome observation on every closed launch, timeout,
+  exit, stderr, stdout-shape, JSON, or result-shape branch. Record only the
+  closed outcome enum and bounded observation counters.
+- If the start or terminal observation is missing, or the child does not
+  return a closed valid bridge result, Apple attempt state is unknown:
+  serialize `appleAttempts = null`, preserve the exact original, never retry,
+  and return the table's `blocked` or `fail` result. Never coerce silence to
+  zero or pass.
+- Never serialize bridge stderr/stdout, exception or error strings, exit
+  values, Apple content, paths, prompts, transcripts, or hashes derived from
+  any of them. Stable outcome classes and bounded counters are the complete
+  process evidence.
+- Never serialize Apple error descriptions, localized strings, refusal
+  transcripts/explanations, Apple output, or raw errors into bridge output,
+  observations, diagnostics, or committed evidence.
 - Successful replacement must be inline, unspooled, present in the second provider request, and replace the original.
-- Decline/failure emits no hook stdout and preserves Codex's untouched original.
+- Decline/failure emits no hook stdout. Parse the closed successful
+  `exec_command` envelope, validate its success metadata, and require the
+  remaining payload bytes to equal the untouched original exactly once.
+- Chunk ID, wall time, and original token count remain transient transport
+  metadata and never become trust identities or committed evidence fields.
 - Raw provider bodies, hook input, diagnostic content, Apple prompts/output, transcripts, configuration, credentials, private paths, traces, and compiled binaries stay transient.
 - Missing CLI, authentication, SDK, compiler, model, hardware, locale, trust, telemetry, or cleanup is `blocked`; an invariant violation is `fail`.
 - Do not modify the production plugin, DEV-142, DEV-246, or any canceled issue.
@@ -209,9 +386,87 @@ runtime_v1_timeout_hook_hash="$(
 ### Task 2: Pass the plugin-off baseline and direct fake replacement
 
 **Files:**
-- Modify: `tests/e2e/codex_runtime_v1_capability_probe.py` only if a deterministic harness defect is reproduced under RED/GREEN.
+- Modify: `tests/e2e/codex_runtime_v1_capability_probe.py` — refresh the
+  provider fixture, disable web search per run, refresh the direct-tool
+  assertion, and parse the observed completed `exec_command` envelope.
+- Modify: `tests/test_codex_runtime_v1_capability_probe.py` — cover the closed
+  `exec_command` call, absent web-search tool, forbidden `write_stdin`
+  invocation, and untouched payload extraction under RED/GREEN.
 
-- [ ] **Step 1: Run through the direct boundary**
+- [ ] **Step 1: Write the failing installed-interface and envelope regressions**
+
+Require both provider requests to advertise exactly:
+
+```text
+exec_command
+multi_agent_v1
+request_user_input
+update_plan
+view_image
+write_stdin
+```
+
+Require no additional named or nameless tool entry, including
+`{type: "web_search"}`.
+
+Require the first provider event to call `exec_command` with exactly:
+
+```json
+{"cmd":"python3 -m unittest -q diagnostic_fixture"}
+```
+
+Require no provider event or request item to call `write_stdin`; require
+code-mode-only tools and the web-search tool to be absent. The second request
+must contain the completed `exec_command` output for the original call ID.
+
+For baseline and no-output fallback rows, parse bytes through `Output:\n` as a
+closed ASCII header. Require a nonempty lowercase-hex chunk ID, a nonnegative
+decimal wall time matching `(0|[1-9][0-9]*)\.[0-9]+`, process exit code exactly
+`0`, and a canonical original token count matching `0|[1-9][0-9]*`. Require
+every line once and in order, then require all remaining bytes to equal the
+approved raw stimulus byte-for-byte. Reject
+unknown, missing, reordered, duplicated, malformed, nonzero-exit, trailing, or
+mutated content. Applied rows remain outside this parser and require the exact
+raw replacement SHA.
+
+- [ ] **Step 2: Run the focused test and verify RED**
+
+Run:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
+  tests.test_codex_runtime_v1_capability_probe.HarnessTests -v
+```
+
+Expected: FAIL until the prepared interface fixture/checker is refreshed, web
+search is explicitly disabled, and the obsolete `Exit code...` fallback parser
+accepts only the observed completed `exec_command` envelope.
+
+- [ ] **Step 3: Refresh only the direct provider fixture, assertion, and envelope parser**
+
+Emit one `exec_command` function call with only
+`cmd = APPROVED_COMMAND`. Add `-c 'web_search="disabled"'` to
+`build_exec_arguments`. Accept the exact six named direct tools while rejecting
+any additional named or nameless entry, including `web_search`; reject any
+`write_stdin` call/event, any code-mode-only tool, any additional command call,
+or any argument beyond `cmd`. Preserve the existing command counter,
+two-request, zero-added-turn, and completed-output checks. Replace only the
+obsolete fallback-wrapper parser with the closed header parse and exact
+remaining-payload comparison above; do not normalize, hash, persist, or trust
+the chunk ID, wall time, or token count.
+
+- [ ] **Step 4: Run focused GREEN**
+
+Run:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
+  tests.test_codex_runtime_v1_capability_probe.HarnessTests -v
+```
+
+Expected: PASS.
+
+- [ ] **Step 5: Run through the direct boundary**
 
 Run from the authorized outer session:
 
@@ -231,7 +486,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 \
   --output "$runtime_v1_partial_output"
 ```
 
-- [ ] **Step 2: Verify both rows**
+- [ ] **Step 6: Verify both rows**
 
 Require:
 
@@ -241,6 +496,7 @@ plugin_off_baseline:
   providerRequests = 2
   appleAttempts = 0
   additionalParentModelTurns = 0
+  originalPreserved = true
 
 direct_fake_applied:
   commandExecutions = 1
@@ -256,15 +512,163 @@ direct_fake_applied:
   cleanupStatus = complete
 ```
 
+For both rows, both provider requests must pass the refreshed direct-tool
+assertion: the exact observed advertised set, `exec_command` present,
+code-mode-only and web-search tools absent, and zero `write_stdin` calls/events.
+The run arguments must contain `-c 'web_search="disabled"'`. This refresh does
+not widen the closed normalized evidence schema.
+
+For `plugin_off_baseline`, `originalPreserved = true` means the closed
+`exec_command` success header is valid and its remaining payload equals the
+approved raw stimulus exactly once. For `direct_fake_applied`, the
+second-request output SHA must equal the transient raw replacement SHA with no
+transport envelope.
+
 Any missing prerequisite is `blocked`; any mismatch is `fail`. Stop before Apple unless both rows pass.
 
 ### Task 3: Pass one real composed Apple row
 
 **Files:**
-- Modify: `tests/e2e/codex_runtime_v1_capability_probe.py` only for a reproduced harness defect.
-- Modify: `fixtures/runtime-v1-capability/synthetic-plugin/runtime/DiagnosticCondenser.swift` only for a reproduced contract defect reviewed against installed SDK 26.5.
+- Modify: `fixtures/runtime-v1-capability/synthetic-plugin/runtime/DiagnosticCondenser.swift` — replace the opaque catch with the closed SDK 26.5 case classification.
+- Modify: `fixtures/runtime-v1-capability/synthetic-plugin/hooks/codex/probe.py` — emit only closed bridge-process outcomes and observation counters.
+- Modify: `tests/e2e/codex_runtime_v1_capability_probe.py` — normalize each stable generation/process reason and nullable attempt state truthfully.
+- Modify: `tests/test_codex_runtime_v1_capability_probe.py` — deterministic generation mapping, every process branch, fallback, attempt-budget, evidence-safety, and SDK compile checks.
+- Modify: `fixtures/runtime-v1-capability/README.md` — record only owner-approved refreshed plugin identities.
 
-- [ ] **Step 1: Run through the composed boundary**
+- [ ] **Step 1: Write the failing generation and bridge-process observation tests**
+
+Exercise every row in the closed classification table without invoking
+`SystemLanguageModel.default`. Require the exact bridge status and stable
+reason code, `appleAttempts = 1`, no condensation, no retry, and untouched
+original fallback. Require the harness to normalize the four prerequisite
+`respond` classes as `blocked` and every invariant/refusal/unknown class as
+`fail`.
+
+Separately inject a failure into each token-count/schema preflight operation.
+Every case must produce only
+`declined/generation_preflight_unavailable`, zero Apple attempts, zero valid
+results, no condensation, no retry, exact original fallback, and a normalized
+`blocked` gate result. Add an ordering assertion that the attempt counter
+changes from zero to one only after all preflight work and the context-budget
+guard complete.
+
+Add safety assertions that neither source nor structured output serializes or
+reads `debugDescription`, `errorDescription`, `failureReason`,
+`recoverySuggestion`, refusal transcripts or explanations, localized strings,
+Apple output, or a raw error. Preserve the existing one-`respond` source check.
+
+Deterministically exercise process launch failure, timeout, nonzero exit,
+nonempty stderr, invalid stdout framing, invalid JSON, non-object/invalid
+result shape, valid structured result, missing start observation, and missing
+completion observation. Require the exact outcome, precedence, start/completion
+observation counters, blocked/fail mapping, exact original fallback, and no
+retry for every branch.
+
+Allow `appleAttempts` to be `null` only for a non-passing row whose bridge
+outcome is not `result_observed`. A valid structured result may report only
+`0` or `1`; an applied pass requires `1`. A deterministic decline before any
+bridge invocation may retain proven `0`. Missing or incomplete observations
+must never normalize to zero or pass.
+
+For every branch, assert the transient observations and closed committed row
+schema exclude raw stderr/stdout, exception/error text, exit values, Apple
+content, paths, prompts, transcripts, and derived hashes. Unknown keys and
+unknown outcome classes fail validation.
+
+- [ ] **Step 2: Run focused RED**
+
+Run:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
+  tests.test_codex_runtime_v1_capability_probe.SwiftBridgeTests \
+  tests.test_codex_runtime_v1_capability_probe.HarnessTests -v
+```
+
+Expected: FAIL because one catch still conflates zero-attempt preflight errors
+with one-attempt `respond` errors, `generation_declined` remains opaque, and the
+harness does not yet classify the closed stable reason codes. The hook also
+lets bridge-process exceptions disappear into its broad fallback, so process
+outcome and Apple attempt state are unobservable.
+
+- [ ] **Step 3: Implement the minimum typed catch and gate mapping**
+
+Wrap all token-count, schema, and other generation preparation in a dedicated
+preflight catch that returns only
+`declined/generation_preflight_unavailable` with zero attempts. Do not inspect
+or classify that error. After successful preflight and the existing
+context-budget guard, set `appleAttempts = 1` immediately before the single
+`respond`.
+
+Wrap only `respond` in the typed classification catch. Catch
+`LanguageModelSession.GenerationError`, switch only on its SDK enum case,
+ignore every associated `Context` and `Refusal` value, and return only the
+table's stable status/reason pair with one attempt. An `@unknown default` and a
+separate untyped catch both return only `fail/generation_unknown_error` with
+one attempt. Do not stringify, reflect, log, interpolate, or otherwise inspect
+either error.
+
+Update the outer harness's closed blocker mapping to include
+`generation_preflight_unavailable` with zero attempts. A classified error after
+`respond` must report exactly one Apple attempt and zero valid results, emit no
+replacement, preserve the untouched original, and terminate without a retry.
+Keep the case mapping in the smallest deterministic unit-testable helper; do
+not add a logging, error-wrapper, or retry abstraction.
+
+At the hook boundary, emit the stable start observation immediately before the
+single process invocation. Convert each process result branch into exactly one
+terminal outcome observation using the table's precedence. Return the valid
+structured bridge result only for `result_observed`; every other outcome emits
+no replacement and preserves the original. The outer harness validates exactly
+one start and one terminal observation for an observed invocation and derives
+the normalized process outcome without reading raw process material.
+
+If no start observation exists after an eligible original, classify
+`start_observation_missing` regardless of any stray terminal observation. If
+one start exists without a terminal observation, classify
+`completion_observation_missing`. Duplicate or otherwise contradictory
+observations classify `observation_invalid`. All are `fail` with
+`appleAttempts = null`. Use the nullable attempt value for every other
+non-result process outcome. Do not use exception messages, raw streams, paths,
+or Apple content to derive any class.
+
+- [ ] **Step 4: Run deterministic GREEN and SDK compilation**
+
+Run:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
+  tests.test_codex_runtime_v1_capability_probe.SwiftBridgeTests \
+  tests.test_codex_runtime_v1_capability_probe.HarnessTests -v
+```
+
+Require all preflight and `respond` mapping, every bridge-process branch and
+precedence, observation counters, nullable-attempt semantics, evidence safety,
+fallback, attempt ordering/budget, and SDK 26.5 typecheck/compile assertions to
+pass without invoking Apple.
+
+- [ ] **Step 5: Reinspect trust and obtain refreshed plugin and hook approvals**
+
+After the Swift source, hook, harness, and tests are final, rerun Task 1 Steps
+5 and 6 against the exact current base and timeout trees. Require:
+
+```text
+base pluginSha256 = freshly computed from the final base tree
+timeout pluginSha256 = freshly computed from the final timeout tree
+base hookCurrentHash = freshly inspected from the installed final base tree
+timeout hookCurrentHash = freshly inspected from the installed final timeout tree
+approvedStimulusSha256 = dfb7f1221f87b5450ae6135e980c558b8cd45bacffd77df834a17c673fe4b0c0
+```
+
+Stop on stimulus drift or any inspection/cleanup failure. Present the reviewed
+Swift and hook diff plus all four freshly computed/inspected base and timeout
+plugin/hook identities to the owner. Obtain explicit approval of those exact
+four current values even if an inspected hook hash happens to equal its prior
+value. Then rebind all four runtime trust variables. Prior approvals do not
+authorize changed plugin or hook bytes. Do not invent, predict, or copy
+placeholder hashes, and do not run Apple before approval.
+
+- [ ] **Step 6: Run through the composed boundary**
 
 Run:
 
@@ -284,7 +688,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 \
   --output "$runtime_v1_composed_output"
 ```
 
-- [ ] **Step 2: Verify the real row**
+- [ ] **Step 7: Verify the real row**
 
 Require:
 
@@ -292,6 +696,9 @@ Require:
 commandExecutions = 1
 hookInvocations = 1
 hookInputSha256 = originalSha256
+bridgeStartObservations = 1
+bridgeCompletionObservations = 1
+bridgeProcessOutcome = result_observed
 appleAttempts = 1
 appleValidResults = 1
 providerRequests = 2
@@ -303,7 +710,21 @@ spooled = false
 cleanupStatus = complete
 ```
 
-The second-request output SHA must equal the adapter's transient replacement SHA. Missing model, hardware, SDK, or locale is `blocked`; an attempted invalid Apple result is `fail`.
+The second-request output SHA must equal the adapter's transient replacement
+SHA. Missing model, hardware, SDK, service/assets, locale, rate, or concurrency
+prerequisites are `blocked`; any thrown token-count/schema preflight emits
+`generation_preflight_unavailable`, is also `blocked`, and reports zero
+attempts. A post-preflight context-window failure, guardrail, unsupported
+guide, decoding failure, refusal, unknown error, or attempted invalid Apple
+result is `fail` with one attempt. Every classified non-applied result must
+preserve the exact original with no retry. Stop on either terminal result; only
+one schema-valid applied response passes Task 3.
+
+A non-result process outcome uses the closed process table and
+`appleAttempts = null`. Missing, duplicate, contradictory, or incomplete
+observations are invariant failures, never evidence of zero attempts. A
+blocked launch/timeout or any failed process/observation outcome preserves the
+exact original, performs no retry, and stops the composed gate.
 
 ### Task 4: Pass the untouched-original failure matrix
 
@@ -343,11 +764,24 @@ additionalParentModelTurns = 0
 hookInputSha256 = originalSha256
 originalPreserved = true
 replacementPresentInNextRequest = false
-appleAttempts <= 1
+appleAttempts = 0
 cleanupStatus = complete
 ```
 
-The unapproved stimulus must decline before Apple. Any mismatch is `fail:untouched_original_invariant_failed`.
+For every fallback row, `originalPreserved = true` requires the same closed
+successful `exec_command` header and an exact byte-for-byte comparison between
+all remaining payload bytes and that row's raw original stimulus. Dynamic
+chunk, timing, and token-count metadata are validated only as transport
+metadata and are neither compared across rows nor promoted into trust or
+committed evidence. The unapproved stimulus must decline before Apple. Any
+mismatch is `fail:untouched_original_invariant_failed`.
+
+These five rows use only reviewed non-Apple fake bridges or deterministic
+pre-bridge faults, so `appleAttempts = 0` is proven by fixture identity rather
+than inferred from missing observations. Record their expected closed
+bridge-process outcome and observation counters, and pass the row only when
+that expected fault plus the exact fallback oracle both match. Never reuse this
+fixture-only zero for `composed_live_apple_applied`.
 
 ### Task 5: Publish only normalized evidence and finish DEV-253
 
@@ -361,6 +795,20 @@ The unapproved stimulus must decline before Apple. Any mismatch is `fail:untouch
 - [ ] **Step 1: Validate the final closed evidence**
 
 Require exact top-level and row key sets, all five approved trust identities, SHA-256 forms, C0 classification/grant, normalized `<host-path>`, zero unsafe findings, and complete cleanup. Reject private paths, credentials, prompt/result/transcript keys, original sentinel text, raw provider bodies, hook input, diagnostics, and Apple output.
+
+The closed row schema includes only the stable bridge-process outcome,
+`bridgeStartObservations`, `bridgeCompletionObservations`, and nullable
+`appleAttempts` in addition to the existing normalized fields. Enforce the
+outcome/counter/nullability rules above. A final pass requires the composed row
+to have `result_observed`, one start, one completion, and one observed Apple
+attempt. Missing or invalid observations, or a non-result live process outcome,
+can never serialize zero attempts or pass.
+
+Reject raw stderr/stdout, exit values, exception/error/localized strings,
+refusal data, Apple content, private paths, prompts, transcripts, and any hash
+or diagnostic derived from them in both transient observation validation and
+committed evidence. Require deterministic schema-safety rejection tests for
+every forbidden key/value class.
 
 - [ ] **Step 2: Write the bounded interpretation**
 
@@ -384,11 +832,30 @@ git diff --check
 git status --short
 ```
 
-Expected: JSON valid, focused/full tests PASS except declared pre-existing skips, generator synchronized, no diff errors, and only DEV-253 paths changed.
+Expected: JSON valid, focused/full tests PASS except declared pre-existing
+skips, SDK 26.5 compile/typecheck PASS, every process branch and evidence-safety
+test PASS, generator synchronized, no diff errors, and only DEV-253 paths
+changed.
 
 - [ ] **Step 4: Run Sol/High gate review**
 
-Review all 13 approved capability assertions, all five trust identities, executable rechecks, direct/code mode, one command, one Apple attempt, DEV-142 validity, replacement SHA equality, original absence/preservation, parent turns, spooling, evidence safety, cleanup, and truthful blocker/failure precedence. Fix findings under RED/GREEN and rerun Step 3.
+Review all 13 approved capability assertions, all five trust identities,
+executable rechecks, the observed `exec_command` direct interface, absence of
+code-mode-only and web-search tools, explicit
+`web_search = "disabled"`, absence of `write_stdin` calls/events, one command,
+one Apple attempt, no retry, all SDK 26.5 generation-error mappings, blocked
+versus fail precedence, zero-attempt
+`generation_preflight_unavailable`, attempt-counter ordering before `respond`,
+one-attempt `respond` errors, absence of Apple/raw/refusal error content,
+every closed bridge-process branch and precedence, start/completion observation
+integrity, nullable unknown attempts, fixture-only proven zeroes, refreshed
+owner approval of all four current plugin/hook identities, unchanged stimulus
+readback, DEV-142 validity, exact raw replacement SHA, closed `exec_command`
+success-header parsing, exact untouched payload bytes, exclusion of dynamic
+envelope metadata from trust/evidence, original absence/preservation, parent
+turns, spooling, evidence safety, cleanup, no-network-fallback enforcement,
+and truthful blocker/failure precedence. Fix findings under RED/GREEN and
+rerun Step 3.
 
 - [ ] **Step 5: Commit planning-scope implementation output**
 
