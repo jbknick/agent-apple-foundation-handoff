@@ -860,6 +860,19 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Fetch immutable evidence commits
+        run: |
+          git fetch --no-tags --depth=1 origin \
+            5564ab3303afc79080e5f8bdbba934535e914322 \
+            2a111d96329506276741a86028019fab8572b0e8 \
+            75c9c8ca8d38bcfd05dc3d82264d1b8219253bc6 \
+            cdaa9bd5ce771c41d68603efa7835003ff46ee8c \
+            5d6046f87471d341ea93aad4689fb234b88d9cdd \
+            c0644b860032f2cd460586f91b14885c91d476f7 \
+            464dd11938acebbed055df1bdbf5032c0fadbdb6 \
+            ec2094ad9827488539c77a704b97882c69a4ee9e \
+            ba18d72e65b46939b1d494cf423f245cdd003231 \
+            35ac482a8e2a954525a24d7e6047d6732df41fbe
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
@@ -885,16 +898,18 @@ runner default may drift. The job has one read-only permission, persists no
 credential, installs no repository dependency, uses no secret, and is bounded
 to 20 minutes.
 
-The checkout fetches full history because evidence tests resolve immutable
-capture commits. The workflow selects Xcode 26.6 because the supported
-`macos-26` image binds it to Swift 6.3.3 while retaining macOS SDK 26.5, then
-verifies the exact SDK version before running the repository contract's
-authored write, check, and full test commands. `git diff --exit-code` after
-`--write` makes generated drift fail instead of silently repairing it, and
-`git diff --check` preserves the existing plan gate. The hosted runner does
-not replace the separately required exact Codex `0.145.0`, local SDK 26.5,
-trusted-hook, real Apple, evidence, or cleanup proof; any declared host skip
-remains a limitation, never capability evidence.
+The checkout fetches current-branch history, then explicitly fetches the exact
+closed set of immutable evidence commits because several reviewed captures are
+server-retained but no longer reachable from current remote refs. The workflow
+selects Xcode 26.6 because the supported `macos-26` image binds it to Swift
+6.3.3 while retaining macOS SDK 26.5, then verifies the exact SDK version
+before running the repository contract's authored write, check, and full test
+commands. `git diff --exit-code` after `--write` makes generated drift fail
+instead of silently repairing it, and `git diff --check` preserves the
+existing plan gate. The hosted runner does not replace the separately required
+exact Codex `0.145.0`, local SDK 26.5, trusted-hook, real Apple, evidence, or
+cleanup proof; any declared host skip remains a limitation, never capability
+evidence.
 
 - [ ] **Step 4: Run focused and full local gates**
 
@@ -938,11 +953,12 @@ envelope metadata from trust/evidence, original absence/preservation, parent
 turns, spooling, evidence safety, cleanup, no-network-fallback enforcement,
 and truthful blocker/failure precedence. Also review the CI workflow's exact
 path, two triggers, pinned runner/Python and action major versions, read-only
-permission, full-history checkout, disabled credential persistence, explicit
-Xcode 26.6 selection for Swift 6.3.3 plus SDK 26.5, timeout,
-generated-drift check, exact repository commands, and explicit separation
-from live capability and local SDK proof. Fix findings under RED/GREEN and
-rerun Step 4. After push, require a fresh exact-head CI readback before merge.
+permission, full-history checkout, disabled credential persistence, the exact
+closed immutable-evidence commit fetch set, explicit Xcode 26.6 selection for
+Swift 6.3.3 plus SDK 26.5, timeout, generated-drift check, exact repository
+commands, and explicit separation from live capability and local SDK proof.
+Fix findings under RED/GREEN and rerun Step 4. After push, require a fresh
+exact-head CI readback before merge.
 
 - [ ] **Step 6: Commit planning-scope implementation output**
 
