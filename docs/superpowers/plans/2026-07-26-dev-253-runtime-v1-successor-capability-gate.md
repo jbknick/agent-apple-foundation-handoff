@@ -866,9 +866,7 @@ jobs:
             5564ab3303afc79080e5f8bdbba934535e914322 \
             2a111d96329506276741a86028019fab8572b0e8 \
             75c9c8ca8d38bcfd05dc3d82264d1b8219253bc6 \
-            cdaa9bd5ce771c41d68603efa7835003ff46ee8c \
             5d6046f87471d341ea93aad4689fb234b88d9cdd \
-            c0644b860032f2cd460586f91b14885c91d476f7 \
             464dd11938acebbed055df1bdbf5032c0fadbdb6 \
             ec2094ad9827488539c77a704b97882c69a4ee9e \
             ba18d72e65b46939b1d494cf423f245cdd003231 \
@@ -897,6 +895,12 @@ repository has no dependency manifest or Python version file and otherwise the
 runner default may drift. The job has one read-only permission, persists no
 credential, installs no repository dependency, uses no secret, and is bounded
 to 20 minutes.
+
+The full checkout supplies the two evidence commits that are ancestors of the
+PR head (`cdaa9bd5ce771c41d68603efa7835003ff46ee8c` and
+`c0644b860032f2cd460586f91b14885c91d476f7`). Fetch only the eight external
+evidence commits with `--depth=1`; shallow-fetching either ancestor would mark
+it as a shallow root and invalidate the required ancestry proof.
 
 The checkout fetches current-branch history, then explicitly fetches the exact
 closed set of immutable evidence commits because several reviewed captures are
@@ -954,7 +958,8 @@ turns, spooling, evidence safety, cleanup, no-network-fallback enforcement,
 and truthful blocker/failure precedence. Also review the CI workflow's exact
 path, two triggers, pinned runner/Python and action major versions, read-only
 permission, full-history checkout, disabled credential persistence, the exact
-closed immutable-evidence commit fetch set, explicit Xcode 26.6 selection for
+closed eight-commit external immutable-evidence fetch set while preserving the
+two current-head ancestors from the full checkout, explicit Xcode 26.6 selection for
 Swift 6.3.3 plus SDK 26.5, timeout, generated-drift check, exact repository
 commands, and explicit separation from live capability and local SDK proof.
 Fix findings under RED/GREEN and rerun Step 4. After push, require a fresh
