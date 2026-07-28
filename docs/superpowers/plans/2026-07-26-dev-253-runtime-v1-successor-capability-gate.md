@@ -165,6 +165,20 @@ reachable, so they may record `appleAttempts = 0` and pass only their exact
 fallback oracle. That fixture-only zero is not live Apple process evidence and
 cannot satisfy the composed capability row.
 
+### CI baseline refresh
+
+GitHub Actions is enabled, but `origin/main` has no `.github` tree and the
+repository has no authored workflow. The only visible dynamic Copilot workflow
+is not repository CI. There is no branch protection or ruleset, and PR #17 at
+head `810a360` has zero check runs. The existing requirement to wait for green
+CI is therefore impossible under the plan's current path boundary.
+
+Authorize exactly one repository workflow,
+`.github/workflows/ci.yml`, solely to run the existing deterministic repository
+contract on pull requests and pushes to `main`. This closes the CI gate; it
+does not prove Apple availability, SDK 26.5 compilation, live capability,
+trust, or evidence correctness beyond the commands it actually runs.
+
 ## Constraints
 
 - Direct tool mode only: `exec_command` is present, code-mode-only tools are
@@ -219,9 +233,14 @@ cannot satisfy the composed capability row.
 - Missing CLI, authentication, SDK, compiler, model, hardware, locale, trust, telemetry, or cleanup is `blocked`; an invariant violation is `fail`.
 - Do not modify the production plugin, DEV-142, DEV-246, or any canceled issue.
 - Only a final `pass` may unblock DEV-254 after its plan baseline refresh.
+- CI is limited to `.github/workflows/ci.yml`, uses no secrets or write
+  permissions, and cannot invoke Codex, Apple generation, a live host row,
+  network inference, or release/publish behavior.
 
 ## File structure
 
+- Create `.github/workflows/ci.yml` — minimal deterministic pull-request and
+  `main` push regression gate.
 - Modify `tests/e2e/codex_runtime_v1_capability_probe.py` — close timeout trust fields, run rows, and write normalized evidence.
 - Modify `tests/test_codex_runtime_v1_capability_probe.py` — schema, trust, row, evidence, and safety checks.
 - Modify `fixtures/runtime-v1-capability/README.md` — exact approved hashes and outer-session execution order.
@@ -786,6 +805,7 @@ fixture-only zero for `composed_live_apple_applied`.
 ### Task 5: Publish only normalized evidence and finish DEV-253
 
 **Files:**
+- Create: `.github/workflows/ci.yml`
 - Modify: `fixtures/runtime-v1-capability/README.md`
 - Create: `docs/research/evidence/runtime-v1-capability-gate.json`
 - Create: `docs/research/runtime-v1-capability-gate.md`
@@ -814,7 +834,60 @@ every forbidden key/value class.
 
 Record only the normalized verdict, evidence SHA-256, exact tested boundary, acceptance mapping, proven claims, unproven claims, and stop/unblock decision. Quote no provider, tool, or Apple content.
 
-- [ ] **Step 3: Run focused and full gates**
+- [ ] **Step 3: Add the minimal repository CI workflow**
+
+Create exactly:
+
+```yaml
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Verify generated artifacts
+        run: |
+          python3 scripts/sync_generated_artifacts.py --write
+          git diff --exit-code
+          python3 scripts/sync_generated_artifacts.py --check
+      - name: Run tests
+        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Check diff formatting
+        run: git diff --check
+```
+
+Use the currently supported pinned `macos-26` runner because this repository
+contains macOS and Swift probes; use explicit Python `3.13` because the
+repository has no dependency manifest or Python version file and otherwise the
+runner default may drift. The job has one read-only permission, persists no
+credential, installs no repository dependency, uses no secret, and is bounded
+to 20 minutes.
+
+The workflow runs the repository contract's authored write, check, and full
+test commands. `git diff --exit-code` after `--write` makes generated drift
+fail instead of silently repairing it, and `git diff --check` preserves the
+existing plan gate. The hosted runner does not replace the separately required
+exact Codex `0.145.0`, SDK 26.5, trusted-hook, real Apple, evidence, or cleanup
+proof; any declared SDK/host skip remains a limitation, never capability
+evidence.
+
+- [ ] **Step 4: Run focused and full local gates**
 
 Run:
 
@@ -835,9 +908,9 @@ git status --short
 Expected: JSON valid, focused/full tests PASS except declared pre-existing
 skips, SDK 26.5 compile/typecheck PASS, every process branch and evidence-safety
 test PASS, generator synchronized, no diff errors, and only DEV-253 paths
-changed.
+changed, including the one authorized workflow.
 
-- [ ] **Step 4: Run Sol/High gate review**
+- [ ] **Step 5: Run Sol/High gate review**
 
 Review all 13 approved capability assertions, all five trust identities,
 executable rechecks, the observed `exec_command` direct interface, absence of
@@ -854,15 +927,20 @@ readback, DEV-142 validity, exact raw replacement SHA, closed `exec_command`
 success-header parsing, exact untouched payload bytes, exclusion of dynamic
 envelope metadata from trust/evidence, original absence/preservation, parent
 turns, spooling, evidence safety, cleanup, no-network-fallback enforcement,
-and truthful blocker/failure precedence. Fix findings under RED/GREEN and
-rerun Step 3.
+and truthful blocker/failure precedence. Also review the CI workflow's exact
+path, two triggers, pinned runner/Python and action major versions, read-only
+permission, disabled credential persistence, timeout, generated-drift check,
+exact repository commands, and explicit separation from live/SDK capability
+proof. Fix findings under RED/GREEN and rerun Step 4. After push, require a
+fresh exact-head CI readback before merge.
 
-- [ ] **Step 5: Commit planning-scope implementation output**
+- [ ] **Step 6: Commit planning-scope implementation output**
 
 Run:
 
 ```bash
 git add \
+  .github/workflows/ci.yml \
   fixtures/runtime-v1-capability \
   tests/e2e/codex_runtime_v1_capability_probe.py \
   tests/test_codex_runtime_v1_capability_probe.py \
@@ -871,6 +949,22 @@ git add \
 git commit -m "test(DEV-253): record Runtime V1 capability gate"
 ```
 
-- [ ] **Step 6: Finish the issue truthfully**
+- [ ] **Step 7: Require exact-head green CI, merge, and read back `main` CI**
 
-Open one DEV-253 PR, wait for green CI, merge, verify remote containment and a clean synchronized worktree, then update DEV-253 with exact normalized proof. Mark it complete for any truthful verdict; only `pass:capability_proven` unblocks DEV-254 execution after the DEV-254 plan refresh.
+Open one DEV-253 PR. Before merge, read back a completed successful `CI / test`
+check run produced by `.github/workflows/ci.yml` for the PR's exact current
+head SHA and `pull_request` event. A dynamic Copilot workflow, a check for an
+older SHA, queued/in-progress state, or neutral/skipped/canceled/missing
+conclusion is not green CI.
+
+Because no branch protection or ruleset enforces the check, treat this readback
+as an application-owned manual merge gate. Do not merge while it is absent or
+non-successful. After merge, verify remote containment and require the
+workflow's `push` run on the exact resulting `main` commit to complete
+successfully. Then verify a clean synchronized worktree and update DEV-253 with
+the PR, both exact SHAs, both successful workflow-run/check URLs, and the exact
+normalized proof.
+
+Mark DEV-253 complete for any truthful verdict only after both CI readbacks and
+all existing gates pass. Only `pass:capability_proven` unblocks DEV-254
+execution after the DEV-254 plan refresh.
