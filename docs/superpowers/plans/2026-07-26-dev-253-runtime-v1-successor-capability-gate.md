@@ -176,8 +176,9 @@ CI is therefore impossible under the plan's current path boundary.
 Authorize exactly one repository workflow,
 `.github/workflows/ci.yml`, solely to run the existing deterministic repository
 contract on pull requests and pushes to `main`. This closes the CI gate; it
-does not prove Apple availability, SDK 26.5 compilation, live capability,
-trust, or evidence correctness beyond the commands it actually runs.
+does not prove Apple availability, live capability, trust, or evidence
+correctness beyond the commands it actually runs, and it does not replace the
+separately required local SDK 26.5 proof.
 
 ## Constraints
 
@@ -857,10 +858,15 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
+      - name: Select Swift 6.3.3 and SDK 26.5
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_26.6.app/Contents/Developer
+          test "$(xcrun --sdk macosx --show-sdk-version)" = "26.5"
       - name: Verify generated artifacts
         run: |
           python3 scripts/sync_generated_artifacts.py --write
@@ -879,13 +885,16 @@ runner default may drift. The job has one read-only permission, persists no
 credential, installs no repository dependency, uses no secret, and is bounded
 to 20 minutes.
 
-The workflow runs the repository contract's authored write, check, and full
-test commands. `git diff --exit-code` after `--write` makes generated drift
-fail instead of silently repairing it, and `git diff --check` preserves the
-existing plan gate. The hosted runner does not replace the separately required
-exact Codex `0.145.0`, SDK 26.5, trusted-hook, real Apple, evidence, or cleanup
-proof; any declared SDK/host skip remains a limitation, never capability
-evidence.
+The checkout fetches full history because evidence tests resolve immutable
+capture commits. The workflow selects Xcode 26.6 because the supported
+`macos-26` image binds it to Swift 6.3.3 while retaining macOS SDK 26.5, then
+verifies the exact SDK version before running the repository contract's
+authored write, check, and full test commands. `git diff --exit-code` after
+`--write` makes generated drift fail instead of silently repairing it, and
+`git diff --check` preserves the existing plan gate. The hosted runner does
+not replace the separately required exact Codex `0.145.0`, local SDK 26.5,
+trusted-hook, real Apple, evidence, or cleanup proof; any declared host skip
+remains a limitation, never capability evidence.
 
 - [ ] **Step 4: Run focused and full local gates**
 
@@ -929,10 +938,11 @@ envelope metadata from trust/evidence, original absence/preservation, parent
 turns, spooling, evidence safety, cleanup, no-network-fallback enforcement,
 and truthful blocker/failure precedence. Also review the CI workflow's exact
 path, two triggers, pinned runner/Python and action major versions, read-only
-permission, disabled credential persistence, timeout, generated-drift check,
-exact repository commands, and explicit separation from live/SDK capability
-proof. Fix findings under RED/GREEN and rerun Step 4. After push, require a
-fresh exact-head CI readback before merge.
+permission, full-history checkout, disabled credential persistence, explicit
+Xcode 26.6 selection for Swift 6.3.3 plus SDK 26.5, timeout,
+generated-drift check, exact repository commands, and explicit separation
+from live capability and local SDK proof. Fix findings under RED/GREEN and
+rerun Step 4. After push, require a fresh exact-head CI readback before merge.
 
 - [ ] **Step 6: Commit planning-scope implementation output**
 

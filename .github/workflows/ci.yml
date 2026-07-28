@@ -16,10 +16,15 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
+      - name: Select Swift 6.3.3 and SDK 26.5
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_26.6.app/Contents/Developer
+          test "$(xcrun --sdk macosx --show-sdk-version)" = "26.5"
       - name: Verify generated artifacts
         run: |
           python3 scripts/sync_generated_artifacts.py --write
