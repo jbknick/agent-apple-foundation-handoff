@@ -21,9 +21,9 @@ adapter, and one local Apple Foundation Models structured response.
 
 The owner-approved identities for the 2026-07-26 run are:
 
-- Base plugin: `8d95e5ae4ae42ceea16ffff3a846fec9e50a79b3e5821d6813ebcd002216b083`
+- Base plugin: `7f390c759b780639214fc73f6b34a164eefee8272bf0a8bab3fb0d1e3a8fe999`
 - Base hook: `sha256:013602f5ba7931ff754954bd69fcd3dd1b01701bfb2ef08171e1592c27ee931b`
-- Timeout plugin: `b9afd35b06c520ebec0ac4738833f2b87adbd4ab0788a1d5da4df60a96fed75e`
+- Timeout plugin: `191eebe061292c8d4c8040ab23d85080cae7b099ca9abd9257c3d1f809fcb414`
 - Timeout hook: `sha256:ce963851052ea772bca22d782aad103bfc0472c6a35e663be29582933f92ce9d`
 - C0 stimulus: `dfb7f1221f87b5450ae6135e980c558b8cd45bacffd77df834a17c673fe4b0c0`
 
