@@ -24,6 +24,10 @@ SHARED_MANIFEST = Path(
 CODEX_INTERFACE = Path(
     "plugins/apple-foundation-models-handoff/metadata/codex-interface.json"
 )
+RUNTIME_CONTRACT_INPUT = Path("fixtures/dev-142/runtime_contract.py")
+RUNTIME_CONTRACT_OUTPUT = Path(
+    "plugins/apple-foundation-models-handoff/runtime/runtime_contract.py"
+)
 SKILLS_ROOT = Path("plugins/apple-foundation-models-handoff/skills")
 CANONICAL_INPUTS = (
     Path("CLAUDE.md"),
@@ -31,6 +35,7 @@ CANONICAL_INPUTS = (
     CODEX_MARKETPLACE,
     SHARED_MANIFEST,
     CODEX_INTERFACE,
+    RUNTIME_CONTRACT_INPUT,
 )
 GENERATED_OUTPUTS = (
     Path("AGENTS.md"),
@@ -39,6 +44,7 @@ GENERATED_OUTPUTS = (
         "plugins/apple-foundation-models-handoff/"
         ".codex-plugin/plugin.json"
     ),
+    RUNTIME_CONTRACT_OUTPUT,
 )
 WORKFLOW_SKILLS = (
     "design-apple-foundation-models-handoff",
@@ -187,7 +193,7 @@ class GeneratedArtifactTests(unittest.TestCase):
                 },
             )
 
-    def test_expected_artifacts_are_the_exact_three_paths(self):
+    def test_expected_artifacts_are_the_exact_four_paths(self):
         artifacts = sync.expected_artifacts(ROOT)
 
         self.assertEqual(
@@ -198,8 +204,13 @@ class GeneratedArtifactTests(unittest.TestCase):
                     "plugins/apple-foundation-models-handoff/"
                     ".codex-plugin/plugin.json"
                 ),
+                RUNTIME_CONTRACT_OUTPUT,
             },
             set(artifacts),
+        )
+        self.assertEqual(
+            (ROOT / RUNTIME_CONTRACT_INPUT).read_bytes(),
+            artifacts[RUNTIME_CONTRACT_OUTPUT],
         )
         for content in artifacts.values():
             self.assertTrue(content.endswith(b"\n"))
@@ -217,6 +228,7 @@ class GeneratedArtifactTests(unittest.TestCase):
         )
         self.assertEqual([DEFAULT_PROMPT], rendered["interface"]["defaultPrompt"])
         self.assertEqual("./skills/", rendered.get("skills"))
+        self.assertEqual("./hooks/codex/hooks.json", rendered.get("hooks"))
         self.assertEqual(
             [
                 "name",
@@ -228,6 +240,7 @@ class GeneratedArtifactTests(unittest.TestCase):
                 "license",
                 "keywords",
                 "skills",
+                "hooks",
                 "interface",
             ],
             list(rendered),
@@ -246,6 +259,25 @@ class GeneratedArtifactTests(unittest.TestCase):
             list(rendered["interface"]),
         )
         self.assertEqual(content, sync.render_codex_manifest(inputs))
+
+    def test_codex_hook_component_is_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            isolated_root = Path(directory)
+            self._copy_canonical_inputs(isolated_root)
+            self._mutate_json(
+                isolated_root,
+                CODEX_INTERFACE,
+                lambda value: _set_nested(
+                    value,
+                    ("hooks",),
+                    "./hooks/codex/other.json",
+                ),
+            )
+
+            with self.assertRaises(sync.CanonicalInputError) as raised:
+                sync.load_canonical_inputs(isolated_root)
+
+            self.assertEqual(CODEX_INTERFACE.as_posix(), str(raised.exception))
 
     def test_rendered_marketplace_preserves_distinct_policy_and_order(self):
         inputs = sync.load_canonical_inputs(ROOT)
@@ -593,6 +625,8 @@ class GeneratedArtifactTests(unittest.TestCase):
             self.assertEqual(
                 ".agents/plugins/marketplace.json: generated content is out of date\n"
                 "plugins/apple-foundation-models-handoff/.codex-plugin/plugin.json: "
+                "generated content is out of date\n"
+                "plugins/apple-foundation-models-handoff/runtime/runtime_contract.py: "
                 "generated content is out of date\n",
                 checked.stderr,
             )
@@ -907,6 +941,98 @@ class GeneratedArtifactTests(unittest.TestCase):
                 isolated_root,
                 external,
                 original,
+            )
+
+    def test_runtime_contract_missing_or_parent_symlink_is_rejected(self):
+        for attack in ("missing", "parent_symlink"):
+            with self.subTest(attack=attack), tempfile.TemporaryDirectory() as directory:
+                temporary_root = Path(directory)
+                isolated_root = temporary_root / "repository"
+                isolated_root.mkdir()
+                self._copy_canonical_inputs(isolated_root)
+                source = isolated_root / RUNTIME_CONTRACT_INPUT
+                if attack == "missing":
+                    source.unlink()
+                else:
+                    parent = source.parent
+                    external = temporary_root / "external-dev-142"
+                    shutil.copytree(parent, external)
+                    shutil.rmtree(parent)
+                    parent.symlink_to(external, target_is_directory=True)
+
+                with self.assertRaises(sync.CanonicalInputError) as raised:
+                    sync.load_canonical_inputs(isolated_root)
+
+                self.assertEqual(
+                    RUNTIME_CONTRACT_INPUT.as_posix(),
+                    str(raised.exception),
+                )
+
+    def test_runtime_contract_parent_identity_swap_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temporary_root = Path(directory)
+            isolated_root = temporary_root / "repository"
+            isolated_root.mkdir()
+            self._copy_canonical_inputs(isolated_root)
+            parent = (isolated_root / RUNTIME_CONTRACT_INPUT).parent
+            original = temporary_root / "original-dev-142"
+            external = temporary_root / "external-dev-142"
+            shutil.copytree(parent, external)
+            real_read = sync._read_bound_regular_bytes
+            attacked = False
+
+            def attacked_read(parent_fd, name):
+                nonlocal attacked
+                encoded = real_read(parent_fd, name)
+                if not attacked and name == RUNTIME_CONTRACT_INPUT.name:
+                    parent.rename(original)
+                    parent.symlink_to(external, target_is_directory=True)
+                    attacked = True
+                return encoded
+
+            with mock.patch.object(
+                sync,
+                "_read_bound_regular_bytes",
+                attacked_read,
+            ):
+                with self.assertRaises(sync.CanonicalInputError) as raised:
+                    sync.load_canonical_inputs(isolated_root)
+
+            self.assertTrue(attacked)
+            self.assertEqual(
+                RUNTIME_CONTRACT_INPUT.as_posix(),
+                str(raised.exception),
+            )
+
+    def test_runtime_contract_file_identity_swap_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temporary_root = Path(directory)
+            isolated_root = temporary_root / "repository"
+            isolated_root.mkdir()
+            self._copy_canonical_inputs(isolated_root)
+            source = isolated_root / RUNTIME_CONTRACT_INPUT
+            original = temporary_root / "original-runtime-contract.py"
+            external = temporary_root / "external-runtime-contract.py"
+            shutil.copyfile(source, external)
+            real_open = sync.os.open
+            attacked = False
+
+            def attacked_open(path, flags, mode=0o777, *, dir_fd=None):
+                nonlocal attacked
+                if not attacked and path == RUNTIME_CONTRACT_INPUT.name:
+                    source.rename(original)
+                    source.symlink_to(external)
+                    attacked = True
+                return real_open(path, flags, mode, dir_fd=dir_fd)
+
+            with mock.patch.object(sync.os, "open", attacked_open):
+                with self.assertRaises(sync.CanonicalInputError) as raised:
+                    sync.load_canonical_inputs(isolated_root)
+
+            self.assertTrue(attacked)
+            self.assertEqual(
+                RUNTIME_CONTRACT_INPUT.as_posix(),
+                str(raised.exception),
             )
 
     def test_skill_component_mutations_are_rejected(self):

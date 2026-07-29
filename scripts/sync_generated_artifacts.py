@@ -32,7 +32,14 @@ SHARED_MANIFEST = PLUGIN_ROOT / ".claude-plugin/plugin.json"
 CODEX_INTERFACE_INPUT = PLUGIN_ROOT / "metadata/codex-interface.json"
 CODEX_MANIFEST = PLUGIN_ROOT / ".codex-plugin/plugin.json"
 CODEX_MARKETPLACE = Path(".agents/plugins/marketplace.json")
-GENERATED_PATHS = (Path("AGENTS.md"), CODEX_MARKETPLACE, CODEX_MANIFEST)
+RUNTIME_CONTRACT_INPUT = Path("fixtures/dev-142/runtime_contract.py")
+RUNTIME_CONTRACT_OUTPUT = PLUGIN_ROOT / "runtime/runtime_contract.py"
+GENERATED_PATHS = (
+    Path("AGENTS.md"),
+    CODEX_MARKETPLACE,
+    CODEX_MANIFEST,
+    RUNTIME_CONTRACT_OUTPUT,
+)
 EXPECTED_SOURCE = "./plugins/apple-foundation-models-handoff"
 EXPECTED_VERSION = "0.1.0"
 WORKFLOW_SKILLS = (
@@ -97,6 +104,7 @@ class CanonicalInputs:
     codex_marketplace: Mapping[str, object]
     shared_manifest: Mapping[str, object]
     codex_interface: Mapping[str, object]
+    runtime_contract: bytes
 
 
 class CanonicalInputError(Exception):
@@ -304,6 +312,7 @@ def _validate_codex_interface(value: object) -> None:
         "capabilities",
         "websiteURL",
         "defaultPrompt",
+        "hooks",
     }
     value = _closed_object(value, fields, fields)
     for field in (
@@ -327,6 +336,8 @@ def _validate_codex_interface(value: object) -> None:
         if len(_string(prompt)) > 128:
             raise ValueError("prompt length")
     _https(value["websiteURL"])
+    if value["hooks"] != "./hooks/codex/hooks.json":
+        raise ValueError("hooks component")
 
 
 def _open_bound_directory_at(
@@ -367,7 +378,7 @@ def _recheck_bound_directory_at(
         raise ValueError("directory identity")
 
 
-def _read_bound_regular_file(parent_fd: int, name: str) -> str:
+def _read_bound_regular_bytes(parent_fd: int, name: str) -> bytes:
     metadata = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
     if not stat.S_ISREG(metadata.st_mode):
         raise ValueError("regular file")
@@ -390,10 +401,72 @@ def _read_bound_regular_file(parent_fd: int, name: str) -> str:
             or not _same_file(held, opened)
         ):
             raise ValueError("file identity")
-        return encoded.decode("utf-8")
+        return encoded
     finally:
         if descriptor is not None:
             os.close(descriptor)
+
+
+def _read_bound_regular_file(parent_fd: int, name: str) -> str:
+    return _read_bound_regular_bytes(parent_fd, name).decode("utf-8")
+
+
+def _read_canonical_relative(root: Path, relative_path: Path) -> bytes:
+    if relative_path.is_absolute() or not relative_path.parts:
+        raise CanonicalInputError(relative_path.as_posix())
+    descriptors: list[int] = []
+    directories: list[tuple[int, str, int, os.stat_result]] = []
+    try:
+        root_metadata = root.lstat()
+        if not stat.S_ISDIR(root_metadata.st_mode):
+            raise ValueError("repository root")
+        root_fd = os.open(root, _directory_flags())
+        descriptors.append(root_fd)
+        opened_root = os.fstat(root_fd)
+        if not stat.S_ISDIR(opened_root.st_mode) or not _same_file(
+            root_metadata,
+            opened_root,
+        ):
+            raise ValueError("repository root identity")
+        parent_fd = root_fd
+        for component in relative_path.parent.parts:
+            if component in ("", "."):
+                continue
+            child_fd, opened = _open_bound_directory_at(parent_fd, component)
+            descriptors.append(child_fd)
+            directories.append((parent_fd, component, child_fd, opened))
+            parent_fd = child_fd
+        encoded = _read_bound_regular_bytes(parent_fd, relative_path.name)
+        for directory_parent, name, descriptor, opened in reversed(directories):
+            _recheck_bound_directory_at(
+                directory_parent,
+                name,
+                descriptor,
+                opened,
+            )
+        current_root = root.lstat()
+        held_root = os.fstat(root_fd)
+        if (
+            not stat.S_ISDIR(current_root.st_mode)
+            or not stat.S_ISDIR(held_root.st_mode)
+            or not _same_file(current_root, opened_root)
+            or not _same_file(held_root, opened_root)
+        ):
+            raise ValueError("repository root identity")
+        return encoded
+    except CanonicalInputError:
+        raise
+    except (OSError, UnicodeError, ValueError) as error:
+        raise CanonicalInputError(relative_path.as_posix()) from error
+    finally:
+        cleanup_error: OSError | None = None
+        for descriptor in reversed(descriptors):
+            try:
+                os.close(descriptor)
+            except OSError as error:
+                cleanup_error = cleanup_error or error
+        if cleanup_error is not None:
+            raise CanonicalInputError(relative_path.as_posix()) from cleanup_error
 
 
 def _validate_skill_frontmatter(skill_text: str, capability: str) -> None:
@@ -604,6 +677,7 @@ def load_canonical_inputs(root: Path) -> CanonicalInputs:
     claude_marketplace = _json_input(root, CLAUDE_MARKETPLACE)
     codex_interface = _json_input(root, CODEX_INTERFACE_INPUT)
     codex_marketplace = _json_input(root, CODEX_MARKETPLACE_INPUT)
+    runtime_contract = _read_canonical_relative(root, RUNTIME_CONTRACT_INPUT)
     _validate_input(guidance_path, _adapter_body, guidance)
     _validate_input(SHARED_MANIFEST, _validate_shared_manifest, shared)
     _validate_input(
@@ -627,7 +701,12 @@ def load_canonical_inputs(root: Path) -> CanonicalInputs:
         shared,
     )
     return CanonicalInputs(
-        guidance, claude_marketplace, codex_marketplace, shared, codex_interface
+        guidance,
+        claude_marketplace,
+        codex_marketplace,
+        shared,
+        codex_interface,
+        runtime_contract,
     )
 
 
@@ -655,6 +734,7 @@ def render_codex_manifest(inputs: CanonicalInputs) -> bytes:
             "license": shared["license"],
             "keywords": list(shared["keywords"]),
             "skills": shared["skills"],
+            "hooks": interface["hooks"],
             "interface": {
                 "displayName": interface["displayName"],
                 "shortDescription": interface["shortDescription"],
@@ -722,15 +802,19 @@ def _validate_rendered_codex_manifest(
 
     rendered = _rendered_json(encoded, CODEX_MANIFEST)
     shared_fields = set(inputs.shared_manifest)
-    fields = shared_fields | {"interface"}
+    fields = shared_fields | {"hooks", "interface"}
     try:
         rendered = _closed_object(rendered, fields, fields)
         shared = {field: rendered[field] for field in inputs.shared_manifest}
         _validate_shared_manifest(shared)
-        _validate_codex_interface(rendered["interface"])
+        canonical_interface = {
+            **rendered["interface"],
+            "hooks": rendered["hooks"],
+        }
+        _validate_codex_interface(canonical_interface)
         if shared != inputs.shared_manifest:
             raise ValueError("generated shared identity ownership")
-        if rendered["interface"] != inputs.codex_interface:
+        if canonical_interface != inputs.codex_interface:
             raise ValueError("generated interface ownership")
     except (TypeError, ValueError) as error:
         raise GeneratedOutputError(CODEX_MANIFEST) from error
@@ -757,12 +841,14 @@ def expected_artifacts(root: Path) -> dict[Path, bytes]:
     agents = render_agents(inputs.guidance).encode("utf-8")
     marketplace = render_codex_marketplace(inputs)
     manifest = render_codex_manifest(inputs)
+    runtime_contract = inputs.runtime_contract
     _validate_rendered_codex_marketplace(marketplace, inputs)
     _validate_rendered_codex_manifest(manifest, inputs)
     return {
         Path("AGENTS.md"): agents,
         CODEX_MARKETPLACE: marketplace,
         CODEX_MANIFEST: manifest,
+        RUNTIME_CONTRACT_OUTPUT: runtime_contract,
     }
 
 
