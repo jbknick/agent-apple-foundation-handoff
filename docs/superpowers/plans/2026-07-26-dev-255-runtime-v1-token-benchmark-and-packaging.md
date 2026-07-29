@@ -55,6 +55,20 @@ nonnegative integers. Official `rust-v0.145.0` source establishes that
 are subsets of that input total, reasoning output is a subset of output, and
 total parent usage is `input_tokens + output_tokens`.
 
+The captured Codex subprocess stderr has one closed, source-bound exception.
+For exact Codex `0.145.0` and official source commit `25af12f7`, compare the
+completed subprocess stderr as bytes before parsing or using stdout, OTel, or
+any other arm artifact. Accept only `b""` or the exact 39-byte
+`b"Reading additional input from stdin...\n"` notice. The nonempty alternative
+is permitted only for the source-defined `OptionalAppend` path when stdin is
+non-terminal. Do not decode, trim, normalize newlines or whitespace, strip
+ANSI escapes, or accept prefixes, suffixes, repetition, or multiple lines.
+After the exact comparison, immediately discard the raw stderr buffer; retain
+at most the normalized `stderrBytes` value `0 | 39`. Any other stderr bytes
+block the preflight or arm as `blocked:codex_stderr_unclassified`. A Codex
+version or source-commit change invalidates this exception and requires a plan
+refresh before any provider-backed row.
+
 Map the five Codex fields into DEV-142 without changing DEV-142:
 
 ```python
@@ -427,7 +441,13 @@ production-commit ancestry; immutable pair coordinates; deterministic fixture
 order; plugin-off isolation; plugin-on install/trust; one command; zero added
 turns; actual usage extraction; Apple-attempt counting; correctness scoring;
 monotonic latency; transient raw-data cleanup; atomic normalized writes;
-resume rejection; and fail-closed cancellation.
+resume rejection; and fail-closed cancellation. Test the pinned stderr
+classifier with empty bytes and the exact 39-byte `OptionalAppend` notice as
+the only accepted inputs. Reject a missing newline, CRLF, extra whitespace,
+ANSI escapes, duplicated lines, any prefix or suffix, and the same notice
+under a different Codex version or source commit. Prove the raw accepted bytes
+are discarded immediately and every rejected case returns
+`blocked:codex_stderr_unclassified`.
 
 - [ ] **Step 2: Run runner tests and verify RED**
 
@@ -519,9 +539,9 @@ rejection; `O_EXCL`/`O_NOFOLLOW`/mode `0o600`; short-write and recheck failure;
 no sensitive or path-bearing content; exact original preservation on every
 pre-stdout observation failure; stdout short-write/flush failure suppressing
 the receipt; post-stdout receipt failure blocking measurement without a false
-fallback; and proof that the bridge remains one-shot. Tests must also prove the runner
-never accepts an observation-owned `validatedApplied` field and never derives
-the arm's `validated_applied` from the observation alone.
+fallback; and proof that the bridge remains one-shot. Tests must also prove the
+runner never accepts an observation-owned `validatedApplied` field and never
+derives the arm's `validated_applied` from the observation alone.
 
 - [ ] **Step 4: Implement fixed pair coordinates**
 
@@ -590,7 +610,14 @@ Each arm must:
    Construct this as a subprocess argument list, never a shell string. The
    task instructs Codex to run the case's approved direct Bash command exactly
    once and to make no other tool call.
-5. Count exactly two `/responses` provider requests through the authorized
+5. Before parsing or using stdout, OTel, or any other arm artifact, apply the
+   closed stderr classifier: accept only empty bytes or, for exact Codex
+   `0.145.0` bound to source commit `25af12f7` on the non-terminal-stdin
+   `OptionalAppend` path, the exact 39-byte
+   `b"Reading additional input from stdin...\n"` notice. Immediately discard
+   the accepted raw buffer and retain at most `stderrBytes = 0 | 39`; block
+   every other byte sequence as `blocked:codex_stderr_unclassified`.
+6. Count exactly two `/responses` provider requests through the authorized
    outer request counter used by the dry protocol, without retaining request
    bodies. Every `codex.api_request` record must contain exactly one closed
    `event.name` and one closed `endpoint`; count only
@@ -604,15 +631,15 @@ Each arm must:
    unavailable, block rather than infer the count. Require exactly one command
    execution, exactly two normal `/responses` parent requests, and one
    completed parent turn.
-6. Validate the exact five-key terminal usage and map it through DEV-142.
-7. For `pluginOff`, require zero Apple attempts and no loaded/trusted plugin.
+7. Validate the exact five-key terminal usage and map it through DEV-142.
+8. For `pluginOff`, require zero Apple attempts and no loaded/trusted plugin.
    For `pluginOn`, require at most one Apple attempt, no retry, and exactly one
    replacement-emitted or untouched-original fallback observation. Apple-only
    generation is the only extra generation relative to `pluginOff`. Set the
    optional observation path only for `pluginOn`; validate its exact one-line
    closed union, cross-check it against the arm role, and then delete it. Never
    read `validated_applied` from this record.
-8. Parse `--output-last-message` with duplicate-key rejection as exactly the
+9. Parse `--output-last-message` with duplicate-key rejection as exactly the
    eight-field parent-outcome object above. Require it to equal the text of the
    final completion-only `agent_message`, reject a wrapper, prose, Markdown,
    extra or missing keys, invalid DEV-142 field shape, non-JSON trailing
@@ -627,14 +654,14 @@ Each arm must:
    `correctness_passed` only from `QualityScore.passed` with no reason codes.
    No caller-provided correctness flag is accepted. Score both arms
    independently against the same case, then delete the final-message bytes.
-9. Record monotonic Apple, pre-receipt hook, and parent-turn latency with
+10. Record monotonic Apple, pre-receipt hook, and parent-turn latency with
    explicit numerators and denominators. Never report the pre-receipt interval
    as full hook latency.
-10. Recheck executable, plugin/tree identities, manifest/hook trust, and
+11. Recheck executable, plugin/tree identities, manifest/hook trust, and
     toolchain identity.
-11. Delete provider bodies, JSONL, diagnostics, Apple output, transcripts,
+12. Delete provider bodies, JSONL, diagnostics, Apple output, transcripts,
     compiled binaries, isolated configuration, and credentials.
-12. Return only the closed normalized arm after proving the isolated root no
+13. Return only the closed normalized arm after proving the isolated root no
     longer exists.
 
 No arm retries. Interruption or uncertain completion blocks its required pair.
@@ -767,13 +794,16 @@ Before any provider-backed dry or live row, run the deterministic
 current-candidate forwarding preflight described in the Sol/High amendment.
 It must exercise the captured Codex `0.145.0` executable, exact installed
 plugin/hook/adapter bytes, the stdout-precedes-receipt path, and a local
-provider with synthetic content. While request bodies remain transient, prove
+provider with synthetic content. Before using its stdout or recorded request
+bodies, apply the same source-bound stderr byte classifier, discard accepted
+raw stderr immediately, and block every unclassified byte as
+`blocked:codex_stderr_unclassified`. While request bodies remain transient, prove
 that the emitted replacement SHA-256 equals the only `function_call_output` in
 request two, no function output exists in request one, the original tool-result
 bytes are absent from the whole serialized second request, the `/responses`
 request count is exactly two, the command count is exactly one, and the turn is
-closed. Delete
-the bodies and isolated root, then retain only a normalized result bound to the
+closed. Delete the bodies and isolated root, then retain only a normalized
+result bound to the
 candidate commit, executable version, Codex source commit `25af12f7`, plugin
 tree, hook, and adapter hashes. A missing, stale, mismatched, or failed result
 is `blocked:replacement_forwarding_unproven` and stops before an Apple attempt.
@@ -793,20 +823,21 @@ PYTHONDONTWRITEBYTECODE=1 python3 \
 ```
 
 Require exactly one `turn.completed` event with the exact five-key usage
-object, exactly two normal `/responses` parent requests, one completed parent turn, no
-Apple attempt, no retry, and completed cleanup. The harness may print only a
-normalized terminal record and must delete raw JSONL and the isolated root.
+object, exactly two normal `/responses` parent requests, one completed parent
+turn, no Apple attempt, no retry, accepted source-bound stderr with
+`stderrBytes = 0 | 39`, and completed cleanup. The harness may print
+only a normalized terminal record and must delete raw JSONL and the isolated
+root.
 Any mismatch stops before the matrix with
 `blocked:provider_usage_schema_or_semantic_drift`.
 
 For every live `pluginOn` row, derive `validated_applied` only after rechecking
 the bound forwarding-preflight result and combining it with that row's
 post-stdout `replacement_emitted` application receipt, exact two-`/responses`
-OTel count,
-closed one-turn JSONL stream, one command execution, and correct closed parent
-outcome. This per-row cross-check is the accepted production effect proof.
-Neither OTel nor the observation is described as provider-body evidence, and
-no provider body is retained.
+OTel count, closed one-turn JSONL stream, one command execution, and correct
+closed parent outcome. This per-row cross-check is the accepted production
+effect proof. Neither OTel nor the observation is described as provider-body
+evidence, and no provider body is retained.
 
 - [ ] **Step 2: Run all required arms**
 
