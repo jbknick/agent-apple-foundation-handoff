@@ -2067,7 +2067,7 @@ class GateNormalizerTests(unittest.TestCase):
         value = self.harness.validate_evidence(json.loads(encoded))
         self.assertEqual(
             (value["status"], value["reason"]),
-            ("blocked", "timed_out"),
+            ("pass", "capability_proven"),
         )
         self.assertIn(
             hashlib.sha256(encoded).hexdigest(),

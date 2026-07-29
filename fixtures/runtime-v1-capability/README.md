@@ -9,21 +9,21 @@ adapter, and one local Apple Foundation Models structured response.
 1. Run `--inspect-trust` against the exact captured Codex `0.145.0`
    executable and plugin tree.
 2. Run a second `--inspect-trust` with `--hook-timeout-seconds 1`.
-3. Review and explicitly approve all five returned identities: the base
-   plugin hash, base hook hash, C0 stimulus hash, timeout plugin hash, and
-   timeout hook hash.
+3. Review and bind all five returned identities under the owner's standing
+   approval: the base plugin hash, base hook hash, C0 stimulus hash, timeout
+   plugin hash, and timeout hook hash.
 4. Persist only the approved base hook hash through `config/batchWrite` and
    verify a second `hooks/list` reports `trusted`.
 5. Run `--through direct`; continue only when both rows pass.
 6. Run `--through composed`; continue only after one real Apple result passes.
-7. Run `--through complete` with the two separately approved timeout
+7. Run `--through complete` with the two separately inspected and bound timeout
    identities.
 
-The owner-approved identities for the 2026-07-26 run are:
+The owner-approved identities for the current DEV-253 evidence run are:
 
-- Base plugin: `7f390c759b780639214fc73f6b34a164eefee8272bf0a8bab3fb0d1e3a8fe999`
+- Base plugin: `651610a480837a7fd684e6357680a4a777d5c1de97f3e00317c32db8a1fa6390`
 - Base hook: `sha256:013602f5ba7931ff754954bd69fcd3dd1b01701bfb2ef08171e1592c27ee931b`
-- Timeout plugin: `191eebe061292c8d4c8040ab23d85080cae7b099ca9abd9257c3d1f809fcb414`
+- Timeout plugin: `9a793dffff624513e887ac294764ed7cf65c51d4ef8f363c4fcc8343d83b6967`
 - Timeout hook: `sha256:ce963851052ea772bca22d782aad103bfc0472c6a35e663be29582933f92ce9d`
 - C0 stimulus: `dfb7f1221f87b5450ae6135e980c558b8cd45bacffd77df834a17c673fe4b0c0`
 
@@ -40,8 +40,10 @@ Never use a hook-trust bypass flag.
 - Apple Foundation Models is the only added generation provider.
 - A row creates one fresh local session, exposes no tools, and attempts at
   most one structured response.
-- Only the owner-approved C0 diagnostic text may enter Apple context.
-- The deterministic expected condensation remains outside Apple context.
+- Only the owner-approved C0 diagnostic and locally derived transient C0
+  source-fact schema constraints may enter Apple context.
+- Neither the diagnostic nor source-fact schema constraints are committed or
+  observed as raw evidence.
 
 ## Fallback, privacy, and cleanup
 

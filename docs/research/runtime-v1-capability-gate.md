@@ -2,10 +2,10 @@
 
 ## Verdict
 
-`blocked:timed_out`
+`pass:capability_proven`
 
 Evidence SHA-256:
-`f19b73809dffc29484837aaff1de584a48767c900f479098eacc30c12263375d`
+`1be6addeed48ddceb2e9f398877d1d8307bf35bf41f0372553578d409f3e3b7a`
 
 ## Tested boundary
 
@@ -18,33 +18,38 @@ and only the owner-approved C0 stimulus was granted.
 
 - `plugin_off_baseline`: `pass:untouched_original_observed`
 - `direct_fake_applied`: `pass:replacement_observed`
-- `composed_live_apple_applied`: `blocked:timed_out`
+- `composed_live_apple_applied`: `pass:replacement_observed`
+- `decline_unapproved_stimulus`: `pass:untouched_original_observed`
+- `bridge_malformed`: `pass:untouched_original_observed`
+- `bridge_crash`: `pass:untouched_original_observed`
+- `adapter_crash`: `pass:untouched_original_observed`
+- `hook_timeout`: `pass:untouched_original_observed`
 
 ## Proven
 
-- Each observed row executed the diagnostic command once and made two parent
+- Every row executed the diagnostic command once and made two parent
   provider requests with zero additional parent-model turns.
 - The deterministic direct replacement reached the next parent request,
   excluded the original result, and did not spool.
-- The live Apple bridge process started and reached the closed timeout outcome.
-- The timed-out live row preserved the exact untouched original result,
-  applied no replacement, and did not spool.
-- The timeout did not establish whether an Apple response attempt began;
-  `appleAttempts` is unknown and proves neither zero nor one attempt.
+- One real `SystemLanguageModel.default` structured response was observed and
+  validated after exactly one Apple attempt.
+- The validated Apple condensation reached the next parent request, excluded
+  the verbose original result, and did not spool.
+- The unapproved stimulus declined before Apple.
+- Every malformed, crashed, or timed-out failure row preserved the exact
+  untouched original result and applied no replacement.
 - All transient workspaces reported complete cleanup, and committed evidence
   contains zero unsafe findings.
 
 ## Unproven
 
-- A real `SystemLanguageModel.default` structured response was not observed.
-- No validated Apple condensation reached the next parent request.
-- The live successful-path exclusion of the verbose original result was not
-  observed.
 - Parent-model token savings were not measured.
-- Runtime V1 successor capability was not proven.
+- The production Runtime V1 consultation path was not implemented or proven.
+- Packaging and release readiness were not evaluated.
 
-## Stop decision
+## Unblock decision
 
-The live Apple row was not retried. The complete fallback matrix was not
-started after the composed prerequisite blocked. DEV-254 remains blocked by
-the DEV-253 dependency and must not begin.
+DEV-253 proves the local successor capability and unblocks DEV-254 only after
+the evidence commit passes formal review and exact-head CI, the PR is merged,
+the exact resulting `main` push CI succeeds, Linear is completed, and the
+repository is synchronized and clean.
