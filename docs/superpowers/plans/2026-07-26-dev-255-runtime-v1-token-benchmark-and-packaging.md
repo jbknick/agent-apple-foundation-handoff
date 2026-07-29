@@ -123,7 +123,7 @@ also not effect authority. Instead, the outer runner may derive
 `validated_applied = true` only from all of these independently owned facts:
 
 ```text
-application observation status = replacement_prepared
+application observation status = replacement_emitted
 application observation appleAttempts = 1
 application observation appleValidResults = 1
 current-candidate Codex 0.145.0 local-provider forwarding preflight = pass
@@ -136,19 +136,26 @@ live final parent outcome DEV-142 score = pass
 The current-candidate preflight must use the captured Codex `0.145.0`
 executable and exact installed production bytes. With only synthetic transient
 content, its local provider records that the current adapter's exact stdout
-replacement SHA-256 is the sole function output in request two, the original
-tool-result SHA-256 is absent from request two, and exactly two requests and one
-completed turn occur. It deletes both request bodies before returning a closed
+replacement SHA-256 is the only `function_call_output` in request two, the
+original tool-result bytes are absent from the whole second request, and
+exactly two `/responses` requests and one completed turn occur. It deletes both
+request bodies before returning a closed
 normalized pass/block result. Existing DEV-253 production-mechanism evidence is
 a predecessor check, not a substitute for this current-byte proof. Any Codex
 source, executable, candidate, plugin-tree, hook, adapter, or forwarding-preflight
 identity drift blocks every applied row.
 
 This is intentionally a composite application proof, not a claim that OTel
-observed a provider body. The observation sink attests only preparation before
-stdout; it never attests downstream application. A write, flush, close, stdout,
-request-count, turn, cleanup, or parent-outcome failure therefore prevents the
-outer arm from deriving `validated_applied`.
+observed a provider body. For the configured benchmark path only, the adapter
+must serialize the already validated closed hook response once, write all of
+those exact bytes to stdout, flush successfully, and only then durably write
+the terminal `replacement_emitted` receipt containing the same SHA-256 and byte
+count. No fallible mutation or recheck may occur after that receipt. A receipt
+failure cannot roll back the already emitted consultation and must not be
+reported as a consultation decline or fallback; it blocks measurement and
+evidence for the arm. A stdout, receipt, request-count, turn, cleanup, or
+parent-outcome failure therefore prevents the outer arm from deriving
+`validated_applied`.
 
 ## File structure
 
@@ -459,51 +466,60 @@ The one line is a closed tagged union with exactly these fields:
 ```text
 schemaVersion = 1
 event = "runtime_v1_observation"
-status = "replacement_prepared" | "fallback" | "blocked"
+status = "replacement_emitted" | "fallback" | "blocked"
 reasonCode = null | "apple_attempt_count_uncertain" |
              "observation_invariant_failed"
 appleAttempts = 0 | 1 | null
 appleValidResults = 0 | 1
-replacementPrepared = true | false
+replacementEmitted = true | false
 replacementSha256 = <64-lowercase-hex> | null
 replacementBytes = <nonnegative int> | null
-hookLatencyNanoseconds = <nonnegative int>
+preReceiptHookLatencyNanoseconds = <nonnegative int>
 appleLatencyNanoseconds = <nonnegative int> | null
 appleLatencySamples = 0 | 1
 ```
 
 Wrap the existing one-shot bridge call with `time.monotonic_ns()` and reduce
 only the adapter-owned closed events into this record.
-`replacement_prepared` requires `replacementPrepared = true`, one known Apple
+`replacement_emitted` requires `replacementEmitted = true`, one known Apple
 attempt, one valid result, one Apple latency sample, and the exact replacement
-hash/byte count. It means only that validated replacement bytes are ready for
-stdout; it does not mean Codex accepted or forwarded them. A known
-untouched-original path is `fallback` with `replacementPrepared = false` and
+hash/byte count successfully written and flushed to stdout before the receipt.
+It does not claim provider receipt. A known untouched-original path is
+`fallback` with `replacementEmitted = false` and
 no replacement fields. A blocked record also has
-`replacementPrepared = false`. If bridge completion or the attempt count is
+`replacementEmitted = false`. If bridge completion or the attempt count is
 uncertain, emit only the normalized `blocked` variant with null attempt and
 Apple-latency values. Do not include or retain the observation path, prompt,
 response, original output, replacement body, diagnostics, source facts,
 provider data, Apple output, credentials, or reasoning.
 
 Any configured observation capture, reduction, open, write, close, or recheck
-failure must suppress the replacement and preserve the exact original result.
-It must not call the bridge again, retry Apple generation, or convert a
-fallback into a prepared result. Keep the observation write and recheck before
-the stdout replacement so an observation failure suppresses that replacement.
+failure before stdout must suppress the replacement and preserve the exact
+original result. It must not call the bridge again, retry Apple generation, or
+convert a fallback into an emitted result. For an applied benchmark response,
+complete all identity rechecks first, serialize once, require a full stdout
+write and successful flush, and then write the terminal receipt as the final
+fallible operation. If that post-stdout receipt fails, emit no substitute
+observation and let the outer runner block the arm; do not label the already
+emitted response as fallback.
 The outer runner treats a missing, malformed, blocked, inconsistent, or
 duplicate observation as a blocked arm and deletes the observation file and
-directory during mandatory cleanup. A prepared observation followed by stdout
-or downstream failure remains not applied and blocks the arm.
+directory during mandatory cleanup.
+
+`preReceiptHookLatencyNanoseconds` is the monotonic interval from immediately
+before evaluation through the successful stdout flush and immediately before
+the terminal receipt write. It deliberately excludes the receipt's own durable
+write and process-exit time and must never be labelled total hook latency.
 
 Add production RED/GREEN tests for: default-variable absence; exact
-replacement-prepared, fallback, and blocked records; all tagged-union
+replacement-emitted, fallback, and blocked records; all tagged-union
 invariants; monotonic
 denominators; relative/outside/pre-existing/symlink/hard-link/parent-drift
 rejection; `O_EXCL`/`O_NOFOLLOW`/mode `0o600`; short-write and recheck failure;
 no sensitive or path-bearing content; exact original preservation on every
-observation failure; prepared-observation plus stdout-failure non-application;
-and proof that the bridge remains one-shot. Tests must also prove the runner
+pre-stdout observation failure; stdout short-write/flush failure suppressing
+the receipt; post-stdout receipt failure blocking measurement without a false
+fallback; and proof that the bridge remains one-shot. Tests must also prove the runner
 never accepts an observation-owned `validatedApplied` field and never derives
 the arm's `validated_applied` from the observation alone.
 
@@ -574,19 +590,24 @@ Each arm must:
    Construct this as a subprocess argument list, never a shell string. The
    task instructs Codex to run the case's approved direct Bash command exactly
    once and to make no other tool call.
-5. Count exactly two provider requests through the authorized outer request
-   counter used by the dry protocol, without retaining request bodies. Parse
-   transient JSONL as one closed stream: `thread.started`, one
+5. Count exactly two `/responses` provider requests through the authorized
+   outer request counter used by the dry protocol, without retaining request
+   bodies. Every `codex.api_request` record must contain exactly one closed
+   `event.name` and one closed `endpoint`; count only
+   `endpoint = "/responses"` and reject malformed, duplicated, or missing
+   discriminator attributes. Other well-formed endpoints such as `/models`
+   are not parent turns. Parse transient JSONL as one closed stream:
+   `thread.started`, one
    `turn.started`, bounded item events, and exactly one terminal
    `turn.completed`; reject `turn.failed`, top-level error, trailing records,
    open items, or a second terminal. If the supported request counter is
    unavailable, block rather than infer the count. Require exactly one command
-   execution, exactly two normal parent requests, and one completed parent
-   turn.
+   execution, exactly two normal `/responses` parent requests, and one
+   completed parent turn.
 6. Validate the exact five-key terminal usage and map it through DEV-142.
 7. For `pluginOff`, require zero Apple attempts and no loaded/trusted plugin.
    For `pluginOn`, require at most one Apple attempt, no retry, and exactly one
-   replacement-prepared or untouched-original fallback observation. Apple-only
+   replacement-emitted or untouched-original fallback observation. Apple-only
    generation is the only extra generation relative to `pluginOff`. Set the
    optional observation path only for `pluginOn`; validate its exact one-line
    closed union, cross-check it against the arm role, and then delete it. Never
@@ -594,17 +615,21 @@ Each arm must:
 8. Parse `--output-last-message` with duplicate-key rejection as exactly the
    eight-field parent-outcome object above. Require it to equal the text of the
    final completion-only `agent_message`, reject a wrapper, prose, Markdown,
-   extra or missing keys, invalid DEV-142 field shape, trailing bytes, or an
-   output larger than DEV-142's bound. While the exact bytes remain transient,
-   bind their SHA-256 to the candidate commit, pair coordinate,
+   extra or missing keys, invalid DEV-142 field shape, non-JSON trailing
+   content, or an output larger than DEV-142's bound. Accept semantically valid
+   JSON regardless of member order or insignificant JSON whitespace; after the
+   duplicate-safe parse, canonicalize the closed object application-side for
+   hashing and scoring. While the exact input and canonical bytes remain
+   transient, bind the canonical SHA-256 to the candidate commit, pair coordinate,
    `taskPromptSha256`, case `renderedSha256`, and immutable DEV-142 oracle;
    construct the fixed applied DEV-142 scoring envelope, call
    `validate_result` and `score_condensation`, and derive
    `correctness_passed` only from `QualityScore.passed` with no reason codes.
    No caller-provided correctness flag is accepted. Score both arms
    independently against the same case, then delete the final-message bytes.
-9. Record monotonic Apple, hook, and parent-turn latency with explicit
-   numerators and denominators.
+9. Record monotonic Apple, pre-receipt hook, and parent-turn latency with
+   explicit numerators and denominators. Never report the pre-receipt interval
+   as full hook latency.
 10. Recheck executable, plugin/tree identities, manifest/hook trust, and
     toolchain identity.
 11. Delete provider bodies, JSONL, diagnostics, Apple output, transcripts,
@@ -741,11 +766,13 @@ drift is `fail:candidate_identity_drift`.
 Before any provider-backed dry or live row, run the deterministic
 current-candidate forwarding preflight described in the Sol/High amendment.
 It must exercise the captured Codex `0.145.0` executable, exact installed
-plugin/hook/adapter bytes, the observation-precedes-stdout path, and a local
+plugin/hook/adapter bytes, the stdout-precedes-receipt path, and a local
 provider with synthetic content. While request bodies remain transient, prove
-that the prepared replacement SHA-256 equals the sole function output in
-request two, the original tool-result SHA-256 is absent, the request count is
-exactly two, the command count is exactly one, and the turn is closed. Delete
+that the emitted replacement SHA-256 equals the only `function_call_output` in
+request two, no function output exists in request one, the original tool-result
+bytes are absent from the whole serialized second request, the `/responses`
+request count is exactly two, the command count is exactly one, and the turn is
+closed. Delete
 the bodies and isolated root, then retain only a normalized result bound to the
 candidate commit, executable version, Codex source commit `25af12f7`, plugin
 tree, hook, and adapter hashes. A missing, stale, mismatched, or failed result
@@ -766,7 +793,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 \
 ```
 
 Require exactly one `turn.completed` event with the exact five-key usage
-object, exactly two normal parent requests, one completed parent turn, no
+object, exactly two normal `/responses` parent requests, one completed parent turn, no
 Apple attempt, no retry, and completed cleanup. The harness may print only a
 normalized terminal record and must delete raw JSONL and the isolated root.
 Any mismatch stops before the matrix with
@@ -774,7 +801,8 @@ Any mismatch stops before the matrix with
 
 For every live `pluginOn` row, derive `validated_applied` only after rechecking
 the bound forwarding-preflight result and combining it with that row's
-`replacement_prepared` application observation, exact two-request OTel count,
+post-stdout `replacement_emitted` application receipt, exact two-`/responses`
+OTel count,
 closed one-turn JSONL stream, one command execution, and correct closed parent
 outcome. This per-row cross-check is the accepted production effect proof.
 Neither OTel nor the observation is described as provider-body evidence, and
