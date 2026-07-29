@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$RUNTIME_V1_PYTHON\" \"$PLUGIN_ROOT/hooks/codex/probe.py\"",
+            "timeout": 60,
+            "statusMessage": "checking local diagnostic consultation"
+          }
+        ]
+      }
+    ]
+  }
+}

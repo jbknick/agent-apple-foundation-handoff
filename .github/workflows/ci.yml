@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fetch immutable evidence commits
+        run: |
+          git fetch --no-tags --depth=1 origin \
+            5564ab3303afc79080e5f8bdbba934535e914322 \
+            2a111d96329506276741a86028019fab8572b0e8 \
+            75c9c8ca8d38bcfd05dc3d82264d1b8219253bc6 \
+            5d6046f87471d341ea93aad4689fb234b88d9cdd \
+            464dd11938acebbed055df1bdbf5032c0fadbdb6 \
+            ec2094ad9827488539c77a704b97882c69a4ee9e \
+            ba18d72e65b46939b1d494cf423f245cdd003231 \
+            35ac482a8e2a954525a24d7e6047d6732df41fbe
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Select Swift 6.3.3 and SDK 26.5
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_26.6.app/Contents/Developer
+          test "$(xcrun --sdk macosx --show-sdk-version)" = "26.5"
+      - name: Verify generated artifacts
+        run: |
+          python3 scripts/sync_generated_artifacts.py --write
+          git diff --exit-code
+          python3 scripts/sync_generated_artifacts.py --check
+      - name: Run tests
+        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Check diff formatting
+        run: git diff --check
