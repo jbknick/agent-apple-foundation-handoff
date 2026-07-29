@@ -83,12 +83,45 @@ event shape stops preflight with
 blocker, never estimated. Any later merged production, Codex schema, or
 normalization drift requires another Sol/High plan refresh.
 
+## 2026-07-29 Task 3 observation-boundary amendment
+
+Formal review confirmed that the production adapter already derives closed
+`consultation_completed` and `replacement_emitted` events, but its executable
+path passes `observe=lambda _value: None`. The current Task 3 runner therefore
+cannot truthfully derive `appleAttempts`, `validatedApplied`, or Apple/hook
+latency and correctly stops with
+`blocked:apple_attempt_counter_unobservable`. Task 3 is incomplete until that
+production observation prerequisite and the remaining outer-runner gaps below
+are closed; no counter may be inferred from plugin installation, hook trust,
+process completion, replacement text, or model output.
+
+Standing DEV-255 approval authorizes Task 3 implementation changes only in
+these four paths:
+
+```text
+plugins/apple-foundation-models-handoff/hooks/codex/diagnostic_condensation.py
+tests/test_runtime_v1_production.py
+tests/e2e/codex_runtime_v1_benchmark.py
+tests/test_codex_runtime_v1_benchmark.py
+```
+
+It also authorizes mechanically refreshing the exact
+`productionPluginSha256` and `pythonAdapterSha256` values bound in the runner
+and tests after those reviewed bytes change. The Codex manifest, hook manifest,
+Swift source, generated runtime contract, DEV-142 fixtures/contracts/evidence,
+and every other production path remain unchanged. This approval does not
+authorize a live Codex or Apple run, evidence publication, commit, push, merge,
+tag, release, or a second Apple attempt.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.
 - Create `fixtures/runtime-v1-benchmark/runtime_v1_benchmark.py` — closed Codex-only arm/pair/release validation and derivation.
 - Create `tests/test_runtime_v1_benchmark.py` — schema, normalization, arithmetic, correctness, and safety tests.
+- Modify `plugins/apple-foundation-models-handoff/hooks/codex/diagnostic_condensation.py` — optional production-safe normalized Task 3 observation sink; absent by default.
+- Modify `tests/test_runtime_v1_production.py` — observation containment, schema, fallback, and single-attempt regression coverage.
 - Create `tests/e2e/codex_runtime_v1_benchmark.py` — authorized outer 24-pair runner and normalized evidence writer.
+- Create `tests/test_codex_runtime_v1_benchmark.py` — deterministic outer-runner and observation-consumer tests.
 - Create `docs/research/evidence/runtime-v1-benchmark.json` — normalized 24-pair/48-arm evidence.
 - Create `docs/research/runtime-v1-benchmark.md` — bounded verdict and limitations.
 - Modify `docs/runtime-v1-installation.md` — packaging-readiness result only after the live matrix finishes.
@@ -338,7 +371,10 @@ Expected: focused tests PASS and DEV-142 remains unchanged.
 ### Task 3: Build the authorized outer paired runner
 
 **Files:**
+- Modify: `plugins/apple-foundation-models-handoff/hooks/codex/diagnostic_condensation.py`
+- Modify: `tests/test_runtime_v1_production.py`
 - Create: `tests/e2e/codex_runtime_v1_benchmark.py`
+- Create: `tests/test_codex_runtime_v1_benchmark.py`
 
 - [ ] **Step 1: Write failing runner tests**
 
@@ -355,12 +391,75 @@ Run:
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
-  tests.test_runtime_v1_benchmark.RuntimeV1RunnerTests -v
+  tests.test_codex_runtime_v1_benchmark.RuntimeV1RunnerTests -v
 ```
 
 Expected: FAIL because the runner does not exist.
 
-- [ ] **Step 3: Implement fixed pair coordinates**
+- [ ] **Step 3: Add the optional normalized production observation boundary**
+
+Keep the installed production default byte-for-byte equivalent in behavior:
+when `RUNTIME_V1_BENCHMARK_OBSERVATION_PATH` is absent, select the existing
+no-op observer, create no file, expose no new capability, and preserve every
+current fallback. Only the authorized outer Task 3 runner may set the variable,
+and only for `pluginOn`.
+
+Use a regular file, not a FIFO: a FIFO can block the hook and weaken
+original-result fallback. Before evaluation, require the value to be one
+absolute path with the fixed basename `runtime-v1-observation.json` in an
+already-created `.runtime-v1-observation` directory directly beneath the
+captured `RUNTIME_V1_REPO_ROOT`. Capture that directory as a non-symlink
+directory, require the leaf not to exist, and recheck the repository and
+directory identities before open and after close. Open once with
+`O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC` and mode `0o600`; require
+a regular single-link file, write exactly one complete canonical UTF-8 JSON
+line through the captured descriptor, `fsync`, close, and recheck. Reject
+relative, outside-root, pre-existing, symlinked, multiply linked, changed-parent,
+duplicate-write, partial-write, or identity-drift cases.
+
+The one line is a closed tagged union with exactly these fields:
+
+```text
+schemaVersion = 1
+event = "runtime_v1_observation"
+status = "applied" | "fallback" | "blocked"
+reasonCode = null | "apple_attempt_count_uncertain" |
+             "observation_invariant_failed"
+appleAttempts = 0 | 1 | null
+appleValidResults = 0 | 1
+validatedApplied = true | false
+replacementSha256 = <64-lowercase-hex> | null
+replacementBytes = <nonnegative int> | null
+hookLatencyNanoseconds = <nonnegative int>
+appleLatencyNanoseconds = <nonnegative int> | null
+appleLatencySamples = 0 | 1
+```
+
+Wrap the existing one-shot bridge call with `time.monotonic_ns()` and reduce
+only the adapter-owned closed events into this record. `applied` requires one
+known Apple attempt, one valid result, one Apple latency sample, and the exact
+replacement hash/byte count. A known untouched-original path is `fallback`
+with no replacement fields. If bridge completion or the attempt count is
+uncertain, emit only the normalized `blocked` variant with null attempt and
+Apple-latency values. Do not include or retain the observation path, prompt,
+response, original output, replacement body, diagnostics, source facts,
+provider data, Apple output, credentials, or reasoning.
+
+Any configured observation capture, reduction, open, write, close, or recheck
+failure must suppress the replacement and preserve the exact original result.
+It must not call the bridge again, retry Apple generation, or convert a
+fallback into an applied result. The outer runner treats a missing, malformed,
+blocked, inconsistent, or duplicate observation as a blocked arm and deletes
+the observation file and directory during mandatory cleanup.
+
+Add production RED/GREEN tests for: default-variable absence; exact applied,
+fallback, and blocked records; all tagged-union invariants; monotonic
+denominators; relative/outside/pre-existing/symlink/hard-link/parent-drift
+rejection; `O_EXCL`/`O_NOFOLLOW`/mode `0o600`; short-write and recheck failure;
+no sensitive or path-bearing content; exact original preservation on every
+observation failure; and proof that the bridge remains one-shot.
+
+- [ ] **Step 4: Implement fixed pair coordinates**
 
 For each DEV-142 corpus case, bind:
 
@@ -387,7 +486,7 @@ run. Pair coordinates are the fields in the object above and must be identical
 between arms; arm role and plugin installation state are the only intentional
 differences. Reject drift before scoring.
 
-- [ ] **Step 4: Implement one arm runner**
+- [ ] **Step 5: Implement one arm runner**
 
 Each arm must:
 
@@ -425,7 +524,10 @@ Each arm must:
 7. For `pluginOff`, require zero Apple attempts and no loaded/trusted plugin.
    For `pluginOn`, require at most one Apple attempt, no retry, and exactly one
    terminal applied or untouched-original fallback outcome. Apple-only
-   generation is the only extra generation relative to `pluginOff`.
+   generation is the only extra generation relative to `pluginOff`. Set the
+   optional observation path only for `pluginOn`; validate its exact one-line
+   closed union, cross-check it against the arm role and replacement outcome,
+   then delete it.
 8. Score the parent outcome against the immutable DEV-142 oracle and its
    paired baseline.
 9. Record monotonic Apple, hook, and parent-turn latency with explicit
@@ -439,7 +541,14 @@ Each arm must:
 
 No arm retries. Interruption or uncertain completion blocks its required pair.
 
-- [ ] **Step 5: Implement atomic evidence output**
+The JSONL parser must enforce exact allowed keys and tagged shapes for every
+supported record, `thread.started` first, `turn.started` before every item,
+matched item ID/type lifecycles, and one final `turn.completed`. Add negative
+tests for extra keys, out-of-order turn start, changed item type, duplicate
+IDs, item completion without start, records after terminal, and unsupported
+event types. A merely parseable or count-equivalent stream is not closed proof.
+
+- [ ] **Step 6: Implement atomic evidence output**
 
 Write exactly one closed top-level object:
 
@@ -465,19 +574,44 @@ reasoning, and malformed hashes before calling the existing atomic JSON
 writer. A cleanup failure may write only a minimal normalized
 `blocked:cleanup_incomplete` terminal record.
 
-- [ ] **Step 6: Run deterministic GREEN and commit**
+For `--through complete`, accept only the exact normalized output path
+`docs/research/evidence/runtime-v1-benchmark.json`, require its existing
+repository-contained parent identity, reject symlinks and pre-existing output,
+and never create arbitrary parents. Candidate rechecks must allow exactly that
+new path only after the final pre-write identity check; every other worktree
+change remains `fail:candidate_identity_drift`. Dry-run and validation modes
+allow no worktree change.
+
+- [ ] **Step 7: Refresh identities, run deterministic GREEN, and commit**
+
+After the production adapter and both Task 3 files are final, compute and bind
+the exact current plugin-tree and adapter SHA-256 values under the standing
+approval above. Recompute them from disk in tests, require every unchanged
+manifest/Swift/corpus identity to equal its prior approved value, and prove the
+installed plugin tree and trusted hook hash match the same captured bytes.
+Placeholders, stale hashes, or self-attested command-line hashes block.
 
 Run:
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
-  tests.test_runtime_v1_benchmark -v
+  tests.test_runtime_v1_production \
+  tests.test_runtime_v1_benchmark \
+  tests.test_codex_runtime_v1_benchmark -v
+python3 scripts/sync_generated_artifacts.py --check
 git diff --check
-git add tests/e2e/codex_runtime_v1_benchmark.py
+git add \
+  plugins/apple-foundation-models-handoff/hooks/codex/diagnostic_condensation.py \
+  tests/test_runtime_v1_production.py \
+  tests/e2e/codex_runtime_v1_benchmark.py \
+  tests/test_codex_runtime_v1_benchmark.py
 git commit -m "test(DEV-255): add paired Runtime V1 benchmark runner"
 ```
 
-Expected: deterministic runner tests PASS; no live pair runs inside the implementation session.
+Expected: deterministic production and runner tests PASS; all refreshed hashes
+match current reviewed bytes; the runner no longer contains an unconditional
+`apple_attempt_counter_unobservable` terminal; no live pair runs inside the
+implementation session.
 
 ### Task 4: Execute 24 pairs and publish normalized evidence
 
