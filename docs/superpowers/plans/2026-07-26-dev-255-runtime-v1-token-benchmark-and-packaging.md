@@ -4,7 +4,7 @@
 
 **Goal:** Prove the merged production Runtime V1 reduces actual parent-model usage by at least 10% median across 24 required pairs without correctness regressions, extra turns, reruns, unsafe evidence, or unsupported packaging.
 
-**Architecture:** Keep DEV-142's historical two-host benchmark immutable and add one separate Codex-only `codex-runtime-v1-cost-v1` validator. An authorized outer harness runs identical plugin-off/plugin-on tasks through the merged production plugin, normalizes actual supported usage, scores correctness and operational invariants, and writes only closed normalized evidence.
+**Architecture:** Keep DEV-142's historical two-host benchmark immutable and add one separate Codex-only `codex-runtime-v1-cost-v1` validator. An authorized outer harness runs identical plugin-off/plugin-on tasks through the merged production plugin, validates the exact Codex `turn.completed.usage` contract, maps it into DEV-142's existing `openai-responses-usage-v1` oracle without double counting subsets, scores correctness and operational invariants, and writes only closed normalized evidence.
 
 **Tech Stack:** Python 3 standard library and `unittest`; merged DEV-254 Codex plugin; Codex CLI `0.145.0`; Swift 6.3.3; macOS SDK 26.5; actual Codex/provider usage; JSON and SHA-256.
 
@@ -18,7 +18,7 @@
 
 ## Predecessor assumptions and mandatory refresh
 
-Do not implement this plan until DEV-254 is merged, green, complete in Linear, and locally synchronized. Refresh this plan against the merged production manifest, hook path, adapter interface, Swift staging method, supported host, and usage-event schema. The intended benchmark assumes:
+DEV-254 is merged at `6d336044b0c21dfeca485b6676a18d50bf085487` and this plan was refreshed against that production manifest, hook, Python adapter, Swift bridge, production harness, DEV-142 corpus, and DEV-142 usage normalization. Before implementation, recheck that this commit remains an ancestor of `HEAD`, DEV-254 is complete in Linear, and the paths below remain unchanged. The benchmark contract is:
 
 ```text
 one production Codex plugin
@@ -26,12 +26,62 @@ one direct Bash command per arm
 pluginOff appleAttempts = 0
 pluginOn appleAttempts <= 1
 no command rerun
-no additional parent-model turn
-actual supported usage fields
+exactly two normal parent requests and one completed parent turn per arm
+gpt-5.6-sol with medium reasoning
+exact Codex 0.145.0 turn.completed.usage fields
 closed normalized evidence only
 ```
 
-If the merged production interface, Codex usage schema, or provider normalization differs, stop and request a Sol/High plan refresh. Missing telemetry is a blocker, not a reason to estimate.
+The verified Codex `0.145.0` plugin-off dry row used an isolated `CODEX_HOME`,
+`gpt-5.6-sol`, medium reasoning, one completed turn, and completed cleanup. Its
+terminal event is exactly:
+
+```json
+{
+  "type": "turn.completed",
+  "usage": {
+    "input_tokens": 0,
+    "cached_input_tokens": 0,
+    "cache_write_input_tokens": 0,
+    "output_tokens": 0,
+    "reasoning_output_tokens": 0
+  }
+}
+```
+
+The zeroes above show types only; live values must be provider-reported
+nonnegative integers. Official `rust-v0.145.0` source establishes that
+`input_tokens` is the provider input total, cached-input and cache-write input
+are subsets of that input total, reasoning output is a subset of output, and
+total parent usage is `input_tokens + output_tokens`.
+
+Map the five Codex fields into DEV-142 without changing DEV-142:
+
+```python
+dev142_usage = normalize_usage("openai-responses-usage-v1", {
+    "input_tokens": usage["input_tokens"],
+    "cached_tokens": usage["cached_input_tokens"],
+    "output_tokens": usage["output_tokens"],
+    "reasoning_tokens": usage["reasoning_output_tokens"],
+})
+cache_write_input_tokens = usage["cache_write_input_tokens"]
+```
+
+Require the exact five usage keys, exact `int` values (not `bool`) in
+`0..2**64-1`, `cached_input_tokens <= input_tokens`,
+`cache_write_input_tokens <= input_tokens`, and
+`reasoning_output_tokens <= output_tokens`. Cache-read and cache-write are each
+validated as subsets; do not assume they are disjoint and do not add either to
+the provider input total. Do not add reasoning output to output. Record
+cache-write separately in normalized arm evidence and require DEV-142's
+`total_parent_model_tokens == input_tokens + output_tokens`.
+
+Missing or extra keys, a non-integer/negative/overflowing value, a violated
+subset, a mapping mismatch, multiple/missing terminal events, or a changed
+event shape stops preflight with
+`blocked:provider_usage_schema_or_semantic_drift`. Missing telemetry is a
+blocker, never estimated. Any later merged production, Codex schema, or
+normalization drift requires another Sol/High plan refresh.
 
 ## File structure
 
@@ -50,7 +100,10 @@ The existing `fixtures/dev-142/runtime_contract.py`, corpus, evidence, and two-h
 **Files:**
 - Read: `plugins/apple-foundation-models-handoff/.codex-plugin/plugin.json`
 - Read: `plugins/apple-foundation-models-handoff/hooks/codex/hooks.json`
+- Read: `plugins/apple-foundation-models-handoff/hooks/codex/diagnostic_condensation.py`
+- Read: `plugins/apple-foundation-models-handoff/runtime/DiagnosticCondenser.swift`
 - Read: `tests/e2e/codex_runtime_v1_production.py`
+- Read: `fixtures/dev-142/runtime_contract.py`
 - Read: `fixtures/dev-142/benchmark-corpus.json`
 - Modify only if a verified interface changed: `docs/superpowers/plans/2026-07-26-dev-255-runtime-v1-token-benchmark-and-packaging.md`
 
@@ -81,9 +134,15 @@ shasum -a 256 \
 
 Expected: five lowercase SHA-256 identities recorded in the transient run configuration and normalized evidence.
 
-- [ ] **Step 3: Prove the actual usage boundary**
+- [ ] **Step 3: Freeze the reviewed usage boundary**
 
-Run one plugin-off dry protocol row from an authorized outer Codex session and require the supported completed-turn event to contain nonnegative integer input, cached-input when exposed, output, reasoning-output when exposed, and total usage fields. If total parent usage cannot be mapped exactly to `openai-responses-usage-v1`, stop with `blocked:provider_usage_normalization_unavailable`.
+Confirm the reviewed dry-row facts and official `rust-v0.145.0` semantics
+match the frozen five-key contract and four-key DEV-142 mapping above. Do not
+run Apple or a benchmark arm during this plan-refresh task. Task 4 repeats the
+dry row through the tested benchmark parser before any matrix arm.
+
+Expected: no optional usage field, inferred provider total, or double-counted
+subset remains in the plan.
 
 ### Task 2: Add the independent Codex-only benchmark contract
 
@@ -103,7 +162,15 @@ REQUIRED_ARMS = 48
 MINIMUM_MEDIAN_REDUCTION_PPM = 100_000
 ```
 
-Test closed objects, duplicate/extra/missing identities, mismatched pair coordinates, missing usage, zero plugin-off denominator, negative/non-integer usage, exactly 10%, below 10%, even-count median, correctness regression, extra parent turn, Apple attempts, command rerun, blocked pair, unsafe evidence, and the 24-pair success case.
+Test closed objects; duplicate/extra/missing identities; mismatched pair
+coordinates; every missing and extra Codex usage key; `bool`, float, string,
+negative, and unsigned-64 overflow values; cached-input, cache-write, and
+reasoning subset violations; DEV-142 mapping and total mismatch; proof that
+cache-write is recorded but not added; missing/multiple terminal events;
+missing usage; zero plugin-off denominator; exactly 10%; below 10%;
+even-count median; correctness regression; anything other than two parent
+requests and one completed turn; Apple attempts; command rerun; blocked pair;
+unsafe evidence; cleanup failure; and the 24-pair success case.
 
 - [ ] **Step 2: Run focused tests and verify RED**
 
@@ -118,9 +185,19 @@ Expected: FAIL because the contract module does not exist.
 
 - [ ] **Step 3: Implement the closed data model**
 
-Use frozen dataclasses:
+Import only DEV-142's `normalize_usage` and `BlockedEvidence`; do not copy its
+normalization or change that module. Use frozen dataclasses:
 
 ```python
+@dataclass(frozen=True)
+class RuntimeV1Usage:
+    input_tokens: int
+    cached_input_tokens: int
+    cache_write_input_tokens: int
+    output_tokens: int
+    reasoning_output_tokens: int
+    total_parent_tokens: int
+
 @dataclass(frozen=True)
 class RuntimeV1Arm:
     fixture_id: str
@@ -131,9 +208,14 @@ class RuntimeV1Arm:
     reasoning_effort: str
     provider: str
     provider_normalization: str
-    total_parent_tokens: int
-    parent_turns: int
+    policy_version: str
+    command_class: str
+    task_prompt_sha256: str
+    usage: RuntimeV1Usage
+    parent_requests: int
+    completed_parent_turns: int
     apple_attempts: int
+    validated_applied: bool
     command_executions: int
     correctness_passed: bool
     cleanup_complete: bool
@@ -141,21 +223,36 @@ class RuntimeV1Arm:
 @dataclass(frozen=True)
 class RuntimeV1PairScore:
     fixture_id: str
-    reduction_ppm: int
+    reduction_ppm: int | None
     status: str
-    reason: str
+    reason_codes: tuple[str, ...]
+    correctness_regressions: int
+    additional_parent_requests: int
+    additional_parent_turns: int
+    apple_attempts: int
+    validated_applied_rows: int
+    command_reruns: int
+    cleanup_failures: int
 ```
 
 Expose exactly these interfaces:
 
 ```text
+normalize_codex_usage(value: object) -> RuntimeV1Usage
 validate_arm(value: object) -> RuntimeV1Arm
 score_pair(off: object, on: object) -> RuntimeV1PairScore
-release_gate(pairs: list[RuntimeV1PairScore]) -> dict[str, object]
+release_gate(
+    pairs: list[RuntimeV1PairScore],
+    *,
+    unsafe_committed_evidence_findings: int,
+) -> dict[str, object]
 validate_evidence(value: object) -> None
 ```
 
-Reuse DEV-142's exact `normalize_usage` semantics by importing it read-only. Do not call or modify DEV-142's 48-pair `release_gate`; the successor release arithmetic is owned here.
+`normalize_codex_usage` first validates the exact five-key Codex object, then
+calls DEV-142's `normalize_usage` with the exact four-key mapping above and
+checks the returned fields and total. Do not call or modify DEV-142's 48-pair
+`release_gate`; the successor release arithmetic is owned here.
 
 - [ ] **Step 4: Implement the release gate**
 
@@ -166,14 +263,22 @@ len(pairs) == 24
 all(pair.status == "pass" for pair in pairs)
 median_reduction_ppm >= 100_000
 correctness_regressions == 0
+additional_parent_requests == 0
 additional_parent_turns == 0
 real_apple_attempts >= 1
 validated_applied_rows >= 1
 original_command_reruns == 0
+cleanup_failures == 0
 unsafe_committed_evidence_findings == 0
 ```
 
-Sort the 24 integer reductions and define the median as the integer average of positions 11 and 12. Any missing required pair, blocked required pair, zero denominator, or unavailable normalization returns `blocked`; invariant and correctness violations return `fail`.
+Each valid arm has `parent_requests == 2`,
+`completed_parent_turns == 1`, and `command_executions == 1`. Sort the 24
+integer reductions and define the median as the integer floor-average of
+zero-based positions 11 and 12. Any missing required pair, blocked required
+pair, zero denominator, unavailable normalization, schema/semantic drift, or
+incomplete cleanup returns `blocked`; invariant and correctness violations
+return `fail`.
 
 - [ ] **Step 5: Run GREEN and commit**
 
@@ -229,7 +334,12 @@ For each DEV-142 corpus case, bind:
 }
 ```
 
-Reject drift between arms before scoring.
+Also bind the candidate commit, production plugin tree SHA-256, generated
+Codex manifest SHA-256, hooks manifest SHA-256, Python adapter SHA-256, Swift
+source SHA-256, corpus SHA-256, and exact captured executable identity to the
+run. Pair coordinates are the fields in the object above and must be identical
+between arms; arm role and plugin installation state are the only intentional
+differences. Reject drift before scoring.
 
 - [ ] **Step 4: Implement one arm runner**
 
@@ -237,19 +347,77 @@ Each arm must:
 
 1. Create a fresh isolated root.
 2. Capture and recheck the exact Codex executable.
-3. Install/trust the exact production plugin only for `pluginOn`.
-4. Run the case's approved direct command once.
-5. Capture actual completed-turn usage and counts transiently.
-6. Score the parent outcome against DEV-142 and the paired baseline.
-7. Record monotonic Apple, hook, and parent-turn latency with denominators.
-8. Delete provider bodies, diagnostics, Apple output, transcripts, compiled binaries, and isolated configuration.
-9. Return only the closed normalized arm.
+3. Give both roles identical CLI/model/reasoning/config/task coordinates.
+   Leave `pluginOff` in a fresh plugin-empty `CODEX_HOME`; install and trust the
+   exact production plugin only for `pluginOn`.
+4. Invoke the captured executable once with an argument list equivalent to:
+
+   ```text
+   <host-path> exec --ephemeral --json --strict-config
+     --skip-git-repo-check --enable hooks
+     --disable code_mode --disable code_mode_only
+     -c web_search="disabled" -c approval_policy="never"
+     -c model_reasoning_effort="medium"
+     -m gpt-5.6-sol -s danger-full-access
+     --output-last-message <transient-output>
+     -C <isolated-workspace> <approved-hash-bound-task>
+   ```
+
+   Construct this as a subprocess argument list, never a shell string. The
+   task instructs Codex to run the case's approved direct Bash command exactly
+   once and to make no other tool call.
+5. Count exactly two provider requests through the authorized outer request
+   counter used by the dry protocol, without retaining request bodies. Parse
+   transient JSONL as one closed stream: `thread.started`, one
+   `turn.started`, bounded item events, and exactly one terminal
+   `turn.completed`; reject `turn.failed`, top-level error, trailing records,
+   open items, or a second terminal. If the supported request counter is
+   unavailable, block rather than infer the count. Require exactly one command
+   execution, exactly two normal parent requests, and one completed parent
+   turn.
+6. Validate the exact five-key terminal usage and map it through DEV-142.
+7. For `pluginOff`, require zero Apple attempts and no loaded/trusted plugin.
+   For `pluginOn`, require at most one Apple attempt, no retry, and exactly one
+   terminal applied or untouched-original fallback outcome. Apple-only
+   generation is the only extra generation relative to `pluginOff`.
+8. Score the parent outcome against the immutable DEV-142 oracle and its
+   paired baseline.
+9. Record monotonic Apple, hook, and parent-turn latency with explicit
+   numerators and denominators.
+10. Recheck executable, plugin/tree identities, manifest/hook trust, and
+    toolchain identity.
+11. Delete provider bodies, JSONL, diagnostics, Apple output, transcripts,
+    compiled binaries, isolated configuration, and credentials.
+12. Return only the closed normalized arm after proving the isolated root no
+    longer exists.
 
 No arm retries. Interruption or uncertain completion blocks its required pair.
 
 - [ ] **Step 5: Implement atomic evidence output**
 
-Reject private absolute paths, credential forms, prompt/result/transcript keys, original fixture text, and malformed hashes before calling the existing atomic JSON writer. A cleanup failure may write only `blocked:cleanup_incomplete`.
+Write exactly one closed top-level object:
+
+```text
+schemaVersion, benchmarkProfile, status, reasonCodes,
+candidateCommit, productionIdentities, host,
+usageContract, requiredPairs, requiredArms,
+observedPairs, observedArms, arms, pairs, release
+```
+
+`usageContract` contains exact Codex version/model/reasoning, event name, the
+five raw key names, the four-key DEV-142 mapping, subset semantics, and
+`totalFormula = input_tokens + output_tokens`. Each arm contains only the
+closed `RuntimeV1Arm` fields above plus normalized latency counts. `release`
+contains exact denominators, median reduction PPM, correctness regressions,
+additional parent requests, additional parent turns, real Apple attempts,
+validated applied rows, command reruns, unsafe findings, cleanup failures,
+status, and reason codes.
+
+Reject private absolute paths, credential forms, prompt/result/transcript
+keys, original fixture text, raw JSONL/events, provider or Apple bodies,
+reasoning, and malformed hashes before calling the existing atomic JSON
+writer. A cleanup failure may write only a minimal normalized
+`blocked:cleanup_incomplete` terminal record.
 
 - [ ] **Step 6: Run deterministic GREEN and commit**
 
@@ -274,11 +442,52 @@ Expected: deterministic runner tests PASS; no live pair runs inside the implemen
 
 - [ ] **Step 1: Preflight the complete run**
 
-From an authorized outer Codex session, capture the exact Codex, Python, `xcrun`, and Swift compiler executables; verify authentication, plugin trust, SDK 26.5, Apple availability, locale, actual usage mapping, corpus hash, production plugin hash, and free temporary storage. Any missing prerequisite writes a normalized blocker and stops.
+From an authorized outer Codex session, capture the exact Codex, Python,
+`xcrun`, and Swift compiler executables; require Codex `0.145.0`,
+`gpt-5.6-sol`, medium reasoning, authentication, plugin trust, SDK 26.5, Apple
+availability, locale, the dry-row usage mapping, corpus and production
+identities, and free temporary storage. Any missing prerequisite writes a
+normalized blocker and stops before an Apple attempt or benchmark arm.
+
+Run the tested harness once through the plugin-off usage preflight:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 \
+  tests/e2e/codex_runtime_v1_benchmark.py \
+  --codex-executable <host-path> \
+  --python-executable <host-path> \
+  --approved-production-commit 6d336044b0c21dfeca485b6676a18d50bf085487 \
+  --approved-plugin-sha256 <64-lowercase-hex> \
+  --approved-hook-hash sha256:<64-lowercase-hex> \
+  --through usage-dry-run
+```
+
+Require exactly one `turn.completed` event with the exact five-key usage
+object, exactly two normal parent requests, one completed parent turn, no
+Apple attempt, no retry, and completed cleanup. The harness may print only a
+normalized terminal record and must delete raw JSONL and the isolated root.
+Any mismatch stops before the matrix with
+`blocked:provider_usage_schema_or_semantic_drift`.
 
 - [ ] **Step 2: Run all required arms**
 
-Run the harness once with `--through complete`. Expected normalized denominators:
+After the dry row passes, run the harness once with the exact captured
+executables and approved hashes:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 \
+  tests/e2e/codex_runtime_v1_benchmark.py \
+  --codex-executable <host-path> \
+  --python-executable <host-path> \
+  --approved-production-commit 6d336044b0c21dfeca485b6676a18d50bf085487 \
+  --approved-plugin-sha256 <64-lowercase-hex> \
+  --approved-hook-hash sha256:<64-lowercase-hex> \
+  --through complete \
+  --output docs/research/evidence/runtime-v1-benchmark.json
+```
+
+The runner must reject placeholders; they identify values captured and
+approved immediately before execution. Expected normalized denominators:
 
 ```text
 requiredPairs = 24
@@ -298,13 +507,21 @@ python3 -m json.tool \
   docs/research/evidence/runtime-v1-benchmark.json >/dev/null
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
   tests.test_runtime_v1_benchmark -v
+PYTHONDONTWRITEBYTECODE=1 python3 \
+  tests/e2e/codex_runtime_v1_benchmark.py \
+  --validate-evidence docs/research/evidence/runtime-v1-benchmark.json
 ```
 
 Expected: the evidence validates as exactly one `pass`, `blocked`, or `fail` verdict. Report the verdict truthfully.
 
 - [ ] **Step 4: Write bounded interpretation and packaging result**
 
-Record the evidence SHA-256, exact denominators, median reduction, correctness regressions, added turns, Apple attempts, applied rows, reruns, safety findings, latency denominators, cleanup, packaging/install result, proven claims, unproven claims, and stop/release decision. Quote no provider, tool, or Apple content.
+Record the evidence SHA-256, exact five-key usage contract and DEV-142
+mapping, cache-write non-double-count rule, exact denominators, median
+reduction, correctness regressions, added requests/turns, Apple attempts,
+applied rows, reruns, safety findings, latency denominators, cleanup,
+packaging/install result, proven claims, unproven claims, and stop/release
+decision. Quote no provider, tool, or Apple content.
 
 - [ ] **Step 5: Commit evidence**
 
@@ -339,7 +556,13 @@ Expected: generator synchronized, full suite PASS except declared pre-existing s
 
 - [ ] **Step 2: Run Sol/High release review**
 
-Review all 24 identities and 48 arms; actual usage normalization; median arithmetic; correctness; turns; Apple attempts; reruns; latency denominators; evidence safety; cleanup; packaging/install proof; DEV-142 immutability; CI; and merge readiness. Resolve every actionable finding and rerun Step 1.
+Review all 24 identities and 48 arms; exact five-key usage validation;
+four-key DEV-142 mapping; independent cache-read, cache-write, and reasoning
+subset checks; no subset double counting; total and median arithmetic;
+correctness; exactly two requests and one completed turn per arm; Apple
+attempts and no retry; reruns; latency denominators; evidence safety; cleanup;
+production identity and packaging/install proof; DEV-142 byte immutability;
+CI; and merge readiness. Resolve every actionable finding and rerun Step 1.
 
 - [ ] **Step 3: Finish the issue**
 
