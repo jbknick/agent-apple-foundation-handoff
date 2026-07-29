@@ -64,8 +64,26 @@ struct DiagnosticCondensation: Codable {
 }
 
 @available(macOS 26.4, *)
+@Generable
+struct LiteralDiagnosticExtraction {
+    let commandOutcome: String
+    let summary: String
+    let summaryFact0: String
+    let summaryFact1: String
+    let summaryFact2: String
+    let summaryFact3: String
+    let warningCount: Int
+    let omittedWarningCount: Int
+    let nextAction: String
+    let completionFact0: String
+    let completionFact1: String
+    let diagnosticCount: Int
+}
+
+@available(macOS 26.4, *)
 struct BridgeInput: Decodable {
     let diagnosticText: String
+    let sourceFacts: DiagnosticCondensation
 }
 
 @available(macOS 26.4, *)
@@ -103,6 +121,139 @@ struct BridgeOutput: Encodable {
             try container.encodeNil(forKey: .condensation)
         }
     }
+}
+
+@available(macOS 26.4, *)
+func exactStringProperty(
+    _ name: String,
+    _ value: String
+) -> GenerationSchema.Property {
+    GenerationSchema.Property(
+        name: name,
+        type: String.self,
+        guides: [.constant(value)]
+    )
+}
+
+@available(macOS 26.4, *)
+func exactIntProperty(
+    _ name: String,
+    _ value: Int
+) -> GenerationSchema.Property {
+    GenerationSchema.Property(
+        name: name,
+        type: Int.self,
+        guides: [.range(value...value)]
+    )
+}
+
+@available(macOS 26.4, *)
+func makeConstrainedSchema(
+    for sourceFacts: DiagnosticCondensation
+) -> GenerationSchema? {
+    guard
+        sourceFacts.summaryFacts.count == 4,
+        sourceFacts.completionFacts.count == 2,
+        sourceFacts.diagnostics.isEmpty,
+        sourceFacts.warningCount >= 0,
+        sourceFacts.omittedWarningCount >= 0
+    else {
+        return nil
+    }
+    return GenerationSchema(
+        type: LiteralDiagnosticExtraction.self,
+        properties: [
+            exactStringProperty(
+                "commandOutcome",
+                sourceFacts.commandOutcome
+            ),
+            exactStringProperty("summary", sourceFacts.summary),
+            exactStringProperty(
+                "summaryFact0",
+                sourceFacts.summaryFacts[0]
+            ),
+            exactStringProperty(
+                "summaryFact1",
+                sourceFacts.summaryFacts[1]
+            ),
+            exactStringProperty(
+                "summaryFact2",
+                sourceFacts.summaryFacts[2]
+            ),
+            exactStringProperty(
+                "summaryFact3",
+                sourceFacts.summaryFacts[3]
+            ),
+            exactIntProperty(
+                "warningCount",
+                sourceFacts.warningCount
+            ),
+            exactIntProperty(
+                "omittedWarningCount",
+                sourceFacts.omittedWarningCount
+            ),
+            exactStringProperty(
+                "nextAction",
+                sourceFacts.nextAction
+            ),
+            exactStringProperty(
+                "completionFact0",
+                sourceFacts.completionFacts[0]
+            ),
+            exactStringProperty(
+                "completionFact1",
+                sourceFacts.completionFacts[1]
+            ),
+            exactIntProperty(
+                "diagnosticCount",
+                sourceFacts.diagnostics.count
+            ),
+        ]
+    )
+}
+
+@available(macOS 26.4, *)
+func validatedCondensation(
+    _ extraction: LiteralDiagnosticExtraction,
+    sourceFacts: DiagnosticCondensation
+) -> DiagnosticCondensation? {
+    let summaryFacts = [
+        extraction.summaryFact0,
+        extraction.summaryFact1,
+        extraction.summaryFact2,
+        extraction.summaryFact3,
+    ]
+    let completionFacts = [
+        extraction.completionFact0,
+        extraction.completionFact1,
+    ]
+    guard
+        extraction.commandOutcome == sourceFacts.commandOutcome,
+        extraction.summary == sourceFacts.summary,
+        summaryFacts == sourceFacts.summaryFacts,
+        extraction.warningCount == sourceFacts.warningCount,
+        extraction.omittedWarningCount == sourceFacts.omittedWarningCount,
+        extraction.nextAction == sourceFacts.nextAction,
+        completionFacts == sourceFacts.completionFacts,
+        extraction.diagnosticCount == 0,
+        sourceFacts.diagnostics.isEmpty
+    else {
+        return nil
+    }
+    return DiagnosticCondensation(
+        commandOutcome: extraction.commandOutcome,
+        summary: extraction.summary,
+        summaryFacts: summaryFacts,
+        diagnostics: [],
+        warningCount: extraction.warningCount,
+        omittedWarningCount: extraction.omittedWarningCount,
+        nextAction: extraction.nextAction,
+        completionFacts: completionFacts
+    )
+}
+
+enum LiteralExtractionError: Error {
+    case invalid
 }
 
 @available(macOS 26.4, *)
@@ -191,13 +342,20 @@ func consult(_ input: BridgeInput) async -> BridgeOutput {
     )
     let responseReserve = 1024
 
+    let constrainedSchema: GenerationSchema
     let occupiedTokens: Int
     do {
+        guard let schema = makeConstrainedSchema(
+            for: input.sourceFacts
+        ) else {
+            throw LiteralExtractionError.invalid
+        }
+        constrainedSchema = schema
         let instructionTokens =
             try await model.tokenCount(for: instructions)
         let promptTokens = try await model.tokenCount(for: prompt)
         let schemaTokens = try await model.tokenCount(
-            for: DiagnosticCondensation.generationSchema
+            for: constrainedSchema
         )
         occupiedTokens =
             instructionTokens + promptTokens + schemaTokens + responseReserve
@@ -235,12 +393,24 @@ func consult(_ input: BridgeInput) async -> BridgeOutput {
     do {
         let response = try await session.respond(
             to: prompt,
-            generating: DiagnosticCondensation.self,
+            schema: constrainedSchema,
             options: GenerationOptions(
                 sampling: .greedy,
                 maximumResponseTokens: 1024
             )
         )
+        let extraction: LiteralDiagnosticExtraction
+        do {
+            extraction = try LiteralDiagnosticExtraction(response.content)
+        } catch {
+            throw LiteralExtractionError.invalid
+        }
+        guard let condensation = validatedCondensation(
+            extraction,
+            sourceFacts: input.sourceFacts
+        ) else {
+            throw LiteralExtractionError.invalid
+        }
         return BridgeOutput(
             status: "applied",
             reasonCode: nil,
@@ -249,7 +419,18 @@ func consult(_ input: BridgeInput) async -> BridgeOutput {
             contextSize: contextSize,
             occupiedTokens: occupiedTokens,
             appleAttempts: appleAttempts,
-            condensation: response.content
+            condensation: condensation
+        )
+    } catch is LiteralExtractionError {
+        return BridgeOutput(
+            status: "fail",
+            reasonCode: "contract_invariant_failed",
+            appleAvailable: true,
+            localeSupported: true,
+            contextSize: contextSize,
+            occupiedTokens: 0,
+            appleAttempts: appleAttempts,
+            condensation: nil
         )
     } catch let generationError
         as LanguageModelSession.GenerationError {

@@ -343,7 +343,10 @@ def run_bridge_process(
     observe: Callable[[Mapping[str, Any]], None],
 ) -> Mapping[str, Any] | None:
     encoded = json.dumps(
-        {"diagnosticText": request["fields"][0]["value"]},
+        {
+            "diagnosticText": request["fields"][0]["value"],
+            "sourceFacts": source_facts(request["exitStatus"]),
+        },
         ensure_ascii=False,
         separators=(",", ":"),
         sort_keys=True,

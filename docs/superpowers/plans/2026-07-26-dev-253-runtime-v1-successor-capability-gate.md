@@ -314,6 +314,61 @@ source facts, harness materialization, fake bridge output, DEV-142 runtime
 contract or validator, production plugin, retry budget, parent-turn budget,
 or raw-evidence exclusions for this correction.
 
+### Input-derived constrained-schema checkpoint refresh
+
+Two subsequent composed invocations each produced one real
+`SystemLanguageModel.default` structured response but terminated with the same
+closed `fail:contract_invariant_failed` row: one observed Apple attempt, zero
+valid results, no replacement, exact-original fallback, zero added parent
+turns, and complete cleanup. The second run followed a prompt-only literal
+transformation correction that passed focused, full, SDK 26.5, formal review,
+and CI gates. Prompt wording is therefore not a sufficient control for the
+frozen DEV-142 byte-exact source-fact equality.
+
+Use the installed SDK 26.5 constrained-generation surface for the next
+correction: `GenerationGuide.constant`, exact integer ranges,
+`GenerationSchema(type:properties:)`,
+`LanguageModelSession.respond(to:schema:...)`, and typed
+`GeneratedContent` decoding. Reuse the application-owned `source_facts`
+already derived by the trusted hook; do not add a second parser or embed the
+fixture's expected literal values in Swift.
+
+The bridge input may carry that locally derived condensation beside the
+unchanged approved diagnostic text. Build one response schema at runtime from
+those values. Use separate scalar properties for ordered fact positions so
+the generated result, not application reordering or an unconstrained array,
+determines every value. Require exact generated-value readback before
+assembling the existing `DiagnosticCondensation` shape and before the frozen
+DEV-142 validator runs. The application may assemble the fixed array
+containers from those generated scalar positions, but it must not substitute
+the locally derived expected values for missing or mismatched Apple output.
+
+This remains a real Apple response and is not a deterministic fake: the
+single `respond` call must complete, every required scalar must be present in
+its `GeneratedContent`, and any generation, decoding, or equality failure
+preserves the untouched original. Keep one attempt, no retry, tools `[]`, no
+network or provider fallback, the benign question, the unchanged C0 stimulus,
+the existing output schema, and the frozen DEV-142 validator. The expected
+condensation is transient approved C0 schema context and must never enter
+committed evidence, observations, diagnostics, or transcripts.
+
+The exact correction boundary is:
+
+- `fixtures/runtime-v1-capability/synthetic-plugin/hooks/codex/probe.py` —
+  pass its existing application-owned source facts to the local bridge.
+- `fixtures/runtime-v1-capability/synthetic-plugin/runtime/DiagnosticCondenser.swift`
+  — build the input-derived constrained schema, decode the one Apple response,
+  require exact readback, and assemble only generated scalar values.
+- `tests/test_codex_runtime_v1_capability_probe.py` — prove transient binding,
+  native constrained-schema use, no embedded expected literals, one response,
+  and unchanged fallback/security boundaries.
+- this authoritative plan.
+
+The owner explicitly directed the executor to stop pausing for further
+identity approvals. Freshly inspect and bind every changed identity before a
+new invocation, record it in Linear, and continue without another approval
+question. Stop on the first terminal result.
+
 ### CI baseline refresh
 
 GitHub Actions is enabled, but `origin/main` has no `.github` tree and the

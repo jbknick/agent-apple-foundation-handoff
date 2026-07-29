@@ -511,6 +511,7 @@ class AdapterTests(unittest.TestCase):
     def test_bridge_process_outcomes_are_closed_and_content_free(self):
         request = {
             "callID": "call-runtime-v1",
+            "exitStatus": 0,
             "fields": [{"value": "safe"}],
         }
         valid = self.applied()
@@ -568,7 +569,7 @@ class AdapterTests(unittest.TestCase):
                         if isinstance(completed, BaseException)
                         else completed
                     ),
-                ),
+                ) as run,
             ):
                 result = self.adapter.run_bridge_process(
                     request,
@@ -580,6 +581,17 @@ class AdapterTests(unittest.TestCase):
                     result,
                     valid if outcome == "result_observed" else None,
                 )
+                if outcome == "result_observed":
+                    bridge_input = json.loads(
+                        run.call_args.kwargs["input"]
+                    )
+                    self.assertEqual(
+                        bridge_input,
+                        {
+                            "diagnosticText": "safe",
+                            "sourceFacts": self.adapter.source_facts(0),
+                        },
+                    )
                 self.assertEqual(
                     observations,
                     [
@@ -703,11 +715,27 @@ class SwiftBridgeTests(unittest.TestCase):
         self.assertIn("tokenCount(for: prompt)", source)
         self.assertIn(
             "tokenCount(\n"
-            "            for: DiagnosticCondensation.generationSchema",
+            "            for: constrainedSchema",
             source,
         )
+        self.assertIn("GenerationSchema(", source)
+        self.assertIn("guides: [.constant(value)]", source)
+        self.assertIn("guides: [.range(value...value)]", source)
+        self.assertIn("schema: constrainedSchema", source)
+        self.assertIn("LiteralDiagnosticExtraction(response.content)", source)
         self.assertNotIn("Transcript(", source)
-        self.assertNotIn("expectedCondensation", source)
+        for embedded in (
+            "synthetic unittest success",
+            "command-class=test",
+            "outcome=success",
+            "exit-status=0",
+            "warning-count=0",
+            "command-finished=true",
+            "task-complete=true",
+            "continue after successful synthetic unittest",
+        ):
+            with self.subTest(embedded=embedded):
+                self.assertNotIn(embedded, source)
         self.assertNotIn("http://", source)
         self.assertNotIn("https://", source)
 
@@ -723,10 +751,12 @@ class SwiftBridgeTests(unittest.TestCase):
         ]
         self.assertEqual(full_consult.count("let prompt = Prompt("), 1)
         self.assertEqual(
-            full_consult.count(
-                "generating: DiagnosticCondensation.self"
-            ),
+            full_consult.count("schema: constrainedSchema"),
             1,
+        )
+        self.assertNotIn(
+            "generating: DiagnosticCondensation.self",
+            full_consult,
         )
         self.assertIn(
             "Respond with JSON answering the question.",
