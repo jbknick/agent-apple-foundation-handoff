@@ -88,8 +88,8 @@ normalization drift requires another Sol/High plan refresh.
 Formal review confirmed that the production adapter already derives closed
 `consultation_completed` and `replacement_emitted` events, but its executable
 path passes `observe=lambda _value: None`. The current Task 3 runner therefore
-cannot truthfully derive `appleAttempts`, `validatedApplied`, or Apple/hook
-latency and correctly stops with
+cannot truthfully derive `appleAttempts`, a replacement-prepared application
+fact, or Apple/hook latency and correctly stops with
 `blocked:apple_attempt_counter_unobservable`. Task 3 is incomplete until that
 production observation prerequisite and the remaining outer-runner gaps below
 are closed; no counter may be inferred from plugin installation, hook trust,
@@ -112,6 +112,43 @@ Swift source, generated runtime contract, DEV-142 fixtures/contracts/evidence,
 and every other production path remain unchanged. This approval does not
 authorize a live Codex or Apple run, evidence publication, commit, push, merge,
 tag, release, or a second Apple attempt.
+
+The Sol/High decision for the remaining effect-proof boundary is to accept
+rigorous non-body triangulation. A direct live second-request body hash is not
+required and must not be captured: Codex `0.145.0` preserves the original
+`PostToolUseFeedbackOutput` in JSONL and `log_preview`, applies the hook
+replacement only through `to_response_item`, and intentionally excludes bodies
+from the authorized OTel request counter. The model-authored last message is
+also not effect authority. Instead, the outer runner may derive
+`validated_applied = true` only from all of these independently owned facts:
+
+```text
+application observation status = replacement_prepared
+application observation appleAttempts = 1
+application observation appleValidResults = 1
+current-candidate Codex 0.145.0 local-provider forwarding preflight = pass
+live OTel normal parent requests = 2
+live JSONL completed parent turns = 1
+live JSONL command executions = 1
+live final parent outcome DEV-142 score = pass
+```
+
+The current-candidate preflight must use the captured Codex `0.145.0`
+executable and exact installed production bytes. With only synthetic transient
+content, its local provider records that the current adapter's exact stdout
+replacement SHA-256 is the sole function output in request two, the original
+tool-result SHA-256 is absent from request two, and exactly two requests and one
+completed turn occur. It deletes both request bodies before returning a closed
+normalized pass/block result. Existing DEV-253 production-mechanism evidence is
+a predecessor check, not a substitute for this current-byte proof. Any Codex
+source, executable, candidate, plugin-tree, hook, adapter, or forwarding-preflight
+identity drift blocks every applied row.
+
+This is intentionally a composite application proof, not a claim that OTel
+observed a provider body. The observation sink attests only preparation before
+stdout; it never attests downstream application. A write, flush, close, stdout,
+request-count, turn, cleanup, or parent-outcome failure therefore prevents the
+outer arm from deriving `validated_applied`.
 
 ## File structure
 
@@ -422,12 +459,12 @@ The one line is a closed tagged union with exactly these fields:
 ```text
 schemaVersion = 1
 event = "runtime_v1_observation"
-status = "applied" | "fallback" | "blocked"
+status = "replacement_prepared" | "fallback" | "blocked"
 reasonCode = null | "apple_attempt_count_uncertain" |
              "observation_invariant_failed"
 appleAttempts = 0 | 1 | null
 appleValidResults = 0 | 1
-validatedApplied = true | false
+replacementPrepared = true | false
 replacementSha256 = <64-lowercase-hex> | null
 replacementBytes = <nonnegative int> | null
 hookLatencyNanoseconds = <nonnegative int>
@@ -436,10 +473,14 @@ appleLatencySamples = 0 | 1
 ```
 
 Wrap the existing one-shot bridge call with `time.monotonic_ns()` and reduce
-only the adapter-owned closed events into this record. `applied` requires one
-known Apple attempt, one valid result, one Apple latency sample, and the exact
-replacement hash/byte count. A known untouched-original path is `fallback`
-with no replacement fields. If bridge completion or the attempt count is
+only the adapter-owned closed events into this record.
+`replacement_prepared` requires `replacementPrepared = true`, one known Apple
+attempt, one valid result, one Apple latency sample, and the exact replacement
+hash/byte count. It means only that validated replacement bytes are ready for
+stdout; it does not mean Codex accepted or forwarded them. A known
+untouched-original path is `fallback` with `replacementPrepared = false` and
+no replacement fields. A blocked record also has
+`replacementPrepared = false`. If bridge completion or the attempt count is
 uncertain, emit only the normalized `blocked` variant with null attempt and
 Apple-latency values. Do not include or retain the observation path, prompt,
 response, original output, replacement body, diagnostics, source facts,
@@ -448,16 +489,23 @@ provider data, Apple output, credentials, or reasoning.
 Any configured observation capture, reduction, open, write, close, or recheck
 failure must suppress the replacement and preserve the exact original result.
 It must not call the bridge again, retry Apple generation, or convert a
-fallback into an applied result. The outer runner treats a missing, malformed,
-blocked, inconsistent, or duplicate observation as a blocked arm and deletes
-the observation file and directory during mandatory cleanup.
+fallback into a prepared result. Keep the observation write and recheck before
+the stdout replacement so an observation failure suppresses that replacement.
+The outer runner treats a missing, malformed, blocked, inconsistent, or
+duplicate observation as a blocked arm and deletes the observation file and
+directory during mandatory cleanup. A prepared observation followed by stdout
+or downstream failure remains not applied and blocks the arm.
 
-Add production RED/GREEN tests for: default-variable absence; exact applied,
-fallback, and blocked records; all tagged-union invariants; monotonic
+Add production RED/GREEN tests for: default-variable absence; exact
+replacement-prepared, fallback, and blocked records; all tagged-union
+invariants; monotonic
 denominators; relative/outside/pre-existing/symlink/hard-link/parent-drift
 rejection; `O_EXCL`/`O_NOFOLLOW`/mode `0o600`; short-write and recheck failure;
 no sensitive or path-bearing content; exact original preservation on every
-observation failure; and proof that the bridge remains one-shot.
+observation failure; prepared-observation plus stdout-failure non-application;
+and proof that the bridge remains one-shot. Tests must also prove the runner
+never accepts an observation-owned `validatedApplied` field and never derives
+the arm's `validated_applied` from the observation alone.
 
 - [ ] **Step 4: Implement fixed pair coordinates**
 
@@ -485,6 +533,21 @@ source SHA-256, corpus SHA-256, and exact captured executable identity to the
 run. Pair coordinates are the fields in the object above and must be identical
 between arms; arm role and plugin installation state are the only intentional
 differences. Reject drift before scoring.
+
+The hash-bound task prompt contains the approved direct command and the fixed
+parent-outcome schema only. It must not contain the fixture ID, fixture hash,
+expected facts, expected diagnostics, expected answer, oracle values, or
+rendered-case hash. It instructs the parent to execute the command exactly once,
+make no other tool call, and serialize only facts derived from the observed
+tool result into this exact closed object:
+
+```text
+commandOutcome, summary, summaryFacts, diagnostics, warningCount,
+omittedWarningCount, nextAction, completionFacts
+```
+
+Those are exactly DEV-142's condensation fields. The prompt must not ask the
+parent to repeat a known answer or copy a fixture identifier.
 
 - [ ] **Step 5: Implement one arm runner**
 
@@ -523,13 +586,23 @@ Each arm must:
 6. Validate the exact five-key terminal usage and map it through DEV-142.
 7. For `pluginOff`, require zero Apple attempts and no loaded/trusted plugin.
    For `pluginOn`, require at most one Apple attempt, no retry, and exactly one
-   terminal applied or untouched-original fallback outcome. Apple-only
+   replacement-prepared or untouched-original fallback observation. Apple-only
    generation is the only extra generation relative to `pluginOff`. Set the
    optional observation path only for `pluginOn`; validate its exact one-line
-   closed union, cross-check it against the arm role and replacement outcome,
-   then delete it.
-8. Score the parent outcome against the immutable DEV-142 oracle and its
-   paired baseline.
+   closed union, cross-check it against the arm role, and then delete it. Never
+   read `validated_applied` from this record.
+8. Parse `--output-last-message` with duplicate-key rejection as exactly the
+   eight-field parent-outcome object above. Require it to equal the text of the
+   final completion-only `agent_message`, reject a wrapper, prose, Markdown,
+   extra or missing keys, invalid DEV-142 field shape, trailing bytes, or an
+   output larger than DEV-142's bound. While the exact bytes remain transient,
+   bind their SHA-256 to the candidate commit, pair coordinate,
+   `taskPromptSha256`, case `renderedSha256`, and immutable DEV-142 oracle;
+   construct the fixed applied DEV-142 scoring envelope, call
+   `validate_result` and `score_condensation`, and derive
+   `correctness_passed` only from `QualityScore.passed` with no reason codes.
+   No caller-provided correctness flag is accepted. Score both arms
+   independently against the same case, then delete the final-message bytes.
 9. Record monotonic Apple, hook, and parent-turn latency with explicit
    numerators and denominators.
 10. Recheck executable, plugin/tree identities, manifest/hook trust, and
@@ -541,12 +614,37 @@ Each arm must:
 
 No arm retries. Interruption or uncertain completion blocks its required pair.
 
-The JSONL parser must enforce exact allowed keys and tagged shapes for every
-supported record, `thread.started` first, `turn.started` before every item,
-matched item ID/type lifecycles, and one final `turn.completed`. Add negative
-tests for extra keys, out-of-order turn start, changed item type, duplicate
-IDs, item completion without start, records after terminal, and unsupported
-event types. A merely parseable or count-equivalent stream is not closed proof.
+The JSONL parser must implement the exact supported Codex `0.145.0` lifecycle
+from official commit `25af12f7`. Accept only exact closed top-level shapes:
+`thread.started` first, then one `turn.started`, bounded item records, and one
+final `turn.completed`. Within this benchmark, accept only
+`command_execution`, nonempty `reasoning`, and `agent_message` items. Every
+item ID must match `item_[0-9]+` and be unique on first introduction.
+
+`command_execution` is the only matched lifecycle: require exactly one
+`item.started` with the exact closed command item shape and
+`status = "in_progress"`, followed by exactly one `item.completed` with the
+same ID, type, and command, exact completed command fields, terminal status,
+aggregated output, and exit code. Reject completion before start, a changed
+ID/type/command, duplicate start or completion, reuse, or an open command.
+Both records contain exactly
+`id, type, command, aggregated_output, exit_code, status`; the start has empty
+aggregated output and null exit code, and the completion has status
+`completed | failed | declined` with an integer or null exit code consistent
+with the emitted terminal shape.
+
+`agent_message` and nonempty `reasoning` are completion-only. Accept each only
+as an exact closed `item.completed` whose item contains exactly
+`id, type, text`, with its own new synthetic ID and nonempty text; reject any
+`item.started` for either type, empty reasoning, duplicate or reused IDs, or
+extra item fields. Require at least one completed
+`agent_message`; the final item before `turn.completed` must be the completed
+agent message whose text exactly equals `--output-last-message`. Reject
+`item.updated`, unsupported item types or events, extra keys at any depth,
+out-of-order records, records after terminal, and multiple terminals. Add
+positive tests for official completion-only agent/reasoning records and
+negative tests for every rejected case above. A merely parseable or
+count-equivalent stream is not closed proof.
 
 - [ ] **Step 6: Implement atomic evidence output**
 
@@ -640,6 +738,19 @@ commit identifies the exact harness and contract under test. Missing ancestry
 is `blocked:production_commit_not_contained`; candidate or unexpected worktree
 drift is `fail:candidate_identity_drift`.
 
+Before any provider-backed dry or live row, run the deterministic
+current-candidate forwarding preflight described in the Sol/High amendment.
+It must exercise the captured Codex `0.145.0` executable, exact installed
+plugin/hook/adapter bytes, the observation-precedes-stdout path, and a local
+provider with synthetic content. While request bodies remain transient, prove
+that the prepared replacement SHA-256 equals the sole function output in
+request two, the original tool-result SHA-256 is absent, the request count is
+exactly two, the command count is exactly one, and the turn is closed. Delete
+the bodies and isolated root, then retain only a normalized result bound to the
+candidate commit, executable version, Codex source commit `25af12f7`, plugin
+tree, hook, and adapter hashes. A missing, stale, mismatched, or failed result
+is `blocked:replacement_forwarding_unproven` and stops before an Apple attempt.
+
 Run the tested harness once through the plugin-off usage preflight:
 
 ```bash
@@ -660,6 +771,14 @@ Apple attempt, no retry, and completed cleanup. The harness may print only a
 normalized terminal record and must delete raw JSONL and the isolated root.
 Any mismatch stops before the matrix with
 `blocked:provider_usage_schema_or_semantic_drift`.
+
+For every live `pluginOn` row, derive `validated_applied` only after rechecking
+the bound forwarding-preflight result and combining it with that row's
+`replacement_prepared` application observation, exact two-request OTel count,
+closed one-turn JSONL stream, one command execution, and correct closed parent
+outcome. This per-row cross-check is the accepted production effect proof.
+Neither OTel nor the observation is described as provider-body evidence, and
+no provider body is retained.
 
 - [ ] **Step 2: Run all required arms**
 
