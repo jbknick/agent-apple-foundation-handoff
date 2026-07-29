@@ -172,6 +172,12 @@ even-count median; correctness regression; anything other than two parent
 requests and one completed turn; Apple attempts; command rerun; blocked pair;
 unsafe evidence; cleanup failure; and the 24-pair success case.
 
+Add explicit RED cases proving that 24 arbitrary unique fixture IDs cannot
+pass; a real fixture with the wrong rendered SHA-256, command class, or command
+form blocks; a missing, extra, duplicate, or substituted DEV-142 corpus
+identity blocks; and caller-forged `RuntimeV1PairScore` summaries cannot bypass
+arm validation, pair scoring, or release derivation.
+
 - [ ] **Step 2: Run focused tests and verify RED**
 
 Run:
@@ -185,8 +191,18 @@ Expected: FAIL because the contract module does not exist.
 
 - [ ] **Step 3: Implement the closed data model**
 
-Import only DEV-142's `normalize_usage` and `BlockedEvidence`; do not copy its
-normalization or change that module. Use frozen dataclasses:
+Import only DEV-142's `normalize_usage`, `BlockedEvidence`, and
+`load_closed_json`; do not copy its normalization or change that module. Load
+`fixtures/dev-142/benchmark-corpus.json`, require its frozen corpus SHA-256 and
+exact 24 IDs, and derive one immutable map:
+
+```text
+fixture_id -> { rendered_sha256, command_class, command_form }
+```
+
+`validate_arm` requires every fixture ID to exist in that map and requires its
+`fixture_sha256`, `command_class`, and `command_form` to equal the mapped
+values. Use frozen dataclasses:
 
 ```python
 @dataclass(frozen=True)
@@ -210,6 +226,7 @@ class RuntimeV1Arm:
     provider_normalization: str
     policy_version: str
     command_class: str
+    command_form: str
     task_prompt_sha256: str
     usage: RuntimeV1Usage
     parent_requests: int
@@ -219,6 +236,11 @@ class RuntimeV1Arm:
     command_executions: int
     correctness_passed: bool
     cleanup_complete: bool
+
+@dataclass(frozen=True)
+class RuntimeV1ArmPair:
+    plugin_off: RuntimeV1Arm
+    plugin_on: RuntimeV1Arm
 
 @dataclass(frozen=True)
 class RuntimeV1PairScore:
@@ -240,14 +262,21 @@ Expose exactly these interfaces:
 ```text
 normalize_codex_usage(value: object) -> RuntimeV1Usage
 validate_arm(value: object) -> RuntimeV1Arm
+validate_arm_pair(value: object) -> RuntimeV1ArmPair
 score_pair(off: object, on: object) -> RuntimeV1PairScore
 release_gate(
-    pairs: list[RuntimeV1PairScore],
+    arm_pairs: list[object],
     *,
     unsafe_committed_evidence_findings: int,
 ) -> dict[str, object]
 validate_evidence(value: object) -> None
 ```
+
+The raw arm-pair input is a closed object with exactly
+`plugin_off` and `plugin_on`; `validate_arm_pair` validates both nested raw arm
+objects, exact roles, identical coordinates, and the wrapper's one immutable
+DEV-142 corpus identity. `RuntimeV1PairScore` is derived output only and is
+never accepted as release authority.
 
 `normalize_codex_usage` first validates the exact five-key Codex object, then
 calls DEV-142's `normalize_usage` with the exact four-key mapping above and
@@ -256,11 +285,16 @@ checks the returned fields and total. Do not call or modify DEV-142's 48-pair
 
 - [ ] **Step 4: Implement the release gate**
 
-The release gate returns `pass` only when:
+`release_gate` first requires exactly one validated arm pair for every exact
+DEV-142 corpus ID and no other identity. It calls `score_pair` itself for all
+24 pairs and aggregates only those freshly derived scores; it rejects
+`RuntimeV1PairScore` inputs and never trusts a caller-provided reduction,
+counter, status, or reason. The release gate returns `pass` only when:
 
 ```python
-len(pairs) == 24
-all(pair.status == "pass" for pair in pairs)
+len(derived_pairs) == 24
+set(pair.fixture_id for pair in derived_pairs) == set(EXACT_DEV142_FIXTURE_IDS)
+all(pair.status == "pass" for pair in derived_pairs)
 median_reduction_ppm >= 100_000
 correctness_regressions == 0
 additional_parent_requests == 0
@@ -279,6 +313,12 @@ zero-based positions 11 and 12. Any missing required pair, blocked required
 pair, zero denominator, unavailable normalization, schema/semantic drift, or
 incomplete cleanup returns `blocked`; invariant and correctness violations
 return `fail`.
+
+`validate_evidence` validates the closed evidence shape, groups its 48 raw
+arms into the same 24 closed arm-pair inputs, calls `release_gate`, and requires
+the stored pair summaries, release object, counts, status, and reason codes to
+equal the freshly derived values exactly. Evidence validation cannot accept a
+stored pair or release summary as proof of its own derivation.
 
 - [ ] **Step 5: Run GREEN and commit**
 
@@ -302,7 +342,12 @@ Expected: focused tests PASS and DEV-142 remains unchanged.
 
 - [ ] **Step 1: Write failing runner tests**
 
-Test exact executable capture/recheck; immutable pair coordinates; deterministic fixture order; plugin-off isolation; plugin-on install/trust; one command; zero added turns; actual usage extraction; Apple-attempt counting; correctness scoring; monotonic latency; transient raw-data cleanup; atomic normalized writes; resume rejection; and fail-closed cancellation.
+Test exact executable capture/recheck; clean candidate-commit capture/recheck;
+production-commit ancestry; immutable pair coordinates; deterministic fixture
+order; plugin-off isolation; plugin-on install/trust; one command; zero added
+turns; actual usage extraction; Apple-attempt counting; correctness scoring;
+monotonic latency; transient raw-data cleanup; atomic normalized writes;
+resume rejection; and fail-closed cancellation.
 
 - [ ] **Step 2: Run runner tests and verify RED**
 
@@ -323,13 +368,14 @@ For each DEV-142 corpus case, bind:
 {
     "benchmarkProfile": "codex-runtime-v1-cost-v1",
     "fixtureID": case["id"],
-    "fixtureSha256": case_sha256,
+    "fixtureSha256": case["renderedSha256"],
     "parentModel": exact_parent_model,
     "reasoningEffort": exact_reasoning_effort,
     "provider": "openai-responses-usage-v1",
     "codexVersion": "0.145.0",
     "policyVersion": "diagnostic-condensation-v1",
     "commandClass": case["commandClass"],
+    "commandForm": case["commandForm"],
     "taskPromptSha256": task_prompt_sha256,
 }
 ```
@@ -449,6 +495,17 @@ availability, locale, the dry-row usage mapping, corpus and production
 identities, and free temporary storage. Any missing prerequisite writes a
 normalized blocker and stops before an Apple attempt or benchmark arm.
 
+After Task 3 is committed, require a clean worktree and capture its exact
+40-character lowercase `HEAD` as `approved_candidate_commit`. Prove
+`6d336044b0c21dfeca485b6676a18d50bf085487` is an ancestor of that candidate,
+pass both identities separately, and recheck `HEAD` equality before and after
+every dry or live row. The dry row must finish clean. The complete run may
+create only its authorized normalized output path; any other worktree change
+is drift. The production commit identifies merged Runtime V1; the candidate
+commit identifies the exact harness and contract under test. Missing ancestry
+is `blocked:production_commit_not_contained`; candidate or unexpected worktree
+drift is `fail:candidate_identity_drift`.
+
 Run the tested harness once through the plugin-off usage preflight:
 
 ```bash
@@ -457,6 +514,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 \
   --codex-executable <host-path> \
   --python-executable <host-path> \
   --approved-production-commit 6d336044b0c21dfeca485b6676a18d50bf085487 \
+  --approved-candidate-commit <current-clean-task3-head> \
   --approved-plugin-sha256 <64-lowercase-hex> \
   --approved-hook-hash sha256:<64-lowercase-hex> \
   --through usage-dry-run
@@ -480,6 +538,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 \
   --codex-executable <host-path> \
   --python-executable <host-path> \
   --approved-production-commit 6d336044b0c21dfeca485b6676a18d50bf085487 \
+  --approved-candidate-commit <current-clean-task3-head> \
   --approved-plugin-sha256 <64-lowercase-hex> \
   --approved-hook-hash sha256:<64-lowercase-hex> \
   --through complete \
