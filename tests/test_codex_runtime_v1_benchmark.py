@@ -619,6 +619,153 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                 approved_hook_hash="sha256:" + "b" * 64,
             )
 
+    def test_forwarding_blocked_terminal_classifies_every_closed_stage_once(self):
+        stages = (
+            "process_stderr",
+            "process_exit",
+            "jsonl",
+            "requests_counter",
+            "original_exclusion",
+            "receipt",
+            "identity_trust",
+        )
+        terminals = []
+        for stage in stages:
+            calls = []
+
+            def execute(**arguments):
+                calls.append(arguments)
+                arguments["_failure_state"].enter(stage)
+                raise runner.BenchmarkBlocked(
+                    "raw prompt response /Users/private request body "
+                    "stdout stderr JSONL command output observation traceback"
+                )
+
+            with self.subTest(stage=stage), mock.patch.object(
+                runner,
+                "_execute_forwarding_preflight",
+                side_effect=execute,
+            ), self.assertRaises(runner.ForwardingPreflightBlocked) as caught:
+                runner.run_forwarding_preflight(synthetic=True)
+            self.assertEqual(1, len(calls))
+            terminal = runner.blocked_terminal(caught.exception)
+            self.assertEqual(
+                {
+                    "status": "blocked",
+                    "reasonCodes": [
+                        "replacement_forwarding_unproven"
+                    ],
+                    "failureStage": stage,
+                },
+                terminal,
+            )
+            terminals.append(terminal)
+        encoded = json.dumps(terminals, sort_keys=True)
+        for prohibited in (
+            "/Users/private",
+            "raw prompt",
+            "response ",
+            "request body",
+            "stdout ",
+            "JSONL ",
+            "command output",
+            "observation ",
+            "traceback",
+        ):
+            with self.subTest(prohibited=prohibited):
+                self.assertNotIn(prohibited, encoded)
+
+    def test_forwarding_unexpected_exception_is_content_free_and_not_retried(self):
+        sensitive = (
+            "private exception /Users/private prompt response request body "
+            "stdout stderr JSONL command output observation traceback"
+        )
+        for error_type in (RuntimeError, runner.BenchmarkBlocked):
+            calls = []
+
+            def execute(**arguments):
+                calls.append(arguments)
+                raise error_type(sensitive)
+
+            with self.subTest(error_type=error_type), mock.patch.object(
+                runner,
+                "_execute_forwarding_preflight",
+                side_effect=execute,
+            ), self.assertRaises(
+                runner.ForwardingPreflightBlocked
+            ) as caught:
+                runner.run_forwarding_preflight(synthetic=True)
+            self.assertEqual(1, len(calls))
+            terminal = runner.blocked_terminal(caught.exception)
+            self.assertEqual(
+                {
+                    "status": "blocked",
+                    "reasonCodes": [
+                        "replacement_forwarding_unproven"
+                    ],
+                    "failureStage": "unexpected_exception",
+                },
+                terminal,
+            )
+            self.assertNotIn(
+                sensitive,
+                json.dumps(terminal, sort_keys=True),
+            )
+            self.assertIsNone(caught.exception.__cause__)
+            self.assertIsNone(caught.exception.__context__)
+
+    def test_forwarding_cleanup_supersedes_stage_without_diagnostic(self):
+        calls = []
+
+        def execute(**arguments):
+            calls.append(arguments)
+            arguments["_failure_state"].enter("receipt")
+            raise runner.BenchmarkBlocked("cleanup_incomplete")
+
+        with mock.patch.object(
+            runner,
+            "_execute_forwarding_preflight",
+            side_effect=execute,
+        ), self.assertRaisesRegex(
+            runner.BenchmarkBlocked,
+            "^cleanup_incomplete$",
+        ) as caught:
+            runner.run_forwarding_preflight(synthetic=True)
+        self.assertEqual(1, len(calls))
+        self.assertEqual(
+            {
+                "status": "blocked",
+                "reasonCodes": ["cleanup_incomplete"],
+            },
+            runner.blocked_terminal(caught.exception),
+        )
+
+    def test_forwarding_pass_has_no_failure_stage(self):
+        proof = runner.ForwardingProof(
+            "pass",
+            "a" * 40,
+            "0.145.0",
+            runner.CODEX_SOURCE_COMMIT,
+            "b" * 64,
+            "sha256:" + "c" * 64,
+            "d" * 64,
+        )
+        calls = []
+
+        def execute(**arguments):
+            calls.append(arguments)
+            return proof
+
+        with mock.patch.object(
+            runner,
+            "_execute_forwarding_preflight",
+            side_effect=execute,
+        ):
+            observed = runner.run_forwarding_preflight(synthetic=True)
+        self.assertIs(proof, observed)
+        self.assertEqual(1, len(calls))
+        self.assertNotIn("failureStage", runner.asdict(observed))
+
     def test_forwarding_requires_one_second_request_output_and_original_absence(self):
         replacement = "replacement"
         first = {"input": []}

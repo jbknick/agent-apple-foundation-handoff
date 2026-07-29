@@ -44,6 +44,16 @@ _OBSERVATION_KEYS = {
     "replacementBytes", "preReceiptHookLatencyNanoseconds",
     "appleLatencyNanoseconds", "appleLatencySamples",
 }
+_FORWARDING_FAILURE_STAGES = {
+    "process_stderr",
+    "process_exit",
+    "jsonl",
+    "requests_counter",
+    "original_exclusion",
+    "receipt",
+    "identity_trust",
+    "unexpected_exception",
+}
 
 
 def _load(path: Path, name: str):
@@ -72,6 +82,29 @@ class BenchmarkBlocked(ValueError):
 
 class BenchmarkFailure(ValueError):
     pass
+
+
+class ForwardingPreflightBlocked(BenchmarkBlocked):
+    def __init__(self, failure_stage: str):
+        if failure_stage not in _FORWARDING_FAILURE_STAGES:
+            raise ValueError("invalid forwarding failure stage")
+        super().__init__("replacement_forwarding_unproven")
+        self.failure_stage = failure_stage
+
+
+@dataclass
+class _ForwardingFailureState:
+    stage: str | None = None
+
+    def enter(self, stage: str) -> None:
+        if stage not in _FORWARDING_FAILURE_STAGES - {
+            "unexpected_exception"
+        }:
+            raise ValueError("invalid forwarding failure stage")
+        self.stage = stage
+
+    def leave(self) -> None:
+        self.stage = None
 
 
 @dataclass(frozen=True)
@@ -1807,9 +1840,11 @@ def _execute_forwarding_preflight(
     candidate_commit: str,
     production_identities: dict[str, str],
     approved_hook_hash: str,
+    _failure_state: _ForwardingFailureState,
 ) -> ForwardingProof:
     pending = None
     with isolated_arm_root() as root:
+        _failure_state.enter("identity_trust")
         staged = root / "staged-plugin"
         shutil.copytree(PLUGIN, staged, symlinks=False)
         environment, installed = install_plugin(
@@ -1827,6 +1862,7 @@ def _execute_forwarding_preflight(
                 plugin_id=production.PLUGIN_ID,
                 approved_hash=approved_hook_hash,
             )
+        _failure_state.leave()
         bridge = root / "synthetic-bridge"
         bridge.write_text(
             f"#!{python.resolved}\n"
@@ -1879,19 +1915,23 @@ def _execute_forwarding_preflight(
                 shell=False,
                 timeout=90,
             )
+        _failure_state.enter("process_stderr")
         discard_classified_codex_stderr(
             completed,
             codex_version=codex.version,
             source_commit=CODEX_SOURCE_COMMIT,
             stdin_nonterminal=True,
         )
+        _failure_state.enter("process_exit")
         if completed.returncode != 0:
             raise BenchmarkBlocked("replacement_forwarding_unproven")
+        _failure_state.enter("jsonl")
         parsed = parse_event_stream(completed.stdout)
         original = b""
         forwarded = b""
         serialized_wrapper = b""
         try:
+            _failure_state.enter("requests_counter")
             production.require_direct_exec_requests(server.requests)
             if (
                 len(server.requests) != 2
@@ -1901,12 +1941,14 @@ def _execute_forwarding_preflight(
                 or command_counter.read_text(encoding="utf-8") != "1"
             ):
                 raise BenchmarkBlocked("replacement_forwarding_unproven")
+            _failure_state.enter("original_exclusion")
             original = production.stimulus_bytes("C0")
             forwarded = _sole_forwarded_function_output(
                 server.requests[0],
                 server.requests[1],
                 original=original,
             )
+            _failure_state.enter("receipt")
             serialized_wrapper = _serialized_hook_wrapper(forwarded)
             observation = consume_runtime_v1_observation(observation_path)
             if (
@@ -1920,6 +1962,7 @@ def _execute_forwarding_preflight(
                 or original in forwarded
             ):
                 raise BenchmarkBlocked("replacement_forwarding_unproven")
+            _failure_state.leave()
         finally:
             server.requests.clear()
             forwarded = b""
@@ -1927,6 +1970,7 @@ def _execute_forwarding_preflight(
             original = b""
         observation_path.unlink()
         observation_directory.rmdir()
+        _failure_state.enter("identity_trust")
         codex.recheck()
         python.recheck()
         if (
@@ -1941,6 +1985,7 @@ def _execute_forwarding_preflight(
                 workspace=workspace,
                 approved_hook_hash=approved_hook_hash,
             )
+        _failure_state.leave()
         pending = ForwardingProof(
             "pass",
             candidate_commit,
@@ -1950,28 +1995,44 @@ def _execute_forwarding_preflight(
             approved_hook_hash,
             production_identities["pythonAdapterSha256"],
         )
+    _failure_state.enter("identity_trust")
     validate_forwarding_proof(
         pending,
         candidate_commit=candidate_commit,
         production_identities=production_identities,
         approved_hook_hash=approved_hook_hash,
     )
+    _failure_state.leave()
     return pending
 
 
 def run_forwarding_preflight(**arguments) -> ForwardingProof:
+    failure_state = _ForwardingFailureState()
+    failure_stage = None
     try:
-        return _execute_forwarding_preflight(**arguments)
+        return _execute_forwarding_preflight(
+            **arguments,
+            _failure_state=failure_state,
+        )
     except BenchmarkBlocked as error:
         if str(error) == "cleanup_incomplete":
             raise
-        raise BenchmarkBlocked(
-            "replacement_forwarding_unproven"
-        ) from None
+        failure_stage = (
+            failure_state.stage or "unexpected_exception"
+        )
     except Exception:
-        raise BenchmarkBlocked(
-            "replacement_forwarding_unproven"
-        ) from None
+        failure_stage = "unexpected_exception"
+    raise ForwardingPreflightBlocked(failure_stage)
+
+
+def blocked_terminal(error: BenchmarkBlocked) -> dict[str, object]:
+    terminal: dict[str, object] = {
+        "status": "blocked",
+        "reasonCodes": [str(error)],
+    }
+    if isinstance(error, ForwardingPreflightBlocked):
+        terminal["failureStage"] = error.failure_stage
+    return terminal
 
 
 def _execute_benchmark_arm(
@@ -2342,7 +2403,7 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except BenchmarkBlocked as error:
-        print(json.dumps({"status": "blocked", "reasonCodes": [str(error)]}, sort_keys=True))
+        print(json.dumps(blocked_terminal(error), sort_keys=True))
         raise SystemExit(2)
     except BenchmarkFailure as error:
         print(json.dumps({"status": "fail", "reasonCodes": [str(error)]}, sort_keys=True))
