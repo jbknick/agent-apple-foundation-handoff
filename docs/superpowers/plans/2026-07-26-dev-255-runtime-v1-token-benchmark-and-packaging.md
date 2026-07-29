@@ -171,6 +171,65 @@ evidence for the arm. A stdout, receipt, request-count, turn, cleanup, or
 parent-outcome failure therefore prevents the outer arm from deriving
 `validated_applied`.
 
+## 2026-07-29 blocked forwarding-preflight diagnosability amendment
+
+The clean current-candidate forwarding preflight stopped before any Apple,
+remote-provider, dry-row, or benchmark-arm attempt with the required public
+terminal `status = blocked` and
+`reason = replacement_forwarding_unproven`. That public status and reason
+remain unchanged. The runner must not retry the preflight, retain raw evidence,
+or weaken any forwarding assertion.
+
+The normalized forwarding-preflight result may add one optional
+`failureStage`. It is forbidden on a passing result, required when the public
+result is `blocked:replacement_forwarding_unproven`, and has this exact closed
+enum:
+
+```text
+process_stderr
+process_exit
+jsonl
+requests_counter
+original_exclusion
+receipt
+identity_trust
+unexpected_exception
+```
+
+Set the pending stage immediately before entering its boundary:
+`identity_trust` covers initial installation/trust and the final identity/trust
+rechecks; `process_stderr` covers only the source-bound raw-stderr
+classification and immediate discard; `process_exit` covers the accepted-
+stderr process return code; `jsonl` covers the closed event stream and usage
+parser; `requests_counter` covers direct-tool request shape, request count,
+completed-turn count, command count, and the command-counter file;
+`original_exclusion` covers the unique forwarded function output and
+whole-second-request original exclusion; and `receipt` covers exact wrapper
+serialization plus the application observation status, digest, and byte-count
+cross-check. A caught exception outside a classified boundary maps only to
+`unexpected_exception`; never retain or serialize its type, message,
+traceback, arguments, or chained exception.
+
+`blocked:cleanup_incomplete` remains the separate cleanup terminal and does not
+use `failureStage`. Cleanup still runs after every pass or block and can
+supersede an earlier pending forwarding block. The normalized diagnostic may
+retain only `failureStage` plus the already authorized path-free bounded
+identity/status scalars. It must not retain or expose prompts, responses,
+reasoning, paths, provider request bodies, stdout, stderr, JSONL, command
+output, observation content, exception text, or digests derived from any of
+those prohibited bodies.
+
+Add deterministic runner tests that force every closed stage once, prove the
+public status and reason remain exactly
+`blocked:replacement_forwarding_unproven`, prove no retry, and prove the
+matching `failureStage` is the only added diagnostic. Force an otherwise
+unclassified exception and require `unexpected_exception` without its message.
+Force cleanup failure separately and require
+`blocked:cleanup_incomplete` with no `failureStage`. Scan every normalized
+terminal serialization and test artifact for prompt, response, private-path,
+request-body, stdout, stderr, JSONL, command-output, observation, traceback,
+and exception-message leakage.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.
@@ -807,6 +866,8 @@ result bound to the
 candidate commit, executable version, Codex source commit `25af12f7`, plugin
 tree, hook, and adapter hashes. A missing, stale, mismatched, or failed result
 is `blocked:replacement_forwarding_unproven` and stops before an Apple attempt.
+That blocked terminal must include the closed `failureStage` required by the
+diagnosability amendment; it remains the only forwarding-preflight diagnostic.
 
 Run the tested harness once through the plugin-off usage preflight:
 
