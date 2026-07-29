@@ -165,13 +165,20 @@ func consult(_ input: BridgeInput) async -> BridgeOutput {
 
     let instructions = Instructions(
         """
-        Use only literal values in the supplied synthetic unit-test record.
-        Use suite and outcome for the summary. Copy the ordered command-class,
-        outcome, exit-status, and warning-count facts. Copy next-action
-        unchanged. Copy command-finished and task-complete as ordered
-        completion facts. Include diagnostics only for literal issue records;
-        otherwise use an empty array. Do not describe yourself, infer, or add
-        content.
+        Read only key=value lines before filler.
+        Set commandOutcome to the exact outcome value.
+        Set summary to the exact suite value, one ASCII space, then the
+        exact outcome value.
+        Copy the complete command-class, outcome, exit-status, and
+        warning-count lines verbatim into summaryFacts in that order.
+        Set warningCount to the warning-count integer.
+        Set nextAction to the exact next-action value.
+        Copy the complete command-finished and task-complete lines verbatim
+        into completionFacts in that order.
+        Copy only literal issue lines into diagnostics.
+        Set omittedWarningCount to warningCount minus the number of emitted
+        warning-severity diagnostics.
+        Do not paraphrase, describe yourself, infer, or add content.
         """
     )
     let prompt = Prompt(

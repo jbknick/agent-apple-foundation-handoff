@@ -736,24 +736,26 @@ class SwiftBridgeTests(unittest.TestCase):
             '{"question":"What was the result of this synthetic unit test?"}',
             consult,
         )
-        self.assertIn(
-            "Include diagnostics only for literal issue records;\n"
-            "        otherwise use an empty array.",
-            consult,
-        )
         for contract in (
-            "Use suite and outcome for the summary.",
-            "Copy the ordered command-class,\n"
-            "        outcome, exit-status, and warning-count facts.",
-            "Copy next-action\n"
-            "        unchanged.",
-            "Copy command-finished and task-complete as ordered\n"
-            "        completion facts.",
-            "Do not describe yourself, infer, or add\n"
-            "        content.",
+            "Read only key=value lines before filler.",
+            "Set commandOutcome to the exact outcome value.",
+            "Set summary to the exact suite value, one ASCII space, then the\n"
+            "        exact outcome value.",
+            "Copy the complete command-class, outcome, exit-status, and\n"
+            "        warning-count lines verbatim into summaryFacts in that order.",
+            "Set warningCount to the warning-count integer.",
+            "Set nextAction to the exact next-action value.",
+            "Copy the complete command-finished and task-complete lines verbatim\n"
+            "        into completionFacts in that order.",
+            "Copy only literal issue lines into diagnostics.",
+            "Set omittedWarningCount to warningCount minus the number of emitted\n"
+            "        warning-severity diagnostics.",
+            "Do not paraphrase, describe yourself, infer, or add content.",
         ):
             with self.subTest(contract=contract):
                 self.assertIn(contract, consult)
+        self.assertNotIn("omittedWarningCount to zero", consult)
+        self.assertNotIn("diagnostics to an empty array", consult)
         self.assertNotIn("what model", consult.lower())
         self.assertNotIn("llm/slm", consult.lower())
         for trigger in (
