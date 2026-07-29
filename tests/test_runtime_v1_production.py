@@ -5,9 +5,11 @@ import json
 import os
 from pathlib import Path
 import stat
+import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,6 +31,7 @@ SWIFT = (
     / "plugins/apple-foundation-models-handoff/runtime/"
     "DiagnosticCondenser.swift"
 )
+PRODUCTION_HARNESS = ROOT / "tests/e2e/codex_runtime_v1_production.py"
 
 
 def load_module(path: Path, name: str):
@@ -43,6 +46,10 @@ def load_module(path: Path, name: str):
 
 adapter = load_module(ADAPTER, "runtime_v1_production_adapter")
 contract = load_module(CONTRACT, "runtime_v1_production_contract")
+harness = load_module(
+    PRODUCTION_HARNESS,
+    "runtime_v1_production_harness",
+)
 
 
 def diagnostic_text(
@@ -453,6 +460,133 @@ class ProductionSwiftTests(unittest.TestCase):
             self.assertIn(required, source)
         self.assertEqual(1, source.count("session.respond("))
         self.assertNotIn("What was the result of this synthetic unit test?", source)
+
+
+class ProductionHarnessTests(unittest.TestCase):
+    def test_production_harness_entrypoint_exists(self):
+        self.assertTrue(PRODUCTION_HARNESS.is_file())
+
+    def test_harness_reuses_only_proved_host_boundary_helpers(self):
+        for name in (
+            "capture_codex",
+            "capture_python",
+            "tree_sha256",
+            "trust_hook",
+            "responses_server",
+            "atomic_write_json",
+        ):
+            self.assertIs(getattr(harness, name), getattr(harness.helpers, name))
+
+    def test_harness_fixture_is_closed_and_production_parseable(self):
+        self.assertGreaterEqual(len(harness.stimulus_bytes("C0")), 8192)
+        contract._validate_source_facts(
+            adapter.source_facts(harness._record("C0"))
+        )
+        with self.assertRaises(ValueError):
+            adapter.source_facts(harness._record("C2"))
+
+    def test_harness_binds_the_installed_root_and_three_explicit_variables(self):
+        source = PRODUCTION_HARNESS.read_text()
+        for required in (
+            '"RUNTIME_V1_PYTHON"',
+            '"RUNTIME_V1_BRIDGE_EXECUTABLE"',
+            '"RUNTIME_V1_REPO_ROOT"',
+            "tree_sha256(installed) != plugin_sha256",
+            'for classification in ("C0", "C2")',
+            "compile_bridge(staged, xcrun=sdk_resolved)",
+            "--approved-plugin-sha256",
+            "--approved-hook-hash",
+            "unsafe_evidence_findings",
+            "recheck_sdk(",
+            "VerifiedTerminal",
+        ):
+            self.assertIn(required, source)
+        self.assertNotIn("RUNTIME_V1_PLUGIN_ROOT", source)
+        self.assertNotIn('"RUNTIME_V1_COMMAND_COUNTER":', source)
+        self.assertNotIn('"RUNTIME_V1_LOCAL_PROVIDER_KEY":', source)
+
+    def test_harness_applied_oracle_requires_exact_valid_result(self):
+        candidate = payload(
+            harness.stimulus_bytes("C0").decode("utf-8")
+        )
+        candidate["tool_use_id"] = "call-runtime-v1"
+        response, _ = ProductionAdapterTests().evaluate(candidate)
+        encoded = response["stopReason"].encode("utf-8")
+
+        original = harness.stimulus_bytes("C0")
+        digest = harness._validated_applied_output(encoded, original)
+
+        self.assertEqual(
+            __import__("hashlib").sha256(encoded).hexdigest(),
+            digest,
+        )
+        with self.assertRaises(harness.ProbeFailure):
+            harness._validated_applied_output(encoded + b"\n", original)
+
+    def test_harness_evidence_scan_detects_raw_and_private_content(self):
+        self.assertEqual(
+            0,
+            harness.unsafe_evidence_findings(
+                {"codexExecutable": "<host-path>", "status": "pass"}
+            ),
+        )
+        self.assertGreater(
+            harness.unsafe_evidence_findings(
+                {"diagnosticText": harness._record("C0")}
+            ),
+            0,
+        )
+
+    def test_harness_verifies_cleanup_on_failure_and_cleanup_error(self):
+        with mock.patch.object(
+            harness,
+            "_execute_in_temporary",
+            side_effect=harness.ProbeFailure("synthetic_failure"),
+        ):
+            with self.assertRaises(harness.VerifiedTerminal) as raised:
+                harness.execute(
+                    codex_executable=Path("/unreached"),
+                    python_executable=Path("/unreached"),
+                    approved_plugin_sha256="a" * 64,
+                    approved_hook_hash="sha256:" + ("b" * 64),
+                    inspect_only=False,
+                )
+        self.assertEqual("complete", raised.exception.cleanup_status)
+
+        directory = tempfile.mkdtemp(dir=ROOT)
+
+        class FailedCleanup:
+            name = directory
+
+            def cleanup(self):
+                raise OSError
+
+        try:
+            with (
+                mock.patch.object(
+                    harness.tempfile,
+                    "TemporaryDirectory",
+                    return_value=FailedCleanup(),
+                ),
+                mock.patch.object(
+                    harness,
+                    "_execute_in_temporary",
+                    side_effect=harness.ProbeFailure("synthetic_failure"),
+                ),
+                self.assertRaises(harness.VerifiedTerminal) as raised,
+            ):
+                harness.execute(
+                    codex_executable=Path("/unreached"),
+                    python_executable=Path("/unreached"),
+                    approved_plugin_sha256="a" * 64,
+                    approved_hook_hash="sha256:" + ("b" * 64),
+                    inspect_only=False,
+                )
+            self.assertEqual("blocked", raised.exception.status)
+            self.assertEqual("cleanup_incomplete", raised.exception.reason)
+            self.assertEqual("incomplete", raised.exception.cleanup_status)
+        finally:
+            shutil.rmtree(directory)
 
 
 if __name__ == "__main__":
