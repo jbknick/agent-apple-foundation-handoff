@@ -34,7 +34,30 @@ appleValidResults = 1
 cleanupStatus = complete
 ```
 
-The plan assumes the passing row also proves that the trusted hook inherits the four explicit runtime variables used by the staged plugin: `RUNTIME_V1_PYTHON`, `RUNTIME_V1_BRIDGE_EXECUTABLE`, `RUNTIME_V1_REPO_ROOT`, and `RUNTIME_V1_PLUGIN_ROOT`. If any assertion or variable contract differs, stop before implementation and request a Sol/High plan refresh. Do not adapt around a failed or blocked predecessor.
+The passing row proves three explicit runtime variables:
+`RUNTIME_V1_PYTHON`, `RUNTIME_V1_BRIDGE_EXECUTABLE`, and
+`RUNTIME_V1_REPO_ROOT`. Codex separately injects the installed plugin root as
+`PLUGIN_ROOT`; there is no `RUNTIME_V1_PLUGIN_ROOT` alias. The production hook,
+adapter, harness, and operator documentation must use this exact split. The
+adapter binds `PLUGIN_ROOT` to its executing installed plugin tree and rejects
+missing, relative, symlinked, non-regular, or identity-drifting paths. The
+harness proves host injection and post-run identity recheck and must not
+synthesize an alias.
+
+The passing row also proves the constrained `sourceFacts` interface. The
+trusted adapter derives minimized application-owned facts, validates and
+classifies the diagnostic and facts under the same purpose-bound C0/C1 grant,
+and sends one closed `{diagnosticText, sourceFacts}` object to Swift. The Swift
+bridge uses `LiteralDiagnosticExtraction`, runtime `GenerationSchema` constant
+and exact-range guides, schema token counting, typed `GeneratedContent`
+decoding, exact readback, and application-owned result assembly. Neither raw
+input nor source facts may enter observations or committed evidence. Do not
+regress to unconstrained `DiagnosticCondensation` generation or let Apple
+author facts.
+
+This mandatory Sol/High refresh reconciles the merged DEV-253 interface. Any
+later assertion or variable-contract difference stops DEV-254; do not adapt
+around a failed or blocked predecessor.
 
 ## File structure
 
@@ -111,16 +134,34 @@ Run:
 
 ```bash
 git ls-files --error-unmatch \
+  fixtures/runtime-v1-capability/synthetic-plugin/hooks/codex/hooks.json \
   fixtures/runtime-v1-capability/synthetic-plugin/hooks/codex/probe.py \
   fixtures/runtime-v1-capability/synthetic-plugin/runtime/DiagnosticCondenser.swift \
   tests/e2e/codex_runtime_v1_capability_probe.py
 shasum -a 256 \
+  fixtures/runtime-v1-capability/synthetic-plugin/hooks/codex/hooks.json \
   fixtures/runtime-v1-capability/synthetic-plugin/hooks/codex/probe.py \
   fixtures/runtime-v1-capability/synthetic-plugin/runtime/DiagnosticCondenser.swift \
   tests/e2e/codex_runtime_v1_capability_probe.py
 ```
 
-Expected: all three paths are tracked and three lowercase SHA-256 identities are recorded in the DEV-254 implementation note.
+Expected: all four paths are tracked. The frozen lowercase SHA-256 source
+identities are:
+
+```text
+hooks.json = 8fcc998e3589f5f84997a845c355a8e54946fe408db29c3859979b7ebaf20121
+probe.py = 93b38b7f5c17f7202aeb7f27c15d7d4c6b32a0c0cfc3e02547a91764b5311427
+DiagnosticCondenser.swift = 1ba36a71df10e2d2b340be89ccf151c118d5ab9aaf5ee80685b54fbd33727fff
+codex_runtime_v1_capability_probe.py = 9047f9999e9f5819fdb0e7f087cb246a4f076cb3ac6e774f47066b65fd6f484c
+```
+
+These are reviewed source identities, not committed trust evidence. The
+distinct DEV-253 trust values remain
+`hookCurrentHash =
+sha256:013602f5ba7931ff754954bd69fcd3dd1b01701bfb2ef08171e1592c27ee931b`
+and
+`pluginSha256 =
+651610a480837a7fd684e6357680a4a777d5c1de97f3e00317c32db8a1fa6390`.
 
 ### Task 2: Add the Codex-only generated runtime component
 
@@ -317,25 +358,31 @@ The implementation order is fixed:
 
 1. Validate the exact payload keys and direct `PostToolUse`/`Bash` identity.
 2. Parse the command with generated `runtime_contract.parse_command`.
-3. Classify each transferred field atomically; allow only purpose-bound C0/C1 `trustedLocal`.
-4. Build and validate the frozen DEV-142 request.
-5. Invoke the captured bridge once with a closed stdin object.
-6. Build the full result from trusted bindings plus only the generated condensation.
-7. Route and validate once with DEV-142.
-8. Enforce output and realized-savings bounds.
-9. Return only `{"continue": False, "stopReason": canonical_result}`.
-10. Catch all other paths and return `None` without writing a reason to stdout.
+3. Derive and validate minimized application-owned `sourceFacts`.
+4. Classify the diagnostic and each source fact atomically; allow only
+   purpose-bound C0/C1 `trustedLocal`.
+5. Build and validate the frozen DEV-142 request.
+6. Invoke the captured bridge once with the closed
+   `{diagnosticText, sourceFacts}` stdin object.
+7. Build the full result from trusted bindings plus only the validated
+   application-assembled condensation.
+8. Route and validate once with DEV-142.
+9. Enforce output and realized-savings bounds.
+10. Return only `{"continue": False, "stopReason": canonical_result}`.
+11. Catch all other paths and return `None` without writing a reason to stdout.
 
 The executable entrypoint loads only:
 
 ```python
-plugin_root = Path(os.environ["RUNTIME_V1_PLUGIN_ROOT"])
+plugin_root = Path(os.environ["PLUGIN_ROOT"])
 repo_root = Path(os.environ["RUNTIME_V1_REPO_ROOT"])
 bridge = Path(os.environ["RUNTIME_V1_BRIDGE_EXECUTABLE"])
 contract = load_module(plugin_root / "runtime/runtime_contract.py")
 ```
 
-It rejects missing, relative, symlinked, non-regular, or identity-drifting paths before consultation.
+It binds the host-injected `PLUGIN_ROOT` to the executing installed plugin tree
+and rejects missing, relative, symlinked, non-regular, or identity-drifting
+paths before consultation.
 
 - [ ] **Step 5: Add the Swift source**
 
@@ -352,7 +399,15 @@ let instructions = Instructions(
 )
 ```
 
-Keep `SystemLanguageModel.default`, one fresh `LanguageModelSession`, `tools: []`, exact token counting, the 75% context ceiling, greedy sampling, a 1,024-token response limit, and `appleAttempts = 1` immediately before the sole `respond`.
+Productionize the prompt as a neutral request for the supplied literal
+diagnostic facts. Promote the proved `LiteralDiagnosticExtraction`, runtime
+`GenerationSchema` constant/exact-range constraints, schema token count, typed
+`GeneratedContent` decoding, exact readback, application-owned condensation
+assembly, and explicit-null encoding. Keep `SystemLanguageModel.default`, one
+fresh `LanguageModelSession`, `tools: []`, exact token counting, the 75% context
+ceiling, greedy sampling, a 1,024-token response limit, and
+`appleAttempts = 1` immediately before the sole `respond`. Apple may reproduce
+only the constrained facts; it does not author them.
 
 - [ ] **Step 6: Run focused GREEN**
 
@@ -392,7 +447,12 @@ git commit -m "feat(DEV-254): add direct local diagnostic consultation"
 
 - [ ] **Step 1: Write failing harness tests**
 
-Require exact executable/version capture, isolated marketplace install, plugin-tree hash, explicit hook hash trust, environment inheritance, direct mode, one command, one Apple attempt, exact successful replacement, all approved no-output fallbacks, executable rechecks, and complete cleanup.
+Require exact executable/version capture, isolated marketplace install,
+plugin-tree hash, explicit hook hash trust, inheritance of the three explicit
+runtime variables, Codex-host injection of `PLUGIN_ROOT`, binding of that root
+to the executing installed plugin tree, direct mode, one command, one Apple
+attempt, exact successful replacement, all approved no-output fallbacks,
+executable and plugin-root identity rechecks, and complete cleanup.
 
 - [ ] **Step 2: Run the harness tests and verify RED**
 
@@ -407,11 +467,22 @@ Expected: FAIL until the harness entrypoints exist.
 
 - [ ] **Step 3: Implement the harness by reusing proved helpers**
 
-Import only the exact host-capture, isolated-install, trust, loopback-provider, atomic-write, and cleanup helpers whose hashes were accepted by DEV-253. Do not import its synthetic row classifier or fault modes. Compile `DiagnosticCondenser.swift` into the isolated staged plugin root before installation, then launch captured Codex with the four explicit runtime variables.
+Import only the exact host-capture, isolated-install, trust, loopback-provider,
+atomic-write, and cleanup helpers whose hashes were accepted by DEV-253. Do not
+import its synthetic row classifier or fault modes. Compile
+`DiagnosticCondenser.swift` into the isolated staged plugin root before
+installation, then launch captured Codex with the three explicit runtime
+variables and prove that Codex injects `PLUGIN_ROOT`. Do not synthesize a
+`RUNTIME_V1_PLUGIN_ROOT` alias. Recheck the installed plugin-root identity after
+the run.
 
 - [ ] **Step 4: Document the bounded operation**
 
-Document the exact stage/compile/install/trust/direct-mode invocation, supported host requirements, environment variables, fallback semantics, raw-data prohibition, and removal commands. State that packaging and savings remain unproved until DEV-255.
+Document the exact stage/compile/install/trust/direct-mode invocation, supported
+host requirements, the three explicit runtime variables, Codex-host-provided
+`PLUGIN_ROOT`, plugin-root binding and recheck, fallback semantics, raw-data
+prohibition, and removal commands. State that packaging and savings remain
+unproved until DEV-255.
 
 - [ ] **Step 5: Run deterministic and installed checks**
 

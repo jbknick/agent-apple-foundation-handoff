@@ -12,7 +12,11 @@ Never edit `AGENTS.md` directly; update `CLAUDE.md`, then use `scripts/sync_gene
 - DEV-135 metadata exposes five workflows plus one non-positive router. The five production workflows are implemented: `design-apple-foundation-models-handoff`, `implement-apple-foundation-models-handoff`,
   `review-apple-foundation-models-handoff`, `debug-apple-foundation-models-handoff`, and `validate-apple-foundation-models-handoff`. Those are the five positive workflows: design, implement, review, debug, and validate. `route-apple-foundation-models-handoff` is the router, not a workflow.
 - Exactly five package reference files are present as documentation-only inputs and provide zero runtime capabilities. DEV-137 references are integrated and link-resolved.
-- Hooks, commands, agents, MCP servers, package scripts, dependencies, and runtime code remain absent. Foundation Models handoff, coding-session handoff, Apple Handoff, App Intents, Agent Skills, and Foundation Models runtime Skills are distinct.
+- One Codex-only `PostToolUse` hook and local Foundation Models runtime implement
+  `diagnostic-condensation-v1`. Commands, agents, MCP servers, package scripts,
+  dependencies, alternate providers, and remote fallback remain absent.
+  Foundation Models handoff, coding-session handoff, Apple Handoff, App Intents,
+  Agent Skills, and Foundation Models runtime Skills are distinct.
 - Before selecting any positive workflow, resolve non-positive pre-selection in this order: `domain = out_of_domain`, `domain = ambiguous`, then a confirmed implementation request missing an approved architecture or exact change boundary.
 - Set `domain = foundation_models_handoff` only for explicit Apple Foundation Models session, profile, or provider coordination; set `domain = ambiguous` for bare `Apple handoff` regardless of operation, artifact, failure, or evidence wording; set `domain = out_of_domain` for App Intents or Shortcuts, Apple Handoff or NSUserActivity, generic Swift or actors, generic Core ML, coding-session handoff, Agent Skills, and Foundation Models runtime Skills.
 - Before positive selection, set `domain = foundation_models_handoff` for a debug request only when it explicitly describes a synthetic handoff reducer or effect that redispatches or replays before completion or reconciliation; bare `Apple handoff` remains `domain = ambiguous`, and all adjacent exclusions remain `domain = out_of_domain`.
@@ -27,10 +31,19 @@ Never edit `AGENTS.md` directly; update `CLAUDE.md`, then use `scripts/sync_gene
 
 ### Canonical and generated paths
 
-- Root canonical inputs are `CLAUDE.md`, `.claude-plugin/marketplace.json`, and `metadata/codex-marketplace.json`. Plugin-local canonical inputs are `plugins/apple-foundation-models-handoff/.claude-plugin/plugin.json` and `plugins/apple-foundation-models-handoff/metadata/codex-interface.json`.
-  `skills/**` and `references/**` are current plugin-local canonical inputs.
-- `AGENTS.md`, `.agents/plugins/marketplace.json`, and `plugins/apple-foundation-models-handoff/.codex-plugin/plugin.json`
-  are generated, non-editable outputs.
+- Root canonical inputs are `CLAUDE.md`, `.claude-plugin/marketplace.json`, and
+  `metadata/codex-marketplace.json`. `fixtures/dev-142/runtime_contract.py` is
+  the canonical runtime contract. Plugin-local canonical inputs are
+  `plugins/apple-foundation-models-handoff/.claude-plugin/plugin.json` and
+  `plugins/apple-foundation-models-handoff/metadata/codex-interface.json`.
+  `skills/**` and `references/**` are current plugin-local canonical inputs;
+  `hooks/codex/**` and `runtime/DiagnosticCondenser.swift` are the Codex
+  runtime inputs.
+- `AGENTS.md`, `.agents/plugins/marketplace.json`, and
+  `plugins/apple-foundation-models-handoff/.codex-plugin/plugin.json` are
+  generated, non-editable outputs.
+  `plugins/apple-foundation-models-handoff/runtime/runtime_contract.py` is also
+  generated and non-editable.
 - DEV-135 selects conventional source `./plugins/apple-foundation-models-handoff`; the package must not use external symlinks.
 - The effective cached plugin payload excludes repository-only docs, research, fixtures, tests, and private state; none are capabilities.
 

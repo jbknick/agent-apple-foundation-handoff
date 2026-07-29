@@ -15,5 +15,6 @@
   "websiteURL": "https://github.com/jbknick/agent-apple-foundation-handoff",
   "defaultPrompt": [
     "Design an Apple Foundation Models baton pass from a research profile to a review profile that owns the final answer."
-  ]
+  ],
+  "hooks": "./hooks/codex/hooks.json"
 }

@@ -25,6 +25,7 @@ CANONICAL_INPUTS = (
     Path("metadata/codex-marketplace.json"),
     Path("plugins/apple-foundation-models-handoff/.claude-plugin/plugin.json"),
     Path("plugins/apple-foundation-models-handoff/metadata/codex-interface.json"),
+    Path("fixtures/dev-142/runtime_contract.py"),
 )
 BEGIN = "<!-- BEGIN GENERATED AGENTS ADAPTER -->"
 END = "<!-- END GENERATED AGENTS ADAPTER -->"
@@ -648,8 +649,8 @@ class RepositoryGuidanceTests(unittest.TestCase):
         canonical_bytes = CANONICAL.read_bytes()
         generated_bytes = GENERATED.read_bytes()
 
-        self.assertLessEqual(len(generated_bytes.decode("utf-8").splitlines()), 90)
-        self.assertLessEqual(len(generated_bytes), 9 * 1024)
+        self.assertLessEqual(len(generated_bytes.decode("utf-8").splitlines()), 100)
+        self.assertLessEqual(len(generated_bytes), 10 * 1024)
         self.assertLess(len(generated_bytes), len(canonical_bytes))
 
     def test_only_one_root_agents_file_exists(self):
@@ -702,8 +703,8 @@ class RepositoryGuidanceTests(unittest.TestCase):
                 text,
             )
             self.assertIn(
-                "Hooks, commands, agents, MCP servers, package scripts, "
-                "dependencies, and runtime code remain absent",
+                "One Codex-only `PostToolUse` hook and local Foundation Models "
+                "runtime implement `diagnostic-condensation-v1`",
                 text,
             )
 
@@ -726,7 +727,11 @@ class RepositoryGuidanceTests(unittest.TestCase):
                 "`PostToolUse` hooks, and Swift bridge chain",
                 text,
             )
-            self.assertIn("runtime code remain absent", text)
+            self.assertIn(
+                "Commands, agents, MCP servers, package scripts, dependencies, "
+                "alternate providers, and remote fallback remain absent",
+                text,
+            )
             self.assertNotIn("Keep exactly five narrow skills", text)
             self.assertNotIn("Select the one skill matching the request", text)
 

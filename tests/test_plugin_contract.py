@@ -56,6 +56,10 @@ ALLOWED_PACKAGE_FILES = {
     ".claude-plugin/plugin.json",
     ".codex-plugin/plugin.json",
     "metadata/codex-interface.json",
+    "hooks/codex/hooks.json",
+    "hooks/codex/diagnostic_condensation.py",
+    "runtime/DiagnosticCondenser.swift",
+    "runtime/runtime_contract.py",
     *REFERENCE_FILES,
     *(f"skills/{skill}/SKILL.md" for skill in ALL_CAPABILITIES),
 }
@@ -66,6 +70,13 @@ ALLOWED_PACKAGE_ENTRIES = {
     ".codex-plugin/plugin.json": "file",
     "metadata": "directory",
     "metadata/codex-interface.json": "file",
+    "hooks": "directory",
+    "hooks/codex": "directory",
+    "hooks/codex/hooks.json": "file",
+    "hooks/codex/diagnostic_condensation.py": "file",
+    "runtime": "directory",
+    "runtime/DiagnosticCondenser.swift": "file",
+    "runtime/runtime_contract.py": "file",
     "references": "directory",
     **{name: "file" for name in REFERENCE_FILES},
     "skills": "directory",
@@ -80,7 +91,6 @@ ALLOWED_PACKAGE_ENTRIES = {
 }
 FORBIDDEN_SURFACES = (
     "agents",
-    "hooks",
     "mcp",
     "commands",
     "scripts",
@@ -238,8 +248,8 @@ class PluginContractTests(unittest.TestCase):
         generated = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
         required = (
             "Exactly five package reference files are present",
-            "Hooks, commands, agents, MCP servers, package scripts, "
-            "dependencies, and runtime code remain absent",
+            "One Codex-only `PostToolUse` hook and local Foundation Models "
+            "runtime implement `diagnostic-condensation-v1`",
             "zero runtime capabilities",
         )
         for text in (canonical, generated):
@@ -346,9 +356,11 @@ class PluginContractTests(unittest.TestCase):
         ):
             with self.subTest(field=field):
                 self.assertEqual(shared[field], generated[field])
+        hooks = interface.pop("hooks")
         self.assertEqual(interface, generated["interface"])
+        self.assertEqual(hooks, generated["hooks"])
         self.assertEqual("./skills/", generated.get("skills"))
-        for field in ("hooks", "mcpServers", "apps", "commands", "agents"):
+        for field in ("mcpServers", "apps", "commands", "agents"):
             self.assertNotIn(field, generated)
 
     def test_input_schemas_match_closed_custom_validator_contracts(self):
@@ -382,6 +394,7 @@ class PluginContractTests(unittest.TestCase):
             "capabilities",
             "websiteURL",
             "defaultPrompt",
+            "hooks",
         }
         assert_closed_object(interface, interface_fields)
         interface_properties = interface["properties"]
@@ -418,6 +431,10 @@ class PluginContractTests(unittest.TestCase):
                 },
             },
             interface_properties["defaultPrompt"],
+        )
+        self.assertEqual(
+            {"const": "./hooks/codex/hooks.json"},
+            interface_properties["hooks"],
         )
 
         marketplace_fields = {"name", "interface", "plugins"}

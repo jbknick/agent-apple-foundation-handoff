@@ -10,7 +10,8 @@
     "category",
     "capabilities",
     "websiteURL",
-    "defaultPrompt"
+    "defaultPrompt",
+    "hooks"
   ],
   "properties": {
     "displayName": {
@@ -55,6 +56,9 @@
         "minLength": 1,
         "maxLength": 128
       }
+    },
+    "hooks": {
+      "const": "./hooks/codex/hooks.json"
     }
   }
 }
