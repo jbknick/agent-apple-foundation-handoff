@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import os
@@ -122,6 +123,18 @@ def consultation_for(request: dict[str, object]) -> dict[str, object]:
         "appleAttempts": 1,
         "condensation": facts,
     }
+
+
+def serialized_hook_response(response):
+    return (
+        json.dumps(
+            response,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        + "\n"
+    ).encode("utf-8")
 
 
 class ProductionMetadataTests(unittest.TestCase):
@@ -439,6 +452,405 @@ class ProductionPathTests(unittest.TestCase):
             regular.write_text("changed", encoding="utf-8")
             with self.assertRaises(ValueError):
                 captured.recheck()
+
+    def test_benchmark_observation_is_absent_by_default(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertIsNone(adapter._configured_observation_path(ROOT))
+
+    def test_benchmark_observation_is_secure_closed_and_one_shot(self):
+        with tempfile.TemporaryDirectory(dir=ROOT) as directory:
+            repo = Path(directory)
+            parent = repo / adapter.OBSERVATION_DIRECTORY
+            parent.mkdir()
+            path = parent / adapter.OBSERVATION_BASENAME
+            with mock.patch.dict(
+                os.environ,
+                {adapter.OBSERVATION_ENV: str(path)},
+                clear=True,
+            ):
+                self.assertEqual(
+                    path,
+                    adapter._configured_observation_path(repo),
+                )
+                observer = adapter.BenchmarkObserver(consultation_for)
+                started = __import__("time").monotonic_ns()
+                response = adapter.evaluate(
+                    payload(),
+                    contract=contract,
+                    consult=observer.consult,
+                    repo_root=ROOT,
+                    observe=observer.observe,
+                )
+                value = observer.finish(
+                    response,
+                    __import__("time").monotonic_ns() - started,
+                    serialized_hook_response(response),
+                )
+                adapter._write_observation(path, value)
+
+            self.assertEqual(0o600, stat.S_IMODE(path.stat().st_mode))
+            self.assertEqual(1, path.read_bytes().count(b"\n"))
+            decoded = json.loads(path.read_text())
+            self.assertEqual(set(adapter.OBSERVATION_KEYS), set(decoded))
+            self.assertEqual("replacement_emitted", decoded["status"])
+            self.assertEqual(1, decoded["appleAttempts"])
+            self.assertEqual(1, decoded["appleValidResults"])
+            self.assertTrue(decoded["replacementEmitted"])
+            self.assertEqual(
+                hashlib.sha256(
+                    serialized_hook_response(response)
+                ).hexdigest(),
+                decoded["replacementSha256"],
+            )
+            self.assertEqual(
+                len(serialized_hook_response(response)),
+                decoded["replacementBytes"],
+            )
+            self.assertEqual(1, decoded["appleLatencySamples"])
+            with self.assertRaises(FileExistsError):
+                adapter._write_observation(path, value)
+
+        observer = adapter.BenchmarkObserver(consultation_for)
+        response = adapter.evaluate(
+            payload(),
+            contract=contract,
+            consult=observer.consult,
+            repo_root=ROOT,
+            observe=observer.observe,
+        )
+        malformed = observer.finish(response, 1, b"{}\n")
+        self.assertEqual("blocked", malformed["status"])
+        self.assertFalse(malformed["replacementEmitted"])
+
+    def test_benchmark_observation_failure_is_blocked_and_preserves_one_shot(self):
+        calls = []
+
+        def unavailable(_request):
+            calls.append(True)
+            raise TimeoutError
+
+        observer = adapter.BenchmarkObserver(unavailable)
+        response = adapter.evaluate(
+            payload(),
+            contract=contract,
+            consult=observer.consult,
+            repo_root=ROOT,
+            observe=observer.observe,
+        )
+        value = observer.finish(response, 1)
+
+        self.assertIsNone(response)
+        self.assertEqual([True], calls)
+        self.assertEqual("blocked", value["status"])
+        self.assertEqual(
+            "apple_attempt_count_uncertain",
+            value["reasonCode"],
+        )
+        self.assertIsNone(value["appleAttempts"])
+        self.assertEqual(0, value["appleValidResults"])
+        self.assertFalse(value["replacementEmitted"])
+        self.assertIsNone(value["replacementSha256"])
+
+    def test_benchmark_fallback_attempt_and_latency_invariants(self):
+        variants = (
+            (
+                {
+                    **consultation_for(
+                        {"fields": [{"value": diagnostic_text()}]}
+                    ),
+                    "status": "declined",
+                    "reasonCode": "apple_unavailable",
+                    "appleAvailable": False,
+                    "appleAttempts": 0,
+                    "condensation": None,
+                },
+                0,
+                0,
+            ),
+            (
+                {
+                    **consultation_for(
+                        {"fields": [{"value": diagnostic_text()}]}
+                    ),
+                    "status": "fail",
+                    "reasonCode": "contract_invariant_failed",
+                    "appleAttempts": 1,
+                    "condensation": None,
+                },
+                1,
+                1,
+            ),
+        )
+        for consultation, attempts, samples in variants:
+            with self.subTest(attempts=attempts):
+                observer = adapter.BenchmarkObserver(
+                    lambda _request, value=consultation: value
+                )
+                response = adapter.evaluate(
+                    payload(),
+                    contract=contract,
+                    consult=observer.consult,
+                    repo_root=ROOT,
+                    observe=observer.observe,
+                )
+                value = observer.finish(response, 1)
+                self.assertEqual("fallback", value["status"])
+                self.assertEqual(attempts, value["appleAttempts"])
+                self.assertEqual(samples, value["appleLatencySamples"])
+                self.assertEqual(
+                    samples == 1,
+                    value["appleLatencyNanoseconds"] is not None,
+                )
+
+    def test_benchmark_observation_rejects_replaced_captured_parent(self):
+        with tempfile.TemporaryDirectory(dir=ROOT) as directory:
+            repo = Path(directory)
+            parent = repo / adapter.OBSERVATION_DIRECTORY
+            parent.mkdir()
+            expected_parent = adapter._directory_identity(parent)
+            moved = repo / "old-observation-parent"
+            parent.rename(moved)
+            parent.mkdir()
+            path = parent / adapter.OBSERVATION_BASENAME
+            observer = adapter.BenchmarkObserver(consultation_for)
+            response = adapter.evaluate(
+                payload(),
+                contract=contract,
+                consult=observer.consult,
+                repo_root=ROOT,
+                observe=observer.observe,
+            )
+            with self.assertRaisesRegex(ValueError, "identity drift"):
+                adapter._write_observation(
+                    path,
+                    observer.finish(
+                        response,
+                        1,
+                        serialized_hook_response(response),
+                    ),
+                    expected_parent_identity=expected_parent,
+                )
+            self.assertFalse(path.exists())
+
+    def test_benchmark_observation_rejects_uncontained_or_preexisting_path(self):
+        with tempfile.TemporaryDirectory(dir=ROOT) as directory:
+            repo = Path(directory)
+            parent = repo / adapter.OBSERVATION_DIRECTORY
+            parent.mkdir()
+            expected = parent / adapter.OBSERVATION_BASENAME
+            outside = repo / adapter.OBSERVATION_BASENAME
+            for candidate in (Path("relative"), outside):
+                with self.subTest(candidate=candidate), mock.patch.dict(
+                    os.environ,
+                    {adapter.OBSERVATION_ENV: str(candidate)},
+                    clear=True,
+                ):
+                    with self.assertRaises(ValueError):
+                        adapter._configured_observation_path(repo)
+            expected.write_text("occupied", encoding="utf-8")
+            with mock.patch.dict(
+                os.environ,
+                {adapter.OBSERVATION_ENV: str(expected)},
+                clear=True,
+            ):
+                with self.assertRaises(ValueError):
+                    adapter._configured_observation_path(repo)
+
+    def test_benchmark_observation_rejects_invalid_union_and_short_write(self):
+        with tempfile.TemporaryDirectory(dir=ROOT) as directory:
+            repo = Path(directory)
+            parent = repo / adapter.OBSERVATION_DIRECTORY
+            parent.mkdir()
+            path = parent / adapter.OBSERVATION_BASENAME
+            observer = adapter.BenchmarkObserver(consultation_for)
+            response = adapter.evaluate(
+                payload(),
+                contract=contract,
+                consult=observer.consult,
+                repo_root=ROOT,
+                observe=observer.observe,
+            )
+            value = observer.finish(
+                response,
+                1,
+                serialized_hook_response(response),
+            )
+            with self.assertRaises(ValueError):
+                adapter._write_observation(
+                    path,
+                    {**value, "appleAttempts": 0},
+                )
+            with mock.patch.object(
+                adapter.os,
+                "write",
+                return_value=1,
+            ), self.assertRaises(ValueError):
+                adapter._write_observation(path, value)
+
+    def test_emitted_receipt_follows_full_stdout_flush_and_is_terminal(self):
+        observation = {
+            "preReceiptHookLatencyNanoseconds": 0,
+            "status": "replacement_emitted",
+        }
+        events = []
+
+        class Output:
+            def __init__(self, *, short=False, flush_error=False):
+                self.buffer = self
+                self.short = short
+                self.flush_error = flush_error
+
+            def write(self, value):
+                events.append(("stdout", value))
+                return len(value) - 1 if self.short else len(value)
+
+            def flush(self):
+                events.append(("flush", None))
+                if self.flush_error:
+                    raise OSError("flush failed")
+
+        def receipt(*_arguments, **_keywords):
+            events.append(("receipt", observation["status"]))
+
+        with mock.patch.object(sys, "stdout", Output()), mock.patch.object(
+            adapter, "_write_observation", side_effect=receipt
+        ):
+            adapter._emit_replacement_receipt(
+                b"replacement\n",
+                Path("/unused"),
+                observation,
+                started=__import__("time").monotonic_ns(),
+                expected_parent_identity=(1, 2, 3, 4),
+            )
+        self.assertEqual(
+            ["stdout", "flush", "receipt"],
+            [event[0] for event in events],
+        )
+        self.assertGreaterEqual(
+            observation["preReceiptHookLatencyNanoseconds"], 0
+        )
+
+        for output in (Output(short=True), Output(flush_error=True)):
+            events.clear()
+            with self.subTest(output=output), mock.patch.object(
+                sys, "stdout", output
+            ), mock.patch.object(
+                adapter, "_write_observation"
+            ) as write_receipt, self.assertRaises(
+                (ValueError, OSError)
+            ):
+                adapter._emit_replacement_receipt(
+                    b"replacement\n",
+                    Path("/unused"),
+                    dict(observation),
+                    started=__import__("time").monotonic_ns(),
+                    expected_parent_identity=(1, 2, 3, 4),
+                )
+            write_receipt.assert_not_called()
+
+        events.clear()
+        with mock.patch.object(sys, "stdout", Output()), mock.patch.object(
+            adapter,
+            "_write_observation",
+            side_effect=OSError("receipt failed"),
+        ), self.assertRaises(OSError):
+            adapter._emit_replacement_receipt(
+                b"replacement\n",
+                Path("/unused"),
+                dict(observation),
+                started=__import__("time").monotonic_ns(),
+                expected_parent_identity=(1, 2, 3, 4),
+            )
+        self.assertEqual(["stdout", "flush"], [event[0] for event in events])
+        self.assertEqual("replacement_emitted", observation["status"])
+
+    def test_benchmark_observation_detects_post_close_leaf_swap(self):
+        with tempfile.TemporaryDirectory(dir=ROOT) as directory:
+            repo = Path(directory)
+            parent = repo / adapter.OBSERVATION_DIRECTORY
+            parent.mkdir()
+            path = parent / adapter.OBSERVATION_BASENAME
+            observer = adapter.BenchmarkObserver(consultation_for)
+            response = adapter.evaluate(
+                payload(),
+                contract=contract,
+                consult=observer.consult,
+                repo_root=ROOT,
+                observe=observer.observe,
+            )
+            value = observer.finish(
+                response,
+                1,
+                serialized_hook_response(response),
+            )
+            real_close = os.close
+
+            def close_and_swap(descriptor):
+                real_close(descriptor)
+                path.unlink()
+                path.write_text("{}\n", encoding="utf-8")
+                path.chmod(0o600)
+
+            with mock.patch.object(
+                adapter.os,
+                "close",
+                side_effect=close_and_swap,
+            ), self.assertRaises(ValueError):
+                adapter._write_observation(path, value)
+
+    def test_adapter_main_writes_observation_and_emits_validated_replacement(self):
+        with tempfile.TemporaryDirectory(dir=ROOT) as directory:
+            repo = Path(directory)
+            observation_parent = repo / adapter.OBSERVATION_DIRECTORY
+            observation_parent.mkdir()
+            observation = (
+                observation_parent / adapter.OBSERVATION_BASENAME
+            )
+            bridge = repo / "bridge"
+            bridge.write_text(
+                f"#!{sys.executable}\n"
+                "import json, sys\n"
+                "request = json.load(sys.stdin)\n"
+                "json.dump({\n"
+                " 'status': 'applied', 'reasonCode': None,\n"
+                " 'appleAvailable': True, 'localeSupported': True,\n"
+                " 'contextSize': 32768, 'occupiedTokens': 4096,\n"
+                " 'appleAttempts': 1,\n"
+                " 'condensation': request['sourceFacts'],\n"
+                "}, sys.stdout, separators=(',', ':'), sort_keys=True)\n"
+                "sys.stdout.write('\\n')\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+            bridge.chmod(0o700)
+            candidate = payload()
+            candidate["cwd"] = str(repo)
+            environment = {
+                **os.environ,
+                "PLUGIN_ROOT": str(
+                    ROOT / "plugins/apple-foundation-models-handoff"
+                ),
+                "RUNTIME_V1_REPO_ROOT": str(repo),
+                "RUNTIME_V1_BRIDGE_EXECUTABLE": str(bridge),
+                adapter.OBSERVATION_ENV: str(observation),
+                "PYTHONDONTWRITEBYTECODE": "1",
+            }
+            completed = __import__("subprocess").run(
+                [sys.executable, str(ADAPTER)],
+                input=json.dumps(candidate).encode(),
+                env=environment,
+                stdout=__import__("subprocess").PIPE,
+                stderr=__import__("subprocess").PIPE,
+                check=False,
+            )
+
+            self.assertEqual(0, completed.returncode)
+            self.assertEqual(b"", completed.stderr)
+            response = json.loads(completed.stdout)
+            contract.validate_result(json.loads(response["stopReason"]))
+            observed = json.loads(observation.read_text())
+            self.assertEqual("replacement_emitted", observed["status"])
+            self.assertTrue(observed["replacementEmitted"])
 
 
 class ProductionSwiftTests(unittest.TestCase):
