@@ -378,18 +378,111 @@ class AdapterTests(unittest.TestCase):
                     )
                 )
 
+    def test_semantic_rejection_is_observed_after_validation(self):
+        output = self.eligible_output()
+        invalid = self.applied()
+        invalid["condensation"]["summary"] = "invented"
+        observed = []
+
+        self.assertIsNone(
+            self.evaluate(
+                output,
+                lambda _: deepcopy(invalid),
+                observed=observed,
+            )
+        )
+
+        completed = [
+            row
+            for row in observed
+            if row["event"] == "consultation_completed"
+        ]
+        self.assertEqual(
+            completed,
+            [
+                {
+                    "event": "consultation_completed",
+                    "callID": "call-runtime-v1",
+                    "appleAttempts": 1,
+                    "appleValidResults": 0,
+                    "reasonCode": "contract_invariant_failed",
+                }
+            ],
+        )
+        self.assertFalse(
+            any(
+                row["event"] == "replacement_emitted"
+                for row in observed
+            )
+        )
+
+    def test_route_exception_is_a_closed_semantic_failure(self):
+        output = self.eligible_output()
+        observed = []
+
+        with mock.patch.object(
+            self.contract,
+            "route",
+            side_effect=RuntimeError("private synthetic detail"),
+        ):
+            self.assertIsNone(
+                self.evaluate(
+                    output,
+                    lambda _: self.applied(),
+                    observed=observed,
+                )
+            )
+
+        completed = next(
+            row
+            for row in observed
+            if row["event"] == "consultation_completed"
+        )
+        self.assertEqual(completed["appleAttempts"], 1)
+        self.assertEqual(completed["appleValidResults"], 0)
+        self.assertEqual(
+            completed["reasonCode"],
+            "contract_invariant_failed",
+        )
+        self.assertNotIn(
+            "private synthetic detail",
+            json.dumps(observed),
+        )
+
     def test_oversized_valid_condensation_falls_back(self):
         output = self.eligible_output()
         oversized = self.adapter.source_facts(0)
         oversized["summary"] = "x" * 5000
         original = self.adapter.source_facts
         self.adapter.source_facts = lambda _: deepcopy(oversized)
+        observed = []
         try:
             self.assertIsNone(
-                self.evaluate(output, lambda _: self.applied())
+                self.evaluate(
+                    output,
+                    lambda _: self.applied(),
+                    observed=observed,
+                )
             )
         finally:
             self.adapter.source_facts = original
+        completed = next(
+            row
+            for row in observed
+            if row["event"] == "consultation_completed"
+        )
+        self.assertEqual(completed["appleAttempts"], 1)
+        self.assertEqual(completed["appleValidResults"], 0)
+        self.assertEqual(
+            completed["reasonCode"],
+            "contract_invariant_failed",
+        )
+        self.assertFalse(
+            any(
+                row["event"] == "replacement_emitted"
+                for row in observed
+            )
+        )
 
     def test_applied_consultation_requires_one_apple_attempt(self):
         output = self.eligible_output()
@@ -617,6 +710,60 @@ class SwiftBridgeTests(unittest.TestCase):
         self.assertNotIn("expectedCondensation", source)
         self.assertNotIn("http://", source)
         self.assertNotIn("https://", source)
+
+    def test_source_uses_benign_synthetic_question(self):
+        source = SWIFT_SOURCE.read_text(encoding="utf-8")
+        full_consult = source[
+            source.index("func consult("):
+            source.index("@main")
+        ]
+        consult = source[
+            source.index("func consult("):
+            source.index("let responseReserve = 1024")
+        ]
+        self.assertEqual(full_consult.count("let prompt = Prompt("), 1)
+        self.assertEqual(
+            full_consult.count(
+                "generating: DiagnosticCondensation.self"
+            ),
+            1,
+        )
+        self.assertIn(
+            "Respond with JSON answering the question.",
+            consult,
+        )
+        self.assertIn(
+            '{"question":"What was the result of this synthetic unit test?"}',
+            consult,
+        )
+        self.assertIn(
+            "Include diagnostics only for literal issue records;\n"
+            "        otherwise use an empty array.",
+            consult,
+        )
+        for contract in (
+            "Use suite and outcome for the summary.",
+            "Copy the ordered command-class,\n"
+            "        outcome, exit-status, and warning-count facts.",
+            "Copy next-action\n"
+            "        unchanged.",
+            "Copy command-finished and task-complete as ordered\n"
+            "        completion facts.",
+            "Do not describe yourself, infer, or add\n"
+            "        content.",
+        ):
+            with self.subTest(contract=contract):
+                self.assertIn(contract, consult)
+        self.assertNotIn("what model", consult.lower())
+        self.assertNotIn("llm/slm", consult.lower())
+        for trigger in (
+            "fatal",
+            "error",
+            "secrets",
+            "diagnoses",
+        ):
+            with self.subTest(trigger=trigger):
+                self.assertNotIn(trigger, consult)
 
     def test_source_separates_preflight_from_response_errors(self):
         source = SWIFT_SOURCE.read_text(encoding="utf-8")
@@ -892,6 +1039,7 @@ class HarnessTests(unittest.TestCase):
             "generation_decoding_failure",
             "generation_refusal",
             "generation_unknown_error",
+            "contract_invariant_failed",
         }
         for reason in blocked:
             with self.subTest(reason=reason):
@@ -927,38 +1075,51 @@ class HarnessTests(unittest.TestCase):
             "providerRequests": 2,
             "additionalParentModelTurns": 0,
         }
-        with self.assertRaisesRegex(
-            self.harness.ProbeBlocked,
-            "^generation_assets_unavailable$",
-        ):
-            self.harness.enforce_composed_terminal(
-                ["generation_assets_unavailable"],
-                row,
-            )
-        with self.assertRaisesRegex(
-            self.harness.ProbeFailure,
-            "^generation_refusal$",
-        ):
-            self.harness.enforce_composed_terminal(
-                ["generation_refusal"],
-                row,
-            )
+        blocked = dict(row)
+        self.harness.enforce_composed_terminal(
+            ["generation_assets_unavailable"],
+            blocked,
+        )
+        self.assertEqual(
+            (blocked["status"], blocked["reason"]),
+            ("blocked", "generation_assets_unavailable"),
+        )
+        failed = dict(row)
+        self.harness.enforce_composed_terminal(
+            ["generation_refusal"],
+            failed,
+        )
+        self.assertEqual(
+            (failed["status"], failed["reason"]),
+            ("fail", "generation_refusal"),
+        )
+        invalid = dict(row)
+        self.harness.enforce_composed_terminal(
+            ["contract_invariant_failed"],
+            invalid,
+        )
+        self.assertEqual(
+            (invalid["status"], invalid["reason"]),
+            ("fail", "contract_invariant_failed"),
+        )
         preflight = dict(row)
         preflight["appleAttempts"] = 0
         for reason in (
             "apple_unavailable",
             "locale_unsupported",
+            "context_budget_exceeded",
             "generation_preflight_unavailable",
         ):
             with self.subTest(reason=reason):
-                with self.assertRaisesRegex(
-                    self.harness.ProbeBlocked,
-                    f"^{reason}$",
-                ):
-                    self.harness.enforce_composed_terminal(
-                        [reason],
-                        preflight,
-                    )
+                changed = dict(preflight)
+                self.harness.enforce_composed_terminal(
+                    [reason],
+                    changed,
+                )
+                self.assertEqual(
+                    (changed["status"], changed["reason"]),
+                    ("blocked", reason),
+                )
         mutations = {
             "no attempt": ("appleAttempts", 0),
             "retry": ("appleAttempts", 2),
@@ -1837,6 +1998,37 @@ class GateNormalizerTests(unittest.TestCase):
 
     def test_complete_gate_passes(self):
         self.assertEqual(self.derive(), ("pass", "capability_proven"))
+
+    def test_semantic_rejection_retains_the_composed_row(self):
+        value = self.evidence()
+        value["rows"] = value["rows"][:3]
+        composed = value["rows"][-1]
+        composed.update(
+            status="fail",
+            reason="contract_invariant_failed",
+            appleValidResults=0,
+            replacementSha256=None,
+            originalAbsentFromNextRequest=False,
+            replacementPresentInNextRequest=False,
+            originalPreserved=True,
+            replacementBytes=0,
+        )
+        value.update(
+            status="fail",
+            reason="contract_invariant_failed",
+        )
+
+        validated = self.harness.validate_evidence(value)
+
+        self.assertEqual(len(validated["rows"]), 3)
+        self.assertEqual(
+            (
+                validated["rows"][-1]["bridgeProcessOutcome"],
+                validated["rows"][-1]["appleAttempts"],
+                validated["rows"][-1]["appleValidResults"],
+            ),
+            ("result_observed", 1, 0),
+        )
 
     def test_committed_evidence_is_valid_and_hash_bound(self):
         encoded = EVIDENCE.read_bytes()

@@ -90,6 +90,7 @@ GENERATION_FAILURE_REASONS = {
 APPLE_PREFLIGHT_BLOCKER_REASONS = {
     "apple_unavailable",
     "locale_unsupported",
+    "context_budget_exceeded",
     "generation_preflight_unavailable",
 }
 BRIDGE_PROCESS_OUTCOMES = {
@@ -497,7 +498,10 @@ def preserves_untouched_original(
 def generation_error_gate_result(reason: str) -> str:
     if reason in GENERATION_BLOCKER_REASONS:
         return "blocked"
-    if reason in GENERATION_FAILURE_REASONS:
+    if (
+        reason in GENERATION_FAILURE_REASONS
+        or reason == "contract_invariant_failed"
+    ):
         return "fail"
     raise ProbeFailure("generation_reason_invalid")
 
@@ -734,7 +738,7 @@ def replacement_observation_matches(
 
 def enforce_composed_terminal(
     reasons: list[object],
-    row: Mapping[str, object],
+    row: dict[str, object],
 ) -> None:
     if not reasons:
         return
@@ -759,10 +763,11 @@ def enforce_composed_terminal(
     ):
         raise ProbeFailure("generation_error_invariant_failed")
     if reason in APPLE_PREFLIGHT_BLOCKER_REASONS:
-        raise ProbeBlocked(reason)
-    if generation_error_gate_result(reason) == "blocked":
-        raise ProbeBlocked(reason)
-    raise ProbeFailure(reason)
+        row["status"] = "blocked"
+        row["reason"] = reason
+        return
+    row["status"] = generation_error_gate_result(reason)
+    row["reason"] = reason
 
 
 def classify_row(
@@ -1043,9 +1048,17 @@ def derive_gate_status(
         "composed_live_apple_applied",
     ):
         row = by_id.get(row_id)
+        replacement_required = (
+            row_id == "direct_fake_applied"
+            or (
+                row is not None
+                and row["appleValidResults"] == 1
+            )
+        )
         if (
             row is not None
             and row["bridgeProcessOutcome"] == "result_observed"
+            and replacement_required
             and (
             row["originalAbsentFromNextRequest"] is not True
             or row["replacementPresentInNextRequest"] is not True
@@ -1199,6 +1212,29 @@ def row_values_are_closed(
             and row["appleAttempts"] is None
             and row["appleValidResults"] == 0
             and row["originalPreserved"] is True
+        )
+    if (
+        row_id == "composed_live_apple_applied"
+        and outcome == "result_observed"
+        and row["appleValidResults"] == 0
+        and row["replacementPresentInNextRequest"] is False
+        and row["originalPreserved"] is True
+    ):
+        zero_attempt = reason in APPLE_PREFLIGHT_BLOCKER_REASONS
+        blocked = (
+            zero_attempt
+            or reason in GENERATION_BLOCKER_REASONS
+        )
+        return (
+            reason
+            in (
+                APPLE_PREFLIGHT_BLOCKER_REASONS
+                | GENERATION_BLOCKER_REASONS
+                | GENERATION_FAILURE_REASONS
+                | {"contract_invariant_failed"}
+            )
+            and status == ("blocked" if blocked else "fail")
+            and row["appleAttempts"] == (0 if zero_attempt else 1)
         )
     if status != "fail" or reason not in ROW_INVARIANT_FAILURES:
         return False

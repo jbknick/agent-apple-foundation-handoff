@@ -246,48 +246,78 @@ def evaluate(
         consultation = dict(consult(copy.deepcopy(request)))
         if not bridge_result_is_closed(consultation):
             return None
+
+        frozen_result = complete_result(request, consultation)
+        try:
+            routed = contract.route(
+                request,
+                {
+                    "eventName": "PostToolUse",
+                    "command": payload["tool_input"]["command"],
+                    "repoRoot": repo_root,
+                    "appleAvailable": consultation["appleAvailable"],
+                    "localeSupported": consultation["localeSupported"],
+                    "occupiedTokens": consultation["occupiedTokens"],
+                    "contextSize": consultation["contextSize"],
+                    "sourceFacts": expected,
+                    "bridge": lambda _: copy.deepcopy(frozen_result),
+                },
+            )
+            routed_applied = routed.get("outcome") == "applied"
+            if routed_applied:
+                contract.validate_result(routed)
+        except Exception:
+            observe(
+                {
+                    "event": "consultation_completed",
+                    "callID": payload["tool_use_id"],
+                    "appleAttempts": consultation["appleAttempts"],
+                    "appleValidResults": 0,
+                    "reasonCode": "contract_invariant_failed",
+                }
+            )
+            return None
+        reason_code = (
+            None
+            if routed_applied
+            else (
+                consultation["reasonCode"]
+                if consultation["status"] != "applied"
+                else "contract_invariant_failed"
+            )
+        )
+        stop_reason = None
+        replacement_bytes = 0
+        if routed_applied:
+            try:
+                stop_reason = json.dumps(
+                    routed,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
+                replacement_bytes = len(stop_reason.encode("utf-8"))
+            except Exception:
+                routed_applied = False
+                reason_code = "contract_invariant_failed"
+            if routed_applied and (
+                replacement_bytes
+                > contract.Policy.MAXIMUM_CONDENSED_BYTES
+                or input_bytes - replacement_bytes
+                < contract.Policy.MINIMUM_REALIZED_SAVINGS_BYTES
+            ):
+                routed_applied = False
+                reason_code = "contract_invariant_failed"
         observe(
             {
                 "event": "consultation_completed",
                 "callID": payload["tool_use_id"],
                 "appleAttempts": consultation["appleAttempts"],
-                "appleValidResults": int(
-                    consultation["status"] == "applied"
-                ),
-                "reasonCode": consultation["reasonCode"],
+                "appleValidResults": int(routed_applied),
+                "reasonCode": reason_code,
             }
         )
-
-        frozen_result = complete_result(request, consultation)
-        routed = contract.route(
-            request,
-            {
-                "eventName": "PostToolUse",
-                "command": payload["tool_input"]["command"],
-                "repoRoot": repo_root,
-                "appleAvailable": consultation["appleAvailable"],
-                "localeSupported": consultation["localeSupported"],
-                "occupiedTokens": consultation["occupiedTokens"],
-                "contextSize": consultation["contextSize"],
-                "sourceFacts": expected,
-                "bridge": lambda _: copy.deepcopy(frozen_result),
-            },
-        )
-        if routed.get("outcome") != "applied":
-            return None
-        contract.validate_result(routed)
-        stop_reason = json.dumps(
-            routed,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        )
-        replacement_bytes = len(stop_reason.encode("utf-8"))
-        if (
-            replacement_bytes > contract.Policy.MAXIMUM_CONDENSED_BYTES
-            or input_bytes - replacement_bytes
-            < contract.Policy.MINIMUM_REALIZED_SAVINGS_BYTES
-        ):
+        if not routed_applied:
             return None
         observe(
             {

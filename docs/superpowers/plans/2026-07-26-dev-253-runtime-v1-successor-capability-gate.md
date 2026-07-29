@@ -165,6 +165,155 @@ reachable, so they may record `appleAttempts = 0` and pass only their exact
 fallback oracle. That fixture-only zero is not live Apple process evidence and
 cannot satisfy the composed capability row.
 
+### Benign prompt refresh
+
+The latest composed row is `blocked:timed_out`. It does not establish whether
+Apple reached or rejected the current prompt. Separately, the owner reports
+that the current diagnostic-framed prompt triggers guardrails and demonstrated
+that this benign request can receive a local Apple response:
+
+```text
+respond with a json answering the question {"question": "what model LLM/SLM are you?"}
+```
+
+Treat that observation only as evidence that a short, neutral
+question-shaped request can succeed. Do not use it verbatim. A model-identity
+answer is unrelated to the approved diagnostic-condensation task, cannot
+satisfy the frozen DEV-142 schema or semantic validator, and would not prove
+that literal source facts reached the next parent request. It also invites
+model-authored identity content that is not present in the approved source.
+
+Adapt only the benign shape. Keep
+`generating: DiagnosticCondensation.self`, the application-owned schema, the
+frozen DEV-142 validator, and every one-attempt and exact-fallback invariant.
+Replace the current diagnostic-framed instruction and prompt with a short
+neutral data-formatting question asking what the supplied benign synthetic
+test record reports. The instructions must preserve the existing literal-fact
+contract: suite plus outcome form the summary; ordered summary facts,
+`next-action`, ordered completion facts, and literal diagnostic records retain
+their existing meanings. They must forbid model self-description and invented
+content. Do not hard-code an expected condensation into the Swift bridge and
+do not add a second prompt, response, retry, tool, transcript, remote provider,
+or network path.
+
+The approved stimulus bytes remain exactly unchanged, including
+`suite=synthetic unittest`,
+`next-action=continue after successful synthetic unittest`, the original
+sentinel, all ordered facts, deterministic filler, and unittest footer.
+Consequently, do not change hook `source_facts`, harness materialization, the
+fake bridge result, the frozen DEV-142 validator, or the recorded stimulus SHA
+`dfb7f1221f87b5450ae6135e980c558b8cd45bacffd77df834a17c673fe4b0c0`.
+
+The exact authorized implementation boundary for this refresh is:
+
+- `fixtures/runtime-v1-capability/synthetic-plugin/runtime/DiagnosticCondenser.swift`
+  — neutral question-shaped prompt and literal-fact instructions only.
+- `tests/test_codex_runtime_v1_capability_probe.py` — add only the RED/GREEN
+  Swift source-contract regression for the neutral prompt while preserving
+  the existing schema, one-response, no-tools, and no-retry assertions.
+- `docs/superpowers/plans/2026-07-26-dev-253-runtime-v1-successor-capability-gate.md`
+  — this authoritative refresh.
+
+Do not modify the DEV-142 runtime contract or validator, the response schema,
+the approved stimulus, hook source facts, harness, fake bridge, README,
+production plugin, evidence safety rules, trust checks, or fallback behavior.
+A real schema-valid response remains mandatory; the benign wording is not
+evidence by itself.
+
+### Closed terminal consultation checkpoint refresh
+
+After the benign prompt refresh and exact owner approval, the next composed
+invocation terminated as `fail:observation_invalid`. Its terminal evidence
+contained no rows and nulled the otherwise verified host fields, so it did not
+establish whether Apple began, attempted, or returned a bridge-schema-valid
+response. A subsequent non-Apple `--through direct` invocation passed both
+baseline and direct fake rows. Do not run Apple again until this observation
+defect is corrected, reviewed, tested, and rebound to freshly inspected trust
+identities.
+
+The reproduced deterministic root cause is the producer's validation phase,
+not the Apple prompt or the closed bridge-process observation. The hook emits
+`consultation_completed` with `appleValidResults = 1` immediately after a
+bridge-schema-valid `status = applied` response, before the frozen DEV-142
+`contract.route` semantic gate and `contract.validate_result` succeed. When
+that later application-owned validation rejects or throws, the hook emits no
+replacement. The outer harness accepts the observation sequence as closed and
+derives `result_observed`, one start, one completion, and one Apple attempt,
+but `replacement_observation_matches` rejects the missing replacement and
+raises `observation_invalid`. That exception escapes before `collect_rows`
+appends the composed row, and `terminal_evidence` then serializes `rows = []`.
+
+Correct the producer first. `appleValidResults = 1` means that the response
+passed the bridge schema, the frozen DEV-142 route, the DEV-142 result
+validator, and the replacement observation. It must never mean only that Apple
+returned `status = applied`. Keep the same bounded `consultation_completed`
+event and do not add a new event, transcript, error field, or model-content
+field:
+
+- A closed Apple decline or failure emits one terminal
+  `consultation_completed` with the observed `appleAttempts`, zero valid
+  results, and its existing reviewed stable reason code.
+- A bridge-schema-valid applied response that the frozen DEV-142 route or
+  result validator rejects or cannot validate emits one terminal
+  `consultation_completed` with `appleAttempts = 1`,
+  `appleValidResults = 0`, and
+  `reasonCode = contract_invariant_failed`. Catch only that bounded
+  application-validation region, do not inspect the exception, and emit no
+  replacement.
+- Only after the frozen DEV-142 route returns `applied`,
+  `contract.validate_result` succeeds, and the replacement passes its bounded
+  size and realized-savings checks may the hook emit
+  `consultation_completed` with `appleAttempts = 1`,
+  `appleValidResults = 1`, followed by `replacement_emitted`.
+
+The outer harness must treat every closed terminal consultation as a row-local
+result, not as a top-level exception. Map its stable reason to `blocked` or
+`fail`, retain the already completed baseline and direct rows, append the
+composed row, and stop. For a semantic-validation failure require:
+
+```text
+id = composed_live_apple_applied
+status = fail
+reason = contract_invariant_failed
+bridgeProcessOutcome = result_observed
+bridgeStartObservations = 1
+bridgeCompletionObservations = 1
+appleAttempts = 1
+appleValidResults = 0
+originalPreserved = true
+replacementPresentInNextRequest = false
+additionalParentModelTurns = 0
+cleanupStatus = complete
+```
+
+This is bounded normalized failure evidence, not capability proof. It must
+contain no raw observation line, prompt, Apple content, exception text,
+route output, diagnostic, path, transcript, or derived content hash.
+Malformed, unknown, duplicate, contradictory, or incomplete observation
+records remain `observation_invalid` with `appleAttempts = null`; never salvage
+attempt state from an invalid observation. Pre-host or pre-row failures may
+still use the closed empty-row terminal envelope because no trustworthy row
+exists.
+
+The exact authorized correction boundary is:
+
+- `fixtures/runtime-v1-capability/synthetic-plugin/hooks/codex/probe.py` —
+  correct the existing `consultation_completed` validation phase and emit only
+  the closed stable semantic-failure reason.
+- `tests/e2e/codex_runtime_v1_capability_probe.py` — convert a closed terminal
+  consultation to a row-local blocked/fail result and retain completed prefix
+  rows; do not reinterpret invalid observations.
+- `tests/test_codex_runtime_v1_capability_probe.py` — add the minimum
+  producer-ordering, semantic-failure, row-retention, attempt, fallback, and
+  evidence-safety regressions.
+- `docs/superpowers/plans/2026-07-26-dev-253-runtime-v1-successor-capability-gate.md`
+  — this authoritative correction.
+
+Do not modify the Swift prompt or response schema, approved stimulus, hook
+source facts, harness materialization, fake bridge output, DEV-142 runtime
+contract or validator, production plugin, retry budget, parent-turn budget,
+or raw-evidence exclusions for this correction.
+
 ### CI baseline refresh
 
 GitHub Actions is enabled, but `origin/main` has no `.github` tree and the
@@ -208,6 +357,16 @@ separately required local SDK 26.5 proof.
 - Every classified Apple error emits no condensation and preserves the exact
   original through the supported `exec_command` envelope. No case permits a
   retry or a second Apple attempt.
+- Set `appleValidResults = 1` only after the bridge schema, frozen DEV-142
+  route and result validator, bounded replacement checks, and replacement
+  observation all succeed. A bridge-schema-valid applied response rejected by
+  application validation emits only
+  `contract_invariant_failed`, one observed attempt, zero valid results, no
+  replacement, and the exact original.
+- Serialize every closed terminal consultation as a row-local blocked/fail
+  result with its bounded phase, observation counters, and attempt count.
+  Retain completed prefix rows and stop; do not collapse that evidence into
+  the empty-row terminal envelope.
 - Emit one stable bridge-start observation before process launch and one
   stable terminal process-outcome observation on every closed launch, timeout,
   exit, stderr, stdout-shape, JSON, or result-shape branch. Record only the
@@ -217,6 +376,9 @@ separately required local SDK 26.5 proof.
   serialize `appleAttempts = null`, preserve the exact original, never retry,
   and return the table's `blocked` or `fail` result. Never coerce silence to
   zero or pass.
+- Invalid observation syntax, shape, order, duplication, or contradiction
+  remains `observation_invalid` with `appleAttempts = null`; do not recover an
+  attempt count from a non-closed observation.
 - Never serialize bridge stderr/stdout, exception or error strings, exit
   values, Apple content, paths, prompts, transcripts, or hashes derived from
   any of them. Stable outcome classes and bounded counters are the complete
@@ -224,6 +386,10 @@ separately required local SDK 26.5 proof.
 - Never serialize Apple error descriptions, localized strings, refusal
   transcripts/explanations, Apple output, or raw errors into bridge output,
   observations, diagnostics, or committed evidence.
+- Apple receives only the unchanged approved C0 software-test record through
+  the short neutral data-formatting question. The question must not ask Apple
+  to identify itself, and the instructions must not embed an expected
+  condensation or relax literal-source validation.
 - Successful replacement must be inline, unspooled, present in the second provider request, and replace the original.
 - Decline/failure emits no hook stdout. Parse the closed successful
   `exec_command` envelope, validate its success metadata, and require the
@@ -242,6 +408,10 @@ separately required local SDK 26.5 proof.
 
 - Create `.github/workflows/ci.yml` — minimal deterministic pull-request and
   `main` push regression gate.
+- Modify
+  `fixtures/runtime-v1-capability/synthetic-plugin/runtime/DiagnosticCondenser.swift`
+  — use the approved benign question-shaped prompt without changing the
+  structured schema, attempt budget, or error behavior.
 - Modify `tests/e2e/codex_runtime_v1_capability_probe.py` — close timeout trust fields, run rows, and write normalized evidence.
 - Modify `tests/test_codex_runtime_v1_capability_probe.py` — schema, trust, row, evidence, and safety checks.
 - Modify `fixtures/runtime-v1-capability/README.md` — exact approved hashes and outer-session execution order.
@@ -549,13 +719,22 @@ Any missing prerequisite is `blocked`; any mismatch is `fail`. Stop before Apple
 ### Task 3: Pass one real composed Apple row
 
 **Files:**
-- Modify: `fixtures/runtime-v1-capability/synthetic-plugin/runtime/DiagnosticCondenser.swift` — replace the opaque catch with the closed SDK 26.5 case classification.
+- Modify: `fixtures/runtime-v1-capability/synthetic-plugin/runtime/DiagnosticCondenser.swift` — replace the opaque catch with the closed SDK 26.5 case classification and apply only the approved benign question-shaped prompt refresh.
 - Modify: `fixtures/runtime-v1-capability/synthetic-plugin/hooks/codex/probe.py` — emit only closed bridge-process outcomes and observation counters.
 - Modify: `tests/e2e/codex_runtime_v1_capability_probe.py` — normalize each stable generation/process reason and nullable attempt state truthfully.
-- Modify: `tests/test_codex_runtime_v1_capability_probe.py` — deterministic generation mapping, every process branch, fallback, attempt-budget, evidence-safety, and SDK compile checks.
-- Modify: `fixtures/runtime-v1-capability/README.md` — record only owner-approved refreshed plugin identities.
+- Modify: `tests/test_codex_runtime_v1_capability_probe.py` — deterministic prompt source contract, generation mapping, every process branch, fallback, attempt-budget, evidence-safety, and SDK compile checks.
+- Modify: `fixtures/runtime-v1-capability/README.md` — record only all five freshly inspected and owner-approved trust identities.
 
-- [ ] **Step 1: Write the failing generation and bridge-process observation tests**
+- [ ] **Step 1: Write the failing prompt, generation, and bridge-process observation tests**
+
+Assert that the Swift source uses one short neutral question asking what the
+supplied synthetic unittest record reports, still passes
+`DiagnosticCondensation.self` to the sole `respond`, and does not ask for model
+identity. Assert that its instructions preserve the existing literal suite,
+outcome, ordered summary facts, unchanged next action, ordered completion facts,
+and literal diagnostic records. Reject source that embeds an expected
+condensation, adds a tool or transcript, permits invented facts, adds a second
+response or retry, or changes any existing stimulus/source-fact expectation.
 
 Exercise every row in the closed classification table without invoking
 `SystemLanguageModel.default`. Require the exact bridge status and stable
@@ -595,6 +774,31 @@ schema exclude raw stderr/stdout, exception/error text, exit values, Apple
 content, paths, prompts, transcripts, and derived hashes. Unknown keys and
 unknown outcome classes fail validation.
 
+Add a deterministic producer-ordering regression for a bridge-schema-valid
+applied Apple response whose frozen DEV-142 semantic route rejects it. Before
+the correction it must reproduce this exact state:
+
+```text
+observations_are_closed = true
+bridgeProcessOutcome = result_observed
+bridgeStartObservations = 1
+bridgeCompletionObservations = 1
+appleAttempts = 1
+consultation_completed.appleValidResults = 1
+replacement_emitted = absent
+replacement_observation_matches = false
+terminal reason = observation_invalid
+terminal rows = []
+```
+
+Require RED because the producer promotes validity before DEV-142 validation
+and the outer harness discards the row. Add matching RED cases for a DEV-142
+route exception and for each closed Apple decline/failure reason to prove that
+all terminal consultations retain one normalized row and stop without retry.
+Keep malformed JSON, unknown keys, duplicate events, contradictory events,
+missing start, and missing completion as separate RED/GREEN cases that never
+recover an Apple attempt.
+
 - [ ] **Step 2: Run focused RED**
 
 Run:
@@ -609,9 +813,20 @@ Expected: FAIL because one catch still conflates zero-attempt preflight errors
 with one-attempt `respond` errors, `generation_declined` remains opaque, and the
 harness does not yet classify the closed stable reason codes. The hook also
 lets bridge-process exceptions disappear into its broad fallback, so process
-outcome and Apple attempt state are unobservable.
+outcome and Apple attempt state are unobservable. The source also retains the
+old diagnostic-framed prompt, so the new exact source-contract assertion fails.
 
-- [ ] **Step 3: Implement the minimum typed catch and gate mapping**
+- [ ] **Step 3: Implement the minimum benign prompt refresh, typed catch, and gate mapping**
+
+Change only the Swift instructions and prompt text needed to ask the neutral
+data-formatting question. Keep the existing input type and
+`DiagnosticCondensation` generation schema. Do not use the owner example
+verbatim, ask Apple what model it is, or serialize the source record into a
+new committed artifact. Do not embed the expected response. Apple receives
+only the approved C0 source record and no tools.
+
+Do not change the approved stimulus, hook source facts, harness materialization,
+fake bridge result, exact-fallback checks, or DEV-142 validation.
 
 Wrap all token-count, schema, and other generation preparation in a dedicated
 preflight catch that returns only
@@ -643,6 +858,24 @@ no replacement and preserves the original. The outer harness validates exactly
 one start and one terminal observation for an observed invocation and derives
 the normalized process outcome without reading raw process material.
 
+After a closed bridge result, correct the existing
+`consultation_completed` event at its producer. Run the frozen DEV-142 route
+and result validation before setting `appleValidResults = 1`. If a
+bridge-schema-valid applied response fails that application-owned region,
+ignore the exception and route output, emit only
+`contract_invariant_failed` with one attempt and zero valid results, emit no
+replacement, and preserve the exact original. Do not catch or reclassify the
+bridge-process observation itself.
+
+Change `enforce_composed_terminal` from exception-based control flow to a
+row-local closed status/reason mapping. Generation prerequisite reasons remain
+`blocked`; generation failures and `contract_invariant_failed` are `fail`.
+Require the same one-command, two-provider-request, zero-added-turn, exact
+fallback, observation-counter, and attempt invariants before mutating the row.
+Append that row and stop. Update the closed row validator to accept only these
+reviewed `result_observed` terminal pairings with zero valid results; reject
+every other status/reason/attempt combination.
+
 If no start observation exists after an eligible original, classify
 `start_observation_missing` regardless of any stray terminal observation. If
 one start exists without a terminal observation, classify
@@ -664,10 +897,19 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
 
 Require all preflight and `respond` mapping, every bridge-process branch and
 precedence, observation counters, nullable-attempt semantics, evidence safety,
-fallback, attempt ordering/budget, and SDK 26.5 typecheck/compile assertions to
-pass without invoking Apple.
+fallback, prompt source contract, attempt ordering/budget, and SDK 26.5
+typecheck/compile assertions to pass without invoking Apple.
 
-- [ ] **Step 5: Reinspect trust and obtain refreshed plugin and hook approvals**
+Also require the reproduced semantic rejection to produce three retained rows:
+the two prior passing direct rows plus one composed
+`fail:contract_invariant_failed` row with `result_observed`, one start, one
+completion, one Apple attempt, zero valid results, exact-original fallback,
+zero additional parent turns, and complete cleanup. The top-level evidence
+must retain verified Codex, Swift, SDK, trust, and context-grant fields and
+contain zero unsafe findings. A raw/invalid observation must still produce
+`observation_invalid`, a null attempt, and no salvaged partial content.
+
+- [ ] **Step 5: Reinspect trust and obtain refreshed approval of all five identities**
 
 After the Swift source, hook, harness, and tests are final, rerun Task 1 Steps
 5 and 6 against the exact current base and timeout trees. Require:
@@ -675,20 +917,36 @@ After the Swift source, hook, harness, and tests are final, rerun Task 1 Steps
 ```text
 base pluginSha256 = freshly computed from the final base tree
 timeout pluginSha256 = freshly computed from the final timeout tree
-base hookCurrentHash = freshly inspected from the installed final base tree
-timeout hookCurrentHash = freshly inspected from the installed final timeout tree
-approvedStimulusSha256 = dfb7f1221f87b5450ae6135e980c558b8cd45bacffd77df834a17c673fe4b0c0
+base hookCurrentHash = freshly reinspected from the installed final base tree; expected changed
+timeout hookCurrentHash = freshly reinspected from the installed final timeout tree; expected changed
+approvedStimulusSha256 = dfb7f1221f87b5450ae6135e980c558b8cd45bacffd77df834a17c673fe4b0c0 after exact unchanged-byte readback
 ```
 
-Stop on stimulus drift or any inspection/cleanup failure. Present the reviewed
-Swift and hook diff plus all four freshly computed/inspected base and timeout
-plugin/hook identities to the owner. Obtain explicit approval of those exact
-four current values even if an inspected hook hash happens to equal its prior
-value. Then rebind all four runtime trust variables. Prior approvals do not
-authorize changed plugin or hook bytes. Do not invent, predict, or copy
-placeholder hashes, and do not run Apple before approval.
+Stop on any stimulus, plugin, hook, installation, inspection, or cleanup
+failure. Present the reviewed Swift prompt and source-contract test diff plus
+all five freshly computed, reinspected, or read-back identities to the owner:
+base plugin, base hook, unchanged stimulus, timeout plugin, and timeout hook.
+The prompt and hook correction change both plugin tree hashes, and the hook
+correction changes both installed hook identities. The stimulus bytes are
+expected to remain unchanged, but expectation is not evidence: reinspect both
+hook identities, read back the exact stimulus SHA, and obtain explicit owner
+reconfirmation of all five exact current values before Apple. A blanket
+approval of unknown future identities cannot substitute for approval of the
+five reviewed exact values. Then rebind all five runtime trust variables. Do
+not invent, predict, or copy placeholder hashes, and do not run Apple before
+refreshed approval.
 
 - [ ] **Step 6: Run through the composed boundary**
+
+One new composed invocation is authorized only after the correction has passed
+focused and full regression tests, SDK 26.5 compilation, generated-artifact
+and diff checks, formal Sol/high review, clean trust inspection, and explicit
+owner approval of all five freshly read-back identities. It is a new
+evidence-bound invocation after a reproduced harness defect, not a retry
+inside the prior invocation. It still permits at most one Apple response
+attempt, no response retry, no command rerun, no additional parent-model turn,
+and no network or provider fallback. Stop on its first terminal applied,
+declined, failed, blocked, or observation-invalid result.
 
 Run:
 
@@ -950,8 +1208,9 @@ versus fail precedence, zero-attempt
 one-attempt `respond` errors, absence of Apple/raw/refusal error content,
 every closed bridge-process branch and precedence, start/completion observation
 integrity, nullable unknown attempts, fixture-only proven zeroes, refreshed
-owner approval of all four current plugin/hook identities, unchanged stimulus
-readback, DEV-142 validity, exact raw replacement SHA, closed `exec_command`
+owner approval of both current plugin identities plus explicit reconfirmation
+of both reinspected hook identities and the unchanged stimulus readback,
+DEV-142 validity, exact raw replacement SHA, closed `exec_command`
 success-header parsing, exact untouched payload bytes, exclusion of dynamic
 envelope metadata from trust/evidence, original absence/preservation, parent
 turns, spooling, evidence safety, cleanup, no-network-fallback enforcement,

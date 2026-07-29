@@ -165,17 +165,22 @@ func consult(_ input: BridgeInput) async -> BridgeOutput {
 
     let instructions = Instructions(
         """
-        Condense only literal facts in the supplied synthetic diagnostic.
-        Use the suite and outcome values for the summary. Preserve the ordered
-        command-class, outcome, exit-status, and warning-count facts. Use the
-        source next-action value unchanged. Preserve command-finished and
-        task-complete as ordered completion facts. Emit diagnostics only for
-        literal fatal, error, warning, or info records. Do not add paths,
-        secrets, diagnoses, or advice.
+        Use only literal values in the supplied synthetic unit-test record.
+        Use suite and outcome for the summary. Copy the ordered command-class,
+        outcome, exit-status, and warning-count facts. Copy next-action
+        unchanged. Copy command-finished and task-complete as ordered
+        completion facts. Include diagnostics only for literal issue records;
+        otherwise use an empty array. Do not describe yourself, infer, or add
+        content.
         """
     )
     let prompt = Prompt(
-        "Synthetic diagnostic to condense:\n\(input.diagnosticText)"
+        """
+        Respond with JSON answering the question.
+        {"question":"What was the result of this synthetic unit test?"}
+        Synthetic unit-test record:
+        \(input.diagnosticText)
+        """
     )
     let responseReserve = 1024
 
