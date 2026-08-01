@@ -967,6 +967,30 @@ def build_exec_arguments(
     ]
 
 
+def _forwarding_exec_arguments(
+    server_url: str,
+    workspace: Path,
+) -> list[str]:
+    arguments = production._exec_arguments(server_url, workspace)
+    if arguments.count("-m") != 1:
+        raise BenchmarkBlocked("replacement_forwarding_unproven")
+    model_index = arguments.index("-m")
+    if (
+        model_index + 1 >= len(arguments)
+        or arguments[model_index + 1] != "gpt-5.1-codex"
+        or any(
+            re.fullmatch(r"\s*model_reasoning_effort\s*=.*", argument)
+            for argument in arguments
+        )
+    ):
+        raise BenchmarkBlocked("replacement_forwarding_unproven")
+    arguments[model_index + 1] = "gpt-5.6-sol"
+    arguments[model_index:model_index] = [
+        "-c", 'model_reasoning_effort="medium"',
+    ]
+    return arguments
+
+
 def parse_event_stream(value: bytes) -> ParsedEvents:
     def closed_json(pairs):
         decoded = {}
@@ -1902,7 +1926,7 @@ def _execute_forwarding_preflight(
             completed = subprocess.run(
                 [
                     str(codex.resolved),
-                    *production._exec_arguments(
+                    *_forwarding_exec_arguments(
                         f"http://{host}:{port}",
                         workspace,
                     ),

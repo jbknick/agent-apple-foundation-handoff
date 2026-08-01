@@ -122,6 +122,47 @@ class RuntimeV1RunnerTests(unittest.TestCase):
         self.assertIn('model_reasoning_effort="medium"', args)
         self.assertEqual(args[-1], "approved task")
 
+    def test_forwarding_preflight_uses_benchmark_model_and_effort(self):
+        args = runner._forwarding_exec_arguments(
+            "http://127.0.0.1:1234", Path("/tmp/workspace")
+        )
+        self.assertEqual(args.count("exec"), 1)
+        self.assertEqual(args.count("-m"), 1)
+        self.assertEqual(args[args.index("-m") + 1], "gpt-5.6-sol")
+        self.assertEqual(
+            sum(
+                argument.startswith("model_reasoning_effort=")
+                for argument in args
+            ),
+            1,
+        )
+        self.assertNotIn("gpt-5.1-codex", args)
+        with mock.patch.object(
+            runner.production,
+            "_exec_arguments",
+            return_value=["exec", "-m", "drifted-model"],
+        ), self.assertRaisesRegex(
+            runner.BenchmarkBlocked,
+            "^replacement_forwarding_unproven$",
+        ):
+            runner._forwarding_exec_arguments(
+                "http://127.0.0.1:1234", Path("/tmp/workspace")
+            )
+        with mock.patch.object(
+            runner.production,
+            "_exec_arguments",
+            return_value=[
+                "exec", "-c", 'model_reasoning_effort="high"',
+                "-m", "gpt-5.1-codex",
+            ],
+        ), self.assertRaisesRegex(
+            runner.BenchmarkBlocked,
+            "^replacement_forwarding_unproven$",
+        ):
+            runner._forwarding_exec_arguments(
+                "http://127.0.0.1:1234", Path("/tmp/workspace")
+            )
+
     def test_fixture_workspace_executes_exact_rendered_dev142_output(self):
         case = runner._corpus_cases()[12]
         with tempfile.TemporaryDirectory() as directory:
