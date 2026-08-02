@@ -823,6 +823,29 @@ retry of `e65bb32e3e0dde4f4e6a3958cf5029e160866b6b` or an earlier terminal. A
 non-pass is terminal and authorizes no executable substitution, preflight
 retry, Apple attempt, or benchmark arm outside the existing gates.
 
+## 2026-08-03 isolated macOS login-shell PATH
+
+The clean `ea40d41b2f21735071234470956b184b1843fd97` candidate's one authorized
+native usage dry row passed the rendered-command correction and stopped at
+`correctness_oracle_failed / command_result / exit_status`. Preserve that
+result in Linear history; do not retry or relabel it.
+
+A local process-only reproduction proves `/bin/zsh -lc` applies macOS login
+initialization and resolves the system Swift ahead of an inherited prepended
+fixture directory. For each already-isolated arm root, create a private
+`ZDOTDIR/.zprofile` that prepends only that arm's existing fixture `bin` after
+system initialization. Do not set `HOME`, read or modify user shell files, add
+executables, change the approved command, or retain the ephemeral path. Keep
+all command, exit, output, digest, provider, arm, and evidence oracles exact.
+
+After focused and full deterministic gates, SDK compilation,
+generated-artifact checks, and a formal high-reasoning diff review pass,
+commit one new clean candidate and run exactly one native Codex `0.145.0`
+`--through usage-dry-run` row. This is a new environment-corrected candidate,
+not a retry of `ea40d41b2f21735071234470956b184b1843fd97` or an earlier terminal. A
+non-pass is terminal and authorizes no executable substitution, preflight
+retry, Apple attempt, or benchmark arm outside the existing gates.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.

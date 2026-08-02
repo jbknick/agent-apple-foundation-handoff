@@ -810,6 +810,21 @@ def controlled_host_environment() -> dict[str, str]:
     }
 
 
+def configure_zsh_login_path(
+    root: Path, bin_path: Path, environment: dict[str, str]
+) -> None:
+    profile_root = root / "zsh-profile"
+    profile_root.mkdir(mode=0o700)
+    profile = profile_root / ".zprofile"
+    profile.write_text(
+        f"export PATH={shlex.quote(str(bin_path))}:\"$PATH\"\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    profile.chmod(0o600)
+    environment["ZDOTDIR"] = str(profile_root)
+
+
 def _auth_file_snapshot(path: Path) -> tuple[int, ...]:
     metadata = path.lstat()
     return _auth_metadata_snapshot(metadata)
@@ -2635,6 +2650,7 @@ def _execute_benchmark_arm(
                 "DEV255_FIXTURE_EXIT": str(case["expected"]["exitStatus"]),
             }
         )
+        configure_zsh_login_path(root, root / "bin", environment)
         observation_path = None
         observation = None
         installed = None

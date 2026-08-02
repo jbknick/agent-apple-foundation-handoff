@@ -754,6 +754,47 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             rendered_sha256=__import__("hashlib").sha256(rendered).hexdigest(),
         ))
 
+    def test_isolated_zsh_login_restores_fixture_bin_prefix(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bin_path = root / "bin"
+            bin_path.mkdir()
+            swift = bin_path / "swift"
+            swift.write_text("#!/bin/sh\n", encoding="utf-8")
+            swift.chmod(0o700)
+            environment = {"PATH": f"{bin_path}:/usr/bin:/bin"}
+            baseline = __import__("subprocess").run(
+                ["/bin/zsh", "-lc", "command -v swift"],
+                env=environment,
+                stdout=__import__("subprocess").PIPE,
+                stderr=__import__("subprocess").PIPE,
+                check=False,
+            )
+            self.assertEqual(0, baseline.returncode)
+            self.assertNotEqual(f"{swift}\n".encode(), baseline.stdout)
+            self.assertNotIn("HOME", environment)
+            runner.configure_zsh_login_path(root, bin_path, environment)
+            completed = __import__("subprocess").run(
+                ["/bin/zsh", "-lc", "command -v swift"],
+                env=environment,
+                stdout=__import__("subprocess").PIPE,
+                stderr=__import__("subprocess").PIPE,
+                check=False,
+            )
+            self.assertEqual(0, completed.returncode)
+            self.assertEqual(f"{swift}\n".encode(), completed.stdout)
+            self.assertEqual(b"", completed.stderr)
+            profile_root = root / "zsh-profile"
+            self.assertEqual(str(profile_root), environment["ZDOTDIR"])
+            self.assertNotIn("HOME", environment)
+            self.assertEqual(0o700, stat.S_IMODE(profile_root.stat().st_mode))
+            profile = profile_root / ".zprofile"
+            self.assertEqual(0o600, stat.S_IMODE(profile.stat().st_mode))
+            self.assertEqual(
+                f"export PATH={runner.shlex.quote(str(bin_path))}:\"$PATH\"\n",
+                profile.read_text(encoding="utf-8"),
+            )
+
     def test_normalized_arm_requires_request_apple_latency_and_role_invariants(self):
         observation = runner.ArmObservation(
             event_stream=self.event_stream(),
