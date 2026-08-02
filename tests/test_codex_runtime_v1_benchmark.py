@@ -720,6 +720,40 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                 "parent_output_file",
             )
 
+    def test_reported_command_accepts_only_exact_system_shell_wrapper(self):
+        command = "swift test"
+        for value in (
+            command,
+            "/bin/bash -lc 'swift test'",
+            "/bin/zsh -lc 'swift test'",
+        ):
+            self.assertTrue(runner._reported_command_matches(value, command))
+        for value in (
+            False,
+            "bash -lc 'swift test'",
+            "/bin/sh -lc 'swift test'",
+            "/bin/bash -c 'swift test'",
+            "/bin/zsh --login -c 'swift test'",
+            "/bin/zsh -lc 'swift test; echo extra'",
+            "/bin/zsh -lc 'swift test' extra",
+            "/bin/zsh -lc 'unterminated",
+        ):
+            self.assertFalse(runner._reported_command_matches(value, command))
+
+        rows = [
+            json.loads(line) for line in self.event_stream().decode().splitlines()
+        ]
+        rows[3]["item"]["command"] = "/bin/zsh -lc 'swift test'"
+        stream = b"\n".join(json.dumps(row).encode() for row in rows)
+        rendered = b"synthetic"
+        self.assertIsNone(runner._command_result_failure_stage(
+            stream,
+            command=command,
+            exit_status=0,
+            rendered=rendered,
+            rendered_sha256=__import__("hashlib").sha256(rendered).hexdigest(),
+        ))
+
     def test_normalized_arm_requires_request_apple_latency_and_role_invariants(self):
         observation = runner.ArmObservation(
             event_stream=self.event_stream(),

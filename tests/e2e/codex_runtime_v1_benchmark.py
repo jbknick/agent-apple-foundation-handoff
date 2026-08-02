@@ -15,6 +15,7 @@ import math
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import stat
 import subprocess
@@ -1995,7 +1996,7 @@ def _command_result_failure_stage(
         return "event_shape"
     if len(commands) != 1:
         return "command_count"
-    if commands[0].get("command") != command:
+    if not _reported_command_matches(commands[0].get("command"), command):
         return "command_text"
     if commands[0].get("exit_code") != exit_status:
         return "exit_status"
@@ -2006,6 +2007,21 @@ def _command_result_failure_stage(
     if hashlib.sha256(rendered).hexdigest() != rendered_sha256:
         return "fixture_digest"
     return None
+
+
+def _reported_command_matches(value: object, command: str) -> bool:
+    if value == command:
+        return True
+    if type(value) is not str:
+        return False
+    try:
+        parts = shlex.split(value)
+    except ValueError:
+        return False
+    return parts in (
+        ["/bin/bash", "-lc", command],
+        ["/bin/zsh", "-lc", command],
+    )
 
 
 def _command_oracle_stage(
