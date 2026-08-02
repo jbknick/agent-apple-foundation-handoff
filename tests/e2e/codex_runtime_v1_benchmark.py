@@ -748,7 +748,7 @@ def invocation_result_is_valid(
 
 _APPROVED_IDENTITIES = {
     "productionPluginSha256":
-        "c8a28ab4e3aa2596a78df9a06adab8213a2496dc19f015548236069aa530ca27",
+        "b9348701fd4892766402f2a6080e4f0251e3645363e0c254ea411d6a2ff451fc",
     "codexManifestSha256":
         "6c10d51db5a08a1531ba3c7964d77a5cf2b258f3ca838b655a5350d901b1927a",
     "hooksManifestSha256":

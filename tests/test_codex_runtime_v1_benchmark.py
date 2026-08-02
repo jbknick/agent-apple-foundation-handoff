@@ -1580,6 +1580,7 @@ class RuntimeV1RunnerTests(unittest.TestCase):
 
     def test_identity_validation_and_unsafe_evidence_fail_closed(self):
         identities = self.identities()
+        self.assertEqual(runner.current_production_identities(), identities)
         self.assertEqual(runner.validate_production_identities(identities), identities)
         with self.assertRaises(runner.BenchmarkBlocked):
             runner.validate_production_identities({**identities, "swiftSourceSha256": "0"})

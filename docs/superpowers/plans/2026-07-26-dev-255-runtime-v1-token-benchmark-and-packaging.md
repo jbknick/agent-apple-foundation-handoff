@@ -475,6 +475,32 @@ not a retry of `8b26f12f613184f5c66c5c52236ec0fc0bce326d` or any earlier termina
 non-pass is terminal and authorizes no executable substitution, preflight
 retry, Apple attempt, or benchmark arm outside the existing gates.
 
+## 2026-08-03 clean production identity correction
+
+The clean `3b98d7c1f19b68c1263db652a700edbf1e473294` candidate stopped before
+Codex forwarding with the separate nonpassing
+`blocked:production_identity_unapproved` terminal. Preserve that terminal in
+Linear history. It is not release evidence, must not be relabeled, and must
+not be retried.
+
+Read-only comparison proved that the approved production plugin digest had
+been derived in a Python process that first wrote ignored `__pycache__` files
+inside the plugin tree. The digest therefore described a contaminated local
+tree rather than the reviewed clean payload. The adapter and other four file
+identities were exact and unchanged. Refresh only the production plugin
+digest from the clean tree and add one deterministic equality check between
+all current production identities and the closed approved map. Keep
+`PYTHONDONTWRITEBYTECODE = 1` for every runner and test invocation; do not
+exclude arbitrary files from the tree hash or weaken exact identity checks.
+
+After focused and full deterministic gates, generated-artifact checks, and a
+formal high-reasoning diff review pass, commit one new clean candidate and run
+exactly one native Codex `0.145.0` `--through usage-dry-run` row. This is a new
+identity-corrected candidate row, not a retry of
+`3b98d7c1f19b68c1263db652a700edbf1e473294` or any earlier terminal. A
+non-pass is terminal and authorizes no executable substitution, preflight
+retry, Apple attempt, or benchmark arm outside the existing gates.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.
