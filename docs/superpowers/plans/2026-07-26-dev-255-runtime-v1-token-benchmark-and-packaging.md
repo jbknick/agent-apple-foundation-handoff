@@ -186,6 +186,10 @@ result is `blocked:replacement_forwarding_unproven`, and has this exact closed
 enum:
 
 ```text
+preflight_setup
+process_execution
+provider_teardown
+observation_cleanup
 process_stderr
 process_exit
 jsonl
@@ -197,8 +201,16 @@ unexpected_exception
 ```
 
 Set the pending stage immediately before entering its boundary:
-`identity_trust` covers initial installation/trust and the final identity/trust
-rechecks; `process_stderr` covers only the source-bound raw-stderr
+`preflight_setup` covers isolated-root creation and the synthetic bridge,
+observation, command-counter, environment, and local-provider setup outside an
+identity/trust boundary; `identity_trust` supersedes it during initial
+installation/trust and the final identity/trust rechecks, and
+`preflight_setup` is re-entered after initial trust; `process_execution` covers
+the exact exec-argument construction and one subprocess invocation, including
+spawn errors and timeout; `provider_teardown` covers local-provider context
+exit after the subprocess returns; `observation_cleanup` covers observation
+file and directory deletion after receipt validation and immediate buffer
+discard; `process_stderr` covers only the source-bound raw-stderr
 classification and immediate discard; `process_exit` covers the accepted-
 stderr process return code; `jsonl` covers the closed event stream and usage
 parser; `requests_counter` covers direct-tool request shape, request count,

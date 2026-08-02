@@ -22,6 +22,127 @@ SPEC.loader.exec_module(runner)
 
 
 class RuntimeV1RunnerTests(unittest.TestCase):
+    def _forwarding_boundary_failure(
+        self,
+        *,
+        run_error=None,
+        provider_exit_error=None,
+        cleanup_error=None,
+    ):
+        codex = mock.Mock(
+            resolved=Path("/host/codex"), version="0.145.0"
+        )
+        python = mock.Mock(resolved=Path(sys.executable))
+        server = mock.Mock(
+            server_address=("127.0.0.1", 1234),
+            requests=[{}, {}],
+        )
+        provider = mock.MagicMock()
+        provider.__enter__.return_value = server
+        provider.__exit__.side_effect = provider_exit_error
+        rpc = mock.MagicMock()
+        parsed = runner.ParsedEvents(
+            usage=mock.Mock(),
+            command_executions=1,
+            completed_parent_turns=1,
+            final_agent_message="",
+        )
+
+        def run_once(*_arguments, **arguments):
+            if run_error is not None:
+                raise run_error
+            Path(arguments["env"]["DEV254_PROBE_COMMAND_COUNTER"]).write_text(
+                "1", encoding="utf-8"
+            )
+            Path(
+                arguments["env"]["RUNTIME_V1_BENCHMARK_OBSERVATION_PATH"]
+            ).write_text("{}", encoding="utf-8")
+            return mock.Mock(returncode=0, stderr=b"", stdout=b"events")
+
+        wrapper = runner._serialized_hook_wrapper(b"forwarded")
+        observation = {
+            "status": "replacement_emitted",
+            "replacementEmitted": True,
+            "replacementBytes": len(wrapper),
+            "replacementSha256": runner.hashlib.sha256(wrapper).hexdigest(),
+        }
+        unlink_error = OSError("private unlink detail") if (
+            cleanup_error == "unlink"
+        ) else None
+        rmdir_error = OSError("private rmdir detail") if (
+            cleanup_error == "rmdir"
+        ) else None
+        with mock.patch.object(
+            runner.shutil,
+            "copytree",
+            side_effect=lambda _source, target, **_kwargs: target.mkdir(),
+        ), mock.patch.object(
+            runner,
+            "install_plugin",
+            return_value=({}, Path("/installed")),
+        ), mock.patch.object(
+            runner.production,
+            "materialize_workspace",
+            side_effect=lambda path, **_kwargs: path.mkdir(),
+        ), mock.patch.object(
+            runner.production,
+            "JsonRpcProcess",
+            return_value=rpc,
+        ), mock.patch.object(
+            runner,
+            "trust_hook",
+        ), mock.patch.object(
+            runner.production,
+            "responses_server",
+            return_value=provider,
+        ), mock.patch.object(
+            runner.subprocess,
+            "run",
+            side_effect=run_once,
+        ) as run, mock.patch.object(
+            runner,
+            "discard_classified_codex_stderr",
+        ), mock.patch.object(
+            runner,
+            "parse_event_stream",
+            return_value=parsed,
+        ), mock.patch.object(
+            runner.production,
+            "require_direct_exec_requests",
+        ), mock.patch.object(
+            runner.production,
+            "stimulus_bytes",
+            return_value=b"original",
+        ), mock.patch.object(
+            runner,
+            "_sole_forwarded_function_output",
+            return_value=b"forwarded",
+        ), mock.patch.object(
+            runner,
+            "consume_runtime_v1_observation",
+            return_value=observation,
+        ), mock.patch.object(
+            Path,
+            "unlink",
+            autospec=True,
+            side_effect=unlink_error,
+        ), mock.patch.object(
+            Path,
+            "rmdir",
+            autospec=True,
+            side_effect=rmdir_error,
+        ), self.assertRaises(
+            runner.ForwardingPreflightBlocked
+        ) as caught:
+            runner.run_forwarding_preflight(
+                codex=codex,
+                python=python,
+                candidate_commit="a" * 40,
+                production_identities=self.identities(),
+                approved_hook_hash="sha256:" + "b" * 64,
+            )
+        return caught.exception.failure_stage, run.call_count
+
     def test_exact_executable_capture_and_recheck_detects_drift(self):
         with tempfile.TemporaryDirectory(dir=ROOT) as directory:
             executable = Path(directory) / "codex"
@@ -662,6 +783,10 @@ class RuntimeV1RunnerTests(unittest.TestCase):
 
     def test_forwarding_blocked_terminal_classifies_every_closed_stage_once(self):
         stages = (
+            "preflight_setup",
+            "process_execution",
+            "provider_teardown",
+            "observation_cleanup",
             "process_stderr",
             "process_exit",
             "jsonl",
@@ -715,6 +840,51 @@ class RuntimeV1RunnerTests(unittest.TestCase):
         ):
             with self.subTest(prohibited=prohibited):
                 self.assertNotIn(prohibited, encoded)
+
+    def test_forwarding_setup_boundary_classifies_root_creation_error(self):
+        with mock.patch.object(
+            runner,
+            "isolated_arm_root",
+            side_effect=OSError("private setup detail"),
+        ), self.assertRaises(
+            runner.ForwardingPreflightBlocked
+        ) as caught:
+            runner.run_forwarding_preflight(
+                codex=mock.Mock(),
+                python=mock.Mock(),
+                candidate_commit="a" * 40,
+                production_identities=self.identities(),
+                approved_hook_hash="sha256:" + "b" * 64,
+            )
+        self.assertEqual("preflight_setup", caught.exception.failure_stage)
+
+    def test_forwarding_process_boundary_classifies_spawn_and_timeout(self):
+        for error in (
+            OSError("private spawn detail"),
+            runner.subprocess.TimeoutExpired("private command", 90),
+        ):
+            with self.subTest(error=type(error).__name__):
+                stage, calls = self._forwarding_boundary_failure(
+                    run_error=error
+                )
+                self.assertEqual("process_execution", stage)
+                self.assertEqual(1, calls)
+
+    def test_forwarding_provider_exit_boundary_is_closed(self):
+        stage, calls = self._forwarding_boundary_failure(
+            provider_exit_error=OSError("private provider detail")
+        )
+        self.assertEqual("provider_teardown", stage)
+        self.assertEqual(1, calls)
+
+    def test_forwarding_observation_cleanup_boundaries_are_closed(self):
+        for operation in ("unlink", "rmdir"):
+            with self.subTest(operation=operation):
+                stage, calls = self._forwarding_boundary_failure(
+                    cleanup_error=operation
+                )
+                self.assertEqual("observation_cleanup", stage)
+                self.assertEqual(1, calls)
 
     def test_forwarding_unexpected_exception_is_content_free_and_not_retried(self):
         sensitive = (

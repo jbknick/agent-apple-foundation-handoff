@@ -45,6 +45,10 @@ _OBSERVATION_KEYS = {
     "appleLatencyNanoseconds", "appleLatencySamples",
 }
 _FORWARDING_FAILURE_STAGES = {
+    "preflight_setup",
+    "process_execution",
+    "provider_teardown",
+    "observation_cleanup",
     "process_stderr",
     "process_exit",
     "jsonl",
@@ -1867,6 +1871,7 @@ def _execute_forwarding_preflight(
     _failure_state: _ForwardingFailureState,
 ) -> ForwardingProof:
     pending = None
+    _failure_state.enter("preflight_setup")
     with isolated_arm_root() as root:
         _failure_state.enter("identity_trust")
         staged = root / "staged-plugin"
@@ -1886,7 +1891,7 @@ def _execute_forwarding_preflight(
                 plugin_id=production.PLUGIN_ID,
                 approved_hash=approved_hook_hash,
             )
-        _failure_state.leave()
+        _failure_state.enter("preflight_setup")
         bridge = root / "synthetic-bridge"
         bridge.write_text(
             f"#!{python.resolved}\n"
@@ -1923,6 +1928,7 @@ def _execute_forwarding_preflight(
         }
         with production.responses_server() as server:
             host, port = server.server_address
+            _failure_state.enter("process_execution")
             completed = subprocess.run(
                 [
                     str(codex.resolved),
@@ -1939,6 +1945,7 @@ def _execute_forwarding_preflight(
                 shell=False,
                 timeout=90,
             )
+            _failure_state.enter("provider_teardown")
         _failure_state.enter("process_stderr")
         discard_classified_codex_stderr(
             completed,
@@ -1992,6 +1999,7 @@ def _execute_forwarding_preflight(
             forwarded = b""
             serialized_wrapper = b""
             original = b""
+        _failure_state.enter("observation_cleanup")
         observation_path.unlink()
         observation_directory.rmdir()
         _failure_state.enter("identity_trust")
@@ -2045,7 +2053,7 @@ def run_forwarding_preflight(**arguments) -> ForwardingProof:
             failure_state.stage or "unexpected_exception"
         )
     except Exception:
-        failure_stage = "unexpected_exception"
+        failure_stage = failure_state.stage or "unexpected_exception"
     raise ForwardingPreflightBlocked(failure_stage)
 
 
