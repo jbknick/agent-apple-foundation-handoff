@@ -1591,16 +1591,28 @@ class RuntimeV1RunnerTests(unittest.TestCase):
 
     def test_provider_counter_blocker_has_closed_normalized_stages(self):
         for stage in ("process_exit", "telemetry_payload", "telemetry_batch"):
+            payload_stage = "record" if stage == "telemetry_payload" else None
             self.assertEqual(
-                runner.blocked_terminal(runner.ProviderCounterBlocked(stage)),
+                runner.blocked_terminal(
+                    runner.ProviderCounterBlocked(
+                        stage,
+                        payload_stage=payload_stage,
+                    )
+                ),
                 {
                     "status": "blocked",
                     "reasonCodes": ["provider_request_counter_invalid"],
                     "failureStage": stage,
+                    **(
+                        {"payloadStage": payload_stage}
+                        if payload_stage is not None else {}
+                    ),
                 },
             )
         with self.assertRaisesRegex(ValueError, "invalid provider counter"):
             runner.ProviderCounterBlocked("raw_detail")
+        with self.assertRaisesRegex(ValueError, "invalid provider payload"):
+            runner.ProviderCounterBlocked("telemetry_payload")
         self.assertIsNone(
             runner.provider_counter_failure_stage(
                 0, counter_invalid=False, counter_batches=1
@@ -1924,6 +1936,21 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                         }],
                     }],
                 })
+        for value, stage in (
+            ({}, "envelope"),
+            ({"resourceLogs": [False]}, "resource"),
+            ({"resourceLogs": [{"scopeLogs": [False]}]}, "scope"),
+            ({
+                "resourceLogs": [{
+                    "scopeLogs": [{"logRecords": [False]}],
+                }],
+            }, "record"),
+        ):
+            with self.subTest(stage=stage), self.assertRaises(
+                runner.OtelPayloadError
+            ) as raised:
+                runner._api_request_count(value)
+            self.assertEqual(raised.exception.stage, stage)
         for attributes in (
             [{
                 "key": "event.name",
@@ -1966,6 +1993,7 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                 urllib.request.urlopen(request, timeout=5)
             raised.exception.close()
         self.assertTrue(counter.invalid)
+        self.assertEqual(counter.invalid_stage, "json")
 
     def test_cleanup_failure_blocks_before_arm_can_be_returned(self):
         root = None

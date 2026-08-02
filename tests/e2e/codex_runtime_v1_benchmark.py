@@ -67,6 +67,18 @@ _PROVIDER_COUNTER_FAILURE_STAGES = {
     "telemetry_payload",
     "telemetry_batch",
 }
+_OTEL_PAYLOAD_STAGES = {
+    "transport",
+    "json",
+    "envelope",
+    "resource",
+    "scope",
+    "record",
+    "attribute",
+    "value",
+    "discriminator",
+    "unknown",
+}
 
 
 def _load(path: Path, name: str):
@@ -106,11 +118,28 @@ class ForwardingPreflightBlocked(BenchmarkBlocked):
 
 
 class ProviderCounterBlocked(BenchmarkBlocked):
-    def __init__(self, failure_stage: str):
+    def __init__(self, failure_stage: str, *, payload_stage: str | None = None):
         if failure_stage not in _PROVIDER_COUNTER_FAILURE_STAGES:
             raise ValueError("invalid provider counter failure stage")
+        if (
+            failure_stage == "telemetry_payload"
+            and payload_stage not in _OTEL_PAYLOAD_STAGES
+        ) or (
+            failure_stage != "telemetry_payload"
+            and payload_stage is not None
+        ):
+            raise ValueError("invalid provider payload failure stage")
         super().__init__("provider_request_counter_invalid")
         self.failure_stage = failure_stage
+        self.payload_stage = payload_stage
+
+
+class OtelPayloadError(ValueError):
+    def __init__(self, stage: str):
+        if stage not in _OTEL_PAYLOAD_STAGES - {"unknown"}:
+            raise ValueError("invalid OTLP payload stage")
+        super().__init__("invalid OTLP batch")
+        self.stage = stage
 
 
 @dataclass
@@ -414,11 +443,12 @@ class _OtelCounterServer(ThreadingHTTPServer):
         self.api_requests = 0
         self.batches = 0
         self.invalid = False
+        self.invalid_stage = None
 
 
 def _validate_otlp_any_value(value: object) -> None:
     if type(value) is not dict or len(value) != 1:
-        raise ValueError("invalid OTLP batch")
+        raise OtelPayloadError("value")
     key, child = next(iter(value.items()))
     if key == "stringValue":
         valid = type(child) is str
@@ -454,12 +484,12 @@ def _validate_otlp_any_value(value: object) -> None:
     else:
         valid = False
     if not valid:
-        raise ValueError("invalid OTLP batch")
+        raise OtelPayloadError("value")
 
 
 def _validate_otlp_attributes(value: object) -> None:
     if type(value) is not list:
-        raise ValueError("invalid OTLP batch")
+        raise OtelPayloadError("attribute")
     keys = set()
     for attribute in value:
         if (
@@ -467,20 +497,20 @@ def _validate_otlp_attributes(value: object) -> None:
             or set(attribute) != {"key", "value"}
             or type(attribute["key"]) is not str
         ):
-            raise ValueError("invalid OTLP batch")
+            raise OtelPayloadError("attribute")
         if attribute["key"] in keys:
-            raise ValueError("invalid OTLP batch")
+            raise OtelPayloadError("attribute")
         keys.add(attribute["key"])
         _validate_otlp_any_value(attribute["value"])
 
 
 def _api_request_count(value: object) -> int:
     if type(value) is not dict or set(value) != {"resourceLogs"}:
-        raise ValueError("invalid OTLP batch")
+        raise OtelPayloadError("envelope")
     count = 0
     resources = value.get("resourceLogs")
     if type(resources) is not list:
-        raise ValueError("invalid OTLP batch")
+        raise OtelPayloadError("envelope")
     for resource in resources:
         scopes = resource.get("scopeLogs") if type(resource) is dict else None
         if (
@@ -490,7 +520,7 @@ def _api_request_count(value: object) -> int:
             )
             or type(scopes) is not list
         ):
-            raise ValueError("invalid OTLP batch")
+            raise OtelPayloadError("resource")
         resource_value = resource.get("resource")
         if resource_value is not None:
             if (
@@ -499,7 +529,7 @@ def _api_request_count(value: object) -> int:
                     {"attributes", "droppedAttributesCount"}
                 )
             ):
-                raise ValueError("invalid OTLP batch")
+                raise OtelPayloadError("resource")
             _validate_otlp_attributes(
                 resource_value.get("attributes", [])
             )
@@ -512,7 +542,7 @@ def _api_request_count(value: object) -> int:
                 )
                 or type(records) is not list
             ):
-                raise ValueError("invalid OTLP batch")
+                raise OtelPayloadError("scope")
             scope_value = scope.get("scope")
             if scope_value is not None:
                 if (
@@ -524,7 +554,7 @@ def _api_request_count(value: object) -> int:
                         }
                     )
                 ):
-                    raise ValueError("invalid OTLP batch")
+                    raise OtelPayloadError("scope")
                 _validate_otlp_attributes(
                     scope_value.get("attributes", [])
                 )
@@ -551,7 +581,7 @@ def _api_request_count(value: object) -> int:
                         )
                     )
                 ):
-                    raise ValueError("invalid OTLP batch")
+                    raise OtelPayloadError("record")
                 if "body" in record:
                     _validate_otlp_any_value(record["body"])
                 _validate_otlp_attributes(attributes)
@@ -563,17 +593,17 @@ def _api_request_count(value: object) -> int:
                         if (
                             set(child) != {"stringValue"}
                         ):
-                            raise ValueError("invalid OTLP batch")
+                            raise OtelPayloadError("discriminator")
                         names.append(child.get("stringValue"))
                     if attribute.get("key") == "endpoint":
                         if set(child) != {"stringValue"}:
-                            raise ValueError("invalid OTLP batch")
+                            raise OtelPayloadError("discriminator")
                         endpoints.append(child.get("stringValue"))
                 if len(names) > 1 or len(endpoints) > 1:
-                    raise ValueError("invalid OTLP batch")
+                    raise OtelPayloadError("discriminator")
                 if names == ["codex.api_request"]:
                     if len(endpoints) != 1:
-                        raise ValueError("invalid OTLP batch")
+                        raise OtelPayloadError("discriminator")
                     count += endpoints == ["/responses"]
     return count
 
@@ -591,9 +621,12 @@ class _OtelHandler(BaseHTTPRequestHandler):
             self.send_error(404)
             return
         try:
-            length = int(self.headers.get("Content-Length", ""))
+            try:
+                length = int(self.headers.get("Content-Length", ""))
+            except ValueError:
+                raise OtelPayloadError("transport") from None
             if not 0 < length <= 4 * 1024 * 1024:
-                raise ValueError("invalid length")
+                raise OtelPayloadError("transport")
             value = json.loads(
                 self.rfile.read(length),
                 object_pairs_hook=_closed_json_object,
@@ -602,8 +635,14 @@ class _OtelHandler(BaseHTTPRequestHandler):
                 ),
             )
             count = _api_request_count(value)
+        except OtelPayloadError as error:
+            server.invalid = True
+            server.invalid_stage = error.stage
+            self.send_error(400)
+            return
         except (ValueError, json.JSONDecodeError):
             server.invalid = True
+            server.invalid_stage = "json"
             self.send_error(400)
             return
         server.api_requests += count
@@ -637,6 +676,10 @@ class OtelRequestCounter:
     def invalid(self) -> bool:
         return self.server.invalid
 
+    @property
+    def invalid_stage(self) -> str | None:
+        return self.server.invalid_stage
+
 
 @contextmanager
 def otel_request_counter() -> Iterator[OtelRequestCounter]:
@@ -652,6 +695,7 @@ def otel_request_counter() -> Iterator[OtelRequestCounter]:
         thread.join(timeout=5)
         if thread.is_alive():
             server.invalid = True
+            server.invalid_stage = "transport"
 
 
 def configure_otel_counter(codex_home: Path, endpoint: str) -> None:
@@ -856,7 +900,16 @@ def invoke_with_otel_counter(
         counter_batches=counter.batches,
     )
     if failure_stage is not None:
-        raise ProviderCounterBlocked(failure_stage)
+        raise ProviderCounterBlocked(
+            failure_stage,
+            payload_stage=(
+                counter.invalid_stage
+                if failure_stage == "telemetry_payload"
+                else None
+            ) or (
+                "unknown" if failure_stage == "telemetry_payload" else None
+            ),
+        )
     return completed.stdout, counter.api_requests, elapsed, stderr_bytes
 
 
@@ -2396,6 +2449,8 @@ def blocked_terminal(error: BenchmarkBlocked) -> dict[str, object]:
     }
     if isinstance(error, (ForwardingPreflightBlocked, ProviderCounterBlocked)):
         terminal["failureStage"] = error.failure_stage
+    if isinstance(error, ProviderCounterBlocked) and error.payload_stage is not None:
+        terminal["payloadStage"] = error.payload_stage
     return terminal
 
 

@@ -616,6 +616,31 @@ row, not a retry of `51548386f409f71ab5d8ac91e1ce90b670e46b6d` or any earlier
 terminal. A non-pass is terminal and authorizes no executable substitution,
 preflight retry, Apple attempt, or benchmark arm outside the existing gates.
 
+## 2026-08-03 closed OTLP payload-stage diagnostic
+
+The clean `a30f2c38c24f583c23334a0ac47cc9b874820961` candidate preserved the
+official `eventName` correction but stopped with the same separate nonpassing
+`blocked:provider_request_counter_invalid`, `failureStage = telemetry_payload`
+terminal. Preserve it in Linear history. It is not release evidence, must not
+be relabeled, and must not be retried.
+
+The closed receiver currently discards which parser boundary rejected the
+payload. Retain only one additional closed `payloadStage` selected where the
+rejection occurs: `transport`, `json`, `envelope`, `resource`, `scope`,
+`record`, `attribute`, `value`, or `discriminator`; use `unknown` only if the
+counter reports invalid without a stage. Store no field name, field value,
+payload, count, request, prompt, response, path, or transcript. Keep the same
+strict schema, request discriminator, counter, process, arm, usage,
+correctness, cleanup, and evidence acceptance rules.
+
+After focused and full deterministic gates, generated-artifact checks, and a
+formal high-reasoning diff review pass, commit one new clean candidate and run
+exactly one native Codex `0.145.0` `--through usage-dry-run` row. This is a new
+normalized-diagnostic candidate row, not a retry of
+`a30f2c38c24f583c23334a0ac47cc9b874820961` or any earlier terminal. A
+non-pass is terminal and authorizes no executable substitution, preflight
+retry, Apple attempt, or benchmark arm outside the existing gates.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.
