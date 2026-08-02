@@ -29,6 +29,7 @@ class RuntimeV1RunnerTests(unittest.TestCase):
         provider_exit_error=None,
         cleanup_error=None,
         direct_requests_error=None,
+        request_count=2,
         command_counter_value="1",
     ):
         codex = mock.Mock(
@@ -37,7 +38,7 @@ class RuntimeV1RunnerTests(unittest.TestCase):
         python = mock.Mock(resolved=Path(sys.executable))
         server = mock.Mock(
             server_address=("127.0.0.1", 1234),
-            requests=[{}, {}],
+            requests=[{} for _ in range(request_count)],
         )
         provider = mock.MagicMock()
         provider.__enter__.return_value = server
@@ -794,7 +795,9 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             "process_stderr",
             "process_exit",
             "jsonl",
-            "direct_requests",
+            "request_count",
+            "direct_tool_contract",
+            "function_output",
             "command_counter_presence",
             "command_counter_value",
             "original_exclusion",
@@ -894,13 +897,83 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                 )
                 self.assertEqual(1, calls)
 
-    def test_forwarding_request_and_command_counter_boundaries_are_closed(self):
+    def test_forwarding_request_count_is_closed_before_direct_tool_validation(self):
+        for request_count in (0, 1, 3):
+            helper_calls = []
+
+            def require_direct_requests(_requests):
+                helper_calls.append(True)
+
+            with self.subTest(request_count=request_count):
+                error, calls = self._forwarding_boundary_failure(
+                    request_count=request_count,
+                    direct_requests_error=require_direct_requests,
+                )
+                self.assertEqual("request_count", error.failure_stage)
+                self.assertEqual(1, calls)
+                self.assertEqual([], helper_calls)
+
+    def test_forwarding_direct_request_boundaries_are_closed(self):
         sensitive = "private prompt response /Users/private traceback"
         cases = (
             (
-                "direct_requests",
-                {"direct_requests_error": RuntimeError(sensitive)},
+                "function_output",
+                {
+                    "direct_requests_error": runner.production.ProbeFailure(
+                        "provider_request_invalid"
+                    )
+                },
             ),
+            (
+                "direct_tool_contract",
+                {
+                    "direct_requests_error": runner.production.ProbeFailure(
+                        "direct_tool_mode_unavailable"
+                    )
+                },
+            ),
+        )
+        for stage, arguments in cases:
+            with self.subTest(stage=stage):
+                error, calls = self._forwarding_boundary_failure(**arguments)
+                terminal = runner.blocked_terminal(error)
+                self.assertEqual(1, calls)
+                self.assertEqual(
+                    {
+                        "status": "blocked",
+                        "reasonCodes": ["replacement_forwarding_unproven"],
+                        "failureStage": stage,
+                    },
+                    terminal,
+                )
+                self.assertNotIn(sensitive, json.dumps(terminal))
+
+    def test_forwarding_unknown_direct_request_errors_are_unexpected(self):
+        sensitive = "private prompt response /Users/private traceback"
+        errors = (
+            RuntimeError(sensitive),
+            runner.production.ProbeFailure("unknown_probe_failure"),
+        )
+        for error in errors:
+            with self.subTest(error=type(error).__name__):
+                caught, calls = self._forwarding_boundary_failure(
+                    direct_requests_error=error,
+                )
+                terminal = runner.blocked_terminal(caught)
+                self.assertEqual(1, calls)
+                self.assertEqual(
+                    {
+                        "status": "blocked",
+                        "reasonCodes": ["replacement_forwarding_unproven"],
+                        "failureStage": "unexpected_exception",
+                    },
+                    terminal,
+                )
+                self.assertNotIn(sensitive, json.dumps(terminal))
+
+    def test_forwarding_command_counter_boundaries_are_closed(self):
+        sensitive = "private prompt response /Users/private traceback"
+        cases = (
             (
                 "command_counter_presence",
                 {"command_counter_value": None},

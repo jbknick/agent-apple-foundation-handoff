@@ -52,7 +52,9 @@ _FORWARDING_FAILURE_STAGES = {
     "process_stderr",
     "process_exit",
     "jsonl",
-    "direct_requests",
+    "request_count",
+    "direct_tool_contract",
+    "function_output",
     "command_counter_presence",
     "command_counter_value",
     "original_exclusion",
@@ -1964,8 +1966,21 @@ def _execute_forwarding_preflight(
         forwarded = b""
         serialized_wrapper = b""
         try:
-            _failure_state.enter("direct_requests")
-            production.require_direct_exec_requests(server.requests)
+            _failure_state.enter("request_count")
+            if len(server.requests) != 2:
+                raise BenchmarkBlocked("replacement_forwarding_unproven")
+            _failure_state.enter("direct_tool_contract")
+            try:
+                production.require_direct_exec_requests(server.requests)
+            except production.ProbeFailure as error:
+                if error.args == ("provider_request_invalid",):
+                    _failure_state.enter("function_output")
+                elif error.args != ("direct_tool_mode_unavailable",):
+                    _failure_state.leave()
+                raise
+            except Exception:
+                _failure_state.leave()
+                raise
             _failure_state.enter("command_counter_presence")
             if not command_counter.is_file():
                 raise BenchmarkBlocked("replacement_forwarding_unproven")

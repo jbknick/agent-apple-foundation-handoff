@@ -193,7 +193,9 @@ observation_cleanup
 process_stderr
 process_exit
 jsonl
-direct_requests
+request_count
+direct_tool_contract
+function_output
 command_counter_presence
 command_counter_value
 original_exclusion
@@ -215,8 +217,12 @@ file and directory deletion after receipt validation and immediate buffer
 discard; `process_stderr` covers only the source-bound raw-stderr
 classification and immediate discard; `process_exit` covers the accepted-
 stderr process return code; `jsonl` covers the closed event stream and usage
-parser, including completed-turn and command counts; `direct_requests` covers
-direct-tool request shape and request count; `command_counter_presence` covers
+parser, including completed-turn and command counts; `request_count` covers
+the exact two-request count before direct-tool validation;
+`direct_tool_contract` covers direct-tool request shape and availability;
+`function_output` covers only the validator's stable
+`provider_request_invalid` failure after the request count passes;
+`command_counter_presence` covers
 the command-counter file presence check; `command_counter_value` covers its
 exact value;
 `original_exclusion` covers the unique forwarded function output and
