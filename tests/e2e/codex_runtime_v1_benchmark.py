@@ -453,7 +453,13 @@ class _OtelCounterServer(ThreadingHTTPServer):
         self.invalid_stage = None
 
 
-def _validate_otlp_any_value(value: object) -> None:
+def _validate_otlp_any_value(
+    value: object, *, allow_null: bool = True
+) -> None:
+    if value is None:
+        if allow_null:
+            return
+        raise OtelPayloadError("value_container")
     if type(value) is not dict or len(value) > 1:
         raise OtelPayloadError("value_container")
     if not value:
@@ -485,7 +491,7 @@ def _validate_otlp_any_value(value: object) -> None:
         )
         if valid:
             for item in child.get("values", []):
-                _validate_otlp_any_value(item)
+                _validate_otlp_any_value(item, allow_null=False)
         stage = "value_array"
     elif key == "kvlistValue":
         valid = (
@@ -634,12 +640,17 @@ def _api_request_count(value: object) -> int:
                     child = attribute["value"]
                     if attribute.get("key") == "event.name":
                         if (
+                            type(child) is not dict
+                            or
                             set(child) != {"stringValue"}
                         ):
                             raise OtelPayloadError("discriminator")
                         names.append(child.get("stringValue"))
                     if attribute.get("key") == "endpoint":
-                        if set(child) != {"stringValue"}:
+                        if (
+                            type(child) is not dict
+                            or set(child) != {"stringValue"}
+                        ):
                             raise OtelPayloadError("discriminator")
                         endpoints.append(child.get("stringValue"))
                 if len(names) > 1 or len(endpoints) > 1:

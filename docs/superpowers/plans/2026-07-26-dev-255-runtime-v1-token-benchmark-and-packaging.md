@@ -732,6 +732,29 @@ new diagnostic candidate, not a retry of
 is terminal and authorizes no executable substitution, preflight retry, Apple
 attempt, or benchmark arm outside the existing gates.
 
+## 2026-08-03 ProtoJSON null AnyValue compatibility
+
+The clean `4f0e3e1392a02306a21904a31913387c23b5ce60` diagnostic candidate's one
+authorized native usage dry row stopped at the closed
+`telemetry_payload / value_container` terminal. Preserve that result in
+Linear history; do not retry or relabel it.
+
+Official ProtoJSON parsers accept JSON `null` for any field and leave the
+field unset. Accept `null` only as the same empty AnyValue state already
+accepted as `{}`; continue to reject `null` inside repeated fields. Explicitly
+require the `event.name` and `endpoint`
+discriminator values to remain exact one-member string AnyValues so `null`
+cannot prove or count a provider request. Retain no field or value and do not
+change counter, process, arm, usage, correctness, cleanup, or evidence rules.
+
+After focused and full deterministic gates, generated-artifact checks, and a
+formal high-reasoning source and diff review pass, commit one new clean
+candidate and run exactly one native Codex `0.145.0`
+`--through usage-dry-run` row. This is a new schema-corrected candidate, not a
+retry of `4f0e3e1392a02306a21904a31913387c23b5ce60` or an earlier terminal. A
+non-pass is terminal and authorizes no executable substitution, preflight
+retry, Apple attempt, or benchmark arm outside the existing gates.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.

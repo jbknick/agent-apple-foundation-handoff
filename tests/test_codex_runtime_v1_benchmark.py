@@ -2091,6 +2091,35 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                 runner._validate_otlp_any_value(value)
             self.assertEqual(raised.exception.stage, stage)
 
+    def test_otel_accepts_null_any_value_only_as_unset(self):
+        batch = {
+            "resourceLogs": [{
+                "resource": {"attributes": [{"key": "unset", "value": None}]},
+                "scopeLogs": [{"logRecords": [{
+                    **self.log_record("codex.api_request", "/responses"),
+                    "body": None,
+                }]}],
+            }],
+        }
+        self.assertEqual(runner._api_request_count(batch), 1)
+
+        record = batch["resourceLogs"][0]["scopeLogs"][0]["logRecords"][0]
+        for index in (0, 1):
+            original = record["attributes"][index]["value"]
+            record["attributes"][index]["value"] = None
+            with self.subTest(index=index), self.assertRaises(
+                runner.OtelPayloadError
+            ) as raised:
+                runner._api_request_count(batch)
+            self.assertEqual(raised.exception.stage, "discriminator")
+            record["attributes"][index]["value"] = original
+
+        with self.assertRaises(runner.OtelPayloadError) as raised:
+            runner._validate_otlp_any_value({
+                "arrayValue": {"values": [None]},
+            })
+        self.assertEqual(raised.exception.stage, "value_container")
+
     def test_otel_json_rejects_duplicate_keys(self):
         with runner.otel_request_counter() as counter:
             request = urllib.request.Request(
