@@ -116,6 +116,14 @@ class BenchmarkFailure(ValueError):
     pass
 
 
+class CorrectnessOracleFailure(BenchmarkFailure):
+    def __init__(self, failure_stage: str):
+        if failure_stage not in {"command_result", "parent_outcome"}:
+            raise ValueError("invalid correctness oracle failure stage")
+        super().__init__("correctness_oracle_failed")
+        self.failure_stage = failure_stage
+
+
 class ForwardingPreflightBlocked(BenchmarkBlocked):
     def __init__(self, failure_stage: str):
         if failure_stage not in _FORWARDING_FAILURE_STAGES:
@@ -2508,6 +2516,16 @@ def blocked_terminal(error: BenchmarkBlocked) -> dict[str, object]:
     return terminal
 
 
+def failed_terminal(error: BenchmarkFailure) -> dict[str, object]:
+    terminal: dict[str, object] = {
+        "status": "fail",
+        "reasonCodes": [str(error)],
+    }
+    if isinstance(error, CorrectnessOracleFailure):
+        terminal["failureStage"] = error.failure_stage
+    return terminal
+
+
 def _execute_benchmark_arm(
     coordinate: dict[str, str],
     role: str,
@@ -2623,7 +2641,7 @@ def _execute_benchmark_arm(
             rendered=rendered,
             rendered_sha256=case["renderedSha256"],
         ):
-            raise BenchmarkFailure("correctness_oracle_failed")
+            raise CorrectnessOracleFailure("command_result")
         if observation_path is None:
             apple_attempts = 0
             replacement_emitted = False
@@ -2652,7 +2670,7 @@ def _execute_benchmark_arm(
             final_agent_message=parsed.final_agent_message,
         )
         if not correctness_passed:
-            raise BenchmarkFailure("correctness_oracle_failed")
+            raise CorrectnessOracleFailure("parent_outcome")
         validated_applied = derive_validated_applied(
             role=role,
             replacement_emitted=replacement_emitted,
@@ -2880,7 +2898,7 @@ if __name__ == "__main__":
         print(json.dumps(blocked_terminal(error), sort_keys=True))
         raise SystemExit(2)
     except BenchmarkFailure as error:
-        print(json.dumps({"status": "fail", "reasonCodes": [str(error)]}, sort_keys=True))
+        print(json.dumps(failed_terminal(error), sort_keys=True))
         raise SystemExit(1)
     except production.ProbeBlocked:
         print(json.dumps({"status": "blocked", "reasonCodes": ["host_prerequisite_unavailable"]}, sort_keys=True))

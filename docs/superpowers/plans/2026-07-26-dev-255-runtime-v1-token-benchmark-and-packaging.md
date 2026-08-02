@@ -755,6 +755,28 @@ retry of `4f0e3e1392a02306a21904a31913387c23b5ce60` or an earlier terminal. A
 non-pass is terminal and authorizes no executable substitution, preflight
 retry, Apple attempt, or benchmark arm outside the existing gates.
 
+## 2026-08-03 closed correctness-oracle diagnostic
+
+The clean `9eaebdec4157e32972ebf4a7dd875b9baa1a245e` candidate's one authorized
+native usage dry row passed the actual provider-request counter and stopped at
+the separate `fail:correctness_oracle_failed` terminal. Preserve that result
+in Linear history; do not retry or relabel it.
+
+Retain one closed `failureStage`: `command_result` for the exact executed
+command, exit status, output bytes, and digest binding; or `parent_outcome` for
+the final canonical response and DEV-142 score. Retain no command, output,
+digest, prompt, response, score detail, path, or transcript. Do not change
+either oracle, the accepted result, counter, process, arm, usage, correctness,
+cleanup, or evidence rules.
+
+After focused and full deterministic gates, generated-artifact checks, and a
+formal high-reasoning diff review pass, commit one new clean candidate and run
+exactly one native Codex `0.145.0` `--through usage-dry-run` row. This is a new
+diagnostic candidate, not a retry of
+`9eaebdec4157e32972ebf4a7dd875b9baa1a245e` or an earlier terminal. A non-pass
+is terminal and authorizes no executable substitution, preflight retry, Apple
+attempt, or benchmark arm outside the existing gates.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.

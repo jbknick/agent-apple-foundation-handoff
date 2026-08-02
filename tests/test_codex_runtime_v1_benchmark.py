@@ -1618,6 +1618,23 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                 0, counter_invalid=False, counter_batches=1
             )
         )
+
+    def test_correctness_oracle_failure_has_closed_stage(self):
+        for stage in ("command_result", "parent_outcome"):
+            self.assertEqual(
+                runner.failed_terminal(runner.CorrectnessOracleFailure(stage)),
+                {
+                    "status": "fail",
+                    "reasonCodes": ["correctness_oracle_failed"],
+                    "failureStage": stage,
+                },
+            )
+        with self.assertRaisesRegex(ValueError, "invalid correctness oracle"):
+            runner.CorrectnessOracleFailure("raw_detail")
+        self.assertEqual(
+            runner.failed_terminal(runner.BenchmarkFailure("unsafe_evidence")),
+            {"status": "fail", "reasonCodes": ["unsafe_evidence"]},
+        )
         for values, expected in (
             ((False, False, 1), "process_exit"),
             ((0, 0, 1), "telemetry_payload"),
