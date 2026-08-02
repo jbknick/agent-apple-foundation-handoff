@@ -252,6 +252,31 @@ terminal serialization and test artifact for prompt, response, private-path,
 request-body, stdout, stderr, JSONL, command-output, observation, traceback,
 and exception-message leakage.
 
+## 2026-08-02 one-time superseding native-host amendment
+
+The clean `ed9f5f22dba931639ec153e97afcebbb95f49744` usage dry run captured the
+Codex `0.145.0` npm JavaScript launcher and stopped at the forwarding
+preflight with `blocked:replacement_forwarding_unproven` and
+`failureStage = process_stderr`. That terminal remains nonpassing and must
+not be relabeled, deleted, or used as release evidence. It may be superseded
+solely for DEV-255 release and forward progress by committing this amendment
+to a new clean candidate, capturing the different exact native
+`vendor/aarch64-apple-darwin/bin/codex` executable from the same pinned
+package, requiring its strict single-line version to remain `0.145.0`, and
+running exactly one superseding `--through usage-dry-run` invocation.
+
+This is a new host identity row, not a retry within the prior invocation. Both
+normalized terminals remain in Linear history; retain no raw stderr or other
+prohibited evidence. Neither invocation may retry its forwarding preflight or
+original command. The prior row made no Apple attempt or benchmark-arm run,
+and the superseding row must still stop before either unless its dry run
+passes. Any non-pass from the superseding invocation is terminal: do not retry
+it, substitute another host executable, or rerun a benchmark arm. No runner,
+production, fixture, or test code change is required because the existing
+exact-executable capture accepts the newly supplied native path; this
+amendment and the resulting clean candidate identity are the complete change
+boundary.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.
