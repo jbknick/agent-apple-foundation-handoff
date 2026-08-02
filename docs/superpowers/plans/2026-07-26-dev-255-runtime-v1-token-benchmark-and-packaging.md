@@ -555,6 +555,40 @@ normalized-diagnostic candidate row, not a retry of
 non-pass is terminal and authorizes no executable substitution, preflight
 retry, Apple attempt, or benchmark arm outside the existing gates.
 
+## 2026-08-03 isolated parent-authentication correction
+
+The clean `1ae8c8bfd201bd29a08aabe613f7d86805b5cf6f` candidate passed the complete
+replacement-forwarding preflight, then stopped in the first plugin-off dry arm
+with `blocked:provider_request_counter_invalid` and
+`failureStage = process_exit`. Preserve that terminal in Linear history. It is
+not release evidence, must not be relabeled, and must not be retried.
+
+A separate read-only prerequisite check proves the captured Codex `0.145.0`
+executable is authenticated in the normal Codex home but reports not logged in
+inside the fresh isolated arm home. The local forwarding provider does not
+need parent authentication, which explains why forwarding passes while the
+first real provider-backed arm exits before telemetry acceptance.
+
+For each measured arm only, capture the existing source `auth.json` as a
+regular non-symlink file with mode `0600`, a bounded nonzero size, and a stable
+metadata snapshot. Copy it without decoding, hashing, logging, or serializing
+its contents into the mode-`0700` temporary arm root, force the staged copy to
+mode `0600`, and require `codex login status` to succeed while discarding its
+stdout and stderr. Delete the staged file immediately after the single Codex
+invocation, recheck the source metadata, and require the isolated root cleanup
+already mandated for every arm. Never copy user configuration, plugin state,
+or other private files; never include credential contents, hashes, paths, or
+status output in evidence. Missing, malformed, changed, unauthenticated, or
+unclean authentication is `blocked`, never `pass`.
+
+After focused and full deterministic gates, generated-artifact checks, and a
+formal high-reasoning security and diff review pass, commit one new clean
+candidate and run exactly one native Codex `0.145.0`
+`--through usage-dry-run` row. This is a new authentication-corrected candidate
+row, not a retry of `1ae8c8bfd201bd29a08aabe613f7d86805b5cf6f` or any earlier
+terminal. A non-pass is terminal and authorizes no executable substitution,
+preflight retry, Apple attempt, or benchmark arm outside the existing gates.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.

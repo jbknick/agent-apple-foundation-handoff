@@ -952,7 +952,11 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             runner,
             "invoke_with_otel_counter",
             side_effect=invoke,
-        ) as invoked, self.assertRaisesRegex(
+        ) as invoked, mock.patch.object(
+            runner,
+            "staged_parent_auth",
+            return_value=__import__("contextlib").nullcontext(),
+        ), self.assertRaisesRegex(
             runner.BenchmarkBlocked,
             "^arm_completion_uncertain$",
         ):
@@ -1615,6 +1619,128 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                 ),
                 expected,
             )
+
+    def test_staged_parent_auth_is_private_ephemeral_and_deleted(self):
+        completed = __import__("subprocess").CompletedProcess(
+            [], 0, b"authenticated", b""
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_home = root / "source-home"
+            isolated_home = root / "isolated-home"
+            source_home.mkdir()
+            isolated_home.mkdir()
+            source = source_home / ".codex/auth.json"
+            source.parent.mkdir()
+            source.write_bytes(b"{}")
+            source.chmod(0o600)
+            codex = mock.Mock(resolved=Path("/approved/codex"))
+            environment = {"CODEX_HOME": str(isolated_home)}
+            with mock.patch.object(
+                runner.Path, "home", return_value=source_home
+            ), mock.patch.object(
+                runner.subprocess, "run", return_value=completed
+            ):
+                with runner.staged_parent_auth(codex, environment):
+                    staged = isolated_home / "auth.json"
+                    self.assertEqual(staged.read_bytes(), b"{}")
+                    self.assertEqual(stat.S_IMODE(staged.stat().st_mode), 0o600)
+            self.assertFalse((isolated_home / "auth.json").exists())
+            self.assertEqual(source.read_bytes(), b"{}")
+            self.assertEqual(completed.stdout, b"")
+            self.assertEqual(completed.stderr, b"")
+            self.assertEqual(codex.recheck.call_count, 2)
+
+    def test_staged_parent_auth_cleans_partial_and_broken_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_home = root / "source-home"
+            isolated_home = root / "isolated-home"
+            source_home.mkdir()
+            isolated_home.mkdir()
+            source = source_home / ".codex/auth.json"
+            source.parent.mkdir()
+            source.write_bytes(b"{}")
+            source.chmod(0o600)
+            destination = isolated_home / "auth.json"
+            codex = mock.Mock(resolved=Path("/approved/codex"))
+            environment = {"CODEX_HOME": str(isolated_home)}
+
+            def partial_copy(_reader, writer, **_kwargs):
+                writer.write(b"{")
+                raise OSError
+
+            with mock.patch.object(
+                runner.Path, "home", return_value=source_home
+            ), mock.patch.object(
+                runner.shutil, "copyfileobj", side_effect=partial_copy
+            ), self.assertRaisesRegex(
+                runner.BenchmarkBlocked, "parent_auth_unavailable"
+            ):
+                with runner.staged_parent_auth(codex, environment):
+                    self.fail("partial copy cannot yield")
+            self.assertFalse(os.path.lexists(destination))
+            self.assertEqual(codex.recheck.call_count, 1)
+
+            codex.reset_mock()
+            completed = __import__("subprocess").CompletedProcess(
+                [], 0, b"authenticated", b""
+            )
+            with mock.patch.object(
+                runner.Path, "home", return_value=source_home
+            ), mock.patch.object(
+                runner.subprocess, "run", return_value=completed
+            ):
+                with runner.staged_parent_auth(codex, environment):
+                    destination.unlink()
+                    destination.symlink_to(root / "missing")
+            self.assertFalse(os.path.lexists(destination))
+            self.assertEqual(codex.recheck.call_count, 2)
+
+    def test_staged_parent_auth_rechecks_host_on_login_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_home = root / "source-home"
+            isolated_home = root / "isolated-home"
+            source_home.mkdir()
+            isolated_home.mkdir()
+            source = source_home / ".codex/auth.json"
+            source.parent.mkdir()
+            source.write_bytes(b"{}")
+            source.chmod(0o600)
+            codex = mock.Mock(resolved=Path("/approved/codex"))
+            environment = {"CODEX_HOME": str(isolated_home)}
+            denied = __import__("subprocess").CompletedProcess(
+                [], 1, b"", b""
+            )
+            with mock.patch.object(
+                runner.Path, "home", return_value=source_home
+            ), mock.patch.object(
+                runner.subprocess, "run", return_value=denied
+            ), self.assertRaisesRegex(
+                runner.BenchmarkBlocked, "parent_auth_unavailable"
+            ):
+                with runner.staged_parent_auth(codex, environment):
+                    self.fail("failed login cannot yield")
+            self.assertFalse(os.path.lexists(isolated_home / "auth.json"))
+            self.assertEqual(codex.recheck.call_count, 2)
+
+            codex.reset_mock()
+            codex.recheck.side_effect = [
+                None,
+                runner.production.ProbeFailure("host_identity_drift"),
+            ]
+            with mock.patch.object(
+                runner.Path, "home", return_value=source_home
+            ), mock.patch.object(
+                runner.subprocess,
+                "run",
+                side_effect=runner.subprocess.TimeoutExpired("login", 30),
+            ), self.assertRaises(runner.production.ProbeFailure):
+                with runner.staged_parent_auth(codex, environment):
+                    self.fail("timeout cannot yield")
+            self.assertFalse(os.path.lexists(isolated_home / "auth.json"))
+            self.assertEqual(codex.recheck.call_count, 2)
         self.assertGreater(
             runner.unsafe_evidence_findings({"prompt": "secret", "path": "/Users/private"}),
             0,

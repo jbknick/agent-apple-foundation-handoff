@@ -682,6 +682,134 @@ def controlled_host_environment() -> dict[str, str]:
     }
 
 
+def _auth_file_snapshot(path: Path) -> tuple[int, ...]:
+    metadata = path.lstat()
+    return _auth_metadata_snapshot(metadata)
+
+
+def _auth_metadata_snapshot(metadata: os.stat_result) -> tuple[int, ...]:
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or stat.S_IMODE(metadata.st_mode) != 0o600
+        or metadata.st_size < 1
+        or metadata.st_size > 262_144
+    ):
+        raise BenchmarkBlocked("parent_auth_unavailable")
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+
+@contextmanager
+def staged_parent_auth(codex, environment: dict[str, str]) -> Iterator[None]:
+    source = Path.home() / ".codex/auth.json"
+    destination = None
+    snapshot = None
+    created = False
+    try:
+        destination = Path(environment["CODEX_HOME"]) / "auth.json"
+        snapshot = _auth_file_snapshot(source)
+        if destination.exists() or destination.is_symlink():
+            raise BenchmarkBlocked("parent_auth_unavailable")
+        source_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        destination_flags = (
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_NOFOLLOW", 0)
+        )
+        source_descriptor = os.open(source, source_flags)
+        try:
+            if _auth_metadata_snapshot(os.fstat(source_descriptor)) != snapshot:
+                raise BenchmarkBlocked("parent_auth_unavailable")
+            destination_descriptor = os.open(
+                destination,
+                destination_flags,
+                0o600,
+            )
+            created = True
+            try:
+                with os.fdopen(source_descriptor, "rb", closefd=False) as reader, os.fdopen(
+                    destination_descriptor,
+                    "wb",
+                    closefd=False,
+                ) as writer:
+                    shutil.copyfileobj(reader, writer, length=65_536)
+                    writer.flush()
+                    os.fsync(destination_descriptor)
+            finally:
+                os.close(destination_descriptor)
+        finally:
+            os.close(source_descriptor)
+        if _auth_file_snapshot(destination)[3] != snapshot[3]:
+            raise BenchmarkBlocked("parent_auth_unavailable")
+        codex.recheck()
+        completed = subprocess.run(
+            [str(codex.resolved), "login", "status"],
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            shell=False,
+            timeout=30,
+        )
+        authenticated = (
+            type(completed.returncode) is int
+            and completed.returncode == 0
+        )
+        completed.stdout = b""
+        completed.stderr = b""
+        if not authenticated:
+            raise BenchmarkBlocked("parent_auth_unavailable")
+        yield
+    except BenchmarkBlocked:
+        raise
+    except (OSError, subprocess.TimeoutExpired, KeyError):
+        raise BenchmarkBlocked("parent_auth_unavailable") from None
+    finally:
+        cleanup_failed = False
+        source_changed = False
+        host_error = None
+        try:
+            if (
+                created
+                and destination is not None
+                and os.path.lexists(destination)
+            ):
+                destination.unlink()
+            if (
+                created
+                and destination is not None
+                and os.path.lexists(destination)
+            ):
+                cleanup_failed = True
+        except OSError:
+            cleanup_failed = True
+        try:
+            source_changed = (
+                snapshot is not None
+                and _auth_file_snapshot(source) != snapshot
+            )
+        except (OSError, BenchmarkBlocked):
+            source_changed = snapshot is not None
+        try:
+            codex.recheck()
+        except Exception as error:
+            host_error = error
+        if cleanup_failed:
+            raise BenchmarkBlocked("cleanup_incomplete") from None
+        if host_error is not None:
+            raise host_error
+        if source_changed:
+            raise BenchmarkBlocked("parent_auth_unavailable")
+
+
 def invoke_with_otel_counter(
     codex,
     *,
@@ -2358,16 +2486,17 @@ def _execute_benchmark_arm(
                 trusted=True,
                 production_identities=production_identities,
             )
-        stream, requests, parent_latency, stderr_bytes = invoke_with_otel_counter(
-            codex,
-            environment=environment,
-            arguments=build_exec_arguments(
-                workspace,
-                output,
-                _task(case),
-            ),
-            codex_home=Path(environment["CODEX_HOME"]),
-        )
+        with staged_parent_auth(codex, environment):
+            stream, requests, parent_latency, stderr_bytes = invoke_with_otel_counter(
+                codex,
+                environment=environment,
+                arguments=build_exec_arguments(
+                    workspace,
+                    output,
+                    _task(case),
+                ),
+                codex_home=Path(environment["CODEX_HOME"]),
+            )
         if stderr_bytes not in {0, 39}:
             raise BenchmarkBlocked("codex_stderr_unclassified")
         parsed = parse_event_stream(stream)
