@@ -31,6 +31,8 @@ class RuntimeV1RunnerTests(unittest.TestCase):
         direct_requests_error=None,
         request_count=2,
         command_counter_value="1",
+        run_check=None,
+        classifier_check=None,
     ):
         codex = mock.Mock(
             resolved=Path("/host/codex"), version="0.145.0"
@@ -54,6 +56,8 @@ class RuntimeV1RunnerTests(unittest.TestCase):
         def run_once(*_arguments, **arguments):
             if run_error is not None:
                 raise run_error
+            if run_check is not None:
+                run_check(arguments)
             if command_counter_value is not None:
                 Path(
                     arguments["env"]["DEV254_PROBE_COMMAND_COUNTER"]
@@ -106,7 +110,8 @@ class RuntimeV1RunnerTests(unittest.TestCase):
         ) as run, mock.patch.object(
             runner,
             "discard_classified_codex_stderr",
-        ), mock.patch.object(
+            wraps=runner.discard_classified_codex_stderr,
+        ) as classifier, mock.patch.object(
             runner,
             "parse_event_stream",
             return_value=parsed,
@@ -146,6 +151,8 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                 production_identities=self.identities(),
                 approved_hook_hash="sha256:" + "b" * 64,
             )
+        if classifier_check is not None:
+            classifier_check(classifier)
         return caught.exception, run.call_count
 
     def test_exact_executable_capture_and_recheck_detects_drift(self):
@@ -878,6 +885,27 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                 )
                 self.assertEqual("process_execution", error.failure_stage)
                 self.assertEqual(1, calls)
+
+    def test_forwarding_preflight_uses_terminal_stdin_and_empty_stderr(self):
+        observed = []
+
+        def check(arguments):
+            observed.append(os.isatty(arguments["stdin"]))
+
+        def check_classifier(classifier):
+            classifier.assert_called_once()
+            self.assertIs(
+                classifier.call_args.kwargs["stdin_nonterminal"],
+                False,
+            )
+
+        error, calls = self._forwarding_boundary_failure(
+            run_check=check,
+            classifier_check=check_classifier,
+        )
+        self.assertEqual([True], observed)
+        self.assertEqual(1, calls)
+        self.assertNotEqual("process_stderr", error.failure_stage)
 
     def test_forwarding_provider_exit_boundary_is_closed(self):
         error, calls = self._forwarding_boundary_failure(
