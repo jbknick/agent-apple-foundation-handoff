@@ -641,6 +641,29 @@ normalized-diagnostic candidate row, not a retry of
 non-pass is terminal and authorizes no executable substitution, preflight
 retry, Apple attempt, or benchmark arm outside the existing gates.
 
+## 2026-08-03 additive OTLP Resource entity references
+
+The clean `4c1108fdcfdfc006d49e7692ebace1c22008ddfc` candidate's one authorized
+native usage dry row stopped at the closed `telemetry_payload / resource`
+terminal. Preserve that normalized terminal in Linear history; do not retry
+or relabel it.
+
+The pinned OpenTelemetry Proto v1.6.0 stable Resource package adds the official
+JSON field `entityRefs` (proto `entity_refs`), explicitly at Development
+status, with `EntityRef` members containing only `schemaUrl`, `type`, `idKeys`,
+and `descriptionKeys`. Accept and validate that additive official schema field
+at the shared resource boundary. Retain none of its values and do not change
+the request discriminator, counter, process, arm, usage, correctness, cleanup,
+or evidence acceptance rules.
+
+After focused and full deterministic gates, generated-artifact checks, and a
+formal high-reasoning source and diff review pass, commit one new clean
+candidate and run exactly one native Codex `0.145.0`
+`--through usage-dry-run` row. This is a new schema-corrected candidate, not a
+retry of `4c1108fdcfdfc006d49e7692ebace1c22008ddfc` or an earlier terminal. A
+non-pass is terminal and authorizes no executable substitution, preflight
+retry, Apple attempt, or benchmark arm outside the existing gates.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.

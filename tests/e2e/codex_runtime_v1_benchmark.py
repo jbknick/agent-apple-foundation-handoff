@@ -504,6 +504,31 @@ def _validate_otlp_attributes(value: object) -> None:
         _validate_otlp_any_value(attribute["value"])
 
 
+def _validate_otlp_entity_refs(value: object) -> None:
+    if type(value) is not list:
+        raise OtelPayloadError("resource")
+    for entity_ref in value:
+        if (
+            type(entity_ref) is not dict
+            or not set(entity_ref).issubset(
+                {"schemaUrl", "type", "idKeys", "descriptionKeys"}
+            )
+            or any(
+                key in entity_ref and type(entity_ref[key]) is not str
+                for key in ("schemaUrl", "type")
+            )
+            or any(
+                key in entity_ref
+                and (
+                    type(entity_ref[key]) is not list
+                    or any(type(item) is not str for item in entity_ref[key])
+                )
+                for key in ("idKeys", "descriptionKeys")
+            )
+        ):
+            raise OtelPayloadError("resource")
+
+
 def _api_request_count(value: object) -> int:
     if type(value) is not dict or set(value) != {"resourceLogs"}:
         raise OtelPayloadError("envelope")
@@ -526,13 +551,16 @@ def _api_request_count(value: object) -> int:
             if (
                 type(resource_value) is not dict
                 or not set(resource_value).issubset(
-                    {"attributes", "droppedAttributesCount"}
+                    {
+                        "attributes", "droppedAttributesCount", "entityRefs",
+                    }
                 )
             ):
                 raise OtelPayloadError("resource")
             _validate_otlp_attributes(
                 resource_value.get("attributes", [])
             )
+            _validate_otlp_entity_refs(resource_value.get("entityRefs", []))
         for scope in scopes:
             records = scope.get("logRecords") if type(scope) is dict else None
             if (

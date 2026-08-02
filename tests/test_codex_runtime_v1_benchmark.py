@@ -1981,6 +1981,47 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             ):
                 runner._api_request_count(batch)
 
+    def test_otel_accepts_v1_6_resource_entity_refs(self):
+        def batch(entity_refs):
+            return {
+                "resourceLogs": [{
+                    "resource": {
+                        "attributes": [{
+                            "key": "service.name",
+                            "value": {"stringValue": "codex"},
+                        }],
+                        "entityRefs": entity_refs,
+                    },
+                    "scopeLogs": [{"logRecords": [self.log_record(
+                        "codex.api_request", "/responses"
+                    )]}],
+                }],
+            }
+
+        valid = [{
+            "schemaUrl": "https://opentelemetry.io/schemas/1.37.0",
+            "type": "service",
+            "idKeys": ["service.name"],
+            "descriptionKeys": [],
+        }]
+        self.assertEqual(runner._api_request_count(batch(valid)), 1)
+        for malformed in (
+            False,
+            [False],
+            [{"unknown": "value"}],
+            [{"schemaUrl": False}],
+            [{"type": False}],
+            [{"idKeys": False}],
+            [{"idKeys": [False]}],
+            [{"descriptionKeys": False}],
+            [{"descriptionKeys": [False]}],
+        ):
+            with self.subTest(malformed=malformed), self.assertRaises(
+                runner.OtelPayloadError
+            ) as raised:
+                runner._api_request_count(batch(malformed))
+            self.assertEqual(raised.exception.stage, "resource")
+
     def test_otel_json_rejects_duplicate_keys(self):
         with runner.otel_request_counter() as counter:
             request = urllib.request.Request(
