@@ -710,6 +710,28 @@ retry of `c12445e9fc7c823d6b501ee890c9759e626783bf` or an earlier terminal. A
 non-pass is terminal and authorizes no executable substitution, preflight
 retry, Apple attempt, or benchmark arm outside the existing gates.
 
+## 2026-08-03 closed OTLP AnyValue substage diagnostic
+
+The clean `9e0814446f4977f6451b1cded636c7eb4db15275` candidate's one authorized
+native usage dry row stopped at the same broad `telemetry_payload / value`
+terminal after the two official default-omission corrections. Preserve that
+result in Linear history; do not retry or relabel it.
+
+Replace only the broad `value` diagnostic with one closed parser-boundary
+stage: `value_container`, `value_string`, `value_bool`,
+`value_integer_bytes`, `value_double`, `value_array`, `value_kvlist`, or
+`value_union`. Retain no key, value, payload, count, request, prompt, response,
+path, or transcript. Do not change accepted schema, request discrimination,
+counter, process, arm, usage, correctness, cleanup, or evidence rules.
+
+After focused and full deterministic gates, generated-artifact checks, and a
+formal high-reasoning diff review pass, commit one new clean candidate and run
+exactly one native Codex `0.145.0` `--through usage-dry-run` row. This is a
+new diagnostic candidate, not a retry of
+`9e0814446f4977f6451b1cded636c7eb4db15275` or an earlier terminal. A non-pass
+is terminal and authorizes no executable substitution, preflight retry, Apple
+attempt, or benchmark arm outside the existing gates.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.

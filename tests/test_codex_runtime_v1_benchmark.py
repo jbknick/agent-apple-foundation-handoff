@@ -2059,7 +2059,37 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                 runner.OtelPayloadError
             ) as raised:
                 runner._validate_otlp_any_value({key: {"unknown": []}})
-            self.assertEqual(raised.exception.stage, "value")
+            self.assertEqual(
+                raised.exception.stage,
+                "value_array" if key == "arrayValue" else "value_kvlist",
+            )
+
+    def test_otel_any_value_failures_have_closed_substages(self):
+        cases = (
+            (False, "value_container"),
+            ({"stringValue": "x", "boolValue": True}, "value_container"),
+            ({"stringValue": False}, "value_string"),
+            ({"boolValue": "false"}, "value_bool"),
+            ({"intValue": False}, "value_integer_bytes"),
+            ({"doubleValue": False}, "value_double"),
+            ({"arrayValue": False}, "value_array"),
+            ({"kvlistValue": False}, "value_kvlist"),
+            ({"unknown": "value"}, "value_union"),
+            ({
+                "arrayValue": {"values": [{"stringValue": False}]},
+            }, "value_string"),
+            ({
+                "kvlistValue": {"values": [{
+                    "key": "nested", "value": {"boolValue": "false"},
+                }]},
+            }, "value_bool"),
+        )
+        for value, stage in cases:
+            with self.subTest(stage=stage), self.assertRaises(
+                runner.OtelPayloadError
+            ) as raised:
+                runner._validate_otlp_any_value(value)
+            self.assertEqual(raised.exception.stage, stage)
 
     def test_otel_json_rejects_duplicate_keys(self):
         with runner.otel_request_counter() as counter:

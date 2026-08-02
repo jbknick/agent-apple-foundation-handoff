@@ -75,7 +75,14 @@ _OTEL_PAYLOAD_STAGES = {
     "scope",
     "record",
     "attribute",
-    "value",
+    "value_container",
+    "value_string",
+    "value_bool",
+    "value_integer_bytes",
+    "value_double",
+    "value_array",
+    "value_kvlist",
+    "value_union",
     "discriminator",
     "unknown",
 }
@@ -448,16 +455,19 @@ class _OtelCounterServer(ThreadingHTTPServer):
 
 def _validate_otlp_any_value(value: object) -> None:
     if type(value) is not dict or len(value) > 1:
-        raise OtelPayloadError("value")
+        raise OtelPayloadError("value_container")
     if not value:
         return
     key, child = next(iter(value.items()))
     if key == "stringValue":
         valid = type(child) is str
+        stage = "value_string"
     elif key == "boolValue":
         valid = type(child) is bool
+        stage = "value_bool"
     elif key in {"intValue", "bytesValue"}:
         valid = type(child) in {str, int, float}
+        stage = "value_integer_bytes"
     elif key == "doubleValue":
         valid = (
             type(child) in {str, int, float}
@@ -466,6 +476,7 @@ def _validate_otlp_any_value(value: object) -> None:
                 and not math.isfinite(child)
             )
         )
+        stage = "value_double"
     elif key == "arrayValue":
         valid = (
             type(child) is dict
@@ -475,6 +486,7 @@ def _validate_otlp_any_value(value: object) -> None:
         if valid:
             for item in child.get("values", []):
                 _validate_otlp_any_value(item)
+        stage = "value_array"
     elif key == "kvlistValue":
         valid = (
             type(child) is dict
@@ -483,10 +495,11 @@ def _validate_otlp_any_value(value: object) -> None:
         )
         if valid:
             _validate_otlp_attributes(child.get("values", []))
+        stage = "value_kvlist"
     else:
-        valid = False
+        raise OtelPayloadError("value_union")
     if not valid:
-        raise OtelPayloadError("value")
+        raise OtelPayloadError(stage)
 
 
 def _validate_otlp_attributes(value: object) -> None:
