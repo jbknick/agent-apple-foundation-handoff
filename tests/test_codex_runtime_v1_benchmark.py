@@ -896,7 +896,7 @@ class RuntimeV1RunnerTests(unittest.TestCase):
     def test_forwarding_preflight_excludes_ambient_logging_environment(self):
         def check(arguments):
             environment = arguments["env"]
-            self.assertNotIn("RUST_LOG", environment)
+            self.assertEqual("off", environment["RUST_LOG"])
             self.assertNotIn("DEV255_UNAPPROVED_AMBIENT", environment)
             self.assertEqual("/isolated/codex-home", environment["CODEX_HOME"])
             self.assertEqual("/isolated/bin", environment["PATH"])
@@ -932,7 +932,7 @@ class RuntimeV1RunnerTests(unittest.TestCase):
         )
 
         def invoke(_codex, *, environment, **_arguments):
-            self.assertNotIn("RUST_LOG", environment)
+            self.assertEqual("off", environment["RUST_LOG"])
             self.assertNotIn("DEV255_UNAPPROVED_AMBIENT", environment)
             self.assertTrue(environment["PATH"].endswith(":/approved/bin"))
             self.assertEqual("1", environment["NO_COLOR"])

@@ -665,6 +665,7 @@ def controlled_host_environment() -> dict[str, str]:
         "NO_COLOR": "1",
         "PYTHON_COLORS": "0",
         "PYTHONDONTWRITEBYTECODE": "1",
+        "RUST_LOG": "off",
     }
 
 

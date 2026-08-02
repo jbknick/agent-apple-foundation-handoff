@@ -501,6 +501,35 @@ identity-corrected candidate row, not a retry of
 non-pass is terminal and authorizes no executable substitution, preflight
 retry, Apple attempt, or benchmark arm outside the existing gates.
 
+## 2026-08-03 deterministic Codex stderr correction
+
+The clean `fe10e01a57ce2aae1c0a074c0effaa4bf3ddc666` candidate stopped with the
+separate nonpassing `blocked:replacement_forwarding_unproven` terminal and
+`failureStage = process_stderr`. Preserve that terminal in Linear history. It
+is not release evidence, must not be relabeled, and must not be retried. No
+raw stderr was retained.
+
+Pinned Codex `0.145.0` source commit `25af12f7` proves that `codex exec`
+installs a tracing formatter on process stderr and derives its filter from
+`RUST_LOG`; without an explicit value its default admits error-level runtime
+diagnostics. The benchmark already rejects ambient `RUST_LOG`, requires the
+JSONL event stream and exit status, independently validates both provider
+requests, and binds command, hook, observation, and replacement receipts.
+Set the controlled child environment to the exact fixed value
+`RUST_LOG = "off"`. This suppresses only Codex tracing formatter output;
+direct process stderr remains captured and must still be empty or match the
+one pinned 39-byte nonterminal-stdin notice. Do not broaden the stderr
+classifier, retain raw diagnostics, or weaken any JSONL, exit, receipt,
+counter, cleanup, or evidence gate.
+
+After focused and full deterministic gates, generated-artifact checks, and a
+formal high-reasoning diff review pass, commit one new clean candidate and run
+exactly one native Codex `0.145.0` `--through usage-dry-run` row. This is a new
+deterministic-environment candidate row, not a retry of
+`fe10e01a57ce2aae1c0a074c0effaa4bf3ddc666` or any earlier terminal. A
+non-pass is terminal and authorizes no executable substitution, preflight
+retry, Apple attempt, or benchmark arm outside the existing gates.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.
