@@ -2022,6 +2022,23 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                 runner._api_request_count(batch(malformed))
             self.assertEqual(raised.exception.stage, "resource")
 
+    def test_otel_accepts_empty_any_value_without_counting_it(self):
+        batch = {
+            "resourceLogs": [{
+                "resource": {"attributes": [{"key": "empty", "value": {}}]},
+                "scopeLogs": [{"logRecords": [self.log_record(
+                    "codex.api_request", "/responses"
+                )]}],
+            }],
+        }
+        self.assertEqual(runner._api_request_count(batch), 1)
+
+        record = batch["resourceLogs"][0]["scopeLogs"][0]["logRecords"][0]
+        record["attributes"][0]["value"] = {}
+        with self.assertRaises(runner.OtelPayloadError) as raised:
+            runner._api_request_count(batch)
+        self.assertEqual(raised.exception.stage, "discriminator")
+
     def test_otel_json_rejects_duplicate_keys(self):
         with runner.otel_request_counter() as counter:
             request = urllib.request.Request(

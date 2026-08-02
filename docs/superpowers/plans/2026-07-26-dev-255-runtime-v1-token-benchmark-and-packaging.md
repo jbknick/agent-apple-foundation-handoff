@@ -664,6 +664,29 @@ retry of `4c1108fdcfdfc006d49e7692ebace1c22008ddfc` or an earlier terminal. A
 non-pass is terminal and authorizes no executable substitution, preflight
 retry, Apple attempt, or benchmark arm outside the existing gates.
 
+## 2026-08-03 empty OTLP AnyValue compatibility
+
+The clean `821c69d676391752c3242f66f278ee871b994f13` candidate's one authorized
+native usage dry row passed the Resource correction and stopped at the closed
+`telemetry_payload / value` terminal. Preserve that normalized terminal in
+Linear history; do not retry or relabel it.
+
+The pinned OpenTelemetry Proto v1.6.0 stable `AnyValue` schema explicitly
+permits its oneof to be unspecified, represented by an empty JSON object.
+Accept that exact empty object at the shared AnyValue boundary. Continue to
+reject multiple or unknown union members, and continue to require exact
+nonempty string values for the `event.name` and `endpoint` request
+discriminators. Retain no attribute value and do not change counter, process,
+arm, usage, correctness, cleanup, or evidence acceptance rules.
+
+After focused and full deterministic gates, generated-artifact checks, and a
+formal high-reasoning source and diff review pass, commit one new clean
+candidate and run exactly one native Codex `0.145.0`
+`--through usage-dry-run` row. This is a new schema-corrected candidate, not a
+retry of `821c69d676391752c3242f66f278ee871b994f13` or an earlier terminal. A
+non-pass is terminal and authorizes no executable substitution, preflight
+retry, Apple attempt, or benchmark arm outside the existing gates.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.

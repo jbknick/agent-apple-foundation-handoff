@@ -447,8 +447,10 @@ class _OtelCounterServer(ThreadingHTTPServer):
 
 
 def _validate_otlp_any_value(value: object) -> None:
-    if type(value) is not dict or len(value) != 1:
+    if type(value) is not dict or len(value) > 1:
         raise OtelPayloadError("value")
+    if not value:
+        return
     key, child = next(iter(value.items()))
     if key == "stringValue":
         valid = type(child) is str
