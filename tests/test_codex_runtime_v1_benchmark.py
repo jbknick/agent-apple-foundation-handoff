@@ -32,7 +32,6 @@ class RuntimeV1RunnerTests(unittest.TestCase):
         request_count=2,
         command_counter_value="1",
         run_check=None,
-        classifier_check=None,
     ):
         codex = mock.Mock(
             resolved=Path("/host/codex"), version="0.145.0"
@@ -87,7 +86,15 @@ class RuntimeV1RunnerTests(unittest.TestCase):
         ), mock.patch.object(
             runner,
             "install_plugin",
-            return_value=({}, Path("/installed")),
+            return_value=(
+                {
+                    "CODEX_HOME": "/isolated/codex-home",
+                    "PATH": "/isolated/bin",
+                    "PYTHONDONTWRITEBYTECODE": "1",
+                    "RUNTIME_V1_PYTHON": sys.executable,
+                },
+                Path("/installed"),
+            ),
         ), mock.patch.object(
             runner.production,
             "materialize_workspace",
@@ -111,7 +118,7 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             runner,
             "discard_classified_codex_stderr",
             wraps=runner.discard_classified_codex_stderr,
-        ) as classifier, mock.patch.object(
+        ), mock.patch.object(
             runner,
             "parse_event_stream",
             return_value=parsed,
@@ -151,8 +158,6 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                 production_identities=self.identities(),
                 approved_hook_hash="sha256:" + "b" * 64,
             )
-        if classifier_check is not None:
-            classifier_check(classifier)
         return caught.exception, run.call_count
 
     def test_exact_executable_capture_and_recheck_detects_drift(self):
@@ -886,26 +891,80 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                 self.assertEqual("process_execution", error.failure_stage)
                 self.assertEqual(1, calls)
 
-    def test_forwarding_preflight_uses_terminal_stdin_and_empty_stderr(self):
-        observed = []
-
+    def test_forwarding_preflight_excludes_ambient_logging_environment(self):
         def check(arguments):
-            observed.append(os.isatty(arguments["stdin"]))
+            environment = arguments["env"]
+            self.assertNotIn("RUST_LOG", environment)
+            self.assertNotIn("DEV255_UNAPPROVED_AMBIENT", environment)
+            self.assertEqual("/isolated/codex-home", environment["CODEX_HOME"])
+            self.assertEqual("/isolated/bin", environment["PATH"])
+            self.assertEqual(sys.executable, environment["RUNTIME_V1_PYTHON"])
+            self.assertEqual("1", environment["PYTHONDONTWRITEBYTECODE"])
+            self.assertEqual("1", environment["NO_COLOR"])
+            self.assertEqual("0", environment["PYTHON_COLORS"])
+            self.assertIs(arguments["stdin"], runner.subprocess.DEVNULL)
 
-        def check_classifier(classifier):
-            classifier.assert_called_once()
-            self.assertIs(
-                classifier.call_args.kwargs["stdin_nonterminal"],
-                False,
-            )
-
-        error, calls = self._forwarding_boundary_failure(
-            run_check=check,
-            classifier_check=check_classifier,
-        )
-        self.assertEqual([True], observed)
+        with mock.patch.dict(
+            runner.os.environ,
+            {
+                "RUST_LOG": "present-but-unapproved",
+                "DEV255_UNAPPROVED_AMBIENT": "must-not-cross",
+            },
+        ):
+            error, calls = self._forwarding_boundary_failure(run_check=check)
         self.assertEqual(1, calls)
         self.assertNotEqual("process_stderr", error.failure_stage)
+
+    def test_benchmark_arm_excludes_ambient_logging_environment(self):
+        identities = self.identities()
+        candidate_commit = "a" * 40
+        approved_hook_hash = "sha256:" + "b" * 64
+        proof = runner.ForwardingProof(
+            "pass",
+            candidate_commit,
+            "0.145.0",
+            runner.CODEX_SOURCE_COMMIT,
+            identities["productionPluginSha256"],
+            approved_hook_hash,
+            identities["pythonAdapterSha256"],
+        )
+
+        def invoke(_codex, *, environment, **_arguments):
+            self.assertNotIn("RUST_LOG", environment)
+            self.assertNotIn("DEV255_UNAPPROVED_AMBIENT", environment)
+            self.assertTrue(environment["PATH"].endswith(":/approved/bin"))
+            self.assertEqual("1", environment["NO_COLOR"])
+            self.assertEqual("0", environment["PYTHON_COLORS"])
+            self.assertEqual("1", environment["PYTHONDONTWRITEBYTECODE"])
+            self.assertIn("CODEX_HOME", environment)
+            raise runner.BenchmarkBlocked("arm_completion_uncertain")
+
+        with mock.patch.dict(
+            runner.os.environ,
+            {
+                "PATH": "/approved/bin",
+                "RUST_LOG": "present-but-unapproved",
+                "DEV255_UNAPPROVED_AMBIENT": "must-not-cross",
+            },
+        ), mock.patch.object(
+            runner,
+            "invoke_with_otel_counter",
+            side_effect=invoke,
+        ) as invoked, self.assertRaisesRegex(
+            runner.BenchmarkBlocked,
+            "^arm_completion_uncertain$",
+        ):
+            runner._execute_benchmark_arm(
+                runner.fixed_pair_coordinates()[0],
+                "pluginOff",
+                codex=mock.Mock(resolved=Path("/host/codex")),
+                python=mock.Mock(resolved=Path(sys.executable)),
+                approved_hook_hash=approved_hook_hash,
+                production_identities=identities,
+                candidate_commit=candidate_commit,
+                forwarding_proof=proof,
+            )
+        invoked.assert_called_once()
 
     def test_forwarding_provider_exit_boundary_is_closed(self):
         error, calls = self._forwarding_boundary_failure(

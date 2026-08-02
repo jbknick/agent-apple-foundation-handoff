@@ -277,43 +277,52 @@ exact-executable capture accepts the newly supplied native path; this
 amendment and the resulting clean candidate identity are the complete change
 boundary.
 
-## 2026-08-02 forwarding-preflight terminal-stdin differential amendment
+## 2026-08-02 forwarding-preflight ambient-log-filter root-cause amendment
 
-The JavaScript-launcher and superseding native-host rows remain distinct,
-nonpassing `blocked:replacement_forwarding_unproven` terminals with
-`failureStage = process_stderr`. They must not be relabeled, deleted, retried,
-or used as release evidence. Those terminals establish only that both rows
-reached the source-bound stderr classifier with unaccepted bytes. Because the
-bytes were immediately discarded and never inspected, they do not establish
-their content or cause and do not prove that host wrapping or nonterminal stdin
-was causal.
+The JavaScript-launcher, native-host, and subsequent PTY differential rows
+remain separate nonpassing `blocked:replacement_forwarding_unproven` terminals
+with `failureStage = process_stderr`. They must not be relabeled, deleted,
+retried, or used as release evidence. The PTY row falsified terminal mode as a
+sufficient correction. Raw stderr remained immediately discarded and was not
+inspected or retained.
 
-The smallest source-aligned differential correction is to reuse the validated
-production probe's `os.openpty()` lifecycle for the forwarding-preflight
-subprocess and close both descriptors in `finally`. Keep stdout and stderr
-captured, keep the exact source-bound stderr classifier unchanged, and classify
-the corrected stdin as terminal. Before any corrected live row, a deterministic
-privacy-safe discriminator test must prove that the supplied stdin descriptor
-is a terminal, the simulated process returns empty stderr, and the classifier
-is called with `stdin_nonterminal = False` and proceeds beyond
-`process_stderr`. The existing source-bound classifier tests continue to prove
-that the exact 39-byte OptionalAppend notice is accepted only when
-`stdin_nonterminal = True`; the corrected terminal path therefore cannot pass
-by accepting that notice. This gate does not identify the prior unknown stderr
-or prove that PTY alignment addresses it.
+Pinned Codex `0.145.0` source commit `25af12f7` proves the causal configuration
+edge: `codex-rs/exec/src/lib.rs` calls `EnvFilter::try_from_default_env()` before
+falling back to the quiet `EXEC_DEFAULT_LOG_FILTER`. The current host check
+proved only that the `RUST_LOG` key is present; its value and content were not
+read, retained, or serialized. The forwarding preflight constructed its row
+environment with `{**os.environ, **environment, ...}`, and every actual
+benchmark arm began with `dict(os.environ)`, while the validated production
+`_run_row` starts from `dict(environment)` and adds only approved row variables.
+An uncontrolled ambient logging configuration therefore crossed into every
+controlled Codex child and could override Codex's quiet exec filter. That
+environment-boundary violation is the proven root bug; the prior stderr
+contents and exact emitter remain unknown.
+
+Correct the shared root boundary by replacing every ambient environment copy
+with one explicit controlled baseline that reads only host `PATH` and sets
+`NO_COLOR = 1`, `PYTHON_COLORS = 0`, and `PYTHONDONTWRITEBYTECODE = 1`. Build
+the forwarding preflight and every actual arm from that baseline plus only the
+isolated install, fixture, observation, OTel, and other explicit approved row
+variables. Revert the falsified PTY differential to the original
+`subprocess.DEVNULL` stdin and `stdin_nonterminal = True`. Keep stdout and
+stderr captured and keep the exact source-bound classifier unchanged. Add
+deterministic regressions that inject ambient `RUST_LOG` and an unrelated
+unapproved sentinel and prove neither reaches either the preflight subprocess
+or the actual arm's `invoke_with_otel_counter` boundary, while required
+isolated keys and explicit controls remain present. Do not inspect raw stderr,
+broaden accepted stderr, change forwarding or request assertions, retry an old
+row, or add an executable identity.
 
 After focused and full deterministic gates plus a formal high-reasoning review
-pass on a new clean candidate, run exactly one corrected
-`--through usage-dry-run` invocation using the already approved exact native
-Codex `0.145.0` identity solely as a falsification test of the PTY differential.
-This is one new corrected candidate row, not a retry or substitution within
-either prior terminal row. Preserve all three normalized rows in Linear
-history. Do not broaden accepted stderr, retain raw stderr, change request or
-forwarding assertions, retry the original command, or add another executable
-identity. The corrected invocation still performs at most one forwarding
-preflight and one original command; any non-pass is terminal and does not
-authorize another host substitution, preflight retry, Apple attempt, or
-benchmark arm outside the existing runner gates.
+pass on a new clean candidate, run exactly one new native
+`--through usage-dry-run` invocation using the already approved exact Codex
+`0.145.0` identity. This is a new root-cause-fix candidate row, not a retry or
+substitution within any prior terminal row. Preserve every prior normalized
+terminal in Linear history. The new invocation still performs at most one
+forwarding preflight and one original command; any non-pass is terminal and
+does not authorize another host substitution, preflight retry, Apple attempt,
+or benchmark arm outside the existing runner gates.
 
 ## File structure
 

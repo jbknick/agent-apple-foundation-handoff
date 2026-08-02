@@ -659,6 +659,15 @@ def configure_otel_counter(codex_home: Path, endpoint: str) -> None:
     )
 
 
+def controlled_host_environment() -> dict[str, str]:
+    return {
+        "PATH": os.environ.get("PATH", ""),
+        "NO_COLOR": "1",
+        "PYTHON_COLORS": "0",
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
+
+
 def invoke_with_otel_counter(
     codex,
     *,
@@ -1920,7 +1929,7 @@ def _execute_forwarding_preflight(
         )
         command_counter = root / "command-counter"
         row_environment = {
-            **os.environ,
+            **controlled_host_environment(),
             **environment,
             "RUNTIME_V1_BRIDGE_EXECUTABLE": str(bridge),
             "RUNTIME_V1_REPO_ROOT": str(workspace),
@@ -1933,36 +1942,29 @@ def _execute_forwarding_preflight(
         with production.responses_server() as server:
             host, port = server.server_address
             _failure_state.enter("process_execution")
-            master_fd, slave_fd = os.openpty()
-            try:
-                completed = subprocess.run(
-                    [
-                        str(codex.resolved),
-                        *_forwarding_exec_arguments(
-                            f"http://{host}:{port}",
-                            workspace,
-                        ),
-                    ],
-                    env=row_environment,
-                    stdin=slave_fd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    check=False,
-                    shell=False,
-                    timeout=90,
-                )
-            finally:
-                try:
-                    os.close(slave_fd)
-                finally:
-                    os.close(master_fd)
+            completed = subprocess.run(
+                [
+                    str(codex.resolved),
+                    *_forwarding_exec_arguments(
+                        f"http://{host}:{port}",
+                        workspace,
+                    ),
+                ],
+                env=row_environment,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+                shell=False,
+                timeout=90,
+            )
             _failure_state.enter("provider_teardown")
         _failure_state.enter("process_stderr")
         discard_classified_codex_stderr(
             completed,
             codex_version=codex.version,
             source_commit=CODEX_SOURCE_COMMIT,
-            stdin_nonterminal=False,
+            stdin_nonterminal=True,
         )
         _failure_state.enter("process_exit")
         if completed.returncode != 0:
@@ -2115,7 +2117,7 @@ def _execute_benchmark_arm(
         workspace, rendered = _materialize_workspace(root, case)
         command = _command_for_case(case)
         output = root / "parent-output"
-        environment = dict(os.environ)
+        environment = controlled_host_environment()
         environment.update(
             {
                 "PATH": f"{root / 'bin'}:{environment.get('PATH', '')}",
