@@ -193,7 +193,9 @@ observation_cleanup
 process_stderr
 process_exit
 jsonl
-requests_counter
+direct_requests
+command_counter_presence
+command_counter_value
 original_exclusion
 receipt
 identity_trust
@@ -213,8 +215,10 @@ file and directory deletion after receipt validation and immediate buffer
 discard; `process_stderr` covers only the source-bound raw-stderr
 classification and immediate discard; `process_exit` covers the accepted-
 stderr process return code; `jsonl` covers the closed event stream and usage
-parser; `requests_counter` covers direct-tool request shape, request count,
-completed-turn count, command count, and the command-counter file;
+parser, including completed-turn and command counts; `direct_requests` covers
+direct-tool request shape and request count; `command_counter_presence` covers
+the command-counter file presence check; `command_counter_value` covers its
+exact value;
 `original_exclusion` covers the unique forwarded function output and
 whole-second-request original exclusion; and `receipt` covers exact wrapper
 serialization plus the application observation status, digest, and byte-count

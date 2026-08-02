@@ -28,6 +28,8 @@ class RuntimeV1RunnerTests(unittest.TestCase):
         run_error=None,
         provider_exit_error=None,
         cleanup_error=None,
+        direct_requests_error=None,
+        command_counter_value="1",
     ):
         codex = mock.Mock(
             resolved=Path("/host/codex"), version="0.145.0"
@@ -51,9 +53,10 @@ class RuntimeV1RunnerTests(unittest.TestCase):
         def run_once(*_arguments, **arguments):
             if run_error is not None:
                 raise run_error
-            Path(arguments["env"]["DEV254_PROBE_COMMAND_COUNTER"]).write_text(
-                "1", encoding="utf-8"
-            )
+            if command_counter_value is not None:
+                Path(
+                    arguments["env"]["DEV254_PROBE_COMMAND_COUNTER"]
+                ).write_text(command_counter_value, encoding="utf-8")
             Path(
                 arguments["env"]["RUNTIME_V1_BENCHMARK_OBSERVATION_PATH"]
             ).write_text("{}", encoding="utf-8")
@@ -109,6 +112,7 @@ class RuntimeV1RunnerTests(unittest.TestCase):
         ), mock.patch.object(
             runner.production,
             "require_direct_exec_requests",
+            side_effect=direct_requests_error,
         ), mock.patch.object(
             runner.production,
             "stimulus_bytes",
@@ -141,7 +145,7 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                 production_identities=self.identities(),
                 approved_hook_hash="sha256:" + "b" * 64,
             )
-        return caught.exception.failure_stage, run.call_count
+        return caught.exception, run.call_count
 
     def test_exact_executable_capture_and_recheck_detects_drift(self):
         with tempfile.TemporaryDirectory(dir=ROOT) as directory:
@@ -790,7 +794,9 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             "process_stderr",
             "process_exit",
             "jsonl",
-            "requests_counter",
+            "direct_requests",
+            "command_counter_presence",
+            "command_counter_value",
             "original_exclusion",
             "receipt",
             "identity_trust",
@@ -864,27 +870,64 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             runner.subprocess.TimeoutExpired("private command", 90),
         ):
             with self.subTest(error=type(error).__name__):
-                stage, calls = self._forwarding_boundary_failure(
+                error, calls = self._forwarding_boundary_failure(
                     run_error=error
                 )
-                self.assertEqual("process_execution", stage)
+                self.assertEqual("process_execution", error.failure_stage)
                 self.assertEqual(1, calls)
 
     def test_forwarding_provider_exit_boundary_is_closed(self):
-        stage, calls = self._forwarding_boundary_failure(
+        error, calls = self._forwarding_boundary_failure(
             provider_exit_error=OSError("private provider detail")
         )
-        self.assertEqual("provider_teardown", stage)
+        self.assertEqual("provider_teardown", error.failure_stage)
         self.assertEqual(1, calls)
 
     def test_forwarding_observation_cleanup_boundaries_are_closed(self):
         for operation in ("unlink", "rmdir"):
             with self.subTest(operation=operation):
-                stage, calls = self._forwarding_boundary_failure(
+                error, calls = self._forwarding_boundary_failure(
                     cleanup_error=operation
                 )
-                self.assertEqual("observation_cleanup", stage)
+                self.assertEqual(
+                    "observation_cleanup", error.failure_stage
+                )
                 self.assertEqual(1, calls)
+
+    def test_forwarding_request_and_command_counter_boundaries_are_closed(self):
+        sensitive = "private prompt response /Users/private traceback"
+        cases = (
+            (
+                "direct_requests",
+                {"direct_requests_error": RuntimeError(sensitive)},
+            ),
+            (
+                "command_counter_presence",
+                {"command_counter_value": None},
+            ),
+            (
+                "command_counter_value",
+                {"command_counter_value": "0"},
+            ),
+            (
+                "command_counter_value",
+                {"command_counter_value": "2"},
+            ),
+        )
+        for stage, arguments in cases:
+            with self.subTest(stage=stage, arguments=arguments):
+                error, calls = self._forwarding_boundary_failure(**arguments)
+                terminal = runner.blocked_terminal(error)
+                self.assertEqual(1, calls)
+                self.assertEqual(
+                    {
+                        "status": "blocked",
+                        "reasonCodes": ["replacement_forwarding_unproven"],
+                        "failureStage": stage,
+                    },
+                    terminal,
+                )
+                self.assertNotIn(sensitive, json.dumps(terminal))
 
     def test_forwarding_unexpected_exception_is_content_free_and_not_retried(self):
         sensitive = (

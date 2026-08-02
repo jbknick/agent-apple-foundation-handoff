@@ -52,7 +52,9 @@ _FORWARDING_FAILURE_STAGES = {
     "process_stderr",
     "process_exit",
     "jsonl",
-    "requests_counter",
+    "direct_requests",
+    "command_counter_presence",
+    "command_counter_value",
     "original_exclusion",
     "receipt",
     "identity_trust",
@@ -1962,15 +1964,13 @@ def _execute_forwarding_preflight(
         forwarded = b""
         serialized_wrapper = b""
         try:
-            _failure_state.enter("requests_counter")
+            _failure_state.enter("direct_requests")
             production.require_direct_exec_requests(server.requests)
-            if (
-                len(server.requests) != 2
-                or parsed.command_executions != 1
-                or parsed.completed_parent_turns != 1
-                or not command_counter.is_file()
-                or command_counter.read_text(encoding="utf-8") != "1"
-            ):
+            _failure_state.enter("command_counter_presence")
+            if not command_counter.is_file():
+                raise BenchmarkBlocked("replacement_forwarding_unproven")
+            _failure_state.enter("command_counter_value")
+            if command_counter.read_text(encoding="utf-8") != "1":
                 raise BenchmarkBlocked("replacement_forwarding_unproven")
             _failure_state.enter("original_exclusion")
             original = production.stimulus_bytes("C0")
