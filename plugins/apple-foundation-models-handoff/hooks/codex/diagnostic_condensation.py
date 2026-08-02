@@ -466,9 +466,13 @@ class BenchmarkObserver:
         receipt_replacement = None
         if applied:
             try:
-                replacement_text = response["stopReason"]
-                if type(replacement_text) is not str:
+                if (
+                    set(response) != {"decision", "reason"}
+                    or response.get("decision") != "block"
+                    or type(response.get("reason")) is not str
+                ):
                     raise ValueError
+                replacement_text = response["reason"]
                 replacement_encoded = replacement_text.encode("utf-8")
                 expected_replacement = {
                     "event": "replacement_emitted",
@@ -493,8 +497,8 @@ class BenchmarkObserver:
                     raise ValueError
                 receipt_replacement = {
                     "replacementSha256":
-                        hashlib.sha256(serialized_response).hexdigest(),
-                    "replacementBytes": len(serialized_response),
+                        hashlib.sha256(replacement_encoded).hexdigest(),
+                    "replacementBytes": len(replacement_encoded),
                 }
             except Exception:
                 expected_replacement = None
@@ -942,7 +946,7 @@ def evaluate(
                 "appleAttempts": consultation["appleAttempts"],
             }
         )
-        return {"continue": False, "stopReason": stop_reason}
+        return {"decision": "block", "reason": stop_reason}
     except Exception:
         return None
 

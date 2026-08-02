@@ -748,13 +748,13 @@ def invocation_result_is_valid(
 
 _APPROVED_IDENTITIES = {
     "productionPluginSha256":
-        "c6974b1bfd0edb133a0d73291cb39897ca4e353ca0c6ecd580f5fd762eaa2ed9",
+        "c8a28ab4e3aa2596a78df9a06adab8213a2496dc19f015548236069aa530ca27",
     "codexManifestSha256":
         "6c10d51db5a08a1531ba3c7964d77a5cf2b258f3ca838b655a5350d901b1927a",
     "hooksManifestSha256":
         "932234483e15c3277376c5b25cae2e63f8c83bc9dd63a77bc02f6fb13dbb6759",
     "pythonAdapterSha256":
-        "706c2743acc90f41a0963bbb9df2a080bf26393ef9ad059a27b30543f533ea54",
+        "21710a9f22aa830b262ce46565958a369bf7eb6140bcdf2dacd5b15f5dc33049",
     "swiftSourceSha256":
         "da40e06fa160b106bb6e9ff278aae4422be415c953ae3afba1391614d309e668",
     "corpusSha256":
@@ -1782,9 +1782,9 @@ def score_parent_outcome(
 
 
 _CODE_MODE_INPUT = (
-    "const result = await tools.exec_command({cmd:"
+    "try { const result = await tools.exec_command({cmd:"
     + json.dumps(production.helpers.APPROVED_COMMAND, separators=(",", ":"))
-    + "}); text(result.output);"
+    + "}); text(result.output); } catch (error) { text(String(error)); }"
 )
 _CODE_MODE_COMPLETED = re.compile(
     r"\AScript completed\nWall time [0-9]+\.[0-9] seconds\nOutput:\n\Z"
@@ -2004,38 +2004,6 @@ def _sole_forwarded_custom_tool_output(
     return forwarded
 
 
-def _serialized_hook_wrapper(forwarded: bytes) -> bytes:
-    try:
-        stop_reason = forwarded.decode("utf-8")
-    except UnicodeError:
-        raise BenchmarkBlocked("replacement_forwarding_unproven") from None
-    wrapper = {
-        "continue": False,
-        "stopReason": stop_reason,
-    }
-    encoded = (
-        json.dumps(
-            wrapper,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        )
-        + "\n"
-    ).encode("utf-8")
-    decoded = json.loads(
-        encoded,
-        object_pairs_hook=_closed_json_object,
-    )
-    if (
-        type(decoded) is not dict
-        or set(decoded) != {"continue", "stopReason"}
-        or decoded["continue"] is not False
-        or decoded["stopReason"].encode("utf-8") != forwarded
-    ):
-        raise BenchmarkBlocked("replacement_forwarding_unproven")
-    return encoded
-
-
 @contextmanager
 def isolated_arm_root() -> Iterator[Path]:
     root = Path(
@@ -2153,7 +2121,6 @@ def _execute_forwarding_preflight(
         parsed = parse_event_stream(completed.stdout)
         original = b""
         forwarded = b""
-        serialized_wrapper = b""
         try:
             _failure_state.enter("request_count")
             if len(server.requests) != 2:
@@ -2184,13 +2151,12 @@ def _execute_forwarding_preflight(
                 original=original,
             )
             _failure_state.enter("receipt")
-            serialized_wrapper = _serialized_hook_wrapper(forwarded)
             observation = consume_runtime_v1_observation(observation_path)
             if (
                 observation["status"] != "replacement_emitted"
                 or observation["replacementEmitted"] is not True
-                or len(serialized_wrapper) != observation["replacementBytes"]
-                or hashlib.sha256(serialized_wrapper).hexdigest()
+                or len(forwarded) != observation["replacementBytes"]
+                or hashlib.sha256(forwarded).hexdigest()
                 != observation["replacementSha256"]
                 or hashlib.sha256(original).hexdigest()
                 == hashlib.sha256(forwarded).hexdigest()
@@ -2201,7 +2167,6 @@ def _execute_forwarding_preflight(
         finally:
             server.requests.clear()
             forwarded = b""
-            serialized_wrapper = b""
             original = b""
         _failure_state.enter("observation_cleanup")
         observation_path.unlink()

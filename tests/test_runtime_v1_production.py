@@ -197,9 +197,9 @@ class ProductionAdapterTests(unittest.TestCase):
 
         self.assertEqual(1, len(calls))
         self.assertEqual({"diagnosticText", "sourceFacts"}, set(calls[0]))
-        self.assertEqual({"continue", "stopReason"}, set(response))
-        self.assertIs(response["continue"], False)
-        result = json.loads(response["stopReason"])
+        self.assertEqual({"decision", "reason"}, set(response))
+        self.assertEqual("block", response["decision"])
+        result = json.loads(response["reason"])
         contract.validate_result(result)
         self.assertEqual("applied", result["outcome"])
         self.assertEqual(0, result["exitStatus"])
@@ -305,7 +305,7 @@ class ProductionAdapterTests(unittest.TestCase):
     def test_failure_preserves_exact_exit_status(self):
         response, _ = self.evaluate(payload(diagnostic_text(exit_status=65)))
 
-        result = json.loads(response["stopReason"])
+        result = json.loads(response["reason"])
         self.assertEqual("applied", result["outcome"])
         self.assertEqual(65, result["exitStatus"])
 
@@ -375,7 +375,7 @@ class ProductionAdapterTests(unittest.TestCase):
                         candidate,
                         repo_root=repo_root,
                     )
-                    result = json.loads(response["stopReason"])
+                    result = json.loads(response["reason"])
                     self.assertEqual("applied", result["outcome"])
                     self.assertEqual(
                         case["expected"]["exitStatus"],
@@ -498,12 +498,12 @@ class ProductionPathTests(unittest.TestCase):
             self.assertTrue(decoded["replacementEmitted"])
             self.assertEqual(
                 hashlib.sha256(
-                    serialized_hook_response(response)
+                    response["reason"].encode("utf-8")
                 ).hexdigest(),
                 decoded["replacementSha256"],
             )
             self.assertEqual(
-                len(serialized_hook_response(response)),
+                len(response["reason"].encode("utf-8")),
                 decoded["replacementBytes"],
             )
             self.assertEqual(1, decoded["appleLatencySamples"])
@@ -521,6 +521,20 @@ class ProductionPathTests(unittest.TestCase):
         malformed = observer.finish(response, 1, b"{}\n")
         self.assertEqual("blocked", malformed["status"])
         self.assertFalse(malformed["replacementEmitted"])
+        for changed in (
+            {**response, "decision": "continue"},
+            {"decision": "block"},
+            {**response, "extra": True},
+            {**response, "reason": 1},
+        ):
+            with self.subTest(response=changed):
+                malformed = observer.finish(
+                    changed,
+                    1,
+                    serialized_hook_response(changed),
+                )
+                self.assertEqual("blocked", malformed["status"])
+                self.assertFalse(malformed["replacementEmitted"])
 
     def test_benchmark_observation_failure_is_blocked_and_preserves_one_shot(self):
         calls = []
@@ -847,7 +861,7 @@ class ProductionPathTests(unittest.TestCase):
             self.assertEqual(0, completed.returncode)
             self.assertEqual(b"", completed.stderr)
             response = json.loads(completed.stdout)
-            contract.validate_result(json.loads(response["stopReason"]))
+            contract.validate_result(json.loads(response["reason"]))
             observed = json.loads(observation.read_text())
             self.assertEqual("replacement_emitted", observed["status"])
             self.assertTrue(observed["replacementEmitted"])
@@ -923,7 +937,7 @@ class ProductionHarnessTests(unittest.TestCase):
         )
         candidate["tool_use_id"] = "call-runtime-v1"
         response, _ = ProductionAdapterTests().evaluate(candidate)
-        encoded = response["stopReason"].encode("utf-8")
+        encoded = response["reason"].encode("utf-8")
 
         original = harness.stimulus_bytes("C0")
         digest = harness._validated_applied_output(encoded, original)

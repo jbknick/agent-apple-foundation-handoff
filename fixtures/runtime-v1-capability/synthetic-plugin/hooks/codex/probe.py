@@ -330,7 +330,7 @@ def evaluate(
                 "appleAttempts": consultation["appleAttempts"],
             }
         )
-        return {"continue": False, "stopReason": stop_reason}
+        return {"decision": "block", "reason": stop_reason}
     except Exception:
         return None
 

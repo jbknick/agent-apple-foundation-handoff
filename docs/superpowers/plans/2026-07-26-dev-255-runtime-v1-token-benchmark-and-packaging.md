@@ -429,6 +429,52 @@ or any earlier terminal. A non-pass is terminal and authorizes no executable
 substitution, preflight retry, Apple attempt, or benchmark arm outside the
 existing gates.
 
+## 2026-08-03 PostToolUse code-mode replacement correction
+
+The clean `8b26f12f613184f5c66c5c52236ec0fc0bce326d` candidate preserved every
+prior correction but stopped after the original command executed once with
+the separate nonpassing `blocked:replacement_forwarding_unproven` terminal
+and `failureStage = original_exclusion`. Preserve that terminal in Linear
+history. It is not release evidence, must not be relabeled, and must not be
+retried.
+
+Pinned Codex `0.145.0` source commit `25af12f7` proves the first divergent
+condition. `PostToolUseFeedbackOutput.code_mode_result` deliberately returns
+the original nested-tool result for ordinary feedback, so a successful
+`continue: false` / `stopReason` response cannot replace the code-mode promise.
+The official hook tests instead prove that `decision = "block"` rejects that
+promise with `reason` after the command executes and excludes the original
+result. `code-mode/runtime/module_loader.rs::resolve_tool_response` rejects
+with the exact raw `error_text` string.
+
+Correct the shared PostToolUse boundary only for a validated applied
+consultation: return exactly `{"decision":"block","reason":stop_reason}`.
+Every decline, malformed result, bridge failure, observation failure, and
+other exception continues to return `None`, preserving the exact untouched
+original. The fixed preflight code-mode script must execute the one approved
+nested command once, forward `result.output` on success, and catch a blocked
+promise to forward exactly `String(error)`. Keep one Apple attempt, no retry,
+and every existing command, context, identity, stderr, cleanup, and privacy
+boundary unchanged.
+
+Bind replacement proof directly to the forwarded condensation bytes. The
+application observation records the exact `reason` byte count and SHA-256
+after independently validating the closed block response and its serialized
+stdout bytes. The outer preflight compares its sole forwarded second input
+item directly to those observation values and keeps whole-request original
+exclusion. Delete the impossible reconstruction of a
+`continue` / `stopReason` wrapper; no provider request body, raw hook output,
+Apple output, prompt, response, reasoning, path, or transcript may enter
+committed evidence.
+
+After focused and full deterministic gates, generated-artifact checks, and a
+formal high-reasoning diff and release-evidence review pass, commit one new
+clean candidate and run exactly one native Codex `0.145.0`
+`--through usage-dry-run` row. This is a new source-corrected candidate row,
+not a retry of `8b26f12f613184f5c66c5c52236ec0fc0bce326d` or any earlier terminal. A
+non-pass is terminal and authorizes no executable substitution, preflight
+retry, Apple attempt, or benchmark arm outside the existing gates.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.

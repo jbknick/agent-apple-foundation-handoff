@@ -67,12 +67,13 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             ).write_text("{}", encoding="utf-8")
             return mock.Mock(returncode=0, stderr=b"", stdout=b"events")
 
-        wrapper = runner._serialized_hook_wrapper(b"forwarded")
         observation = {
             "status": "replacement_emitted",
             "replacementEmitted": True,
-            "replacementBytes": len(wrapper),
-            "replacementSha256": runner.hashlib.sha256(wrapper).hexdigest(),
+            "replacementBytes": len(b"forwarded"),
+            "replacementSha256": runner.hashlib.sha256(
+                b"forwarded"
+            ).hexdigest(),
         }
         unlink_error = OSError("private unlink detail") if (
             cleanup_error == "unlink"
@@ -1246,14 +1247,6 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                     request_two,
                     original=original,
                 )
-        wrapper = runner._serialized_hook_wrapper(replacement.encode())
-        decoded_wrapper = json.loads(wrapper)
-        self.assertEqual(
-            replacement,
-            decoded_wrapper["stopReason"],
-        )
-        self.assertFalse(decoded_wrapper["continue"])
-
     def test_forwarding_code_mode_contract_is_closed(self):
         outer_exec = {"type": "custom", "name": "exec"}
         call = {
@@ -1269,6 +1262,11 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                 for event in runner._code_mode_provider_events(1)
                 if event["type"] == "response.output_item.done"
             ),
+        )
+        self.assertEqual(1, runner._CODE_MODE_INPUT.count("tools.exec_command"))
+        self.assertIn(
+            "catch (error) { text(String(error)); }",
+            runner._CODE_MODE_INPUT,
         )
         output = {
             "type": "custom_tool_call_output",

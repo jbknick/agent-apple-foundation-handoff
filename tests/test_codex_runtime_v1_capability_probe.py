@@ -137,13 +137,13 @@ class AdapterTests(unittest.TestCase):
             observe=observed.append,
         )
 
-        self.assertEqual(set(response), {"continue", "stopReason"})
-        self.assertIs(response["continue"], False)
-        result = json.loads(response["stopReason"])
+        self.assertEqual(set(response), {"decision", "reason"})
+        self.assertEqual(response["decision"], "block")
+        result = json.loads(response["reason"])
         self.contract.validate_result(result)
         self.assertEqual(result["outcome"], "applied")
         self.assertLessEqual(
-            len(response["stopReason"].encode("utf-8")),
+            len(response["reason"].encode("utf-8")),
             self.contract.Policy.MAXIMUM_CONDENSED_BYTES,
         )
         self.assertEqual(
@@ -202,7 +202,7 @@ class AdapterTests(unittest.TestCase):
                 call_id="call-runtime-v1",
             )
         )
-        next_output = response["stopReason"].encode("utf-8")
+        next_output = response["reason"].encode("utf-8")
         self.assertTrue(
             harness.replacement_observation_matches(
                 integrated,
