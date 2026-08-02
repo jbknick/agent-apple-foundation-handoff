@@ -1781,7 +1781,148 @@ def score_parent_outcome(
         return False
 
 
-def _sole_forwarded_function_output(
+_CODE_MODE_INPUT = (
+    "const result = await tools.exec_command({cmd:"
+    + json.dumps(production.helpers.APPROVED_COMMAND, separators=(",", ":"))
+    + "}); text(result.output);"
+)
+_CODE_MODE_COMPLETED = re.compile(
+    r"\AScript completed\nWall time [0-9]+\.[0-9] seconds\nOutput:\n\Z"
+)
+
+
+def _code_mode_provider_events(index: int) -> list[dict[str, object]]:
+    response_id = f"resp-{index}"
+    created = {
+        "type": "response.created",
+        "response": {"id": response_id},
+    }
+    if index == 1:
+        item = {
+            "type": "response.output_item.done",
+            "item": {
+                "type": "custom_tool_call",
+                "call_id": production.helpers.APPROVED_CALL_ID,
+                "name": "exec",
+                "input": _CODE_MODE_INPUT,
+            },
+        }
+    else:
+        item = {
+            "type": "response.output_item.done",
+            "item": {
+                "id": "message-2",
+                "type": "message",
+                "role": "assistant",
+                "content": [{
+                    "type": "output_text",
+                    "text": "done",
+                    "annotations": [],
+                }],
+            },
+        }
+    return [created, item, production.helpers._completed(response_id)]
+
+
+def _custom_tool_output(request: object) -> bytes:
+    if type(request) is not dict or type(request.get("input")) is not list:
+        raise production.ProbeFailure("provider_request_invalid")
+    outputs = [
+        item for item in request["input"]
+        if type(item) is dict
+        and item.get("type") == "custom_tool_call_output"
+    ]
+    if (
+        len(outputs) != 1
+        or set(outputs[0]) != {"type", "call_id", "output"}
+        or outputs[0].get("call_id") != production.helpers.APPROVED_CALL_ID
+    ):
+        raise production.ProbeFailure("provider_request_invalid")
+    value = outputs[0].get("output")
+    if (
+        type(value) is not list
+        or len(value) != 2
+        or any(
+            type(item) is not dict
+            or set(item) != {"type", "text"}
+            or item.get("type") != "input_text"
+            or type(item.get("text")) is not str
+            for item in value
+        )
+        or _CODE_MODE_COMPLETED.fullmatch(value[0]["text"]) is None
+    ):
+        raise production.ProbeFailure("provider_request_invalid")
+    return value[1]["text"].encode("utf-8")
+
+
+def _require_code_mode_exec_requests(
+    requests: list[dict[str, object]],
+) -> None:
+    if len(requests) != 2:
+        raise production.ProbeFailure("provider_request_invalid")
+    calls = []
+    outputs = []
+    for index, request in enumerate(requests):
+        tools = request.get("tools")
+        items = request.get("input")
+        if type(tools) is not list or type(items) is not list:
+            raise production.ProbeFailure("direct_tool_mode_unavailable")
+        named_tools = [
+            tool for tool in tools
+            if type(tool) is dict and type(tool.get("name")) is str
+        ]
+        exec_tools = [
+            tool for tool in named_tools if tool["name"] == "exec"
+        ]
+        if (
+            len(exec_tools) != 1
+            or exec_tools[0].get("type") != "custom"
+            or any(
+                tool["name"] in {"exec_command", "shell_command"}
+                for tool in named_tools
+            )
+        ):
+            raise production.ProbeFailure("direct_tool_mode_unavailable")
+        if any(
+            type(item) is dict
+            and item.get("type") in {"function_call", "function_call_output"}
+            for item in items
+        ):
+            raise production.ProbeFailure("direct_tool_mode_unavailable")
+        request_calls = [
+            item for item in items
+            if type(item) is dict and item.get("type") == "custom_tool_call"
+        ]
+        request_outputs = [
+            item for item in items
+            if type(item) is dict
+            and item.get("type") == "custom_tool_call_output"
+        ]
+        if index == 0 and (request_calls or request_outputs):
+            raise production.ProbeFailure("direct_tool_mode_unavailable")
+        calls.extend(request_calls)
+        outputs.extend(request_outputs)
+    if (
+        len(calls) != 1
+        or set(calls[0]) != {"type", "call_id", "name", "input"}
+        or calls[0].get("call_id") != production.helpers.APPROVED_CALL_ID
+        or calls[0].get("name") != "exec"
+        or calls[0].get("input") != _CODE_MODE_INPUT
+        or len(outputs) != 1
+    ):
+        raise production.ProbeFailure("direct_tool_mode_unavailable")
+    if [
+        item for item in requests[1]["input"]
+        if type(item) is dict
+        and item.get("type") in {
+            "custom_tool_call", "custom_tool_call_output",
+        }
+    ] != [calls[0], outputs[0]]:
+        raise production.ProbeFailure("direct_tool_mode_unavailable")
+    _custom_tool_output(requests[1])
+
+
+def _sole_forwarded_custom_tool_output(
     first_request: object,
     second_request: object,
     *,
@@ -1795,15 +1936,15 @@ def _sole_forwarded_function_output(
         raise BenchmarkBlocked("replacement_forwarding_unproven")
     first_outputs = [
         item for item in first_items
-        if type(item) is dict and item.get("type") == "function_call_output"
+        if type(item) is dict and item.get("type") == "custom_tool_call_output"
     ]
     second_outputs = [
         item for item in second_items
-        if type(item) is dict and item.get("type") == "function_call_output"
+        if type(item) is dict and item.get("type") == "custom_tool_call_output"
     ]
     if first_outputs or len(second_outputs) != 1:
         raise BenchmarkBlocked("replacement_forwarding_unproven")
-    forwarded = production.function_output(second_request)
+    forwarded = _custom_tool_output(second_request)
     try:
         original_text = original.decode("utf-8")
     except UnicodeError:
@@ -1939,7 +2080,9 @@ def _execute_forwarding_preflight(
             "DEV254_PROBE_COMMAND_COUNTER": str(command_counter),
             "PYTHONDONTWRITEBYTECODE": "1",
         }
-        with production.responses_server() as server:
+        with production.responses_server(
+            event_factory=_code_mode_provider_events,
+        ) as server:
             host, port = server.server_address
             _failure_state.enter("process_execution")
             completed = subprocess.run(
@@ -1980,7 +2123,7 @@ def _execute_forwarding_preflight(
                 raise BenchmarkBlocked("replacement_forwarding_unproven")
             _failure_state.enter("direct_tool_contract")
             try:
-                production.require_direct_exec_requests(server.requests)
+                _require_code_mode_exec_requests(server.requests)
             except production.ProbeFailure as error:
                 if error.args == ("provider_request_invalid",):
                     _failure_state.enter("function_output")
@@ -1998,7 +2141,7 @@ def _execute_forwarding_preflight(
                 raise BenchmarkBlocked("replacement_forwarding_unproven")
             _failure_state.enter("original_exclusion")
             original = production.stimulus_bytes("C0")
-            forwarded = _sole_forwarded_function_output(
+            forwarded = _sole_forwarded_custom_tool_output(
                 server.requests[0],
                 server.requests[1],
                 original=original,

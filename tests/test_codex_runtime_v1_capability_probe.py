@@ -997,6 +997,22 @@ class HarnessTests(unittest.TestCase):
             ],
         )
 
+    def test_response_server_event_factory_is_backward_compatible(self):
+        custom = mock.Mock(return_value=self.harness._provider_events(1))
+        server = self.harness._ResponsesServer(custom)
+        try:
+            self.assertIs(custom, server.event_factory)
+        finally:
+            server.server_close()
+        server = self.harness._ResponsesServer()
+        try:
+            self.assertIs(
+                self.harness._provider_events,
+                server.event_factory,
+            )
+        finally:
+            server.server_close()
+
     def test_every_parent_request_uses_closed_direct_exec_contract(self):
         tools = [
             {"name": name}

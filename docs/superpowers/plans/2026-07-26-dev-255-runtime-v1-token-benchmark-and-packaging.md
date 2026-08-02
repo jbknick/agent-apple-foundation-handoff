@@ -324,6 +324,64 @@ forwarding preflight and one original command; any non-pass is terminal and
 does not authorize another host substitution, preflight retry, Apple attempt,
 or benchmark arm outside the existing runner gates.
 
+## 2026-08-02 gpt-5.6-sol code-mode preflight correction
+
+The ambient-environment correction candidate's forwarding preflight reached
+the request validator and stopped with the separate nonpassing
+`blocked:replacement_forwarding_unproven` terminal and
+`failureStage = direct_tool_contract`. Preserve that terminal in Linear
+history; it is not release evidence and must not be relabeled or retried.
+
+Pinned Codex `0.145.0` source commit `25af12f7` proves the first divergent
+condition. `codex-rs/models-manager/models.json` selects
+`tool_mode = "code_mode_only"`, `shell_type = "shell_command"`, and
+`multi_agent = "v2"` for `gpt-5.6-sol`; the effective-tool-mode selection
+keeps that model-selected mode even when the corresponding feature flags are
+disabled. The existing preflight provider emits a top-level
+`function_call` named `exec_command`, and its validator requires the exact
+six-tool predecessor function contract. That contract is unsupported for the
+pinned model and is the proven cause of `direct_tool_contract`.
+
+Correct only the preflight's synthetic provider path. Parameterize the
+existing local responses server with a backward-compatible event-factory
+default so all predecessor production and capability rows retain their exact
+direct-function behavior. For this DEV-255 preflight, the first response must
+emit one `custom_tool_call` named `exec` whose fixed input contains exactly
+one awaited `tools.exec_command({cmd: APPROVED_COMMAND})`, then exactly one
+`text(result.output)`, with no other call. The second response remains the
+single completion message.
+
+Before using either transient request, require exactly two requests. Each
+request must expose exactly one outer custom `exec` code tool, while unrelated
+optional tools may differ; reject missing or duplicate outer `exec` tools and
+reject every top-level `exec_command` or `shell_command`. Across the pair,
+require exactly one closed `custom_tool_call` with the approved call ID,
+`exec` name, and exact fixed input, followed in request two by exactly one
+closed matching `custom_tool_call_output`. Reject every `function_call` or
+`function_call_output`, extra nested call, changed command, mismatched call
+ID, duplicate output, and original-result leakage. Pinned source proves the
+runtime serializes that custom output as exactly two `input_text` items: the
+first must match only `Script completed`, the source-formatted one-decimal
+wall time, and the exact `Output:` suffix; the second contains the forwarded
+bytes. Reject failed, running, terminated, malformed, extra, image, or string
+output variants. Extract the forwarded text only from the second item while
+applying original-result exclusion to the whole second request. Keep the exact
+command-counter value of one, hook receipt binding, untouched-original
+exclusions, request-body
+deletion, and every stderr, privacy, retry, and identity boundary unchanged.
+This correction must not accept or hide the unsupported predecessor direct
+call path. Keep the normalized stage enum stable: `direct_tool_contract`
+covers outer-code-tool and custom-call incompatibility, and `function_output`
+covers a malformed or mismatched custom output after the pair count passes.
+
+After focused and full deterministic gates, generated-artifact checks, and a
+formal high-reasoning diff and release-evidence review pass, commit a new clean
+candidate and run exactly one native Codex `0.145.0`
+`--through usage-dry-run` row. This is a new source-corrected candidate row,
+not a retry of any preserved terminal. A non-pass is terminal and authorizes
+no executable substitution, preflight retry, Apple attempt, or benchmark arm
+outside the existing gates.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.

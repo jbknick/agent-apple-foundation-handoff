@@ -1643,8 +1643,9 @@ def _provider_events(index: int) -> list[dict[str, object]]:
 class _ResponsesServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self):
+    def __init__(self, event_factory=_provider_events):
         self.requests: list[dict[str, object]] = []
+        self.event_factory = event_factory
         super().__init__(("127.0.0.1", 0), _ResponsesHandler)
 
 
@@ -1670,7 +1671,7 @@ class _ResponsesHandler(BaseHTTPRequestHandler):
             self.send_error(409)
             return
         server.requests.append(value)
-        encoded = sse(_provider_events(len(server.requests)))
+        encoded = sse(server.event_factory(len(server.requests)))
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Content-Length", str(len(encoded)))
@@ -1682,8 +1683,8 @@ class _ResponsesHandler(BaseHTTPRequestHandler):
 
 
 @contextmanager
-def responses_server() -> Iterator[_ResponsesServer]:
-    server = _ResponsesServer()
+def responses_server(event_factory=_provider_events) -> Iterator[_ResponsesServer]:
+    server = _ResponsesServer(event_factory)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:

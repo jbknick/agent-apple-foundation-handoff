@@ -1,6 +1,7 @@
 import importlib.util
 import json
 import os
+from copy import deepcopy
 from pathlib import Path
 import stat
 import sys
@@ -123,8 +124,8 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             "parse_event_stream",
             return_value=parsed,
         ), mock.patch.object(
-            runner.production,
-            "require_direct_exec_requests",
+            runner,
+            "_require_code_mode_exec_requests",
             side_effect=direct_requests_error,
         ), mock.patch.object(
             runner.production,
@@ -132,7 +133,7 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             return_value=b"original",
         ), mock.patch.object(
             runner,
-            "_sole_forwarded_function_output",
+            "_sole_forwarded_custom_tool_output",
             return_value=b"forwarded",
         ), mock.patch.object(
             runner,
@@ -1185,14 +1186,23 @@ class RuntimeV1RunnerTests(unittest.TestCase):
         first = {"input": []}
         second = {
             "input": [{
-                "type": "function_call_output",
+                "type": "custom_tool_call_output",
                 "call_id": "call-runtime-v1",
-                "output": replacement,
+                "output": [
+                    {
+                        "type": "input_text",
+                        "text": (
+                            "Script completed\nWall time 0.2 seconds\n"
+                            "Output:\n"
+                        ),
+                    },
+                    {"type": "input_text", "text": replacement},
+                ],
             }]
         }
         self.assertEqual(
             replacement.encode(),
-            runner._sole_forwarded_function_output(
+            runner._sole_forwarded_custom_tool_output(
                 first,
                 second,
                 original=b"original",
@@ -1231,7 +1241,7 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                 runner.BenchmarkBlocked,
                 "replacement_forwarding_unproven",
             ):
-                runner._sole_forwarded_function_output(
+                runner._sole_forwarded_custom_tool_output(
                     request_one,
                     request_two,
                     original=original,
@@ -1243,6 +1253,150 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             decoded_wrapper["stopReason"],
         )
         self.assertFalse(decoded_wrapper["continue"])
+
+    def test_forwarding_code_mode_contract_is_closed(self):
+        outer_exec = {"type": "custom", "name": "exec"}
+        call = {
+            "type": "custom_tool_call",
+            "call_id": "call-runtime-v1",
+            "name": "exec",
+            "input": runner._CODE_MODE_INPUT,
+        }
+        self.assertEqual(
+            call,
+            next(
+                event["item"]
+                for event in runner._code_mode_provider_events(1)
+                if event["type"] == "response.output_item.done"
+            ),
+        )
+        output = {
+            "type": "custom_tool_call_output",
+            "call_id": "call-runtime-v1",
+            "output": [
+                {
+                    "type": "input_text",
+                    "text": (
+                        "Script completed\nWall time 0.2 seconds\nOutput:\n"
+                    ),
+                },
+                {"type": "input_text", "text": "replacement"},
+            ],
+        }
+        requests = [
+            {
+                "tools": [outer_exec, {"type": "function", "name": "update_plan"}],
+                "input": [],
+            },
+            {
+                "tools": [outer_exec],
+                "input": [call, output],
+            },
+        ]
+        runner._require_code_mode_exec_requests(requests)
+        self.assertEqual(
+            b"replacement",
+            runner._sole_forwarded_custom_tool_output(
+                requests[0], requests[1], original=b"original"
+            ),
+        )
+
+        def extra_nested_call(value):
+            value[1]["input"][0]["input"] += " text('extra');"
+
+        def wrong_command(value):
+            value[1]["input"][0]["input"] = (
+                "const result = await tools.exec_command({cmd:\"wrong\"}); "
+                "text(result.output);"
+            )
+
+        def direct_function_call(value):
+            value[1]["input"].append({
+                "type": "function_call",
+                "call_id": "direct",
+                "name": "exec_command",
+                "arguments": "{}",
+            })
+
+        def direct_function_output(value):
+            value[1]["input"].append({
+                "type": "function_call_output",
+                "call_id": "direct",
+                "output": "unsupported",
+            })
+
+        def missing_outer_exec(value):
+            value[0]["tools"].pop(0)
+
+        def duplicate_outer_exec(value):
+            value[1]["tools"].append(deepcopy(outer_exec))
+
+        def mismatched_output(value):
+            value[1]["input"][1]["call_id"] = "mismatch"
+
+        def reversed_call_output(value):
+            value[1]["input"].reverse()
+
+        mutations = (
+            extra_nested_call,
+            wrong_command,
+            direct_function_call,
+            direct_function_output,
+            missing_outer_exec,
+            duplicate_outer_exec,
+            mismatched_output,
+            reversed_call_output,
+        )
+        for mutate in mutations:
+            value = deepcopy(requests)
+            mutate(value)
+            with self.subTest(mutation=mutate.__name__), self.assertRaises(
+                runner.production.ProbeFailure
+            ):
+                runner._require_code_mode_exec_requests(value)
+
+        output_mutations = {
+            "failed": lambda value: value[1]["input"][1]["output"][0].update(
+                text="Script failed\nWall time 0.2 seconds\nOutput:\n"
+            ),
+            "running": lambda value: value[1]["input"][1]["output"][0].update(
+                text="Script running\nWall time 0.2 seconds\nOutput:\n"
+            ),
+            "terminated": lambda value: value[1]["input"][1]["output"][0].update(
+                text="Script terminated\nWall time 0.2 seconds\nOutput:\n"
+            ),
+            "extra": lambda value: value[1]["input"][1]["output"].append(
+                {"type": "input_text", "text": "extra"}
+            ),
+            "image": lambda value: value[1]["input"][1]["output"][1].update(
+                type="input_image"
+            ),
+            "string": lambda value: value[1]["input"][1].update(
+                output="replacement"
+            ),
+            "wall time precision": lambda value: value[1]["input"][1][
+                "output"
+            ][0].update(
+                text="Script completed\nWall time 0.25 seconds\nOutput:\n"
+            ),
+        }
+        for label, mutate in output_mutations.items():
+            value = deepcopy(requests)
+            mutate(value)
+            with self.subTest(output=label), self.assertRaises(
+                runner.production.ProbeFailure
+            ):
+                runner._require_code_mode_exec_requests(value)
+
+        leaked = deepcopy(requests)
+        leaked[1]["metadata"] = "original"
+        with self.assertRaisesRegex(
+            runner.BenchmarkBlocked,
+            "replacement_forwarding_unproven",
+        ):
+            runner._sole_forwarded_custom_tool_output(
+                leaked[0], leaked[1], original=b"original"
+            )
 
     def test_matrix_order_cancellation_resume_and_atomic_evidence(self):
         coordinates = runner.fixed_pair_coordinates()
