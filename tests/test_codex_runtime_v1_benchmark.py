@@ -2039,6 +2039,28 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             runner._api_request_count(batch)
         self.assertEqual(raised.exception.stage, "discriminator")
 
+    def test_otel_accepts_omitted_empty_nested_value_lists(self):
+        for value in ({"arrayValue": {}}, {"kvlistValue": {}}):
+            batch = {
+                "resourceLogs": [{
+                    "resource": {"attributes": [{
+                        "key": "empty", "value": value,
+                    }]},
+                    "scopeLogs": [{"logRecords": [self.log_record(
+                        "codex.api_request", "/responses"
+                    )]}],
+                }],
+            }
+            with self.subTest(value=value):
+                self.assertEqual(runner._api_request_count(batch), 1)
+
+        for key in ("arrayValue", "kvlistValue"):
+            with self.subTest(key=key), self.assertRaises(
+                runner.OtelPayloadError
+            ) as raised:
+                runner._validate_otlp_any_value({key: {"unknown": []}})
+            self.assertEqual(raised.exception.stage, "value")
+
     def test_otel_json_rejects_duplicate_keys(self):
         with runner.otel_request_counter() as counter:
             request = urllib.request.Request(

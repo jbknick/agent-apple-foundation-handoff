@@ -469,20 +469,20 @@ def _validate_otlp_any_value(value: object) -> None:
     elif key == "arrayValue":
         valid = (
             type(child) is dict
-            and set(child) == {"values"}
-            and type(child["values"]) is list
+            and set(child).issubset({"values"})
+            and type(child.get("values", [])) is list
         )
         if valid:
-            for item in child["values"]:
+            for item in child.get("values", []):
                 _validate_otlp_any_value(item)
     elif key == "kvlistValue":
         valid = (
             type(child) is dict
-            and set(child) == {"values"}
-            and type(child["values"]) is list
+            and set(child).issubset({"values"})
+            and type(child.get("values", [])) is list
         )
         if valid:
-            _validate_otlp_attributes(child["values"])
+            _validate_otlp_attributes(child.get("values", []))
     else:
         valid = False
     if not valid:

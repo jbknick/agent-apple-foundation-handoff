@@ -687,6 +687,29 @@ retry of `821c69d676391752c3242f66f278ee871b994f13` or an earlier terminal. A
 non-pass is terminal and authorizes no executable substitution, preflight
 retry, Apple attempt, or benchmark arm outside the existing gates.
 
+## 2026-08-03 nested empty OTLP value-list compatibility
+
+The clean `c12445e9fc7c823d6b501ee890c9759e626783bf` candidate's one authorized
+native usage dry row preserved the empty AnyValue correction but stopped at
+the same closed `telemetry_payload / value` terminal. Preserve that result in
+Linear history; do not retry or relabel it.
+
+The pinned OpenTelemetry Proto v1.6.0 stable `ArrayValue` and `KeyValueList`
+messages both permit an empty repeated `values` field. ProtoJSON omits empty
+repeated fields, so their exact compatible nested representation is `{}`.
+Accept an omitted `values` member as the existing empty list at those two
+shared boundaries. Continue to reject unknown members and malformed present
+lists, and retain exact string request discriminators and all existing
+counter, process, arm, usage, correctness, cleanup, and evidence rules.
+
+After focused and full deterministic gates, generated-artifact checks, and a
+formal high-reasoning source and diff review pass, commit one new clean
+candidate and run exactly one native Codex `0.145.0`
+`--through usage-dry-run` row. This is a new schema-corrected candidate, not a
+retry of `c12445e9fc7c823d6b501ee890c9759e626783bf` or an earlier terminal. A
+non-pass is terminal and authorizes no executable substitution, preflight
+retry, Apple attempt, or benchmark arm outside the existing gates.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.
