@@ -539,10 +539,17 @@ def _api_request_count(value: object) -> int:
                             "timeUnixNano", "observedTimeUnixNano",
                             "severityNumber", "severityText", "body",
                             "attributes", "droppedAttributesCount", "flags",
-                            "traceId", "spanId",
+                            "traceId", "spanId", "eventName",
                         }
                     )
                     or type(attributes) is not list
+                    or (
+                        "eventName" in record
+                        and (
+                            type(record["eventName"]) is not str
+                            or not 0 < len(record["eventName"]) <= 256
+                        )
+                    )
                 ):
                     raise ValueError("invalid OTLP batch")
                 if "body" in record:

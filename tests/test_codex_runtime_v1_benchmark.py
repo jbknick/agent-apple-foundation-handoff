@@ -1787,7 +1787,10 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             "resourceLogs": [{
                 "scopeLogs": [{
                     "logRecords": [
-                        self.log_record("codex.api_request", "/responses"),
+                        {
+                            **self.log_record("codex.api_request", "/responses"),
+                            "eventName": "codex.api_request",
+                        },
                         self.log_record("codex.other"),
                         self.log_record("codex.api_request", "/models"),
                         self.log_record("codex.api_request", "/responses"),
@@ -1896,6 +1899,31 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             self.assertEqual(b"", completed.stderr)
 
     def test_otel_rejects_missing_or_duplicate_api_discriminators(self):
+        self.assertEqual(
+            runner._api_request_count({
+                "resourceLogs": [{
+                    "scopeLogs": [{
+                        "logRecords": [{
+                            "eventName": "codex.api_request",
+                            "attributes": [],
+                        }],
+                    }],
+                }],
+            }),
+            0,
+        )
+        for event_name in ("", "x" * 257, False, 1):
+            with self.subTest(eventName=event_name), self.assertRaises(ValueError):
+                runner._api_request_count({
+                    "resourceLogs": [{
+                        "scopeLogs": [{
+                            "logRecords": [{
+                                "eventName": event_name,
+                                "attributes": [],
+                            }],
+                        }],
+                    }],
+                })
         for attributes in (
             [{
                 "key": "event.name",

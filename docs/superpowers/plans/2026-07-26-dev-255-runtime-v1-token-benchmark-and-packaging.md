@@ -589,6 +589,33 @@ row, not a retry of `1ae8c8bfd201bd29a08aabe613f7d86805b5cf6f` or any earlier
 terminal. A non-pass is terminal and authorizes no executable substitution,
 preflight retry, Apple attempt, or benchmark arm outside the existing gates.
 
+## 2026-08-03 OTLP LogRecord event-name correction
+
+The clean `51548386f409f71ab5d8ac91e1ce90b670e46b6d` candidate passed replacement
+forwarding, isolated authentication, and the measured-arm Codex process, then
+stopped with `blocked:provider_request_counter_invalid` and
+`failureStage = telemetry_payload`. Preserve that terminal in Linear history.
+It is not release evidence, must not be relabeled, and must not be retried.
+
+Codex `0.145.0` source commit `25af12f7` pins `opentelemetry-proto = 0.31.0`.
+The official stable OTLP `LogRecord` schema includes optional field 12,
+`event_name`, serialized in OTLP/JSON as `eventName`; the current closed record
+allowlist predates that field. Accept only an optional nonempty string
+`eventName` no longer than the official recommended 256-character bound. Do
+not use it to count requests or let it replace the required unique
+`event.name = codex.api_request` and unique string `endpoint` attributes.
+Reject malformed values, all other extra fields, duplicate attributes, and
+missing API-request discriminators exactly as before. Retain no event name,
+payload, request, prompt, response, path, or transcript.
+
+After focused and full deterministic gates, generated-artifact checks, and a
+formal high-reasoning schema and diff review pass, commit one new clean
+candidate and run exactly one native Codex `0.145.0`
+`--through usage-dry-run` row. This is a new OTLP-schema-corrected candidate
+row, not a retry of `51548386f409f71ab5d8ac91e1ce90b670e46b6d` or any earlier
+terminal. A non-pass is terminal and authorizes no executable substitution,
+preflight retry, Apple attempt, or benchmark arm outside the existing gates.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.
