@@ -117,11 +117,25 @@ class BenchmarkFailure(ValueError):
 
 
 class CorrectnessOracleFailure(BenchmarkFailure):
-    def __init__(self, failure_stage: str):
+    def __init__(
+        self, failure_stage: str, *, oracle_stage: str | None = None
+    ):
         if failure_stage not in {"command_result", "parent_outcome"}:
             raise ValueError("invalid correctness oracle failure stage")
+        command_stages = {
+            "parent_output_file", "event_shape", "command_count",
+            "command_text", "exit_status", "output_type", "output_bytes",
+            "fixture_digest",
+        }
+        if (
+            failure_stage == "command_result" and oracle_stage not in command_stages
+        ) or (
+            failure_stage == "parent_outcome" and oracle_stage is not None
+        ):
+            raise ValueError("invalid command oracle failure stage")
         super().__init__("correctness_oracle_failed")
         self.failure_stage = failure_stage
+        self.oracle_stage = oracle_stage
 
 
 class ForwardingPreflightBlocked(BenchmarkBlocked):
@@ -1948,6 +1962,23 @@ def _command_result_matches(
     rendered: bytes,
     rendered_sha256: str,
 ) -> bool:
+    return _command_result_failure_stage(
+        stream,
+        command=command,
+        exit_status=exit_status,
+        rendered=rendered,
+        rendered_sha256=rendered_sha256,
+    ) is None
+
+
+def _command_result_failure_stage(
+    stream: bytes,
+    *,
+    command: str,
+    exit_status: int,
+    rendered: bytes,
+    rendered_sha256: str,
+) -> str | None:
     try:
         events = [
             json.loads(line)
@@ -1961,14 +1992,39 @@ def _command_result_matches(
             and event["item"].get("type") == "command_execution"
         ]
     except (UnicodeError, json.JSONDecodeError):
-        return False
-    return (
-        len(commands) == 1
-        and commands[0].get("command") == command
-        and commands[0].get("exit_code") == exit_status
-        and type(commands[0].get("aggregated_output")) is str
-        and commands[0]["aggregated_output"].encode("utf-8") == rendered
-        and hashlib.sha256(rendered).hexdigest() == rendered_sha256
+        return "event_shape"
+    if len(commands) != 1:
+        return "command_count"
+    if commands[0].get("command") != command:
+        return "command_text"
+    if commands[0].get("exit_code") != exit_status:
+        return "exit_status"
+    if type(commands[0].get("aggregated_output")) is not str:
+        return "output_type"
+    if commands[0]["aggregated_output"].encode("utf-8") != rendered:
+        return "output_bytes"
+    if hashlib.sha256(rendered).hexdigest() != rendered_sha256:
+        return "fixture_digest"
+    return None
+
+
+def _command_oracle_stage(
+    output: Path,
+    stream: bytes,
+    *,
+    command: str,
+    exit_status: int,
+    rendered: bytes,
+    rendered_sha256: str,
+) -> str | None:
+    if not output.is_file():
+        return "parent_output_file"
+    return _command_result_failure_stage(
+        stream,
+        command=command,
+        exit_status=exit_status,
+        rendered=rendered,
+        rendered_sha256=rendered_sha256,
     )
 
 
@@ -2523,6 +2579,8 @@ def failed_terminal(error: BenchmarkFailure) -> dict[str, object]:
     }
     if isinstance(error, CorrectnessOracleFailure):
         terminal["failureStage"] = error.failure_stage
+        if error.oracle_stage is not None:
+            terminal["oracleStage"] = error.oracle_stage
     return terminal
 
 
@@ -2634,14 +2692,18 @@ def _execute_benchmark_arm(
         if stderr_bytes not in {0, 39}:
             raise BenchmarkBlocked("codex_stderr_unclassified")
         parsed = parse_event_stream(stream)
-        if not output.is_file() or not _command_result_matches(
+        command_oracle_stage = _command_oracle_stage(
+            output,
             stream,
             command=command,
             exit_status=case["expected"]["exitStatus"],
             rendered=rendered,
             rendered_sha256=case["renderedSha256"],
-        ):
-            raise CorrectnessOracleFailure("command_result")
+        )
+        if command_oracle_stage is not None:
+            raise CorrectnessOracleFailure(
+                "command_result", oracle_stage=command_oracle_stage
+            )
         if observation_path is None:
             apple_attempts = 0
             replacement_emitted = False

@@ -627,6 +627,98 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                         **mutation,
                     )
                 )
+        self.assertEqual(
+            runner._command_result_failure_stage(
+                stream,
+                command="other",
+                exit_status=0,
+                rendered=rendered,
+                rendered_sha256=digest,
+            ),
+            "command_text",
+        )
+        self.assertEqual(
+            runner._command_result_failure_stage(
+                stream,
+                command="swift test",
+                exit_status=0,
+                rendered=b"other",
+                rendered_sha256=digest,
+            ),
+            "output_bytes",
+        )
+        rows = [json.loads(line) for line in stream.decode().splitlines()]
+        without_command = b"\n".join(
+            json.dumps(row).encode()
+            for row in rows
+            if not (
+                row.get("type") == "item.completed"
+                and row.get("item", {}).get("type") == "command_execution"
+            )
+        )
+        wrong_output_type = [dict(row) for row in rows]
+        wrong_output_type[3] = {
+            **wrong_output_type[3],
+            "item": {
+                **wrong_output_type[3]["item"],
+                "aggregated_output": False,
+            },
+        }
+        cases = (
+            (b"\xff", {}, "event_shape"),
+            (without_command, {}, "command_count"),
+            (stream, {"command": "other"}, "command_text"),
+            (stream, {"exit_status": 1}, "exit_status"),
+            (
+                b"\n".join(
+                    json.dumps(row).encode() for row in wrong_output_type
+                ),
+                {},
+                "output_type",
+            ),
+            (stream, {"rendered": b"other"}, "output_bytes"),
+            (stream, {"rendered_sha256": "0" * 64}, "fixture_digest"),
+            (stream, {}, None),
+        )
+        defaults = {
+            "command": "swift test",
+            "exit_status": 0,
+            "rendered": rendered,
+            "rendered_sha256": digest,
+        }
+        for candidate_stream, overrides, expected in cases:
+            arguments = {**defaults, **overrides}
+            with self.subTest(expected=expected):
+                self.assertEqual(
+                    runner._command_result_failure_stage(
+                        candidate_stream, **arguments
+                    ),
+                    expected,
+                )
+                self.assertEqual(
+                    runner._command_result_matches(
+                        candidate_stream, **arguments
+                    ),
+                    expected is None,
+                )
+
+    def test_command_oracle_missing_output_short_circuits_stream_parser(self):
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(
+            runner,
+            "_command_result_failure_stage",
+            side_effect=AssertionError("parser called"),
+        ):
+            self.assertEqual(
+                runner._command_oracle_stage(
+                    Path(directory) / "missing",
+                    b"not-json",
+                    command="swift test",
+                    exit_status=0,
+                    rendered=b"synthetic",
+                    rendered_sha256="0" * 64,
+                ),
+                "parent_output_file",
+            )
 
     def test_normalized_arm_requires_request_apple_latency_and_role_invariants(self):
         observation = runner.ArmObservation(
@@ -1620,17 +1712,36 @@ class RuntimeV1RunnerTests(unittest.TestCase):
         )
 
     def test_correctness_oracle_failure_has_closed_stage(self):
-        for stage in ("command_result", "parent_outcome"):
+        for stage, oracle_stage in (
+            ("command_result", "command_text"),
+            ("parent_outcome", None),
+        ):
             self.assertEqual(
-                runner.failed_terminal(runner.CorrectnessOracleFailure(stage)),
+                runner.failed_terminal(runner.CorrectnessOracleFailure(
+                    stage, oracle_stage=oracle_stage
+                )),
                 {
                     "status": "fail",
                     "reasonCodes": ["correctness_oracle_failed"],
                     "failureStage": stage,
+                    **(
+                        {"oracleStage": oracle_stage}
+                        if oracle_stage is not None else {}
+                    ),
                 },
             )
         with self.assertRaisesRegex(ValueError, "invalid correctness oracle"):
             runner.CorrectnessOracleFailure("raw_detail")
+        with self.assertRaisesRegex(ValueError, "invalid command oracle"):
+            runner.CorrectnessOracleFailure("command_result")
+        with self.assertRaisesRegex(ValueError, "invalid command oracle"):
+            runner.CorrectnessOracleFailure(
+                "command_result", oracle_stage="raw_detail"
+            )
+        with self.assertRaisesRegex(ValueError, "invalid command oracle"):
+            runner.CorrectnessOracleFailure(
+                "parent_outcome", oracle_stage="command_text"
+            )
         self.assertEqual(
             runner.failed_terminal(runner.BenchmarkFailure("unsafe_evidence")),
             {"status": "fail", "reasonCodes": ["unsafe_evidence"]},
