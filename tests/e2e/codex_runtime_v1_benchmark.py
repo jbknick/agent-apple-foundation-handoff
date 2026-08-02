@@ -1855,6 +1855,46 @@ def _custom_tool_output(request: object) -> bytes:
     return value[1]["text"].encode("utf-8")
 
 
+def _responses_lite_tools(
+    request: object,
+) -> tuple[list[object], list[object]]:
+    if (
+        type(request) is not dict
+        or "tools" in request
+        or type(request.get("input")) is not list
+    ):
+        raise production.ProbeFailure("direct_tool_mode_unavailable")
+    items = request["input"]
+    prefixes = [
+        item for item in items
+        if type(item) is dict and item.get("type") == "additional_tools"
+    ]
+    if (
+        len(prefixes) != 1
+        or not items
+        or prefixes[0] is not items[0]
+        or set(prefixes[0]) != {"type", "role", "tools"}
+        or prefixes[0].get("role") != "developer"
+        or type(prefixes[0].get("tools")) is not list
+    ):
+        raise production.ProbeFailure("direct_tool_mode_unavailable")
+
+    def contains_tool_definitions(value: object) -> bool:
+        if type(value) is list:
+            return any(contains_tool_definitions(item) for item in value)
+        if type(value) is dict:
+            return (
+                "tools" in value
+                or value.get("type") == "additional_tools"
+                or any(contains_tool_definitions(item) for item in value.values())
+            )
+        return False
+
+    if any(contains_tool_definitions(item) for item in items[1:]):
+        raise production.ProbeFailure("direct_tool_mode_unavailable")
+    return prefixes[0]["tools"], items
+
+
 def _require_code_mode_exec_requests(
     requests: list[dict[str, object]],
 ) -> None:
@@ -1863,10 +1903,7 @@ def _require_code_mode_exec_requests(
     calls = []
     outputs = []
     for index, request in enumerate(requests):
-        tools = request.get("tools")
-        items = request.get("input")
-        if type(tools) is not list or type(items) is not list:
-            raise production.ProbeFailure("direct_tool_mode_unavailable")
+        tools, items = _responses_lite_tools(request)
         named_tools = [
             tool for tool in tools
             if type(tool) is dict and type(tool.get("name")) is str

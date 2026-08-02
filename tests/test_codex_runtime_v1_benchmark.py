@@ -1285,12 +1285,25 @@ class RuntimeV1RunnerTests(unittest.TestCase):
         }
         requests = [
             {
-                "tools": [outer_exec, {"type": "function", "name": "update_plan"}],
-                "input": [],
+                "input": [{
+                    "type": "additional_tools",
+                    "role": "developer",
+                    "tools": [
+                        outer_exec,
+                        {"type": "function", "name": "update_plan"},
+                    ],
+                }],
             },
             {
-                "tools": [outer_exec],
-                "input": [call, output],
+                "input": [
+                    {
+                        "type": "additional_tools",
+                        "role": "developer",
+                        "tools": [outer_exec],
+                    },
+                    call,
+                    output,
+                ],
             },
         ]
         runner._require_code_mode_exec_requests(requests)
@@ -1302,10 +1315,10 @@ class RuntimeV1RunnerTests(unittest.TestCase):
         )
 
         def extra_nested_call(value):
-            value[1]["input"][0]["input"] += " text('extra');"
+            value[1]["input"][1]["input"] += " text('extra');"
 
         def wrong_command(value):
-            value[1]["input"][0]["input"] = (
+            value[1]["input"][1]["input"] = (
                 "const result = await tools.exec_command({cmd:\"wrong\"}); "
                 "text(result.output);"
             )
@@ -1326,16 +1339,63 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             })
 
         def missing_outer_exec(value):
-            value[0]["tools"].pop(0)
+            value[0]["input"][0]["tools"].pop(0)
 
         def duplicate_outer_exec(value):
-            value[1]["tools"].append(deepcopy(outer_exec))
+            value[1]["input"][0]["tools"].append(deepcopy(outer_exec))
 
         def mismatched_output(value):
-            value[1]["input"][1]["call_id"] = "mismatch"
+            value[1]["input"][2]["call_id"] = "mismatch"
 
         def reversed_call_output(value):
-            value[1]["input"].reverse()
+            value[1]["input"][1:] = reversed(value[1]["input"][1:])
+
+        def duplicate_prefix(value):
+            value[0]["input"].append(deepcopy(value[0]["input"][0]))
+
+        def missing_prefix(value):
+            value[0]["input"].pop(0)
+
+        def wrong_prefix_role(value):
+            value[0]["input"][0]["role"] = "user"
+
+        def malformed_embedded_tools(value):
+            value[0]["input"][0]["tools"] = "not-a-list"
+
+        def simultaneous_top_level_tools(value):
+            value[1]["tools"] = [deepcopy(outer_exec)]
+
+        def explicit_top_level_null(value):
+            value[1]["tools"] = None
+
+        def tools_elsewhere(value):
+            value[0]["input"].append({
+                "type": "message",
+                "role": "developer",
+                "tools": [],
+            })
+
+        def direct_shell_tool(value):
+            value[0]["input"][0]["tools"].append({
+                "type": "function",
+                "name": "shell_command",
+            })
+
+        def direct_exec_tool(value):
+            value[0]["input"][0]["tools"].append({
+                "type": "function",
+                "name": "exec_command",
+            })
+
+        def extra_prefix_key(value):
+            value[0]["input"][0]["id"] = "unsupported"
+
+        def nonleading_prefix(value):
+            value[0]["input"].insert(0, {
+                "type": "message",
+                "role": "developer",
+                "content": [],
+            })
 
         mutations = (
             extra_nested_call,
@@ -1346,6 +1406,17 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             duplicate_outer_exec,
             mismatched_output,
             reversed_call_output,
+            duplicate_prefix,
+            missing_prefix,
+            wrong_prefix_role,
+            malformed_embedded_tools,
+            simultaneous_top_level_tools,
+            explicit_top_level_null,
+            tools_elsewhere,
+            direct_shell_tool,
+            direct_exec_tool,
+            extra_prefix_key,
+            nonleading_prefix,
         )
         for mutate in mutations:
             value = deepcopy(requests)
@@ -1356,25 +1427,25 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                 runner._require_code_mode_exec_requests(value)
 
         output_mutations = {
-            "failed": lambda value: value[1]["input"][1]["output"][0].update(
+            "failed": lambda value: value[1]["input"][2]["output"][0].update(
                 text="Script failed\nWall time 0.2 seconds\nOutput:\n"
             ),
-            "running": lambda value: value[1]["input"][1]["output"][0].update(
+            "running": lambda value: value[1]["input"][2]["output"][0].update(
                 text="Script running\nWall time 0.2 seconds\nOutput:\n"
             ),
-            "terminated": lambda value: value[1]["input"][1]["output"][0].update(
+            "terminated": lambda value: value[1]["input"][2]["output"][0].update(
                 text="Script terminated\nWall time 0.2 seconds\nOutput:\n"
             ),
-            "extra": lambda value: value[1]["input"][1]["output"].append(
+            "extra": lambda value: value[1]["input"][2]["output"].append(
                 {"type": "input_text", "text": "extra"}
             ),
-            "image": lambda value: value[1]["input"][1]["output"][1].update(
+            "image": lambda value: value[1]["input"][2]["output"][1].update(
                 type="input_image"
             ),
-            "string": lambda value: value[1]["input"][1].update(
+            "string": lambda value: value[1]["input"][2].update(
                 output="replacement"
             ),
-            "wall time precision": lambda value: value[1]["input"][1][
+            "wall time precision": lambda value: value[1]["input"][2][
                 "output"
             ][0].update(
                 text="Script completed\nWall time 0.25 seconds\nOutput:\n"

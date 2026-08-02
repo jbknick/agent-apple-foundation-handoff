@@ -382,6 +382,53 @@ not a retry of any preserved terminal. A non-pass is terminal and authorizes
 no executable substitution, preflight retry, Apple attempt, or benchmark arm
 outside the existing gates.
 
+## 2026-08-02 Responses Lite tool-location correction
+
+The clean `918617f47d8406a33c50c88c980d9f035fbb9855` candidate preserved all
+prior fixes but stopped at the forwarding request validator with the separate
+nonpassing `blocked:replacement_forwarding_unproven` terminal and
+`failureStage = direct_tool_contract`. Preserve that terminal in Linear
+history. It is not release evidence, must not be relabeled, and must not be
+retried.
+
+Pinned Codex `0.145.0` source commit `25af12f7` proves the next first
+divergence. The `gpt-5.6-sol` model record sets
+`use_responses_lite = true`. In `codex-rs/core/src/client.rs`,
+`build_responses_request` serializes the generated tool JSON into one leading
+`ResponseItem::AdditionalTools` with `role = "developer"`, splices that item
+at the start of `input`, and sets the top-level `tools` member to `None`.
+The current validator instead requires `request.tools` to be a list, so it
+rejects the source-supported request before validating the already corrected
+custom call lifecycle.
+
+Correct only the DEV-255 forwarding validator and its synthetic request
+fixtures. For each of the exact two requests, require the top-level `tools`
+key to be absent and require the first input item to be exactly one closed
+`additional_tools` object with exactly `type`, `role`, and `tools`, developer
+role, and a list-valued embedded tool set. Reject a missing, duplicate,
+non-leading, wrong-role, extra-key, or malformed prefix; simultaneous
+top-level tools including explicit null; and any additional tool-definition
+container elsewhere in the request input. Validate the exact one custom
+`exec` outer tool and the
+top-level `exec_command` and `shell_command` exclusions against only that
+embedded list. Unrelated optional embedded tools may differ between requests.
+
+Keep the exact ordered `custom_tool_call` then matching
+`custom_tool_call_output` lifecycle in request two, the two-item completed
+script output parser, the single command counter, whole-request original
+exclusion, receipt binding, request deletion, normalized failure stages,
+identity checks, no-retry rule, and every stderr and privacy boundary
+unchanged. Do not accept a top-level tool list as compatibility behavior.
+
+After focused and full deterministic gates, generated-artifact checks, and a
+formal high-reasoning diff and release-evidence review pass, commit one new
+clean candidate and run exactly one native Codex `0.145.0`
+`--through usage-dry-run` row. This is a new Responses Lite-corrected
+candidate row, not a retry of `918617f47d8406a33c50c88c980d9f035fbb9855`
+or any earlier terminal. A non-pass is terminal and authorizes no executable
+substitution, preflight retry, Apple attempt, or benchmark arm outside the
+existing gates.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.
