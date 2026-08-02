@@ -1584,6 +1584,37 @@ class RuntimeV1RunnerTests(unittest.TestCase):
         self.assertEqual(runner.validate_production_identities(identities), identities)
         with self.assertRaises(runner.BenchmarkBlocked):
             runner.validate_production_identities({**identities, "swiftSourceSha256": "0"})
+
+    def test_provider_counter_blocker_has_closed_normalized_stages(self):
+        for stage in ("process_exit", "telemetry_payload", "telemetry_batch"):
+            self.assertEqual(
+                runner.blocked_terminal(runner.ProviderCounterBlocked(stage)),
+                {
+                    "status": "blocked",
+                    "reasonCodes": ["provider_request_counter_invalid"],
+                    "failureStage": stage,
+                },
+            )
+        with self.assertRaisesRegex(ValueError, "invalid provider counter"):
+            runner.ProviderCounterBlocked("raw_detail")
+        self.assertIsNone(
+            runner.provider_counter_failure_stage(
+                0, counter_invalid=False, counter_batches=1
+            )
+        )
+        for values, expected in (
+            ((False, False, 1), "process_exit"),
+            ((0, 0, 1), "telemetry_payload"),
+            ((0, False, True), "telemetry_batch"),
+        ):
+            self.assertEqual(
+                runner.provider_counter_failure_stage(
+                    values[0],
+                    counter_invalid=values[1],
+                    counter_batches=values[2],
+                ),
+                expected,
+            )
         self.assertGreater(
             runner.unsafe_evidence_findings({"prompt": "secret", "path": "/Users/private"}),
             0,

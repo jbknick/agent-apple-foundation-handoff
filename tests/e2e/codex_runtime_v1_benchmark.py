@@ -62,6 +62,11 @@ _FORWARDING_FAILURE_STAGES = {
     "identity_trust",
     "unexpected_exception",
 }
+_PROVIDER_COUNTER_FAILURE_STAGES = {
+    "process_exit",
+    "telemetry_payload",
+    "telemetry_batch",
+}
 
 
 def _load(path: Path, name: str):
@@ -97,6 +102,14 @@ class ForwardingPreflightBlocked(BenchmarkBlocked):
         if failure_stage not in _FORWARDING_FAILURE_STAGES:
             raise ValueError("invalid forwarding failure stage")
         super().__init__("replacement_forwarding_unproven")
+        self.failure_stage = failure_stage
+
+
+class ProviderCounterBlocked(BenchmarkBlocked):
+    def __init__(self, failure_stage: str):
+        if failure_stage not in _PROVIDER_COUNTER_FAILURE_STAGES:
+            raise ValueError("invalid provider counter failure stage")
+        super().__init__("provider_request_counter_invalid")
         self.failure_stage = failure_stage
 
 
@@ -702,12 +715,13 @@ def invoke_with_otel_counter(
         )
         elapsed = time.monotonic_ns() - started
         codex.recheck()
-    if not invocation_result_is_valid(
+    failure_stage = provider_counter_failure_stage(
         completed.returncode,
         counter_invalid=counter.invalid,
         counter_batches=counter.batches,
-    ):
-        raise BenchmarkBlocked("provider_request_counter_invalid")
+    )
+    if failure_stage is not None:
+        raise ProviderCounterBlocked(failure_stage)
     return completed.stdout, counter.api_requests, elapsed, stderr_bytes
 
 
@@ -738,13 +752,26 @@ def invocation_result_is_valid(
     counter_invalid: bool,
     counter_batches: int,
 ) -> bool:
-    return (
-        type(returncode) is int
-        and returncode == 0
-        and counter_invalid is False
-        and type(counter_batches) is int
-        and counter_batches >= 1
-    )
+    return provider_counter_failure_stage(
+        returncode,
+        counter_invalid=counter_invalid,
+        counter_batches=counter_batches,
+    ) is None
+
+
+def provider_counter_failure_stage(
+    returncode: object,
+    *,
+    counter_invalid: object,
+    counter_batches: object,
+) -> str | None:
+    if type(returncode) is not int or returncode != 0:
+        return "process_exit"
+    if counter_invalid is not False:
+        return "telemetry_payload"
+    if type(counter_batches) is not int or counter_batches < 1:
+        return "telemetry_batch"
+    return None
 
 
 _APPROVED_IDENTITIES = {
@@ -2232,7 +2259,7 @@ def blocked_terminal(error: BenchmarkBlocked) -> dict[str, object]:
         "status": "blocked",
         "reasonCodes": [str(error)],
     }
-    if isinstance(error, ForwardingPreflightBlocked):
+    if isinstance(error, (ForwardingPreflightBlocked, ProviderCounterBlocked)):
         terminal["failureStage"] = error.failure_stage
     return terminal
 

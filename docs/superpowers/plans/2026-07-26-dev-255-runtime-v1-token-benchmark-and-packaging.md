@@ -530,6 +530,31 @@ deterministic-environment candidate row, not a retry of
 non-pass is terminal and authorizes no executable substitution, preflight
 retry, Apple attempt, or benchmark arm outside the existing gates.
 
+## 2026-08-03 provider-counter normalized substage correction
+
+The clean `4d53360bad53259c113ae05ad41a66677a0c4328` candidate passed the complete
+replacement-forwarding preflight, then stopped in the first plugin-off dry arm
+with the separate nonpassing `blocked:provider_request_counter_invalid`
+terminal. Preserve that terminal in Linear history. It is not release
+evidence, must not be relabeled, and must not be retried.
+
+The current counter gate collapses three independent closed conditions into
+one terminal: nonzero Codex process exit, invalid normalized OTel payload, or
+no completed OTel batch. Split only that terminal into the closed normalized
+`failureStage` values `process_exit`, `telemetry_payload`, and
+`telemetry_batch`, evaluated in that order. Retain no return code, batch count,
+payload, request, stderr, prompt, response, path, or transcript. Do not change
+the request counter, OTel configuration, provider, arm, usage, correctness,
+cleanup, or evidence acceptance rules.
+
+After focused and full deterministic gates, generated-artifact checks, and a
+formal high-reasoning diff review pass, commit one new clean candidate and run
+exactly one native Codex `0.145.0` `--through usage-dry-run` row. This is a new
+normalized-diagnostic candidate row, not a retry of
+`4d53360bad53259c113ae05ad41a66677a0c4328` or any earlier terminal. A
+non-pass is terminal and authorizes no executable substitution, preflight
+retry, Apple attempt, or benchmark arm outside the existing gates.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.
