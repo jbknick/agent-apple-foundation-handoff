@@ -978,6 +978,33 @@ commit one new clean candidate and run exactly one native Codex `0.145.0`
 of `29b7b6ef8f58087fedbd4f470a615554ba7164d8` or an earlier terminal. A
 non-pass is terminal and authorizes no executable substitution or retry.
 
+## 2026-08-03 remaining cleanup-producer diagnostic
+
+The clean `1e6c6742cd119409c863e198b1e25dd150f80b3b` candidate's one
+authorized native usage dry row stopped at generic
+`blocked:cleanup_incomplete` with neither `invariantStage` nor
+`cleanupStage`. Preserve that result in Linear history; do not retry or
+relabel it.
+
+Static enumeration leaves exactly the forwarding-preflight root cleanup and
+the measured arm's defensive missing-pending branch as generic producers.
+The new terminal supersedes the earlier decision to keep those locations
+stage-free because that ambiguity now prevents root-cause diagnosis. Extend
+the closed `cleanupStage` only with `forwarding_root` and `arm_pending`.
+Forwarding-root cleanup keeps its existing superseding precedence and never
+adds `failureStage`; the defensive branch keeps the same
+`cleanup_incomplete` reason. Retain no path, error, value, count, metadata,
+credential, output, prompt, response, or transcript. Do not change cleanup
+execution, accepted outcomes, retries, commands, requests, turns, Apple
+attempts, usage, correctness, or evidence rules.
+
+After focused and full deterministic gates, SDK compilation,
+generated-artifact checks, and a formal high-reasoning diff review pass,
+commit one new clean candidate and run exactly one native Codex `0.145.0`
+`--through usage-dry-run` row. This is a new diagnostic candidate, not a retry
+of `1e6c6742cd119409c863e198b1e25dd150f80b3b` or an earlier terminal. A
+non-pass is terminal and authorizes no executable substitution or retry.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.

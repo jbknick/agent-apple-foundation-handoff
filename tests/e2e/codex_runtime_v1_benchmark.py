@@ -119,7 +119,9 @@ class BenchmarkFailure(ValueError):
 
 class CleanupBlocked(BenchmarkBlocked):
     def __init__(self, cleanup_stage: str):
-        if cleanup_stage not in {"parent_auth", "isolated_root"}:
+        if cleanup_stage not in {
+            "parent_auth", "isolated_root", "forwarding_root", "arm_pending",
+        }:
             raise ValueError("invalid cleanup stage")
         super().__init__("cleanup_incomplete")
         self.cleanup_stage = cleanup_stage
@@ -2549,7 +2551,7 @@ def _sole_forwarded_custom_tool_output(
 def isolated_arm_root(
     *, cleanup_stage: str | None = None
 ) -> Iterator[Path]:
-    if cleanup_stage not in {None, "isolated_root"}:
+    if cleanup_stage not in {None, "isolated_root", "forwarding_root"}:
         raise ValueError("invalid isolated root cleanup stage")
     root = Path(
         tempfile.mkdtemp(prefix="dev255-runtime-v1-")
@@ -2580,7 +2582,7 @@ def _execute_forwarding_preflight(
 ) -> ForwardingProof:
     pending = None
     _failure_state.enter("preflight_setup")
-    with isolated_arm_root() as root:
+    with isolated_arm_root(cleanup_stage="forwarding_root") as root:
         _failure_state.enter("identity_trust")
         staged = root / "staged-plugin"
         shutil.copytree(PLUGIN, staged, symlinks=False)
@@ -3005,7 +3007,7 @@ def _execute_benchmark_arm(
             cleanup_complete=False,
         )
     if pending is None:
-        raise BenchmarkBlocked("cleanup_incomplete")
+        raise CleanupBlocked("arm_pending")
     return normalized_arm(
         coordinate,
         role,

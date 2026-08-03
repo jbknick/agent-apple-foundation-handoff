@@ -1599,13 +1599,13 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             self.assertIsNone(caught.exception.__cause__)
             self.assertIsNone(caught.exception.__context__)
 
-    def test_forwarding_cleanup_supersedes_stage_without_diagnostic(self):
+    def test_forwarding_cleanup_supersedes_stage_with_location_only(self):
         calls = []
 
         def execute(**arguments):
             calls.append(arguments)
             arguments["_failure_state"].enter("receipt")
-            raise runner.BenchmarkBlocked("cleanup_incomplete")
+            raise runner.CleanupBlocked("forwarding_root")
 
         with mock.patch.object(
             runner,
@@ -1621,6 +1621,7 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             {
                 "status": "blocked",
                 "reasonCodes": ["cleanup_incomplete"],
+                "cleanupStage": "forwarding_root",
             },
             runner.blocked_terminal(caught.exception),
         )
@@ -2121,7 +2122,9 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             runner.failed_terminal(runner.BenchmarkFailure("unsafe_evidence")),
             {"status": "fail", "reasonCodes": ["unsafe_evidence"]},
         )
-        for cleanup_stage in ("parent_auth", "isolated_root"):
+        for cleanup_stage in (
+            "parent_auth", "isolated_root", "forwarding_root", "arm_pending",
+        ):
             self.assertEqual(
                 runner.blocked_terminal(
                     runner.CleanupBlocked(cleanup_stage)
@@ -2722,9 +2725,68 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                 classified_root = candidate
         self.assertEqual("isolated_root", raised.exception.cleanup_stage)
         runner.shutil.rmtree(classified_root)
-        with self.assertRaisesRegex(ValueError, "invalid isolated root cleanup"):
-            with runner.isolated_arm_root(cleanup_stage="parent_auth"):
-                pass
+        for side_effect in (OSError, None):
+            with mock.patch.object(
+                runner.shutil,
+                "rmtree",
+                side_effect=side_effect,
+            ), self.assertRaises(runner.CleanupBlocked) as raised:
+                with runner.isolated_arm_root(
+                    cleanup_stage="forwarding_root"
+                ) as candidate:
+                    forwarding_root = candidate
+            self.assertEqual(
+                runner.blocked_terminal(raised.exception),
+                {
+                    "status": "blocked",
+                    "reasonCodes": ["cleanup_incomplete"],
+                    "cleanupStage": "forwarding_root",
+                },
+            )
+            runner.shutil.rmtree(forwarding_root)
+        for stage in ("parent_auth", "arm_pending"):
+            with self.assertRaisesRegex(
+                ValueError, "invalid isolated root cleanup"
+            ):
+                with runner.isolated_arm_root(cleanup_stage=stage):
+                    pass
+
+    def test_missing_pending_arm_has_closed_cleanup_location(self):
+        class SuppressingRoot:
+            def __enter__(self):
+                return Path("/synthetic-root")
+
+            def __exit__(self, error_type, _error, _traceback):
+                return error_type is runner.BenchmarkBlocked
+
+        coordinate = runner.fixed_pair_coordinates()[0]
+        with mock.patch.object(
+            runner, "validate_forwarding_proof"
+        ), mock.patch.object(
+            runner, "isolated_arm_root", return_value=SuppressingRoot()
+        ), mock.patch.object(
+            runner,
+            "_materialize_workspace",
+            side_effect=runner.BenchmarkBlocked("synthetic"),
+        ), self.assertRaises(runner.CleanupBlocked) as raised:
+            runner._execute_benchmark_arm(
+                coordinate,
+                "pluginOff",
+                codex=mock.Mock(),
+                python=mock.Mock(),
+                approved_hook_hash="sha256:" + "a" * 64,
+                production_identities={},
+                candidate_commit="b" * 40,
+                forwarding_proof=mock.Mock(),
+            )
+        self.assertEqual(
+            runner.blocked_terminal(raised.exception),
+            {
+                "status": "blocked",
+                "reasonCodes": ["cleanup_incomplete"],
+                "cleanupStage": "arm_pending",
+            },
+        )
 
     def usage(self):
         return {
