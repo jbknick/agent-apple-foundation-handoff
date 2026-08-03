@@ -1158,6 +1158,38 @@ execution. This is a new cleanup-corrected candidate, not a retry of
 `b90b70e8b4d8146942fe98007f4acf18edb2f7e5` or an earlier terminal. A
 non-pass is terminal and authorizes no executable substitution or retry.
 
+## 2026-08-03 forwarding-root failure-location diagnostic
+
+The clean `13c30bf6b397fc55d30df3269d1d5d24a3ea656a` candidate's one
+authorized native usage dry row repeated `blocked:cleanup_incomplete` with
+`cleanupStage = forwarding_root`. The absence-oracle correction behaved
+fail-closed: the root remained after the single removal attempt. Preserve the
+terminal in Linear history; do not retry or relabel it.
+
+Use Python `3.14`'s `shutil.rmtree(onexc=...)` callback as the authoritative
+failure location. For forwarding-root cleanup only, lexically map its transient
+path to exactly one closed `cleanupFailureStage`: `root`, `staged_plugin`,
+`codex_home`, `marketplace`, `workspace`, `synthetic_bridge`,
+`command_counter`, or `unknown`, then immediately re-raise the identical
+exception. Relative, outside-root, traversal-bearing, malformed, non-path, or
+unrecognized values map to `unknown`.
+
+Never retain or serialize the callback path, basename, exception type,
+message, errno, count, metadata, or contents. Attach the closed stage only
+when the forwarding root remains after an `OSError`; absence remains cleanup
+success, and root presence keeps the unchanged blocker and cleanup-superseding
+precedence. This diagnostic adds no deletion attempt, retry, fallback, command,
+request, turn, Apple attempt, correctness change, evidence acceptance, privacy
+change, or release rule.
+
+After focused and full deterministic gates, SDK compilation,
+generated-artifact checks, and a formal high-reasoning diff review pass,
+commit one new clean candidate and run exactly one native Codex `0.145.0`
+`--through usage-dry-run` row. Only a pass authorizes one complete benchmark
+execution. This is a new cleanup-diagnostic candidate, not a retry of
+`13c30bf6b397fc55d30df3269d1d5d24a3ea656a` or an earlier terminal. A
+non-pass is terminal and authorizes no executable substitution or retry.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.

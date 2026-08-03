@@ -2849,7 +2849,10 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                 classified_root = candidate
         self.assertEqual("isolated_root", raised.exception.cleanup_stage)
         runner.shutil.rmtree(classified_root)
-        for side_effect in (OSError, None):
+        for side_effect, expected_failure_stage in (
+            (OSError, "unknown"),
+            (None, None),
+        ):
             with mock.patch.object(
                 runner.shutil,
                 "rmtree",
@@ -2865,13 +2868,18 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                     "status": "blocked",
                     "reasonCodes": ["cleanup_incomplete"],
                     "cleanupStage": "forwarding_root",
+                    **(
+                        {"cleanupFailureStage": expected_failure_stage}
+                        if expected_failure_stage is not None
+                        else {}
+                    ),
                 },
             )
             runner.shutil.rmtree(forwarding_root)
         real_rmtree = runner.shutil.rmtree
         removed_root = None
 
-        def remove_then_report_error(root):
+        def remove_then_report_error(root, **_kwargs):
             nonlocal removed_root
             removed_root = root
             real_rmtree(root)
@@ -2894,6 +2902,74 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             ):
                 with runner.isolated_arm_root(cleanup_stage=stage):
                     pass
+
+    def test_forwarding_cleanup_failure_stage_is_closed_and_content_free(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            expected = {
+                root: "root",
+                root / "staged-plugin/private": "staged_plugin",
+                root / "codex-home/private": "codex_home",
+                root / "marketplace/private": "marketplace",
+                root / "workspace/.runtime-v1-observation/private": "workspace",
+                root / "synthetic-bridge": "synthetic_bridge",
+                root / "command-counter": "command_counter",
+                root / "new-artifact/private": "unknown",
+            }
+            for path, stage in expected.items():
+                self.assertEqual(
+                    runner._forwarding_cleanup_failure_stage(root, path),
+                    stage,
+                )
+            for value in (
+                "relative/private",
+                root / "workspace/../private",
+                root.parent / "outside/private",
+                b"private",
+                object(),
+            ):
+                self.assertEqual(
+                    runner._forwarding_cleanup_failure_stage(root, value),
+                    "unknown",
+                )
+        with self.assertRaisesRegex(ValueError, "invalid cleanup failure stage"):
+            runner.CleanupBlocked(
+                "isolated_root", cleanup_failure_stage="workspace"
+            )
+        with self.assertRaisesRegex(ValueError, "invalid cleanup failure stage"):
+            runner.CleanupBlocked(
+                "forwarding_root", cleanup_failure_stage="private"
+            )
+
+    def test_forwarding_cleanup_callback_rethrows_and_preserves_precedence(self):
+        calls = []
+        raised_error = OSError("private cleanup detail")
+
+        def fail_once(root, *, onexc):
+            calls.append(root)
+            try:
+                onexc(None, root / "workspace/private", raised_error)
+            except OSError as error:
+                self.assertIs(error, raised_error)
+                raise
+
+        with mock.patch.object(
+            runner.shutil, "rmtree", side_effect=fail_once
+        ), self.assertRaises(runner.CleanupBlocked) as raised:
+            with runner.isolated_arm_root(cleanup_stage="forwarding_root"):
+                raise runner.BenchmarkFailure("body_failure")
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(
+            runner.blocked_terminal(raised.exception),
+            {
+                "status": "blocked",
+                "reasonCodes": ["cleanup_incomplete"],
+                "cleanupStage": "forwarding_root",
+                "cleanupFailureStage": "workspace",
+            },
+        )
+        self.assertNotIn("private", json.dumps(runner.blocked_terminal(raised.exception)))
+        runner.shutil.rmtree(calls[0])
 
     def test_missing_pending_arm_has_closed_cleanup_location(self):
         class SuppressingRoot:

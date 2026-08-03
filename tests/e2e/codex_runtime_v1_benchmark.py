@@ -130,13 +130,27 @@ class CodexStderrBlocked(BenchmarkBlocked):
 
 
 class CleanupBlocked(BenchmarkBlocked):
-    def __init__(self, cleanup_stage: str):
+    def __init__(
+        self,
+        cleanup_stage: str,
+        *,
+        cleanup_failure_stage: str | None = None,
+    ):
         if cleanup_stage not in {
             "parent_auth", "isolated_root", "forwarding_root", "arm_pending",
         }:
             raise ValueError("invalid cleanup stage")
+        if cleanup_failure_stage is not None and (
+            cleanup_stage != "forwarding_root"
+            or cleanup_failure_stage not in {
+                "root", "staged_plugin", "codex_home", "marketplace",
+                "workspace", "synthetic_bridge", "command_counter", "unknown",
+            }
+        ):
+            raise ValueError("invalid cleanup failure stage")
         super().__init__("cleanup_incomplete")
         self.cleanup_stage = cleanup_stage
+        self.cleanup_failure_stage = cleanup_failure_stage
 
 
 class ArmInvariantBlocked(BenchmarkBlocked):
@@ -2610,17 +2624,57 @@ def isolated_arm_root(
     root = Path(
         tempfile.mkdtemp(prefix="dev255-runtime-v1-")
     ).resolve()
+    cleanup_failure_stage = "unknown"
+
+    def classify_cleanup_failure(_function, path, error):
+        nonlocal cleanup_failure_stage
+        cleanup_failure_stage = _forwarding_cleanup_failure_stage(root, path)
+        raise error
+
+    remove_failed = False
     try:
         yield root
     finally:
         try:
-            shutil.rmtree(root)
+            if cleanup_stage == "forwarding_root":
+                shutil.rmtree(root, onexc=classify_cleanup_failure)
+            else:
+                shutil.rmtree(root)
         except OSError:
-            pass
+            remove_failed = True
         if root.exists():
             if cleanup_stage is not None:
-                raise CleanupBlocked(cleanup_stage)
+                raise CleanupBlocked(
+                    cleanup_stage,
+                    cleanup_failure_stage=(
+                        cleanup_failure_stage
+                        if cleanup_stage == "forwarding_root" and remove_failed
+                        else None
+                    ),
+                )
             raise BenchmarkBlocked("cleanup_incomplete")
+
+
+def _forwarding_cleanup_failure_stage(root: Path, value: object) -> str:
+    if not isinstance(value, (str, Path)):
+        return "unknown"
+    candidate = Path(value)
+    if not candidate.is_absolute() or ".." in candidate.parts:
+        return "unknown"
+    try:
+        relative = candidate.relative_to(root)
+    except ValueError:
+        return "unknown"
+    if not relative.parts:
+        return "root"
+    return {
+        "staged-plugin": "staged_plugin",
+        "codex-home": "codex_home",
+        "marketplace": "marketplace",
+        "workspace": "workspace",
+        "synthetic-bridge": "synthetic_bridge",
+        "command-counter": "command_counter",
+    }.get(relative.parts[0], "unknown")
 
 
 def _execute_forwarding_preflight(
@@ -2840,6 +2894,8 @@ def blocked_terminal(error: BenchmarkBlocked) -> dict[str, object]:
         terminal["payloadStage"] = error.payload_stage
     if isinstance(error, CleanupBlocked):
         terminal["cleanupStage"] = error.cleanup_stage
+        if error.cleanup_failure_stage is not None:
+            terminal["cleanupFailureStage"] = error.cleanup_failure_stage
     if isinstance(error, ArmInvariantBlocked):
         terminal["invariantStage"] = error.invariant_stage
     if isinstance(error, CodexStderrBlocked):
