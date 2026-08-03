@@ -4,6 +4,7 @@ import os
 from copy import deepcopy
 from pathlib import Path
 import stat
+import subprocess
 import sys
 import tempfile
 import tomllib
@@ -299,6 +300,99 @@ class RuntimeV1RunnerTests(unittest.TestCase):
         self.assertEqual(args.count(selection), 1)
         self.assertEqual(args[args.index(selection) - 1], "-c")
         self.assertEqual(args[-1], "approved task")
+
+    def test_codex_stderr_is_cleared_and_classified_without_content(self):
+        prefixes = (
+            ("override", b"Error parsing -c overrides:"),
+            ("codex_home", b"Error finding codex home:"),
+            ("rules", b"Error loading rules:\n"),
+            ("config_load", b"Error loading config.toml:"),
+            ("login_restriction", b"API key login is required,"),
+            ("login_restriction", b"ChatGPT login is required,"),
+            ("login_restriction", b"Failed to load ChatGPT credentials "),
+            ("login_restriction", b"Login is restricted to workspace(s) "),
+            ("otel_exporter", b"Could not create otel exporter:"),
+            ("output_schema", b"Failed to read output schema file "),
+            ("output_schema", b"Output schema file "),
+            ("output_file", b"Warning: no last agent message;"),
+            ("output_file", b"Failed to write last message file "),
+            ("stdin", b"No prompt provided."),
+            ("stdin", b"Reading prompt from stdin..."),
+            ("stdin", b"Reading additional input from stdin..."),
+            ("stdin", b"Failed to read prompt from stdin:"),
+            ("stdin", b"No prompt provided via stdin."),
+            ("unknown", b"private arbitrary detail"),
+        )
+        for expected, prefix in prefixes:
+            with self.subTest(expected=expected):
+                completed = subprocess.CompletedProcess([], 1, b"", prefix + b" secret")
+                with self.assertRaises(runner.CodexStderrBlocked) as caught:
+                    runner.discard_classified_codex_stderr(
+                        completed,
+                        codex_version="0.145.0",
+                        source_commit=runner.CODEX_SOURCE_COMMIT,
+                        stdin_nonterminal=True,
+                    )
+                self.assertEqual(completed.stderr, b"")
+                self.assertEqual(
+                    runner.blocked_terminal(caught.exception),
+                    {
+                        "status": "blocked",
+                        "reasonCodes": ["codex_stderr_unclassified"],
+                        "stderrStage": expected,
+                    },
+                )
+                self.assertNotIn("secret", str(runner.blocked_terminal(caught.exception)))
+
+        for version, source, value in (
+            ("0.146.0", runner.CODEX_SOURCE_COMMIT, b"Error loading rules:\nprivate"),
+            ("0.145.0", "unapproved", b"Error loading rules:\nprivate"),
+            ("0.145.0", runner.CODEX_SOURCE_COMMIT, "not bytes"),
+        ):
+            completed = subprocess.CompletedProcess([], 1, b"", value)
+            with self.assertRaises(runner.CodexStderrBlocked) as caught:
+                runner.discard_classified_codex_stderr(
+                    completed,
+                    codex_version=version,
+                    source_commit=source,
+                    stdin_nonterminal=True,
+                )
+            self.assertEqual(caught.exception.stderr_stage, "unknown")
+            self.assertEqual(completed.stderr, b"")
+        with self.assertRaisesRegex(ValueError, "invalid Codex stderr stage"):
+            runner.CodexStderrBlocked("private")
+
+    def test_codex_stderr_precedes_provider_counter_failure(self):
+        completed = subprocess.CompletedProcess(
+            [], 1, b"", b"Could not create otel exporter: private"
+        )
+        with self.assertRaises(runner.CodexStderrBlocked) as caught:
+            runner.discard_classified_codex_stderr(
+                completed,
+                codex_version="0.145.0",
+                source_commit=runner.CODEX_SOURCE_COMMIT,
+                stdin_nonterminal=True,
+            )
+        self.assertEqual(caught.exception.stderr_stage, "otel_exporter")
+
+        completed.stderr = b"Reading additional input from stdin...\n"
+        self.assertEqual(
+            runner.discard_classified_codex_stderr(
+                completed,
+                codex_version="0.145.0",
+                source_commit=runner.CODEX_SOURCE_COMMIT,
+                stdin_nonterminal=True,
+            ),
+            39,
+        )
+        self.assertEqual(
+            runner.provider_counter_failure_stage(
+                completed.returncode,
+                counter_invalid=False,
+                counter_batches=1,
+            ),
+            "process_exit",
+        )
 
     def test_parent_output_schema_is_closed_and_dev142_compatible(self):
         schema = runner.parent_output_schema()

@@ -117,6 +117,18 @@ class BenchmarkFailure(ValueError):
     pass
 
 
+class CodexStderrBlocked(BenchmarkBlocked):
+    def __init__(self, stderr_stage: str):
+        if stderr_stage not in {
+            "override", "codex_home", "rules", "config_load",
+            "login_restriction", "otel_exporter", "output_schema",
+            "output_file", "stdin", "unknown",
+        }:
+            raise ValueError("invalid Codex stderr stage")
+        super().__init__("codex_stderr_unclassified")
+        self.stderr_stage = stderr_stage
+
+
 class CleanupBlocked(BenchmarkBlocked):
     def __init__(self, cleanup_stage: str):
         if cleanup_stage not in {
@@ -1049,7 +1061,36 @@ def discard_classified_codex_stderr(
         and stdin_nonterminal is True
     ):
         return 39
-    raise BenchmarkBlocked("codex_stderr_unclassified")
+    stage = "unknown"
+    if (
+        type(value) is bytes
+        and codex_version == "0.145.0"
+        and source_commit == CODEX_SOURCE_COMMIT
+    ):
+        for prefix, candidate in (
+            (b"Error parsing -c overrides:", "override"),
+            (b"Error finding codex home:", "codex_home"),
+            (b"Error loading rules:\n", "rules"),
+            (b"Error loading config.toml:", "config_load"),
+            (b"API key login is required,", "login_restriction"),
+            (b"ChatGPT login is required,", "login_restriction"),
+            (b"Failed to load ChatGPT credentials ", "login_restriction"),
+            (b"Login is restricted to workspace(s) ", "login_restriction"),
+            (b"Could not create otel exporter:", "otel_exporter"),
+            (b"Failed to read output schema file ", "output_schema"),
+            (b"Output schema file ", "output_schema"),
+            (b"Warning: no last agent message;", "output_file"),
+            (b"Failed to write last message file ", "output_file"),
+            (b"No prompt provided.", "stdin"),
+            (b"Reading prompt from stdin...", "stdin"),
+            (b"Reading additional input from stdin...", "stdin"),
+            (b"Failed to read prompt from stdin:", "stdin"),
+            (b"No prompt provided via stdin.", "stdin"),
+        ):
+            if value.startswith(prefix):
+                stage = candidate
+                break
+    raise CodexStderrBlocked(stage)
 
 
 def invocation_result_is_valid(
@@ -2803,6 +2844,8 @@ def blocked_terminal(error: BenchmarkBlocked) -> dict[str, object]:
         terminal["cleanupStage"] = error.cleanup_stage
     if isinstance(error, ArmInvariantBlocked):
         terminal["invariantStage"] = error.invariant_stage
+    if isinstance(error, CodexStderrBlocked):
+        terminal["stderrStage"] = error.stderr_stage
     return terminal
 
 

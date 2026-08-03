@@ -1093,6 +1093,40 @@ not a retry of `21efe675e27746963f2b07a18725057fe597674f` or an earlier
 terminal. A non-pass is terminal and authorizes no executable substitution or
 retry.
 
+## 2026-08-03 closed Codex stderr diagnostic
+
+The clean `743e0a92836c545e162c93f3e17d8e91fe02ab30` candidate's one
+authorized native usage dry row passed with exactly two parent requests. Its
+single complete benchmark execution later stopped at
+`blocked:codex_stderr_unclassified` and wrote no evidence file. Preserve both
+facts in Linear history; do not retry or relabel either execution.
+
+Pinned Codex `0.145.0` source commit `25af12f7` limits JSON exec process
+stderr to bounded startup, configuration, authentication, OTel, output, and
+stdin producers when the controlled environment sets `RUST_LOG=off`. Retain
+the current first-refusal precedence and accept only empty stderr or the exact
+pinned 39-byte nonterminal-stdin notice. For every other value, clear the
+captured field first and retain only one closed `stderrStage`: `override`,
+`codex_home`, `rules`, `config_load`, `login_restriction`, `otel_exporter`,
+`output_schema`, `output_file`, `stdin`, or `unknown`.
+
+Known-prefix attribution requires the exact Codex version and pinned source
+identity. Identity drift, non-bytes, and unmatched values map to `unknown`.
+Never retain or serialize a suffix, value, byte count, hash, path, credential,
+prompt, response, telemetry content, Apple output, or transcript. Unaccepted
+stderr still blocks before process and provider-counter validation; accepted
+stderr preserves the existing provider-counter precedence. This changes no
+command, request, turn, Apple attempt, counter, oracle, cleanup, privacy,
+evidence acceptance, retry, fallback, or release rule.
+
+After focused and full deterministic gates, SDK compilation,
+generated-artifact checks, and a formal high-reasoning diff review pass,
+commit one new clean candidate and run exactly one native Codex `0.145.0`
+`--through usage-dry-run` row. Only a pass authorizes one complete benchmark
+execution. This is a new diagnostic candidate, not a retry of
+`743e0a92836c545e162c93f3e17d8e91fe02ab30` or an earlier terminal. A
+non-pass is terminal and authorizes no executable substitution or retry.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.
