@@ -1351,6 +1351,8 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             ("pluginOff", runner.replace(observation, pre_receipt_hook_latency_ns=1), parsed, "hook_role_state"),
             ("pluginOff", runner.replace(observation, pre_receipt_hook_latency_samples=1), parsed, "hook_role_state"),
             ("pluginOn", runner.replace(plugin_on, pre_receipt_hook_latency_samples=0), parsed, "hook_role_state"),
+            ("pluginOn", plugin_on, parsed, "preflight_stage"),
+            ("pluginOff", runner.replace(observation, preflight_stage="apple_unavailable"), parsed, "preflight_stage"),
             ("pluginOff", runner.replace(observation, cleanup_complete=False), parsed, "cleanup"),
             (
                 "pluginOff",
@@ -1371,6 +1373,15 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                     ),
                     expected,
                 )
+        self.assertIsNone(
+            runner._arm_invariant_failure_stage(
+                "pluginOn",
+                runner.replace(
+                    plugin_on, preflight_stage="apple_unavailable"
+                ),
+                parsed,
+            )
+        )
         error = runner.ArmInvariantBlocked("parent_requests")
         self.assertEqual(
             runner.blocked_terminal(error),
@@ -1385,10 +1396,11 @@ class RuntimeV1RunnerTests(unittest.TestCase):
 
     def test_observation_consumer_requires_closed_secure_emitted_union(self):
         value = {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "event": "runtime_v1_observation",
             "status": "replacement_emitted",
             "reasonCode": None,
+            "preflightStage": None,
             "appleAttempts": 1,
             "appleValidResults": 1,
             "replacementEmitted": True,
@@ -1411,10 +1423,34 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                 value,
                 runner.consume_runtime_v1_observation(path),
             )
+        fallback = {
+            **value,
+            "status": "fallback",
+            "appleAttempts": 0,
+            "appleValidResults": 0,
+            "replacementEmitted": False,
+            "replacementSha256": None,
+            "replacementBytes": None,
+            "appleLatencyNanoseconds": None,
+            "appleLatencySamples": 0,
+        }
+        for stage in runner._PREFLIGHT_STAGES:
+            self.assertEqual(
+                stage,
+                runner.parse_runtime_v1_observation(
+                    (json.dumps({**fallback, "preflightStage": stage}) + "\n").encode()
+                )["preflightStage"],
+            )
         for mutation in (
+            {**value, "schemaVersion": 1},
             {**value, "extra": True},
             {**value, "validatedApplied": True},
             {**value, "appleAttempts": 0},
+            {**fallback, "preflightStage": None},
+            {**fallback, "preflightStage": "private"},
+            {**fallback, "preflightStage": []},
+            {**fallback, "preflightStage": {}},
+            {**fallback, "appleAttempts": None, "preflightStage": None},
             {**value, "status": "blocked", "reasonCode": None},
             {**value, "replacementSha256": "not-a-digest"},
             {
@@ -2262,12 +2298,26 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             calls.append((coordinate["fixtureID"], role))
             arm = self.arm(coordinate, role)
             arm.pop("stderrBytes")
+            arm.pop("preflightStage")
             return arm
 
         arms = runner.collect_arms(coordinates, run)
         self.assertEqual(len(arms), 48)
         self.assertEqual(calls[0], (coordinates[0]["fixtureID"], "pluginOff"))
         self.assertEqual(calls[1], (coordinates[0]["fixtureID"], "pluginOn"))
+        records = []
+        stages = sorted(runner._PREFLIGHT_STAGES)
+        for index, coordinate in enumerate(coordinates):
+            records.extend((
+                ("pluginOff", 0, None),
+                ("pluginOn", 0, stages[index % len(stages)]),
+            ))
+        counts = runner.preflight_stage_counts(records)
+        self.assertEqual(set(runner._PREFLIGHT_STAGES), set(counts))
+        self.assertEqual(24, sum(counts.values()))
+        self.assertNotIn("preflightStage", json.dumps(arms))
+        with self.assertRaises(runner.BenchmarkFailure):
+            runner.preflight_stage_counts(records[:-1])
         for malformed in (
             arms[:-1],
             [*arms[:-1], arms[0]],

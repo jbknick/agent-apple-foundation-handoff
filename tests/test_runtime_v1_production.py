@@ -493,6 +493,8 @@ class ProductionPathTests(unittest.TestCase):
             decoded = json.loads(path.read_text())
             self.assertEqual(set(adapter.OBSERVATION_KEYS), set(decoded))
             self.assertEqual("replacement_emitted", decoded["status"])
+            self.assertEqual(2, decoded["schemaVersion"])
+            self.assertIsNone(decoded["preflightStage"])
             self.assertEqual(1, decoded["appleAttempts"])
             self.assertEqual(1, decoded["appleValidResults"])
             self.assertTrue(decoded["replacementEmitted"])
@@ -564,23 +566,31 @@ class ProductionPathTests(unittest.TestCase):
         self.assertEqual(0, value["appleValidResults"])
         self.assertFalse(value["replacementEmitted"])
         self.assertIsNone(value["replacementSha256"])
+        self.assertIsNone(value["preflightStage"])
 
     def test_benchmark_fallback_attempt_and_latency_invariants(self):
-        variants = (
+        zero_attempts = tuple(
             (
                 {
                     **consultation_for(
                         {"fields": [{"value": diagnostic_text()}]}
                     ),
                     "status": "declined",
-                    "reasonCode": "apple_unavailable",
-                    "appleAvailable": False,
+                    "reasonCode": stage,
+                    "appleAvailable": stage != "apple_unavailable",
+                    "localeSupported": stage not in {
+                        "apple_unavailable", "locale_unsupported"
+                    },
                     "appleAttempts": 0,
                     "condensation": None,
                 },
                 0,
                 0,
-            ),
+                stage,
+            )
+            for stage in adapter.PREFLIGHT_STAGES
+        )
+        variants = zero_attempts + (
             (
                 {
                     **consultation_for(
@@ -593,9 +603,10 @@ class ProductionPathTests(unittest.TestCase):
                 },
                 1,
                 1,
+                None,
             ),
         )
-        for consultation, attempts, samples in variants:
+        for consultation, attempts, samples, stage in variants:
             with self.subTest(attempts=attempts):
                 observer = adapter.BenchmarkObserver(
                     lambda _request, value=consultation: value
@@ -611,10 +622,24 @@ class ProductionPathTests(unittest.TestCase):
                 self.assertEqual("fallback", value["status"])
                 self.assertEqual(attempts, value["appleAttempts"])
                 self.assertEqual(samples, value["appleLatencySamples"])
+                self.assertEqual(stage, value["preflightStage"])
                 self.assertEqual(
                     samples == 1,
                     value["appleLatencyNanoseconds"] is not None,
                 )
+
+        invalid = {
+            **zero_attempts[0][0],
+            "reasonCode": "generation_rate_limited",
+        }
+        observer = adapter.BenchmarkObserver(lambda _request: invalid)
+        response = adapter.evaluate(
+            payload(), contract=contract, consult=observer.consult,
+            repo_root=ROOT, observe=observer.observe,
+        )
+        value = observer.finish(response, 1)
+        self.assertEqual("blocked", value["status"])
+        self.assertIsNone(value["preflightStage"])
 
     def test_benchmark_observation_rejects_replaced_captured_parent(self):
         with tempfile.TemporaryDirectory(dir=ROOT) as directory:
@@ -689,11 +714,17 @@ class ProductionPathTests(unittest.TestCase):
                 1,
                 serialized_hook_response(response),
             )
-            with self.assertRaises(ValueError):
-                adapter._write_observation(
-                    path,
-                    {**value, "appleAttempts": 0},
-                )
+            for mutation in (
+                {**value, "schemaVersion": 1},
+                {key: item for key, item in value.items() if key != "preflightStage"},
+                {**value, "preflightStage": "private"},
+                {**value, "preflightStage": []},
+                {**value, "preflightStage": {}},
+                {**value, "appleAttempts": 0},
+                {**value, "preflightStage": "apple_unavailable"},
+            ):
+                with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                    adapter._write_observation(path, mutation)
             with mock.patch.object(
                 adapter.os,
                 "write",

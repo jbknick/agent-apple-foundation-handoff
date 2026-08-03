@@ -57,6 +57,12 @@ BRIDGE_REASON_CODES = {
     "generation_unknown_error",
     "contract_invariant_failed",
 }
+PREFLIGHT_STAGES = {
+    "apple_unavailable",
+    "locale_unsupported",
+    "generation_preflight_unavailable",
+    "context_budget_exceeded",
+}
 STATE_VERSION = "runtime-v1-direct-consultation-v1"
 TOOL_VERSION = "codex-cli-0.145.0"
 APPLICATION_CLASSIFICATION = "C1"
@@ -92,6 +98,7 @@ OBSERVATION_KEYS = {
     "event",
     "status",
     "reasonCode",
+    "preflightStage",
     "appleAttempts",
     "appleValidResults",
     "replacementEmitted",
@@ -208,7 +215,7 @@ def _write_observation(
         type(value) is not dict
         or set(value) != OBSERVATION_KEYS
         or type(value["schemaVersion"]) is not int
-        or value["schemaVersion"] != 1
+        or value["schemaVersion"] != 2
         or value["event"] != "runtime_v1_observation"
         or value["status"] not in {
             "replacement_emitted", "fallback", "blocked"
@@ -218,6 +225,13 @@ def _write_observation(
             "apple_attempt_count_uncertain",
             "observation_invariant_failed",
         }
+        or (
+            value["preflightStage"] is not None
+            and (
+                type(value["preflightStage"]) is not str
+                or value["preflightStage"] not in PREFLIGHT_STAGES
+            )
+        )
         or (
             value["appleAttempts"] is not None
             and (
@@ -265,6 +279,7 @@ def _write_observation(
             status == "replacement_emitted"
             and (
                 value["reasonCode"] is not None
+                or value["preflightStage"] is not None
                 or value["appleAttempts"] != 1
                 or value["appleValidResults"] != 1
                 or value["replacementEmitted"] is not True
@@ -278,6 +293,15 @@ def _write_observation(
             status == "fallback"
             and (
                 value["reasonCode"] is not None
+                or value["appleAttempts"] not in {0, 1}
+                or (
+                    value["appleAttempts"] == 0
+                    and value["preflightStage"] not in PREFLIGHT_STAGES
+                )
+                or (
+                    value["appleAttempts"] != 0
+                    and value["preflightStage"] is not None
+                )
                 or value["appleValidResults"] != 0
                 or value["replacementEmitted"] is not False
                 or value["replacementSha256"] is not None
@@ -288,6 +312,7 @@ def _write_observation(
             status == "blocked"
             and (
                 value["reasonCode"] is None
+                or value["preflightStage"] is not None
                 or value["appleValidResults"] != 0
                 or value["replacementEmitted"] is not False
                 or value["replacementSha256"] is not None
@@ -461,6 +486,7 @@ class BenchmarkObserver:
         applied = response is not None
         valid_results = 1 if applied else 0
         reason = None
+        preflight_stage = None
         status = "replacement_emitted" if applied else "fallback"
         expected_replacement = None
         receipt_replacement = None
@@ -508,6 +534,10 @@ class BenchmarkObserver:
             "appleAttempts": attempts,
             "appleValidResults": valid_results,
         }
+        if consultation_closed and attempts == 0:
+            candidate = self._consultation.get("reasonCode")
+            if candidate in PREFLIGHT_STAGES:
+                preflight_stage = candidate
         if (
             self._uncertain
             or not consultation_closed
@@ -524,6 +554,8 @@ class BenchmarkObserver:
                 )
             )
             or (applied and attempts != 1)
+            or (attempts == 0 and preflight_stage is None)
+            or (attempts != 0 and preflight_stage is not None)
         ):
             status = "blocked"
             reason = (
@@ -534,13 +566,15 @@ class BenchmarkObserver:
             attempts = None if self._uncertain or not consultation_closed else attempts
             valid_results = 0
             applied = False
+            preflight_stage = None
         replacement = receipt_replacement if applied else {}
         apple_samples = 1 if attempts == 1 and self._apple_latency is not None else 0
         return {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "event": "runtime_v1_observation",
             "status": status,
             "reasonCode": reason,
+            "preflightStage": preflight_stage,
             "appleAttempts": attempts,
             "appleValidResults": valid_results,
             "replacementEmitted": applied,

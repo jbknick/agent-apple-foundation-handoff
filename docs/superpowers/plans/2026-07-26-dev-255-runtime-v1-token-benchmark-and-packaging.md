@@ -1022,6 +1022,41 @@ After the same gates and formal review pass, commit this exact plan-only
 identity correction as one new clean candidate with exactly one fresh native
 usage-dry-run budget under the unchanged non-pass terminal rules.
 
+## 2026-08-03 zero-attempt Apple preflight attribution
+
+The clean `5f1680852ba55b5375551eb1bc5d2e8217281e2b` candidate's native dry
+row passed, then its single complete run produced all 24 pairs and 48 arms but
+failed release with median reduction `-19996` PPM, zero Apple attempts, and
+zero validated applied rows. Correctness regressions, additional requests and
+turns, command reruns, cleanup failures, and unsafe evidence findings were all
+zero. Preserve this terminal in Linear; do not retry or relabel it. Its
+validated untracked fail evidence was moved recoverably out of the required
+output path and is not release evidence.
+
+Bump only the optional benchmark observation to schema version 2 and add a
+closed nullable `preflightStage`. A valid zero-attempt fallback requires
+exactly one of `apple_unavailable`, `locale_unsupported`,
+`generation_preflight_unavailable`, or `context_budget_exceeded`; applied,
+one-attempt fallback, blocked or uncertain observation, and plugin-off require
+`null`. Derive the value only from a closed bridge result with zero attempts.
+Every missing, unknown, or contradictory value blocks as an observation
+invariant failure.
+
+Keep the value transient. Strip it before existing arm validation and evidence
+construction, and leave the committed evidence schema and release arithmetic
+unchanged. The complete terminal may add only fixed four-key nonnegative
+`preflightStageCounts`, whose sum equals plugin-on zero-attempt arms. It is
+diagnostic metadata, not Apple availability proof, a release input, or an
+attempt/applied substitute. No prompt, response, Apple output, error, path,
+credential, transcript, raw observation, additional command, request, turn,
+attempt, rerun, retry, provider, scorer, oracle, or release-rule change.
+
+After focused and full tests, SDK 26.5 compilation, generated-artifact,
+evidence-safety, diff, ancestry, and formal high-reasoning exact-diff review
+pass, commit one new clean diagnostic candidate. Run exactly one native usage
+dry row; only a pass authorizes its one complete execution. Every non-pass is
+terminal without substitution, retry, or relabeling.
+
 ## 2026-08-03 closed normalized-arm invariant diagnostic
 
 The clean `29b7b6ef8f58087fedbd4f470a615554ba7164d8` candidate's one

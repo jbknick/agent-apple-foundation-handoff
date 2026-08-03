@@ -40,10 +40,17 @@ CODEX_SOURCE_COMMIT = "25af12f7"
 _COMMIT = re.compile(r"[0-9a-f]{40}\Z")
 _DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 _OBSERVATION_KEYS = {
-    "schemaVersion", "event", "status", "reasonCode", "appleAttempts",
+    "schemaVersion", "event", "status", "reasonCode", "preflightStage",
+    "appleAttempts",
     "appleValidResults", "replacementEmitted", "replacementSha256",
     "replacementBytes", "preReceiptHookLatencyNanoseconds",
     "appleLatencyNanoseconds", "appleLatencySamples",
+}
+_PREFLIGHT_STAGES = {
+    "apple_unavailable",
+    "locale_unsupported",
+    "generation_preflight_unavailable",
+    "context_budget_exceeded",
 }
 _FORWARDING_FAILURE_STAGES = {
     "preflight_setup",
@@ -170,6 +177,7 @@ class ArmInvariantBlocked(BenchmarkBlocked):
             "role", "parent_requests", "command_executions", "parent_turns",
             "apple_attempts", "role_state", "correctness", "stderr",
             "hook_latency_samples", "hook_role_state", "cleanup",
+            "preflight_stage",
         }:
             raise ValueError("invalid arm invariant stage")
         super().__init__("arm_invariant_invalid")
@@ -308,6 +316,7 @@ class ArmObservation:
     apple_latency_samples: int
     stderr_bytes: int
     cleanup_complete: bool
+    preflight_stage: str | None = None
 
 
 @dataclass(frozen=True)
@@ -390,7 +399,7 @@ def parse_runtime_v1_observation(value: bytes) -> dict[str, object]:
         type(row) is not dict
         or set(row) != _OBSERVATION_KEYS
         or type(row["schemaVersion"]) is not int
-        or row["schemaVersion"] != 1
+        or row["schemaVersion"] != 2
         or row["event"] != "runtime_v1_observation"
         or row["status"] not in {
             "replacement_emitted", "fallback", "blocked"
@@ -399,6 +408,13 @@ def parse_runtime_v1_observation(value: bytes) -> dict[str, object]:
             None, "apple_attempt_count_uncertain",
             "observation_invariant_failed",
         }
+        or (
+            row["preflightStage"] is not None
+            and (
+                type(row["preflightStage"]) is not str
+                or row["preflightStage"] not in _PREFLIGHT_STAGES
+            )
+        )
         or (
             row["appleAttempts"] is not None
             and (
@@ -444,6 +460,7 @@ def parse_runtime_v1_observation(value: bytes) -> dict[str, object]:
             applied
             and (
                 row["reasonCode"] is not None
+                or row["preflightStage"] is not None
                 or row["appleAttempts"] != 1
                 or row["appleValidResults"] != 1
                 or row["replacementEmitted"] is not True
@@ -456,6 +473,15 @@ def parse_runtime_v1_observation(value: bytes) -> dict[str, object]:
             status == "fallback"
             and (
                 row["reasonCode"] is not None
+                or row["appleAttempts"] not in {0, 1}
+                or (
+                    row["appleAttempts"] == 0
+                    and row["preflightStage"] not in _PREFLIGHT_STAGES
+                )
+                or (
+                    row["appleAttempts"] != 0
+                    and row["preflightStage"] is not None
+                )
                 or row["appleValidResults"] != 0
                 or row["replacementEmitted"] is not False
                 or row["replacementSha256"] is not None
@@ -482,6 +508,7 @@ def parse_runtime_v1_observation(value: bytes) -> dict[str, object]:
             row["appleAttempts"] is None
             and row["appleLatencySamples"] != 0
         )
+        or (status == "blocked" and row["preflightStage"] is not None)
     ):
         reason = (
             "apple_attempt_count_uncertain"
@@ -1170,13 +1197,13 @@ def provider_counter_failure_stage(
 
 _APPROVED_IDENTITIES = {
     "productionPluginSha256":
-        "b9348701fd4892766402f2a6080e4f0251e3645363e0c254ea411d6a2ff451fc",
+        "81ecad007f2d0eefd243061105ac12e6a65ff0e6fd78de482de487e07409362b",
     "codexManifestSha256":
         "6c10d51db5a08a1531ba3c7964d77a5cf2b258f3ca838b655a5350d901b1927a",
     "hooksManifestSha256":
         "932234483e15c3277376c5b25cae2e63f8c83bc9dd63a77bc02f6fb13dbb6759",
     "pythonAdapterSha256":
-        "21710a9f22aa830b262ce46565958a369bf7eb6140bcdf2dacd5b15f5dc33049",
+        "cc3ef62ad1bdb3961d7a4d6b07fe2ceb3550bafdd84364a2b44e72910288d48a",
     "swiftSourceSha256":
         "da40e06fa160b106bb6e9ff278aae4422be415c953ae3afba1391614d309e668",
     "corpusSha256":
@@ -1768,6 +1795,7 @@ def normalized_arm(
     contract.validate_arm(arm)
     return {
         **arm,
+        "preflightStage": observation.preflight_stage,
         "stderrBytes": observation.stderr_bytes,
         "latency": {
             "parent": _latency(observation.parent_latency_ns, 1),
@@ -1834,6 +1862,17 @@ def _arm_invariant_failure_stage(
         and observation.pre_receipt_hook_latency_samples != 1
     ):
         return "hook_role_state"
+    if (
+        role == "pluginOff" and observation.preflight_stage is not None
+    ) or (
+        role == "pluginOn"
+        and observation.apple_attempts == 0
+        and observation.preflight_stage not in _PREFLIGHT_STAGES
+    ) or (
+        observation.apple_attempts != 0
+        and observation.preflight_stage is not None
+    ):
+        return "preflight_stage"
     if observation.cleanup_complete is not True:
         return "cleanup"
     return None
@@ -1880,6 +1919,38 @@ def usage_dry_run_terminal(arms: list[dict[str, object]]) -> dict[str, object]:
         "providerRequests": [arms[0]["parent_requests"]],
         "stderrBytes": arms[0]["stderrBytes"],
     }
+
+
+def preflight_stage_counts(
+    records: list[tuple[str, int, str | None]],
+) -> dict[str, int]:
+    counts = {stage: 0 for stage in sorted(_PREFLIGHT_STAGES)}
+    if type(records) is not list or len(records) != 48:
+        raise BenchmarkFailure("preflight_stage_counts_invalid")
+    plugin_on_zero_attempts = 0
+    roles = {"pluginOff": 0, "pluginOn": 0}
+    for role, attempts, stage in records:
+        if (
+            role not in roles
+            or type(attempts) is not int
+            or attempts not in {0, 1}
+            or (role == "pluginOff" and attempts != 0)
+        ):
+            raise BenchmarkFailure("preflight_stage_counts_invalid")
+        roles[role] += 1
+        if role == "pluginOn" and attempts == 0:
+            plugin_on_zero_attempts += 1
+            if stage not in counts:
+                raise BenchmarkFailure("preflight_stage_counts_invalid")
+            counts[stage] += 1
+        elif stage is not None:
+            raise BenchmarkFailure("preflight_stage_counts_invalid")
+    if (
+        roles != {"pluginOff": 24, "pluginOn": 24}
+        or sum(counts.values()) != plugin_on_zero_attempts
+    ):
+        raise BenchmarkFailure("preflight_stage_counts_invalid")
+    return counts
 
 
 def _validate_complete_latency(
@@ -3112,6 +3183,7 @@ def _execute_benchmark_arm(
             )
         if observation_path is None:
             apple_attempts = 0
+            preflight_stage = None
             replacement_emitted = False
             pre_receipt_hook_latency = 0
             apple_latency = 0
@@ -3119,6 +3191,7 @@ def _execute_benchmark_arm(
         else:
             observation = consume_runtime_v1_observation(observation_path)
             apple_attempts = observation["appleAttempts"]
+            preflight_stage = observation["preflightStage"]
             replacement_emitted = (
                 observation["status"] == "replacement_emitted"
                 and observation["replacementEmitted"] is True
@@ -3146,6 +3219,7 @@ def _execute_benchmark_arm(
             role=role,
             replacement_emitted=replacement_emitted,
             apple_attempts=apple_attempts,
+            preflight_stage=preflight_stage,
             parent_requests=requests,
             completed_parent_turns=parsed.completed_parent_turns,
             command_executions=parsed.command_executions,
@@ -3281,6 +3355,7 @@ def main(argv: list[str] | None = None) -> int:
         raise BenchmarkBlocked("hook_identity_unapproved")
     recheck_hosts(codex, python)
     coordinates = fixed_pair_coordinates()
+    preflight_records = []
     forwarding_proof = run_forwarding_preflight(
         codex=codex,
         python=python,
@@ -3306,6 +3381,13 @@ def main(argv: list[str] | None = None) -> int:
         recheck_hosts(codex, python)
         if options.through == "complete":
             result.pop("stderrBytes")
+        preflight_stage = result.pop("preflightStage")
+        if options.through == "complete":
+            preflight_records.append(
+                (result["arm"], result["apple_attempts"], preflight_stage)
+            )
+        elif preflight_stage is not None:
+            raise BenchmarkFailure("preflight_stage_counts_invalid")
         return result
 
     if options.through == "usage-dry-run":
@@ -3327,6 +3409,7 @@ def main(argv: list[str] | None = None) -> int:
     output = normalize_output_path(options.output)
     output_parent_identity = directory_identity(output.parent)
     arms = collect_arms(coordinates, run_arm)
+    stage_counts = preflight_stage_counts(preflight_records)
     candidate.recheck()
     evidence = build_evidence(
         arms,
@@ -3355,6 +3438,7 @@ def main(argv: list[str] | None = None) -> int:
                 "status": evidence["status"],
                 "reasonCodes": evidence["reasonCodes"],
                 "output": str(output.relative_to(ROOT)),
+                "preflightStageCounts": stage_counts,
             },
             sort_keys=True,
         )
