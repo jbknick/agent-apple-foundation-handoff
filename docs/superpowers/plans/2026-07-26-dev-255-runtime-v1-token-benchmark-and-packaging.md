@@ -1190,6 +1190,42 @@ execution. This is a new cleanup-diagnostic candidate, not a retry of
 `13c30bf6b397fc55d30df3269d1d5d24a3ea656a` or an earlier terminal. A
 non-pass is terminal and authorizes no executable substitution or retry.
 
+## 2026-08-03 value-free parent parsing grammar correction
+
+The clean `4700074fd34383c03f1c25de1103bd632f327e7b` candidate's one
+authorized native usage dry row passed with exactly two parent requests. Its
+single complete 24-pair benchmark execution later failed terminally at
+`correctness_oracle_failed / parent_outcome / quality_score` and wrote no
+evidence file. Preserve both facts in Linear history; do not retry or relabel
+either execution.
+
+Static inspection identifies a prompt-contract gap: the DEV-142 scorer requires
+exact field values, ordered facts, diagnostic identities, and warning
+arithmetic, while the parent task names only the eight output fields and does
+not define the reviewed result grammar. Amend only the generic task text with
+value-free precedence. An exact eight-field result passes through unchanged;
+an exact applied `diagnostic_condensation` wrapper returns only its exact
+eight-field `condensation`; otherwise parse only the closed start-of-line
+DEV-142 protocol, first scalar occurrences, literal `|` fact lists, source-row
+diagnostic and warning-representative JSON, base-10 warning count, and omitted
+warning arithmetic. Ignore every other line and never paraphrase, invent,
+normalize, reorder, deduplicate, infer from exit status, repair, or guess.
+
+The task retains the same exact approved command once and no other tool call.
+It contains no case ID, rendered hash, expected answer, case-derived value, raw
+result, transcript, telemetry content, private path, or credential. Preserve
+the exact corpus, output schema, scorer, correctness oracle, hook, provider,
+request and turn counts, Apple-attempt rule, cleanup, privacy, evidence, and
+release gates.
+
+After focused and full deterministic gates, SDK compilation,
+generated-artifact checks, and a formal high-reasoning diff review pass,
+commit one new clean candidate and run exactly one native Codex `0.145.0`
+`--through usage-dry-run` row. Only a pass authorizes one complete benchmark
+execution. This is a new prompt-corrected candidate, not a retry of
+`4700074fd34383c03f1c25de1103bd632f327e7b` or an earlier terminal. A
+non-pass is terminal and authorizes no executable substitution or retry.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.

@@ -728,6 +728,51 @@ class RuntimeV1RunnerTests(unittest.TestCase):
         self.assertNotIn(case["renderedSha256"], prompt)
         self.assertNotIn(case["expected"]["summary"], prompt)
 
+    def test_parent_task_has_one_value_free_closed_parsing_grammar(self):
+        normalized = set()
+        required = (
+            "exactly once; make no other tool call",
+            "command's output text after any execution-status metadata as the result payload",
+            "canonical, schema-valid JSON",
+            "If the entire result payload is an object with exactly those eight fields",
+            "if that entire payload is an object with exactly schemaVersion",
+            "outcome is applied",
+            "resultType is diagnostic_condensation",
+            "parse that entire payload using only start-of-line ASCII prefixes",
+            "take the first command-outcome, summary, summary-facts",
+            "split facts only on literal '|' while preserving text and order",
+            "append every diagnostic and warning-representative JSON object",
+            "parse warning-count as base-10",
+            "warningCount minus the number of warning-representative rows",
+            "Ignore every other line",
+            "Never paraphrase, invent, normalize, reorder, deduplicate",
+            "repair or guess missing or malformed data",
+        )
+        for case in runner._corpus_cases():
+            prompt = runner._task(case)
+            command = runner._command_for_case(case)
+            self.assertEqual(prompt.count(command), 1)
+            normalized.add(prompt.replace(command, "<approved-command>", 1))
+            for rule in required:
+                self.assertIn(rule, prompt)
+            expected = case["expected"]
+            prohibited = {
+                case["id"],
+                case["renderedSha256"],
+                expected["summary"],
+                expected["nextAction"],
+                *expected["summaryFacts"],
+                *expected["completionFacts"],
+                *expected["requiredDiagnosticIDs"],
+                *expected["warningRepresentativeIDs"],
+                *expected["failedTestIDs"],
+                json.dumps(expected, sort_keys=True, separators=(",", ":")),
+            }
+            for value in prohibited:
+                if value:
+                    self.assertNotIn(value, prompt)
+        self.assertEqual(len(normalized), 1)
+
     def test_output_allowlist_is_exact_existing_parent_and_no_resume(self):
         with tempfile.TemporaryDirectory(dir=ROOT) as directory:
             candidate = Path(directory) / "runtime-v1-benchmark.json"
