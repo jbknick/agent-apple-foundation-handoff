@@ -2451,11 +2451,15 @@ class RuntimeV1RunnerTests(unittest.TestCase):
     def test_provider_counter_blocker_has_closed_normalized_stages(self):
         for stage in ("process_exit", "telemetry_payload", "telemetry_batch"):
             payload_stage = "record" if stage == "telemetry_payload" else None
+            process_exit_stage = (
+                "turn_failed" if stage == "process_exit" else None
+            )
             self.assertEqual(
                 runner.blocked_terminal(
                     runner.ProviderCounterBlocked(
                         stage,
                         payload_stage=payload_stage,
+                        process_exit_stage=process_exit_stage,
                     )
                 ),
                 {
@@ -2466,16 +2470,115 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                         {"payloadStage": payload_stage}
                         if payload_stage is not None else {}
                     ),
+                    **(
+                        {"processExitStage": process_exit_stage}
+                        if process_exit_stage is not None else {}
+                    ),
                 },
             )
         with self.assertRaisesRegex(ValueError, "invalid provider counter"):
             runner.ProviderCounterBlocked("raw_detail")
         with self.assertRaisesRegex(ValueError, "invalid provider payload"):
             runner.ProviderCounterBlocked("telemetry_payload")
+        with self.assertRaisesRegex(ValueError, "invalid process exit"):
+            runner.ProviderCounterBlocked("process_exit")
+        with self.assertRaisesRegex(ValueError, "invalid process exit"):
+            runner.ProviderCounterBlocked(
+                "telemetry_batch", process_exit_stage="turn_failed"
+            )
         self.assertIsNone(
             runner.provider_counter_failure_stage(
                 0, counter_invalid=False, counter_batches=1
             )
+        )
+
+    def test_process_exit_stream_classification_is_closed_and_content_free(self):
+        started = [
+            {"type": "thread.started", "thread_id": "synthetic"},
+            {"type": "turn.started"},
+        ]
+        terminal = {
+            "type": "turn.failed",
+            "error": {"message": "private"},
+        }
+
+        def stream(*events):
+            return b"".join(
+                json.dumps(event, separators=(",", ":")).encode() + b"\n"
+                for event in events
+            )
+
+        self.assertEqual(
+            runner.classify_process_exit_stream(stream(
+                *started,
+                {"type": "error", "message": "private"},
+                terminal,
+            )),
+            "error_then_turn_failed",
+        )
+        self.assertEqual(
+            runner.classify_process_exit_stream(stream(*started, terminal)),
+            "turn_failed",
+        )
+        self.assertEqual(
+            runner.classify_process_exit_stream(stream(
+                *started,
+                {"type": "item.completed", "item": {"opaque": "private"}},
+            )),
+            "terminal_absent",
+        )
+        for malformed in (
+            b"\xff",
+            stream(started[0])
+            + b'{"type":"turn.started","type":"private"}\n',
+            stream(*started) + b"{\n",
+            stream(*started, {"type": "turn.completed", "usage": {}}),
+            stream(*started, {"type": "error", "message": "private"}),
+            stream(*started, {"type": "private"}),
+            stream(*started, {"type": "item.completed"}),
+        ):
+            with self.subTest(malformed=malformed[:20]):
+                self.assertEqual(
+                    runner.classify_process_exit_stream(malformed),
+                    "unclassified",
+                )
+
+    def test_process_exit_stream_is_cleared_on_unclassified_bytes(self):
+        completed = subprocess.CompletedProcess([], 1, b"\xffprivate", b"")
+        counter = mock.Mock(
+            endpoint="http://127.0.0.1:1",
+            invalid=False,
+            batches=1,
+            api_requests=0,
+        )
+        codex = mock.Mock(
+            resolved=Path("/approved/codex"),
+            version="0.145.0",
+        )
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(
+            runner,
+            "otel_request_counter",
+            return_value=__import__("contextlib").nullcontext(counter),
+        ), mock.patch.object(
+            runner, "configure_otel_counter"
+        ), mock.patch.object(
+            runner.subprocess, "run", return_value=completed
+        ), self.assertRaises(runner.ProviderCounterBlocked) as caught:
+            runner.invoke_with_otel_counter(
+                codex,
+                environment={},
+                arguments=[],
+                codex_home=Path(directory),
+            )
+        self.assertEqual(completed.stdout, b"")
+        self.assertEqual(
+            runner.blocked_terminal(caught.exception),
+            {
+                "status": "blocked",
+                "reasonCodes": ["provider_request_counter_invalid"],
+                "failureStage": "process_exit",
+                "processExitStage": "unclassified",
+            },
         )
 
     def test_correctness_oracle_failure_has_closed_stage(self):

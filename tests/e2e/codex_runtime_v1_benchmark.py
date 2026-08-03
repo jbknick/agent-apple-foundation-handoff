@@ -86,6 +86,12 @@ _PROVIDER_COUNTER_FAILURE_STAGES = {
     "telemetry_payload",
     "telemetry_batch",
 }
+_PROCESS_EXIT_STAGES = {
+    "error_then_turn_failed",
+    "turn_failed",
+    "terminal_absent",
+    "unclassified",
+}
 _OTEL_PAYLOAD_STAGES = {
     "transport",
     "json",
@@ -232,7 +238,13 @@ class ForwardingPreflightBlocked(BenchmarkBlocked):
 
 
 class ProviderCounterBlocked(BenchmarkBlocked):
-    def __init__(self, failure_stage: str, *, payload_stage: str | None = None):
+    def __init__(
+        self,
+        failure_stage: str,
+        *,
+        payload_stage: str | None = None,
+        process_exit_stage: str | None = None,
+    ):
         if failure_stage not in _PROVIDER_COUNTER_FAILURE_STAGES:
             raise ValueError("invalid provider counter failure stage")
         if (
@@ -243,9 +255,17 @@ class ProviderCounterBlocked(BenchmarkBlocked):
             and payload_stage is not None
         ):
             raise ValueError("invalid provider payload failure stage")
+        if (
+            failure_stage == "process_exit"
+            and process_exit_stage not in _PROCESS_EXIT_STAGES
+        ) or (
+            failure_stage != "process_exit" and process_exit_stage is not None
+        ):
+            raise ValueError("invalid process exit stage")
         super().__init__("provider_request_counter_invalid")
         self.failure_stage = failure_stage
         self.payload_stage = payload_stage
+        self.process_exit_stage = process_exit_stage
 
 
 class OtelPayloadError(ValueError):
@@ -1104,6 +1124,14 @@ def invoke_with_otel_counter(
         counter_batches=counter.batches,
     )
     if failure_stage is not None:
+        process_exit_stage = None
+        if failure_stage == "process_exit":
+            try:
+                process_exit_stage = classify_process_exit_stream(
+                    completed.stdout
+                )
+            finally:
+                completed.stdout = b""
         raise ProviderCounterBlocked(
             failure_stage,
             payload_stage=(
@@ -1113,6 +1141,7 @@ def invoke_with_otel_counter(
             ) or (
                 "unknown" if failure_stage == "telemetry_payload" else None
             ),
+            process_exit_stage=process_exit_stage,
         )
     return completed.stdout, counter.api_requests, elapsed, stderr_bytes
 
@@ -1193,6 +1222,103 @@ def provider_counter_failure_stage(
     if type(counter_batches) is not int or counter_batches < 1:
         return "telemetry_batch"
     return None
+
+
+def classify_process_exit_stream(value: object) -> str:
+    def closed_json(pairs):
+        decoded = {}
+        for key, child in pairs:
+            if key in decoded:
+                raise ValueError("duplicate key")
+            decoded[key] = child
+        return decoded
+
+    try:
+        if type(value) is not bytes:
+            raise ValueError("invalid stream")
+        lines = value.decode("utf-8").splitlines()
+        if len(lines) < 2 or any(not line for line in lines):
+            raise ValueError("invalid stream")
+        events = [
+            json.loads(
+                line,
+                object_pairs_hook=closed_json,
+                parse_constant=lambda _value: (_ for _ in ()).throw(
+                    ValueError("non-standard constant")
+                ),
+            )
+            for line in lines
+        ]
+        if (
+            type(events[0]) is not dict
+            or set(events[0]) != {"type", "thread_id"}
+            or events[0]["type"] != "thread.started"
+            or type(events[0]["thread_id"]) is not str
+            or not events[0]["thread_id"]
+            or type(events[1]) is not dict
+            or events[1] != {"type": "turn.started"}
+        ):
+            raise ValueError("invalid stream")
+        body = events[2:]
+        if any(
+            type(event) is not dict or type(event.get("type")) is not str
+            for event in body
+        ):
+            raise ValueError("invalid stream")
+        item_types = {"item.started", "item.updated", "item.completed"}
+        supported_types = item_types | {
+            "error", "turn.failed", "turn.completed",
+        }
+        if any(
+            event["type"] not in supported_types
+            or (
+                event["type"] in item_types
+                and (
+                    set(event) != {"type", "item"}
+                    or type(event["item"]) is not dict
+                )
+            )
+            for event in body
+        ):
+            raise ValueError("invalid stream")
+        errors = [
+            (index, event)
+            for index, event in enumerate(body)
+            if event["type"] == "error"
+        ]
+        failed = [
+            event for event in body if event["type"] == "turn.failed"
+        ]
+        completed = [
+            event for event in body if event["type"] == "turn.completed"
+        ]
+        if errors and any(
+            set(event) != {"type", "message"}
+            or type(event["message"]) is not str
+            for _, event in errors
+        ):
+            raise ValueError("invalid stream")
+        if failed and any(
+            set(event) != {"type", "error"}
+            or type(event["error"]) is not dict
+            or set(event["error"]) != {"message"}
+            or type(event["error"]["message"]) is not str
+            for event in failed
+        ):
+            raise ValueError("invalid stream")
+        if len(failed) == 1 and body[-1] is failed[0] and not completed:
+            if len(errors) == 1 and errors[0][0] < len(body) - 1:
+                return "error_then_turn_failed"
+            if not errors:
+                return "turn_failed"
+        if not errors and not failed and not completed and all(
+            event["type"] in item_types
+            for event in body
+        ):
+            return "terminal_absent"
+    except (UnicodeError, ValueError, json.JSONDecodeError):
+        pass
+    return "unclassified"
 
 
 _APPROVED_IDENTITIES = {
@@ -3035,6 +3161,11 @@ def blocked_terminal(error: BenchmarkBlocked) -> dict[str, object]:
         terminal["identityStage"] = error.identity_stage
     if isinstance(error, ProviderCounterBlocked) and error.payload_stage is not None:
         terminal["payloadStage"] = error.payload_stage
+    if (
+        isinstance(error, ProviderCounterBlocked)
+        and error.process_exit_stage is not None
+    ):
+        terminal["processExitStage"] = error.process_exit_stage
     if isinstance(error, CleanupBlocked):
         terminal["cleanupStage"] = error.cleanup_stage
         if error.cleanup_failure_stage is not None:

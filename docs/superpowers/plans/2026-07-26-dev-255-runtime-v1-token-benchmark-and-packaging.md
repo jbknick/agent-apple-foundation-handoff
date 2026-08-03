@@ -1073,6 +1073,43 @@ oracle, scorer, privacy, or release rule changes. After focused and full
 gates, SDK and generated checks, exact-diff review, and a clean new commit,
 authorize exactly one new native dry row under the unchanged terminal rules.
 
+## 2026-08-03 closed process-exit structure diagnostic
+
+The clean `e45c2e0a59aaaaeea5bab85c669fd4f184973ae4` candidate's native dry
+row passed, then its single complete execution stopped at
+`blocked:provider_request_counter_invalid` with
+`failureStage = process_exit`. Preserve that terminal in Linear history; do
+not retry or relabel it.
+
+Pinned Codex `0.145.0` source commit
+`25af12f7e61572b0bc18ddb1008be543b91519b0` proves that a nonzero exec
+process may follow a matching nonretry error notification, a failed or
+interrupted turn, or a server-request response failure. Its JSONL stream does
+not retain enough correlation state to infer those causes. Retain only one
+closed structural `processExitStage`: `error_then_turn_failed` for an exact
+top-level error followed by an exact final `turn.failed`; `turn_failed` for an
+exact final failed turn without a top-level error; `terminal_absent` for an
+otherwise valid started stream containing only supported nonterminal item
+events; or `unclassified` for every other byte or structure.
+
+Parse duplicate-safe UTF-8 JSON only while the captured stdout remains
+transient. Check message presence and type but never inspect, compare, hash,
+copy, retain, or classify its text; keep intermediate item bodies opaque.
+Clear captured stdout unconditionally, including on malformed UTF-8, JSON,
+or structure. Require `processExitStage` exactly when
+`failureStage = process_exit` and forbid it otherwise. Retain no stdout,
+message, item, count, return code, path, output, prompt, response, Apple
+output, telemetry content, credential, or transcript.
+
+Keep process-exit precedence, stderr handling, counter, command, request,
+turn, Apple-attempt, oracle, cleanup, evidence, retry, and release rules
+unchanged. After focused and full deterministic gates, SDK compilation,
+generated-artifact checks, and a formal high-reasoning security and diff
+review pass, commit one new clean diagnostic candidate and run exactly one
+native Codex `0.145.0` `--through usage-dry-run` row. Only a pass authorizes
+its single complete execution; every non-pass is terminal without retry,
+substitution, or relabeling.
+
 ## 2026-08-03 closed normalized-arm invariant diagnostic
 
 The clean `29b7b6ef8f58087fedbd4f470a615554ba7164d8` candidate's one
