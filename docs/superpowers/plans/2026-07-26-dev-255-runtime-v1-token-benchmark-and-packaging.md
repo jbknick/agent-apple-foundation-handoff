@@ -986,12 +986,14 @@ authorized native usage dry run stopped before a row with
 that immutable terminal in Linear history; do not retry or relabel it.
 
 The official installation separates the `@openai/codex@0.145.0` launcher from
-the `@openai/codex-darwin-arm64@0.145.0` native optional package. Supersede only
-the prior package-location assumption: capture the native executable at the
-optional package's `vendor/aarch64-apple-darwin/bin/codex` suffix and pass its
-resolved `<host-path>` directly to `--codex-executable`. Do not invoke the
-JavaScript launcher, select through `PATH`, or search for a substitute after
-capture.
+its `@openai/codex-darwin-arm64` optional-dependency alias. Require that alias
+to target exactly `npm:@openai/codex@0.145.0-darwin-arm64` and the installed
+native payload metadata to be exactly `@openai/codex` version
+`0.145.0-darwin-arm64`. Supersede only the prior package-location assumption:
+capture the native executable at the aliased payload's
+`vendor/aarch64-apple-darwin/bin/codex` suffix and pass its resolved
+`<host-path>` directly to `--codex-executable`. Do not invoke the JavaScript
+launcher, select through `PATH`, or search for a substitute after capture.
 
 Use a fail-closed `set -eu` capture. Require both package identities and exact
 versions, a regular executable native target, strict `codex-cli 0.145.0`
@@ -1011,6 +1013,14 @@ binary, then run exactly one candidate-bound native Codex `0.145.0`
 `da063ecadc7c8d944a2b1a8391d4a4bd335640ad` or an earlier terminal. Every
 non-pass is terminal and authorizes no executable substitution or retry; only
 a pass authorizes that candidate's single complete benchmark execution.
+
+Commit `cd1f2eef6d510ce3aee31e6a4dbd62a6325b0646` was superseded before
+capture, native execution, a benchmark row, Apple attempt, or evidence
+artifact because its plan described the alias key as a payload identity. It is
+not a failed terminal, and its candidate-bound authorization does not transfer.
+After the same gates and formal review pass, commit this exact plan-only
+identity correction as one new clean candidate with exactly one fresh native
+usage-dry-run budget under the unchanged non-pass terminal rules.
 
 ## 2026-08-03 closed normalized-arm invariant diagnostic
 
