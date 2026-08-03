@@ -978,6 +978,40 @@ credential, or transcript. No identity rule, trust rule, command, request,
 turn, Apple attempt, retry, correctness oracle, evidence acceptance, privacy
 boundary, or release gate changes.
 
+## 2026-08-03 native optional-package capture correction
+
+The clean `da063ecadc7c8d944a2b1a8391d4a4bd335640ad` candidate's one
+authorized native usage dry run stopped before a row with
+`blocked:host_prerequisite_unavailable` and wrote no evidence file. Preserve
+that immutable terminal in Linear history; do not retry or relabel it.
+
+The official installation separates the `@openai/codex@0.145.0` launcher from
+the `@openai/codex-darwin-arm64@0.145.0` native optional package. Supersede only
+the prior package-location assumption: capture the native executable at the
+optional package's `vendor/aarch64-apple-darwin/bin/codex` suffix and pass its
+resolved `<host-path>` directly to `--codex-executable`. Do not invoke the
+JavaScript launcher, select through `PATH`, or search for a substitute after
+capture.
+
+Use a fail-closed `set -eu` capture. Require both package identities and exact
+versions, a regular executable native target, strict `codex-cli 0.145.0`
+output, and an immediate unchanged resolution, snapshot, and version recheck.
+Any mismatch is blocked without substitution or retry. Commit no installation
+root, private absolute path, or package contents; retain only normalized
+package identities, versions, suffix, `<host-path>`, and approved identity
+metadata. No runner, interface, evidence, command, provider, model, turn,
+Apple-attempt, privacy, correctness, or release rule changes.
+
+After documentation, generated-artifact, full regression, SDK 26.5,
+evidence-safety, diff, and ancestry gates plus formal high-reasoning exact-diff
+review pass, commit exactly this plan-only change as one new clean candidate.
+Under `set -eu`, capture and immediately recheck the optional-package native
+binary, then run exactly one candidate-bound native Codex `0.145.0`
+`--through usage-dry-run`. This is a new host-identity row, not a retry of
+`da063ecadc7c8d944a2b1a8391d4a4bd335640ad` or an earlier terminal. Every
+non-pass is terminal and authorizes no executable substitution or retry; only
+a pass authorizes that candidate's single complete benchmark execution.
+
 ## 2026-08-03 closed normalized-arm invariant diagnostic
 
 The clean `29b7b6ef8f58087fedbd4f470a615554ba7164d8` candidate's one
