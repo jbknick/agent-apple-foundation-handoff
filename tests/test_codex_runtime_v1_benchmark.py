@@ -724,7 +724,9 @@ class RuntimeV1RunnerTests(unittest.TestCase):
         command = "swift test"
         for value in (
             command,
+            "/bin/bash -c 'swift test'",
             "/bin/bash -lc 'swift test'",
+            "/bin/zsh -c 'swift test'",
             "/bin/zsh -lc 'swift test'",
         ):
             self.assertTrue(runner._reported_command_matches(value, command))
@@ -732,8 +734,9 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             False,
             "bash -lc 'swift test'",
             "/bin/sh -lc 'swift test'",
-            "/bin/bash -c 'swift test'",
+            "/bin/bash -ilc 'swift test'",
             "/bin/zsh --login -c 'swift test'",
+            "/bin/zsh -c 'swift test' extra",
             "/bin/zsh -lc 'swift test; echo extra'",
             "/bin/zsh -lc 'swift test' extra",
             "/bin/zsh -lc 'unterminated",

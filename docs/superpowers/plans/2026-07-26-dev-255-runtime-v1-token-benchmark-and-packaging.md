@@ -846,6 +846,32 @@ not a retry of `ea40d41b2f21735071234470956b184b1843fd97` or an earlier terminal
 non-pass is terminal and authorizes no executable substitution, preflight
 retry, Apple attempt, or benchmark arm outside the existing gates.
 
+## 2026-08-03 pinned non-login shell command rendering
+
+The clean `275c142e8ac4d86a61f1cfe3637221ace9449f85` candidate's one
+authorized native usage dry row stopped at the exact
+`correctness_oracle_failed / command_result / command_text` terminal.
+Preserve that result in Linear history; do not retry or relabel it.
+
+Pinned Codex `0.145.0` source commit `25af12f7` proves that the
+`shell_command` path supports both login and non-login execution. Its shell
+contract derives exactly `[shell_path, "-lc", command]` for login execution
+and `[shell_path, "-c", command]` for non-login execution, and the JSONL
+command item serializes that exact argv with `shlex_join`. Accept a reported
+command only when it equals the approved command exactly or parses to exactly
+`/bin/bash|/bin/zsh -c|-lc <approved-command>`. Reject relative or other
+shells, other or combined flags, missing or extra arguments, malformed
+quoting, and any changed inner command. Keep command count, exit, output,
+digest, parent outcome, provider count, arm, and evidence rules unchanged.
+
+After focused and full deterministic gates, SDK compilation,
+generated-artifact checks, and a formal high-reasoning source and diff review
+pass, commit one new clean candidate and run exactly one native Codex `0.145.0`
+`--through usage-dry-run` row. This is a new source-corrected candidate, not a
+retry of `275c142e8ac4d86a61f1cfe3637221ace9449f85` or an earlier terminal. A
+non-pass is terminal and authorizes no executable substitution, preflight
+retry, Apple attempt, or benchmark arm outside the existing gates.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.

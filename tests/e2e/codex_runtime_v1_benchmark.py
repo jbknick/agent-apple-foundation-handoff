@@ -2033,9 +2033,11 @@ def _reported_command_matches(value: object, command: str) -> bool:
         parts = shlex.split(value)
     except ValueError:
         return False
-    return parts in (
-        ["/bin/bash", "-lc", command],
-        ["/bin/zsh", "-lc", command],
+    return (
+        len(parts) == 3
+        and parts[0] in {"/bin/bash", "/bin/zsh"}
+        and parts[1] in {"-c", "-lc"}
+        and parts[2] == command
     )
 
 
