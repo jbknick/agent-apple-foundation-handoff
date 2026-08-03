@@ -2868,6 +2868,26 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                 },
             )
             runner.shutil.rmtree(forwarding_root)
+        real_rmtree = runner.shutil.rmtree
+        removed_root = None
+
+        def remove_then_report_error(root):
+            nonlocal removed_root
+            removed_root = root
+            real_rmtree(root)
+            raise OSError
+
+        with mock.patch.object(
+            runner.shutil,
+            "rmtree",
+            side_effect=remove_then_report_error,
+        ):
+            with runner.isolated_arm_root(
+                cleanup_stage="forwarding_root"
+            ):
+                pass
+        self.assertIsNotNone(removed_root)
+        self.assertFalse(removed_root.exists())
         for stage in ("parent_auth", "arm_pending"):
             with self.assertRaisesRegex(
                 ValueError, "invalid isolated root cleanup"

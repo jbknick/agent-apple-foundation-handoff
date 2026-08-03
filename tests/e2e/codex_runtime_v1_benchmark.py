@@ -2616,9 +2616,7 @@ def isolated_arm_root(
         try:
             shutil.rmtree(root)
         except OSError:
-            if cleanup_stage is not None:
-                raise CleanupBlocked(cleanup_stage) from None
-            raise BenchmarkBlocked("cleanup_incomplete") from None
+            pass
         if root.exists():
             if cleanup_stage is not None:
                 raise CleanupBlocked(cleanup_stage)

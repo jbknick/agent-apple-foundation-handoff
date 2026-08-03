@@ -1127,6 +1127,37 @@ execution. This is a new diagnostic candidate, not a retry of
 `743e0a92836c545e162c93f3e17d8e91fe02ab30` or an earlier terminal. A
 non-pass is terminal and authorizes no executable substitution or retry.
 
+## 2026-08-03 forwarding-root absence-oracle correction
+
+The clean `b90b70e8b4d8146942fe98007f4acf18edb2f7e5` candidate's one
+authorized native usage dry row stopped at `blocked:cleanup_incomplete` with
+`cleanupStage = forwarding_root`. Preserve that result in Linear history; do
+not retry or relabel it.
+
+Static inspection proves the shared isolated-root cleanup currently treats
+every `shutil.rmtree` `OSError` as incomplete before evaluating its existing
+root-absence oracle. Cleanup acceptance is the proved absence of the isolated
+root, not an error-free filesystem API return. Invoke `shutil.rmtree` exactly
+once, retain no exception or path detail, then evaluate the existing
+`root.exists()` oracle exactly once. Root presence keeps the unchanged generic
+or stage-specific blocker and cleanup-superseding precedence; root absence is
+cleanup success and leaves any earlier body exception authoritative.
+
+Add one regression where the real remover deletes the root and then reports
+`OSError`; require clean context exit and proved absence. Preserve the existing
+tests where an `OSError` leaves the root present and cleanup remains blocked.
+This changes no deletion attempt count, command, request, turn, Apple attempt,
+retry, provider behavior, correctness oracle, privacy rule, evidence field, or
+release gate.
+
+After focused and full deterministic gates, SDK compilation,
+generated-artifact checks, and a formal high-reasoning diff review pass,
+commit one new clean candidate and run exactly one native Codex `0.145.0`
+`--through usage-dry-run` row. Only a pass authorizes one complete benchmark
+execution. This is a new cleanup-corrected candidate, not a retry of
+`b90b70e8b4d8146942fe98007f4acf18edb2f7e5` or an earlier terminal. A
+non-pass is terminal and authorizes no executable substitution or retry.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.
