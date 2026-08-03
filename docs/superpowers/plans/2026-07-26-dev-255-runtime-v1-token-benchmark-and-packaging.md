@@ -1057,6 +1057,22 @@ pass, commit one new clean diagnostic candidate. Run exactly one native usage
 dry row; only a pass authorizes its one complete execution. Every non-pass is
 terminal without substitution, retry, or relabeling.
 
+## 2026-08-03 transient preflight wiring correction
+
+Candidate `303292936127c58aff5678c8ba9026da77ce519a` stopped during its
+single authorized dry execution with an unclassified runner exception before
+a normalized row. Preserve that terminal in Linear; do not retry or relabel
+it. Static inspection found the transient `preflight_stage` keyword on the
+unchanged applied-state derivation call while the subsequent `ArmObservation`
+constructor omitted it.
+
+Move only that keyword to `ArmObservation` and structurally assert the applied
+derivation's exact unchanged keyword set plus observation ownership. No schema,
+hook, bridge, evidence, command, request, turn, attempt, retry, provider,
+oracle, scorer, privacy, or release rule changes. After focused and full
+gates, SDK and generated checks, exact-diff review, and a clean new commit,
+authorize exactly one new native dry row under the unchanged terminal rules.
+
 ## 2026-08-03 closed normalized-arm invariant diagnostic
 
 The clean `29b7b6ef8f58087fedbd4f470a615554ba7164d8` candidate's one

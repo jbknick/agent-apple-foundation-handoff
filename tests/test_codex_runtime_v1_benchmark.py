@@ -1,3 +1,4 @@
+import ast
 import importlib.util
 import json
 import os
@@ -24,6 +25,31 @@ SPEC.loader.exec_module(runner)
 
 
 class RuntimeV1RunnerTests(unittest.TestCase):
+    def test_preflight_stage_is_owned_only_by_arm_observation(self):
+        module = ast.parse(RUNNER_PATH.read_text(encoding="utf-8"))
+        function = next(
+            node for node in module.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_execute_benchmark_arm"
+        )
+        calls = {
+            node.func.id: {keyword.arg for keyword in node.keywords}
+            for node in ast.walk(function)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in {"derive_validated_applied", "ArmObservation"}
+        }
+        self.assertEqual(
+            {
+                "role", "replacement_emitted", "apple_attempts",
+                "parent_requests", "completed_parent_turns",
+                "command_executions", "correctness_passed",
+                "forwarding_preflight_passed",
+            },
+            calls["derive_validated_applied"],
+        )
+        self.assertIn("preflight_stage", calls["ArmObservation"])
+
     def _forwarding_boundary_failure(
         self,
         *,
