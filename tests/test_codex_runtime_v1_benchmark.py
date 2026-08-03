@@ -34,11 +34,26 @@ class RuntimeV1RunnerTests(unittest.TestCase):
         request_count=2,
         command_counter_value="1",
         run_check=None,
+        identity_error=None,
     ):
+        identity_calls = []
+
+        def identity_call(name, result=None):
+            identity_calls.append(name)
+            if identity_error == name:
+                raise RuntimeError("private /Users/private identity detail")
+            return result
+
+        def validate_proof(*_args, **_kwargs):
+            identity_call("forwarding_proof")
+            raise runner.BenchmarkBlocked("replacement_forwarding_unproven")
+
         codex = mock.Mock(
             resolved=Path("/host/codex"), version="0.145.0"
         )
         python = mock.Mock(resolved=Path(sys.executable))
+        codex.recheck.side_effect = lambda: identity_call("codex_recheck")
+        python.recheck.side_effect = lambda: identity_call("python_recheck")
         server = mock.Mock(
             server_address=("127.0.0.1", 1234),
             requests=[{} for _ in range(request_count)],
@@ -46,7 +61,20 @@ class RuntimeV1RunnerTests(unittest.TestCase):
         provider = mock.MagicMock()
         provider.__enter__.return_value = server
         provider.__exit__.side_effect = provider_exit_error
-        rpc = mock.MagicMock()
+        initial_rpc = mock.MagicMock()
+        initial_rpc.__enter__.side_effect = lambda: identity_call(
+            "initial_hook_trust_enter", initial_rpc
+        )
+        initial_rpc.__exit__.side_effect = lambda *_args: identity_call(
+            "initial_hook_trust_exit", False
+        )
+        recheck_rpc = mock.MagicMock()
+        recheck_rpc.__enter__.side_effect = lambda: identity_call(
+            "hook_recheck_enter", recheck_rpc
+        )
+        recheck_rpc.__exit__.side_effect = lambda *_args: identity_call(
+            "hook_recheck_exit", False
+        )
         parsed = runner.ParsedEvents(
             usage=mock.Mock(),
             command_executions=1,
@@ -85,30 +113,36 @@ class RuntimeV1RunnerTests(unittest.TestCase):
         with mock.patch.object(
             runner.shutil,
             "copytree",
-            side_effect=lambda _source, target, **_kwargs: target.mkdir(),
+            side_effect=lambda _source, target, **_kwargs: (
+                identity_call("staged_plugin"), target.mkdir()
+            )[-1],
         ), mock.patch.object(
             runner,
             "install_plugin",
-            return_value=(
-                {
+            side_effect=lambda *_args: identity_call(
+                "plugin_install", ({
                     "CODEX_HOME": "/isolated/codex-home",
                     "PATH": "/isolated/bin",
                     "PYTHONDONTWRITEBYTECODE": "1",
                     "RUNTIME_V1_PYTHON": sys.executable,
-                },
-                Path("/installed"),
+                }, Path("/installed"))
             ),
         ), mock.patch.object(
             runner.production,
             "materialize_workspace",
-            side_effect=lambda path, **_kwargs: path.mkdir(),
+            side_effect=lambda path, **_kwargs: (
+                identity_call("workspace"), path.mkdir()
+            )[-1],
         ), mock.patch.object(
             runner.production,
             "JsonRpcProcess",
-            return_value=rpc,
+            side_effect=[initial_rpc, recheck_rpc],
         ), mock.patch.object(
             runner,
             "trust_hook",
+            side_effect=lambda *_args, **_kwargs: identity_call(
+                "initial_hook_trust_body"
+            ),
         ), mock.patch.object(
             runner.production,
             "responses_server",
@@ -151,6 +185,29 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             "rmdir",
             autospec=True,
             side_effect=rmdir_error,
+        ), mock.patch.object(
+            runner,
+            "tree_sha256",
+            side_effect=lambda _path: identity_call(
+                "installed_plugin",
+                self.identities()["productionPluginSha256"],
+            ),
+        ), mock.patch.object(
+            runner,
+            "current_production_identities",
+            side_effect=lambda: identity_call(
+                "production_identities", self.identities()
+            ),
+        ), mock.patch.object(
+            runner,
+            "recheck_hook_trust",
+            side_effect=lambda *_args, **_kwargs: identity_call(
+                "hook_recheck_body"
+            ),
+        ), mock.patch.object(
+            runner,
+            "validate_forwarding_proof",
+            side_effect=validate_proof,
         ), self.assertRaises(
             runner.ForwardingPreflightBlocked
         ) as caught:
@@ -161,6 +218,7 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                 production_identities=self.identities(),
                 approved_hook_hash="sha256:" + "b" * 64,
             )
+        self.forwarding_identity_calls = identity_calls
         return caught.exception, run.call_count
 
     def test_exact_executable_capture_and_recheck_detects_drift(self):
@@ -1450,7 +1508,6 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             "command_counter_value",
             "original_exclusion",
             "receipt",
-            "identity_trust",
         )
         terminals = []
         for stage in stages:
@@ -1497,6 +1554,97 @@ class RuntimeV1RunnerTests(unittest.TestCase):
         ):
             with self.subTest(prohibited=prohibited):
                 self.assertNotIn(prohibited, encoded)
+
+    def test_forwarding_identity_terminal_is_closed_and_state_is_reset(self):
+        cases = (
+            ("staged_plugin", "staged_plugin"),
+            ("plugin_install", "plugin_install"),
+            ("workspace", "workspace"),
+            ("initial_hook_trust_enter", "initial_hook_trust"),
+            ("initial_hook_trust_body", "initial_hook_trust"),
+            ("initial_hook_trust_exit", "initial_hook_trust"),
+            ("codex_recheck", "executable_recheck"),
+            ("python_recheck", "executable_recheck"),
+            ("installed_plugin", "installed_plugin"),
+            ("production_identities", "production_identities"),
+            ("hook_recheck_enter", "hook_recheck"),
+            ("hook_recheck_body", "hook_recheck"),
+            ("hook_recheck_exit", "hook_recheck"),
+            ("forwarding_proof", "forwarding_proof"),
+        )
+        for operation, stage in cases:
+            with self.subTest(operation=operation):
+                caught, calls = self._forwarding_boundary_failure(
+                    identity_error=operation
+                )
+            self.assertLessEqual(calls, 1)
+            self.assertEqual(
+                1, self.forwarding_identity_calls.count(operation)
+            )
+            self.assertEqual(
+                {
+                    "status": "blocked",
+                    "reasonCodes": ["replacement_forwarding_unproven"],
+                    "failureStage": "identity_trust",
+                    "identityStage": stage,
+                },
+                runner.blocked_terminal(caught),
+            )
+            self.assertNotIn(
+                "private", json.dumps(runner.blocked_terminal(caught))
+            )
+
+        self.assertEqual(
+            {
+                "staged_plugin", "plugin_install", "workspace",
+                "initial_hook_trust", "executable_recheck",
+                "installed_plugin", "production_identities",
+                "hook_recheck", "forwarding_proof",
+            },
+            runner._FORWARDING_IDENTITY_STAGES,
+        )
+        self.assertEqual(
+            ["codex_recheck", "python_recheck"],
+            self._identity_window("codex_recheck", "python_recheck"),
+        )
+        self._forwarding_boundary_failure(
+            identity_error="installed_plugin"
+        )
+        self.assertNotIn(
+            "production_identities", self.forwarding_identity_calls
+        )
+        self._forwarding_boundary_failure(
+            identity_error="production_identities"
+        )
+        self.assertIn("installed_plugin", self.forwarding_identity_calls)
+        self.assertNotIn("hook_recheck_enter", self.forwarding_identity_calls)
+
+        state = runner._ForwardingFailureState()
+        state.enter_identity("workspace")
+        state.enter("receipt")
+        self.assertIsNone(state.identity_stage)
+        state.enter_identity("hook_recheck")
+        state.leave()
+        self.assertEqual((None, None), (state.stage, state.identity_stage))
+        with self.assertRaises(ValueError):
+            state.enter("identity_trust")
+        with self.assertRaises(ValueError):
+            state.enter_identity("private")
+        with self.assertRaises(ValueError):
+            runner.ForwardingPreflightBlocked("identity_trust")
+        with self.assertRaises(ValueError):
+            runner.ForwardingPreflightBlocked(
+                "identity_trust", identity_stage="private"
+            )
+        with self.assertRaises(ValueError):
+            runner.ForwardingPreflightBlocked(
+                "receipt", identity_stage="workspace"
+            )
+
+    def _identity_window(self, first, last):
+        self._forwarding_boundary_failure(identity_error=last)
+        calls = self.forwarding_identity_calls
+        return calls[calls.index(first):calls.index(last) + 1]
 
     def test_forwarding_setup_boundary_classifies_root_creation_error(self):
         with mock.patch.object(
@@ -1773,7 +1921,7 @@ class RuntimeV1RunnerTests(unittest.TestCase):
 
         def execute(**arguments):
             calls.append(arguments)
-            arguments["_failure_state"].enter("receipt")
+            arguments["_failure_state"].enter_identity("hook_recheck")
             raise runner.CleanupBlocked("forwarding_root")
 
         with mock.patch.object(

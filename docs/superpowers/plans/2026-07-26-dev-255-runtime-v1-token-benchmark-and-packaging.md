@@ -954,6 +954,30 @@ commit one new clean candidate and run exactly one native Codex `0.145.0`
 retry of `9fee07ebc908faa4162ac5540bf530c8ebf12d23` or an earlier terminal. A
 non-pass is terminal and authorizes no executable substitution or retry.
 
+## 2026-08-03 forwarding identity boundary diagnostic
+
+The clean `d69849e1b8581166bdd33d561f6de25294bf4b41` candidate's one
+authorized native usage dry row passed with exactly two parent requests. Its
+single complete benchmark execution then stopped terminally at
+`blocked:replacement_forwarding_unproven / identity_trust` and wrote no
+evidence file. Preserve both facts in Linear history; do not retry or relabel
+either execution.
+
+Keep the unchanged forwarding blocker and add only one closed `identityStage`
+when `failureStage` is `identity_trust`: `staged_plugin`, `plugin_install`,
+`workspace`, `initial_hook_trust`, `executable_recheck`, `installed_plugin`,
+`production_identities`, `hook_recheck`, or `forwarding_proof`. The stages map
+in order to the existing identity/trust boundaries. Split the compound
+installed-tree and production-identity predicate only to preserve that
+left-to-right diagnostic boundary. Cleanup still supersedes the pending
+identity diagnostic.
+
+Never retain or serialize an exception, path, hash, version, source, error
+body, raw prompt, command, response, JSONL, telemetry content, Apple output,
+credential, or transcript. No identity rule, trust rule, command, request,
+turn, Apple attempt, retry, correctness oracle, evidence acceptance, privacy
+boundary, or release gate changes.
+
 ## 2026-08-03 closed normalized-arm invariant diagnostic
 
 The clean `29b7b6ef8f58087fedbd4f470a615554ba7164d8` candidate's one

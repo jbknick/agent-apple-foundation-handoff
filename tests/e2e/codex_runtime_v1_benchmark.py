@@ -63,6 +63,17 @@ _FORWARDING_FAILURE_STAGES = {
     "identity_trust",
     "unexpected_exception",
 }
+_FORWARDING_IDENTITY_STAGES = {
+    "staged_plugin",
+    "plugin_install",
+    "workspace",
+    "initial_hook_trust",
+    "executable_recheck",
+    "installed_plugin",
+    "production_identities",
+    "hook_recheck",
+    "forwarding_proof",
+}
 _PROVIDER_COUNTER_FAILURE_STAGES = {
     "process_exit",
     "telemetry_payload",
@@ -192,11 +203,24 @@ class CorrectnessOracleFailure(BenchmarkFailure):
 
 
 class ForwardingPreflightBlocked(BenchmarkBlocked):
-    def __init__(self, failure_stage: str):
+    def __init__(
+        self,
+        failure_stage: str,
+        *,
+        identity_stage: str | None = None,
+    ):
         if failure_stage not in _FORWARDING_FAILURE_STAGES:
             raise ValueError("invalid forwarding failure stage")
+        if (
+            failure_stage == "identity_trust"
+            and identity_stage not in _FORWARDING_IDENTITY_STAGES
+        ) or (
+            failure_stage != "identity_trust" and identity_stage is not None
+        ):
+            raise ValueError("invalid forwarding identity stage")
         super().__init__("replacement_forwarding_unproven")
         self.failure_stage = failure_stage
+        self.identity_stage = identity_stage
 
 
 class ProviderCounterBlocked(BenchmarkBlocked):
@@ -227,16 +251,25 @@ class OtelPayloadError(ValueError):
 @dataclass
 class _ForwardingFailureState:
     stage: str | None = None
+    identity_stage: str | None = None
 
     def enter(self, stage: str) -> None:
         if stage not in _FORWARDING_FAILURE_STAGES - {
-            "unexpected_exception"
+            "identity_trust", "unexpected_exception"
         }:
             raise ValueError("invalid forwarding failure stage")
         self.stage = stage
+        self.identity_stage = None
+
+    def enter_identity(self, identity_stage: str) -> None:
+        if identity_stage not in _FORWARDING_IDENTITY_STAGES:
+            raise ValueError("invalid forwarding identity stage")
+        self.stage = "identity_trust"
+        self.identity_stage = identity_stage
 
     def leave(self) -> None:
         self.stage = None
+        self.identity_stage = None
 
 
 @dataclass(frozen=True)
@@ -2711,17 +2744,20 @@ def _execute_forwarding_preflight(
     pending = None
     _failure_state.enter("preflight_setup")
     with isolated_arm_root(cleanup_stage="forwarding_root") as root:
-        _failure_state.enter("identity_trust")
+        _failure_state.enter_identity("staged_plugin")
         staged = root / "staged-plugin"
         shutil.copytree(PLUGIN, staged, symlinks=False)
+        _failure_state.enter_identity("plugin_install")
         environment, installed = install_plugin(
             codex,
             staged,
             root,
             python.resolved,
         )
+        _failure_state.enter_identity("workspace")
         workspace = root / "workspace"
         production.materialize_workspace(workspace, classification="C0")
+        _failure_state.enter_identity("initial_hook_trust")
         with production.JsonRpcProcess(codex.resolved, environment) as rpc:
             trust_hook(
                 rpc,
@@ -2850,15 +2886,18 @@ def _execute_forwarding_preflight(
         _failure_state.enter("observation_cleanup")
         observation_path.unlink()
         observation_directory.rmdir()
-        _failure_state.enter("identity_trust")
+        _failure_state.enter_identity("executable_recheck")
         codex.recheck()
         python.recheck()
-        if (
-            tree_sha256(installed)
-            != production_identities["productionPluginSha256"]
-            or current_production_identities() != production_identities
-        ):
+        _failure_state.enter_identity("installed_plugin")
+        if tree_sha256(installed) != production_identities[
+            "productionPluginSha256"
+        ]:
             raise BenchmarkBlocked("replacement_forwarding_unproven")
+        _failure_state.enter_identity("production_identities")
+        if current_production_identities() != production_identities:
+            raise BenchmarkBlocked("replacement_forwarding_unproven")
+        _failure_state.enter_identity("hook_recheck")
         with production.JsonRpcProcess(codex.resolved, environment) as rpc:
             recheck_hook_trust(
                 rpc,
@@ -2875,7 +2914,7 @@ def _execute_forwarding_preflight(
             approved_hook_hash,
             production_identities["pythonAdapterSha256"],
         )
-    _failure_state.enter("identity_trust")
+    _failure_state.enter_identity("forwarding_proof")
     validate_forwarding_proof(
         pending,
         candidate_commit=candidate_commit,
@@ -2889,6 +2928,7 @@ def _execute_forwarding_preflight(
 def run_forwarding_preflight(**arguments) -> ForwardingProof:
     failure_state = _ForwardingFailureState()
     failure_stage = None
+    identity_stage = None
     try:
         return _execute_forwarding_preflight(
             **arguments,
@@ -2900,9 +2940,14 @@ def run_forwarding_preflight(**arguments) -> ForwardingProof:
         failure_stage = (
             failure_state.stage or "unexpected_exception"
         )
+        identity_stage = failure_state.identity_stage
     except Exception:
         failure_stage = failure_state.stage or "unexpected_exception"
-    raise ForwardingPreflightBlocked(failure_stage)
+        identity_stage = failure_state.identity_stage
+    raise ForwardingPreflightBlocked(
+        failure_stage,
+        identity_stage=identity_stage,
+    )
 
 
 def blocked_terminal(error: BenchmarkBlocked) -> dict[str, object]:
@@ -2912,6 +2957,11 @@ def blocked_terminal(error: BenchmarkBlocked) -> dict[str, object]:
     }
     if isinstance(error, (ForwardingPreflightBlocked, ProviderCounterBlocked)):
         terminal["failureStage"] = error.failure_stage
+    if (
+        isinstance(error, ForwardingPreflightBlocked)
+        and error.identity_stage is not None
+    ):
+        terminal["identityStage"] = error.identity_stage
     if isinstance(error, ProviderCounterBlocked) and error.payload_stage is not None:
         terminal["payloadStage"] = error.payload_stage
     if isinstance(error, CleanupBlocked):
