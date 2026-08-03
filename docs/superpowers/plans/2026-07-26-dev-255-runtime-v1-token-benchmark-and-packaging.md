@@ -872,6 +872,31 @@ retry of `275c142e8ac4d86a61f1cfe3637221ace9449f85` or an earlier terminal. A
 non-pass is terminal and authorizes no executable substitution, preflight
 retry, Apple attempt, or benchmark arm outside the existing gates.
 
+## 2026-08-03 closed parent-outcome diagnostic
+
+The clean `8e530a902241c1b50fac9ed426f102f8da2e1395` candidate's one
+authorized native usage dry row passed the complete command-result oracle and
+stopped at the separate `correctness_oracle_failed / parent_outcome`
+terminal. Preserve that result in Linear history; do not retry or relabel it.
+
+Retain one closed `oracleStage`: `output_binding` for output size,
+final-message, candidate, coordinate, and binding-digest invariants;
+`parent_json` for duplicate-safe UTF-8 JSON syntax; `parent_schema` for the
+exact eight-field object; `result_contract` for the fixed DEV-142 result
+contract; or `quality_score` for the DEV-142 correctness score. Retain no
+field name, value, reason code, hash, output, prompt, response, path, or
+transcript. Preserve the exact existing composite predicate and do not change
+accepted results, provider counts, process, arm, usage, correctness, cleanup,
+or evidence rules.
+
+After focused and full deterministic gates, SDK compilation,
+generated-artifact checks, and a formal high-reasoning diff review pass,
+commit one new clean candidate and run exactly one native Codex `0.145.0`
+`--through usage-dry-run` row. This is a new diagnostic candidate, not a retry
+of `8e530a902241c1b50fac9ed426f102f8da2e1395` or an earlier terminal. A
+non-pass is terminal and authorizes no executable substitution, preflight
+retry, Apple attempt, or benchmark arm outside the existing gates.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.

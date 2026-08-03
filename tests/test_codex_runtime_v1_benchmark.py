@@ -346,6 +346,13 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                 final_agent_message=encoded.decode(),
             )
         )
+        self.assertIsNone(runner._parent_outcome_failure_stage(
+            encoded,
+            case=case,
+            coordinate=coordinate,
+            candidate_commit="a" * 40,
+            final_agent_message=encoded.decode(),
+        ))
         semantic = json.dumps(
             facts,
             ensure_ascii=False,
@@ -379,6 +386,76 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                 ),
             )
         )
+        defaults = {
+            "case": case,
+            "coordinate": coordinate,
+            "candidate_commit": "a" * 40,
+            "final_agent_message": encoded.decode(),
+        }
+        invalid_contract = json.dumps(
+            {**facts, "summary": False}, separators=(",", ":"), sort_keys=True
+        ).encode()
+        cases = (
+            (encoded, {"final_agent_message": "different"}, "output_binding"),
+            (b"{", {"final_agent_message": "{"}, "parent_json"),
+            (b"{}", {"final_agent_message": "{}"}, "parent_schema"),
+            (
+                invalid_contract,
+                {"final_agent_message": invalid_contract.decode()},
+                "result_contract",
+            ),
+            (
+                json.dumps(mutated, separators=(",", ":"), sort_keys=True).encode(),
+                {
+                    "final_agent_message": json.dumps(
+                        mutated, separators=(",", ":"), sort_keys=True
+                    )
+                },
+                "quality_score",
+            ),
+        )
+        for value, overrides, expected in cases:
+            with self.subTest(expected=expected):
+                arguments = {**defaults, **overrides}
+                self.assertEqual(
+                    expected,
+                    runner._parent_outcome_failure_stage(value, **arguments),
+                )
+                self.assertFalse(runner.score_parent_outcome(value, **arguments))
+        surrogate = json.dumps(
+            {**facts, "summary": "\ud800"},
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode()
+        self.assertEqual(
+            "parent_json",
+            runner._parent_outcome_failure_stage(
+                surrogate,
+                **{**defaults, "final_agent_message": surrogate.decode()},
+            ),
+        )
+        self.assertFalse(runner.score_parent_outcome(
+            surrogate,
+            **{**defaults, "final_agent_message": surrogate.decode()},
+        ))
+        with mock.patch.object(
+            runner.contract._DEV142,
+            "validate_result",
+            side_effect=UnicodeError,
+        ):
+            self.assertEqual(
+                "result_contract",
+                runner._parent_outcome_failure_stage(encoded, **defaults),
+            )
+        with mock.patch.object(
+            runner.contract._DEV142,
+            "score_condensation",
+            side_effect=UnicodeError,
+        ):
+            self.assertEqual(
+                "quality_score",
+                runner._parent_outcome_failure_stage(encoded, **defaults),
+            )
         prompt = runner._task(case)
         self.assertNotIn(case["id"], prompt)
         self.assertNotIn(case["renderedSha256"], prompt)
@@ -1792,7 +1869,7 @@ class RuntimeV1RunnerTests(unittest.TestCase):
     def test_correctness_oracle_failure_has_closed_stage(self):
         for stage, oracle_stage in (
             ("command_result", "command_text"),
-            ("parent_outcome", None),
+            ("parent_outcome", "quality_score"),
         ):
             self.assertEqual(
                 runner.failed_terminal(runner.CorrectnessOracleFailure(
@@ -1810,16 +1887,18 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             )
         with self.assertRaisesRegex(ValueError, "invalid correctness oracle"):
             runner.CorrectnessOracleFailure("raw_detail")
-        with self.assertRaisesRegex(ValueError, "invalid command oracle"):
+        with self.assertRaisesRegex(ValueError, "invalid correctness oracle substage"):
             runner.CorrectnessOracleFailure("command_result")
-        with self.assertRaisesRegex(ValueError, "invalid command oracle"):
+        with self.assertRaisesRegex(ValueError, "invalid correctness oracle substage"):
             runner.CorrectnessOracleFailure(
                 "command_result", oracle_stage="raw_detail"
             )
-        with self.assertRaisesRegex(ValueError, "invalid command oracle"):
+        with self.assertRaisesRegex(ValueError, "invalid correctness oracle substage"):
             runner.CorrectnessOracleFailure(
                 "parent_outcome", oracle_stage="command_text"
             )
+        with self.assertRaisesRegex(ValueError, "invalid correctness oracle substage"):
+            runner.CorrectnessOracleFailure("parent_outcome")
         self.assertEqual(
             runner.failed_terminal(runner.BenchmarkFailure("unsafe_evidence")),
             {"status": "fail", "reasonCodes": ["unsafe_evidence"]},

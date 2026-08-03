@@ -128,12 +128,16 @@ class CorrectnessOracleFailure(BenchmarkFailure):
             "command_text", "exit_status", "output_type", "output_bytes",
             "fixture_digest",
         }
+        parent_stages = {
+            "output_binding", "parent_json", "parent_schema",
+            "result_contract", "quality_score",
+        }
         if (
             failure_stage == "command_result" and oracle_stage not in command_stages
         ) or (
-            failure_stage == "parent_outcome" and oracle_stage is not None
+            failure_stage == "parent_outcome" and oracle_stage not in parent_stages
         ):
-            raise ValueError("invalid command oracle failure stage")
+            raise ValueError("invalid correctness oracle substage")
         super().__init__("correctness_oracle_failed")
         self.failure_stage = failure_stage
         self.oracle_stage = oracle_stage
@@ -2069,6 +2073,23 @@ def score_parent_outcome(
     candidate_commit: str,
     final_agent_message: str,
 ) -> bool:
+    return _parent_outcome_failure_stage(
+        value,
+        case=case,
+        coordinate=coordinate,
+        candidate_commit=candidate_commit,
+        final_agent_message=final_agent_message,
+    ) is None
+
+
+def _parent_outcome_failure_stage(
+    value: bytes,
+    *,
+    case: dict[str, object],
+    coordinate: dict[str, str],
+    candidate_commit: str,
+    final_agent_message: str,
+) -> str | None:
     try:
         if (
             len(value)
@@ -2079,54 +2100,44 @@ def score_parent_outcome(
             or coordinate["fixtureID"] != case["id"]
             or coordinate["fixtureSha256"] != case["renderedSha256"]
         ):
-            return False
+            return "output_binding"
+    except UnicodeError:
+        return "output_binding"
+    try:
         parent = json.loads(
             value,
             object_pairs_hook=_closed_json_object,
             parse_constant=lambda _value: (_ for _ in ()).throw(ValueError()),
         )
-        if (
-            type(parent) is not dict
-            or set(parent) != {
-                "commandOutcome", "summary", "summaryFacts", "diagnostics",
-                "warningCount", "omittedWarningCount", "nextAction",
-                "completionFacts",
-            }
-        ):
-            return False
+    except (ValueError, json.JSONDecodeError):
+        return "parent_json"
+    if (
+        type(parent) is not dict
+        or set(parent) != {
+            "commandOutcome", "summary", "summaryFacts", "diagnostics",
+            "warningCount", "omittedWarningCount", "nextAction",
+            "completionFacts",
+        }
+    ):
+        return "parent_schema"
+    try:
         canonical = json.dumps(
             parent,
             ensure_ascii=False,
             separators=(",", ":"),
             sort_keys=True,
         ).encode("utf-8")
-        result = {
-            "schemaVersion": 1,
-            "policyVersion": "diagnostic-condensation-v1",
-            "callID": "parent-outcome",
-            "toolName": "Bash",
-            "toolVersion": "codex-cli-0.145.0",
-            "stateVersion": "runtime-v1-direct-consultation-v1",
-            "action": "condense_diagnostic_output",
-            "commandClass": case["commandClass"],
-            "originalResultType": "string",
-            "originalResultDigest": case["renderedSha256"],
-            "outcome": "applied",
-            "exitStatus": case["expected"]["exitStatus"],
-            "interrupted": case["expected"]["interrupted"],
-            "resultType": "diagnostic_condensation",
-            "condensation": parent,
-        }
-        contract._DEV142.validate_result(result)
-        score = contract._DEV142.score_condensation(case, result)
-        outcome_sha = hashlib.sha256(canonical).hexdigest()
-        binding = {
-            "candidateCommit": candidate_commit,
-            "coordinate": coordinate,
-            "taskPromptSha256": coordinate["taskPromptSha256"],
-            "renderedSha256": case["renderedSha256"],
-            "parentOutcomeSha256": outcome_sha,
-        }
+    except UnicodeError:
+        return "parent_json"
+    outcome_sha = hashlib.sha256(canonical).hexdigest()
+    binding = {
+        "candidateCommit": candidate_commit,
+        "coordinate": coordinate,
+        "taskPromptSha256": coordinate["taskPromptSha256"],
+        "renderedSha256": case["renderedSha256"],
+        "parentOutcomeSha256": outcome_sha,
+    }
+    try:
         binding_sha256 = hashlib.sha256(
             json.dumps(
                 binding,
@@ -2134,18 +2145,38 @@ def score_parent_outcome(
                 sort_keys=True,
             ).encode("utf-8")
         ).hexdigest()
-        return (
-            _DIGEST.fullmatch(binding_sha256) is not None
-            and score.passed
-            and score.reason_codes == ()
-        )
-    except (
-        UnicodeError,
-        ValueError,
-        json.JSONDecodeError,
-        contract._DEV142.ContractError,
-    ):
-        return False
+    except (UnicodeError, ValueError):
+        return "output_binding"
+    if _DIGEST.fullmatch(binding_sha256) is None:
+        return "output_binding"
+    result = {
+        "schemaVersion": 1,
+        "policyVersion": "diagnostic-condensation-v1",
+        "callID": "parent-outcome",
+        "toolName": "Bash",
+        "toolVersion": "codex-cli-0.145.0",
+        "stateVersion": "runtime-v1-direct-consultation-v1",
+        "action": "condense_diagnostic_output",
+        "commandClass": case["commandClass"],
+        "originalResultType": "string",
+        "originalResultDigest": case["renderedSha256"],
+        "outcome": "applied",
+        "exitStatus": case["expected"]["exitStatus"],
+        "interrupted": case["expected"]["interrupted"],
+        "resultType": "diagnostic_condensation",
+        "condensation": parent,
+    }
+    try:
+        contract._DEV142.validate_result(result)
+    except (UnicodeError, ValueError, contract._DEV142.ContractError):
+        return "result_contract"
+    try:
+        score = contract._DEV142.score_condensation(case, result)
+    except (UnicodeError, ValueError, contract._DEV142.ContractError):
+        return "quality_score"
+    if not score.passed or score.reason_codes != ():
+        return "quality_score"
+    return None
 
 
 _CODE_MODE_INPUT = (
@@ -2758,15 +2789,18 @@ def _execute_benchmark_arm(
             apple_samples = observation["appleLatencySamples"]
             observation_path.unlink()
             observation_path.parent.rmdir()
-        correctness_passed = score_parent_outcome(
+        parent_oracle_stage = _parent_outcome_failure_stage(
             output.read_bytes(),
             case=case,
             coordinate=coordinate,
             candidate_commit=candidate_commit,
             final_agent_message=parsed.final_agent_message,
         )
-        if not correctness_passed:
-            raise CorrectnessOracleFailure("parent_outcome")
+        correctness_passed = parent_oracle_stage is None
+        if parent_oracle_stage is not None:
+            raise CorrectnessOracleFailure(
+                "parent_outcome", oracle_stage=parent_oracle_stage
+            )
         validated_applied = derive_validated_applied(
             role=role,
             replacement_emitted=replacement_emitted,
