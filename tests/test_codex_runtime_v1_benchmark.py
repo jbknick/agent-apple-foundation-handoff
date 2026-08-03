@@ -290,7 +290,7 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                         "request_max_retries": 0,
                         "stream_max_retries": 0,
                         "requires_openai_auth": True,
-                        "supports_websockets": True,
+                        "supports_websockets": False,
                     }
                 }
             },

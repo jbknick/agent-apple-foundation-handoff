@@ -1061,6 +1061,38 @@ commit one new clean candidate and run exactly one native Codex `0.145.0`
 retry of `d819d8489490f25f00f55afbef94c13641eb1fea` or an earlier terminal. A
 non-pass is terminal and authorizes no executable substitution or retry.
 
+## 2026-08-03 parent HTTP telemetry correction
+
+The clean `21efe675e27746963f2b07a18725057fe597674f` candidate's one
+authorized native usage dry row stopped at
+`blocked:arm_invariant_invalid` with `invariantStage:parent_requests`.
+Preserve that result in Linear history; do not retry or relabel it.
+
+Pinned Codex `0.145.0` source commit `25af12f7` routes a provider with
+WebSocket support through Responses WebSocket, including startup prewarm.
+That supported transport emits `codex.websocket_request`; it does not emit
+the `codex.api_request` events consumed by the approved raw parent-request
+counter. The supported HTTP Responses path emits one `codex.api_request` per
+HTTP attempt. Set only the benchmark provider clone's
+`supports_websockets=false` so the existing invocation deterministically uses
+HTTP Responses without WebSocket prewarm or fallback.
+
+Keep the same authenticated OpenAI service, auth-mode base URL, headers,
+model, Responses wire API, zero configured request and stream retry budgets,
+raw counter, and exact two-request invariant. The zero budgets do not disable
+pinned unauthorized-auth recovery; any recovery attempt remains visible to
+the raw counter and terminally fails the exact-two invariant. Do not count
+WebSocket events, filter attempts, relabel counts, or change telemetry,
+commands, turns, Apple attempts, usage, correctness, privacy, or evidence.
+
+After focused and full deterministic gates, SDK compilation,
+generated-artifact checks, and a formal high-reasoning diff review pass,
+commit one new clean candidate and run exactly one native Codex `0.145.0`
+`--through usage-dry-run` row. This is a new transport-corrected candidate,
+not a retry of `21efe675e27746963f2b07a18725057fe597674f` or an earlier
+terminal. A non-pass is terminal and authorizes no executable substitution or
+retry.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.

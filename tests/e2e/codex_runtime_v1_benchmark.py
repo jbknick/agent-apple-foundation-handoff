@@ -1386,7 +1386,7 @@ def build_exec_arguments(
         'env_http_headers={"OpenAI-Organization"="OPENAI_ORGANIZATION",'
         '"OpenAI-Project"="OPENAI_PROJECT"},'
         "request_max_retries=0,stream_max_retries=0,"
-        "requires_openai_auth=true,supports_websockets=true}"
+        "requires_openai_auth=true,supports_websockets=false}"
     )
     return [
         "exec",
