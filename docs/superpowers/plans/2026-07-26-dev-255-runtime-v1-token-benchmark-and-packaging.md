@@ -954,6 +954,30 @@ commit one new clean candidate and run exactly one native Codex `0.145.0`
 retry of `9fee07ebc908faa4162ac5540bf530c8ebf12d23` or an earlier terminal. A
 non-pass is terminal and authorizes no executable substitution or retry.
 
+## 2026-08-03 closed normalized-arm invariant diagnostic
+
+The clean `29b7b6ef8f58087fedbd4f470a615554ba7164d8` candidate's one
+authorized native usage dry row passed command and parent correctness plus
+cleanup, then stopped at `blocked:arm_invariant_invalid`. Preserve that result
+in Linear history; do not retry or relabel it.
+
+Retain the existing normalized-arm predicate and its left-to-right precedence
+exactly. On failure, retain only one closed `invariantStage`: `role`,
+`parent_requests`, `command_executions`, `parent_turns`, `apple_attempts`,
+`role_state`, `correctness`, `stderr`, `hook_latency_samples`,
+`hook_role_state`, or `cleanup`. Retain no observed value, count, boolean,
+latency, stderr size, output, prompt, response, path, or error. Keep generic
+latency validation and the unchanged DEV-142 arm validator outside this
+diagnostic. Do not add a validated-applied type rule or require correctness to
+be true at this structural boundary.
+
+After focused and full deterministic gates, SDK compilation,
+generated-artifact checks, and a formal high-reasoning diff review pass,
+commit one new clean candidate and run exactly one native Codex `0.145.0`
+`--through usage-dry-run` row. This is a new diagnostic candidate, not a retry
+of `29b7b6ef8f58087fedbd4f470a615554ba7164d8` or an earlier terminal. A
+non-pass is terminal and authorizes no executable substitution or retry.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.

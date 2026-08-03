@@ -1081,6 +1081,81 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                     ),
                 )
 
+    def test_arm_invariant_diagnostic_preserves_predicate_and_precedence(self):
+        observation = runner.ArmObservation(
+            event_stream=self.event_stream(),
+            parent_requests=2,
+            apple_attempts=0,
+            validated_applied=False,
+            correctness_passed=True,
+            parent_latency_ns=10,
+            pre_receipt_hook_latency_ns=0,
+            pre_receipt_hook_latency_samples=0,
+            apple_latency_ns=0,
+            apple_latency_samples=0,
+            stderr_bytes=0,
+            cleanup_complete=True,
+        )
+        parsed = runner.parse_event_stream(observation.event_stream)
+        self.assertIsNone(
+            runner._arm_invariant_failure_stage(
+                "pluginOff", observation, parsed
+            )
+        )
+        plugin_on = runner.replace(
+            observation,
+            pre_receipt_hook_latency_samples=1,
+        )
+        cases = (
+            ("invalid", observation, parsed, "role"),
+            ("pluginOff", runner.replace(observation, parent_requests=False), parsed, "parent_requests"),
+            ("pluginOff", runner.replace(observation, parent_requests=1), parsed, "parent_requests"),
+            ("pluginOff", observation, runner.replace(parsed, command_executions=2), "command_executions"),
+            ("pluginOff", observation, runner.replace(parsed, completed_parent_turns=2), "parent_turns"),
+            ("pluginOff", runner.replace(observation, apple_attempts=False), parsed, "apple_attempts"),
+            ("pluginOff", runner.replace(observation, apple_attempts=2), parsed, "apple_attempts"),
+            ("pluginOff", runner.replace(observation, apple_attempts=1), parsed, "role_state"),
+            ("pluginOn", runner.replace(plugin_on, validated_applied=True), parsed, "role_state"),
+            ("pluginOff", runner.replace(observation, correctness_passed=1), parsed, "correctness"),
+            ("pluginOff", runner.replace(observation, stderr_bytes=False), parsed, "stderr"),
+            ("pluginOff", runner.replace(observation, stderr_bytes=1), parsed, "stderr"),
+            ("pluginOff", runner.replace(observation, pre_receipt_hook_latency_samples=False), parsed, "hook_latency_samples"),
+            ("pluginOff", runner.replace(observation, pre_receipt_hook_latency_samples=2), parsed, "hook_latency_samples"),
+            ("pluginOff", runner.replace(observation, pre_receipt_hook_latency_ns=1), parsed, "hook_role_state"),
+            ("pluginOff", runner.replace(observation, pre_receipt_hook_latency_samples=1), parsed, "hook_role_state"),
+            ("pluginOn", runner.replace(plugin_on, pre_receipt_hook_latency_samples=0), parsed, "hook_role_state"),
+            ("pluginOff", runner.replace(observation, cleanup_complete=False), parsed, "cleanup"),
+            (
+                "pluginOff",
+                runner.replace(
+                    observation,
+                    parent_requests=1,
+                    cleanup_complete=False,
+                ),
+                parsed,
+                "parent_requests",
+            ),
+        )
+        for role, candidate, candidate_parsed, expected in cases:
+            with self.subTest(expected=expected):
+                self.assertEqual(
+                    runner._arm_invariant_failure_stage(
+                        role, candidate, candidate_parsed
+                    ),
+                    expected,
+                )
+        error = runner.ArmInvariantBlocked("parent_requests")
+        self.assertEqual(
+            runner.blocked_terminal(error),
+            {
+                "status": "blocked",
+                "reasonCodes": ["arm_invariant_invalid"],
+                "invariantStage": "parent_requests",
+            },
+        )
+        with self.assertRaisesRegex(ValueError, "invalid arm invariant stage"):
+            runner.ArmInvariantBlocked("raw_value")
+
     def test_observation_consumer_requires_closed_secure_emitted_union(self):
         value = {
             "schemaVersion": 1,

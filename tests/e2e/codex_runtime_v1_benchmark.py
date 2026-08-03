@@ -125,6 +125,18 @@ class CleanupBlocked(BenchmarkBlocked):
         self.cleanup_stage = cleanup_stage
 
 
+class ArmInvariantBlocked(BenchmarkBlocked):
+    def __init__(self, invariant_stage: str):
+        if invariant_stage not in {
+            "role", "parent_requests", "command_executions", "parent_turns",
+            "apple_attempts", "role_state", "correctness", "stderr",
+            "hook_latency_samples", "hook_role_state", "cleanup",
+        }:
+            raise ValueError("invalid arm invariant stage")
+        super().__init__("arm_invariant_invalid")
+        self.invariant_stage = invariant_stage
+
+
 class CorrectnessOracleFailure(BenchmarkFailure):
     def __init__(
         self, failure_stage: str, *, oracle_stage: str | None = None
@@ -1597,35 +1609,9 @@ def normalized_arm(
     observation: ArmObservation,
 ) -> dict[str, object]:
     parsed = parse_event_stream(observation.event_stream)
-    if (
-        role not in ("pluginOff", "pluginOn")
-        or type(observation.parent_requests) is not int
-        or observation.parent_requests != 2
-        or parsed.command_executions != 1
-        or parsed.completed_parent_turns != 1
-        or type(observation.apple_attempts) is not int
-        or not 0 <= observation.apple_attempts <= 1
-        or (role == "pluginOff" and (observation.apple_attempts or observation.validated_applied))
-        or (observation.validated_applied and observation.apple_attempts != 1)
-        or type(observation.correctness_passed) is not bool
-        or type(observation.stderr_bytes) is not int
-        or observation.stderr_bytes not in (0, 39)
-        or type(observation.pre_receipt_hook_latency_samples) is not int
-        or observation.pre_receipt_hook_latency_samples not in (0, 1)
-        or (
-            role == "pluginOff"
-            and (
-                observation.pre_receipt_hook_latency_ns != 0
-                or observation.pre_receipt_hook_latency_samples != 0
-            )
-        )
-        or (
-            role == "pluginOn"
-            and observation.pre_receipt_hook_latency_samples != 1
-        )
-        or observation.cleanup_complete is not True
-    ):
-        raise BenchmarkBlocked("arm_invariant_invalid")
+    invariant_stage = _arm_invariant_failure_stage(role, observation, parsed)
+    if invariant_stage is not None:
+        raise ArmInvariantBlocked(invariant_stage)
     arm = {
         "fixture_id": coordinate["fixtureID"],
         "fixture_sha256": coordinate["fixtureSha256"],
@@ -1670,6 +1656,62 @@ def normalized_arm(
             ),
         },
     }
+
+
+def _arm_invariant_failure_stage(
+    role: str,
+    observation: ArmObservation,
+    parsed: ParsedEvents,
+) -> str | None:
+    if role not in ("pluginOff", "pluginOn"):
+        return "role"
+    if (
+        type(observation.parent_requests) is not int
+        or observation.parent_requests != 2
+    ):
+        return "parent_requests"
+    if parsed.command_executions != 1:
+        return "command_executions"
+    if parsed.completed_parent_turns != 1:
+        return "parent_turns"
+    if (
+        type(observation.apple_attempts) is not int
+        or not 0 <= observation.apple_attempts <= 1
+    ):
+        return "apple_attempts"
+    if (
+        role == "pluginOff"
+        and (observation.apple_attempts or observation.validated_applied)
+    ) or (
+        observation.validated_applied and observation.apple_attempts != 1
+    ):
+        return "role_state"
+    if type(observation.correctness_passed) is not bool:
+        return "correctness"
+    if (
+        type(observation.stderr_bytes) is not int
+        or observation.stderr_bytes not in (0, 39)
+    ):
+        return "stderr"
+    if (
+        type(observation.pre_receipt_hook_latency_samples) is not int
+        or observation.pre_receipt_hook_latency_samples not in (0, 1)
+    ):
+        return "hook_latency_samples"
+    if (
+        role == "pluginOff"
+        and (
+            observation.pre_receipt_hook_latency_ns != 0
+            or observation.pre_receipt_hook_latency_samples != 0
+        )
+    ) or (
+        role == "pluginOn"
+        and observation.pre_receipt_hook_latency_samples != 1
+    ):
+        return "hook_role_state"
+    if observation.cleanup_complete is not True:
+        return "cleanup"
+    return None
 
 
 def collect_arms(
@@ -2744,6 +2786,8 @@ def blocked_terminal(error: BenchmarkBlocked) -> dict[str, object]:
         terminal["payloadStage"] = error.payload_stage
     if isinstance(error, CleanupBlocked):
         terminal["cleanupStage"] = error.cleanup_stage
+    if isinstance(error, ArmInvariantBlocked):
+        terminal["invariantStage"] = error.invariant_stage
     return terminal
 
 
