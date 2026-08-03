@@ -1236,6 +1236,95 @@ def _task(case: dict[str, object]) -> str:
     )
 
 
+def parent_output_schema() -> dict[str, object]:
+    nonempty_string = {"type": "string", "pattern": "^[\\s\\S]+$"}
+    string_list = {
+        "type": "array",
+        "items": nonempty_string,
+        "minItems": 1,
+    }
+    diagnostic_properties = {
+        "id": nonempty_string,
+        "severity": {"type": "string", "enum": ["fatal", "error", "warning", "info"]},
+        "code": {"type": "string"},
+        "message": nonempty_string,
+        "file": {"type": ["string", "null"], "pattern": "^[\\s\\S]+$"},
+        "line": {"type": ["integer", "null"], "minimum": 1},
+        "column": {"type": ["integer", "null"], "minimum": 1},
+        "failedTestID": {
+            "type": ["string", "null"],
+            "pattern": "^[\\s\\S]+$",
+        },
+    }
+    properties = {
+        "commandOutcome": {
+            "type": "string",
+            "enum": ["success", "failure", "interrupted"],
+        },
+        "summary": nonempty_string,
+        "summaryFacts": string_list,
+        "diagnostics": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": diagnostic_properties,
+                "required": list(diagnostic_properties),
+                "additionalProperties": False,
+            },
+        },
+        "warningCount": {"type": "integer", "minimum": 0},
+        "omittedWarningCount": {"type": "integer", "minimum": 0},
+        "nextAction": nonempty_string,
+        "completionFacts": string_list,
+    }
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": list(properties),
+        "additionalProperties": False,
+    }
+
+
+def _parent_output_schema_bytes() -> bytes:
+    return json.dumps(
+        parent_output_schema(), separators=(",", ":"), sort_keys=True
+    ).encode("utf-8")
+
+
+def validate_parent_output_schema(path: Path) -> None:
+    try:
+        metadata = path.lstat()
+        if (
+            path.is_symlink()
+            or not stat.S_ISREG(metadata.st_mode)
+            or stat.S_IMODE(metadata.st_mode) != 0o600
+            or path.read_bytes() != _parent_output_schema_bytes()
+        ):
+            raise OSError
+    except OSError:
+        raise BenchmarkBlocked("parent_output_schema_invalid") from None
+
+
+def materialize_parent_output_schema(root: Path) -> Path:
+    path = root / "parent-output-schema.json"
+    try:
+        descriptor = os.open(
+            path,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+        )
+        with os.fdopen(descriptor, "wb") as writer:
+            writer.write(_parent_output_schema_bytes())
+            writer.flush()
+            os.fsync(writer.fileno())
+        validate_parent_output_schema(path)
+    except BenchmarkBlocked:
+        raise
+    except OSError:
+        raise BenchmarkBlocked("parent_output_schema_invalid") from None
+    return path
+
+
 def _command_for_case(case: dict[str, object]) -> str:
     suffixes = {
         "swiftc -typecheck": " Fixture.swift",
@@ -1272,8 +1361,10 @@ def fixed_pair_coordinates() -> list[dict[str, str]]:
 def build_exec_arguments(
     workspace: Path,
     transient_output: Path,
+    output_schema: Path,
     approved_task: str,
 ) -> list[str]:
+    validate_parent_output_schema(output_schema)
     return [
         "exec",
         "--ephemeral",
@@ -1298,6 +1389,8 @@ def build_exec_arguments(
         "danger-full-access",
         "--output-last-message",
         str(transient_output),
+        "--output-schema",
+        str(output_schema),
         "-C",
         str(workspace),
         approved_task,
@@ -2692,6 +2785,7 @@ def _execute_benchmark_arm(
         workspace, rendered = _materialize_workspace(root, case)
         command = _command_for_case(case)
         output = root / "parent-output"
+        output_schema = materialize_parent_output_schema(root)
         environment = controlled_host_environment()
         environment.update(
             {
@@ -2768,6 +2862,7 @@ def _execute_benchmark_arm(
                 arguments=build_exec_arguments(
                     workspace,
                     output,
+                    output_schema,
                     _task(case),
                 ),
                 codex_home=Path(environment["CODEX_HOME"]),

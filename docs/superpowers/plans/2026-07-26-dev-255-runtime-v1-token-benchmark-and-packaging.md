@@ -922,6 +922,38 @@ of `c043bef06861c45dafdbdb99cc80a75269588042` or an earlier terminal. A
 non-pass is terminal and authorizes no executable substitution, preflight
 retry, Apple attempt, or benchmark arm outside the existing gates.
 
+## 2026-08-03 native parent-output schema correction
+
+The clean `9fee07ebc908faa4162ac5540bf530c8ebf12d23` candidate's one
+authorized native usage dry row passed command execution and cleanup, then
+stopped at `correctness_oracle_failed / parent_outcome / result_contract`.
+Preserve that result in Linear history; do not retry or relabel it.
+
+Pinned Codex `0.145.0` source commit `25af12f7` exposes the native global
+`--output-schema <file>` option and proves that it forwards the supplied JSON
+Schema as a strict Responses output format. Materialize one deterministic,
+fixture-independent, private regular schema file inside each existing arm
+root and pass it exactly once. The schema may contain only the existing public
+eight-field shape, nested diagnostic shape, supported types, enums, bounds,
+required sets, and closed-object rules. It contains no command, fixture,
+expected fact, score, hash, prompt, response, path, or private value.
+
+Keep the unchanged DEV-142 `validate_result` and `score_condensation` calls as
+the independent application-owned acceptance authorities. In particular,
+string-list and diagnostic-identity uniqueness, warning accounting, path
+safety, byte limits, and semantic correctness remain application checks;
+`uniqueItems` is not in the provider's supported strict-schema subset. Schema
+creation, byte identity, regular-file mode, argument binding, or cleanup
+failure blocks before acceptance and has no schema-free fallback. This adds
+no command, tool call, provider, Apple attempt, parent request, or model turn.
+
+After focused and full deterministic gates, SDK compilation,
+generated-artifact checks, and a formal high-reasoning diff review pass,
+commit one new clean candidate and run exactly one native Codex `0.145.0`
+`--through usage-dry-run` row. This is a new source-corrected candidate, not a
+retry of `9fee07ebc908faa4162ac5540bf530c8ebf12d23` or an earlier terminal. A
+non-pass is terminal and authorizes no executable substitution or retry.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.

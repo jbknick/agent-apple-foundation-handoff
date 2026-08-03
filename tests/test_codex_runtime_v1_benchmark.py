@@ -253,14 +253,157 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             )
 
     def test_build_exec_arguments_is_one_direct_codex_invocation(self):
-        args = runner.build_exec_arguments(
-            Path("/tmp/workspace"), Path("/tmp/output"), "approved task"
-        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            schema = runner.materialize_parent_output_schema(root)
+            args = runner.build_exec_arguments(
+                root / "workspace",
+                root / "output",
+                schema,
+                "approved task",
+            )
         self.assertEqual(args[0], "exec")
         self.assertEqual(args.count("exec"), 1)
+        self.assertEqual(args.count("--output-schema"), 1)
+        self.assertEqual(args[args.index("--output-schema") + 1], str(schema))
         self.assertIn("gpt-5.6-sol", args)
         self.assertIn('model_reasoning_effort="medium"', args)
         self.assertEqual(args[-1], "approved task")
+
+    def test_parent_output_schema_is_closed_and_dev142_compatible(self):
+        schema = runner.parent_output_schema()
+        supported = {
+            "type", "pattern", "enum", "minimum", "properties", "required",
+            "additionalProperties", "items", "minItems",
+        }
+
+        def matches(value, rule):
+            self.assertFalse(set(rule) - supported)
+            kinds = rule["type"]
+            if type(kinds) is str:
+                kinds = [kinds]
+            type_matches = {
+                "null": lambda item: item is None,
+                "string": lambda item: type(item) is str,
+                "integer": lambda item: type(item) is int,
+                "array": lambda item: type(item) is list,
+                "object": lambda item: type(item) is dict,
+            }
+            if not any(type_matches[kind](value) for kind in kinds):
+                return False
+            if value is None:
+                return True
+            if "enum" in rule and value not in rule["enum"]:
+                return False
+            if "pattern" in rule and __import__("re").search(
+                rule["pattern"], value
+            ) is None:
+                return False
+            if "minimum" in rule and value < rule["minimum"]:
+                return False
+            if type(value) is list:
+                return len(value) >= rule.get("minItems", 0) and all(
+                    matches(item, rule["items"]) for item in value
+                )
+            if type(value) is dict:
+                required = set(rule["required"])
+                if not required.issubset(value):
+                    return False
+                if rule["additionalProperties"] is False and set(value) != set(
+                    rule["properties"]
+                ):
+                    return False
+                return all(
+                    matches(value[key], child)
+                    for key, child in rule["properties"].items()
+                )
+            return True
+
+        expected = {
+            "commandOutcome", "summary", "summaryFacts", "diagnostics",
+            "warningCount", "omittedWarningCount", "nextAction",
+            "completionFacts",
+        }
+        self.assertEqual(set(schema["properties"]), expected)
+        self.assertEqual(set(schema["required"]), expected)
+        self.assertIs(schema["additionalProperties"], False)
+        diagnostic = schema["properties"]["diagnostics"]["items"]
+        self.assertEqual(
+            set(diagnostic["required"]),
+            {
+                "id", "severity", "code", "message", "file", "line",
+                "column", "failedTestID",
+            },
+        )
+        self.assertIs(diagnostic["additionalProperties"], False)
+        encoded = json.dumps(schema, separators=(",", ":"), sort_keys=True)
+        self.assertNotIn("uniqueItems", encoded)
+        valid_facts = []
+        for case in runner._corpus_cases():
+            facts = runner.production.adapter.source_facts(
+                runner.contract._DEV142.render_case(case).decode("utf-8")
+            )
+            valid_facts.append(facts)
+            self.assertTrue(matches(facts, schema))
+            result = {
+                "schemaVersion": 1,
+                "policyVersion": "diagnostic-condensation-v1",
+                "callID": "parent-outcome",
+                "toolName": "Bash",
+                "toolVersion": "codex-cli-0.145.0",
+                "stateVersion": "runtime-v1-direct-consultation-v1",
+                "action": "condense_diagnostic_output",
+                "commandClass": case["commandClass"],
+                "originalResultType": "string",
+                "originalResultDigest": case["renderedSha256"],
+                "outcome": "applied",
+                "exitStatus": case["expected"]["exitStatus"],
+                "interrupted": case["expected"]["interrupted"],
+                "resultType": "diagnostic_condensation",
+                "condensation": facts,
+            }
+            self.assertIs(runner.contract._DEV142.validate_result(result), result)
+        for invalid in (
+            {key: value for key, value in valid_facts[0].items() if key != "summary"},
+            {**valid_facts[0], "extra": None},
+            {**valid_facts[0], "summary": ""},
+            {**valid_facts[0], "summaryFacts": []},
+            {**valid_facts[0], "warningCount": -1},
+            {
+                **valid_facts[0],
+                "diagnostics": [
+                    {**valid_facts[0]["diagnostics"][0], "severity": "unknown"}
+                ],
+            },
+        ):
+            with self.subTest(invalid=tuple(invalid)):
+                self.assertFalse(matches(invalid, schema))
+        application_only = deepcopy(valid_facts[0])
+        application_only["summaryFacts"].append(
+            application_only["summaryFacts"][0]
+        )
+        self.assertTrue(matches(application_only, schema))
+        with self.assertRaises(runner.contract._DEV142.ContractError):
+            runner.contract._DEV142.validate_result(
+                {**result, "condensation": application_only}
+            )
+
+    def test_parent_output_schema_file_is_private_bound_and_fail_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            schema = runner.materialize_parent_output_schema(root)
+            self.assertEqual(stat.S_IMODE(schema.stat().st_mode), 0o600)
+            self.assertIsNone(runner.validate_parent_output_schema(schema))
+            schema.write_bytes(b"{}")
+            with self.assertRaisesRegex(
+                runner.BenchmarkBlocked, "^parent_output_schema_invalid$"
+            ):
+                runner.build_exec_arguments(
+                    root / "workspace",
+                    root / "output",
+                    schema,
+                    "approved task",
+                )
 
     def test_forwarding_preflight_uses_benchmark_model_and_effort(self):
         args = runner._forwarding_exec_arguments(
