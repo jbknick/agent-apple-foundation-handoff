@@ -1903,6 +1903,19 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             runner.failed_terminal(runner.BenchmarkFailure("unsafe_evidence")),
             {"status": "fail", "reasonCodes": ["unsafe_evidence"]},
         )
+        for cleanup_stage in ("parent_auth", "isolated_root"):
+            self.assertEqual(
+                runner.blocked_terminal(
+                    runner.CleanupBlocked(cleanup_stage)
+                ),
+                {
+                    "status": "blocked",
+                    "reasonCodes": ["cleanup_incomplete"],
+                    "cleanupStage": cleanup_stage,
+                },
+            )
+        with self.assertRaisesRegex(ValueError, "invalid cleanup stage"):
+            runner.CleanupBlocked("raw_detail")
         for values, expected in (
             ((False, False, 1), "process_exit"),
             ((0, 0, 1), "telemetry_payload"),
@@ -1993,6 +2006,42 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                     destination.symlink_to(root / "missing")
             self.assertFalse(os.path.lexists(destination))
             self.assertEqual(codex.recheck.call_count, 2)
+
+    def test_staged_parent_auth_cleanup_failure_is_classified(self):
+        completed = __import__("subprocess").CompletedProcess(
+            [], 0, b"authenticated", b""
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_home = root / "source-home"
+            isolated_home = root / "isolated-home"
+            source_home.mkdir()
+            isolated_home.mkdir()
+            source = source_home / ".codex/auth.json"
+            source.parent.mkdir()
+            source.write_bytes(b"{}")
+            source.chmod(0o600)
+            codex = mock.Mock(resolved=Path("/approved/codex"))
+            environment = {"CODEX_HOME": str(isolated_home)}
+            with mock.patch.object(
+                runner.Path, "home", return_value=source_home
+            ), mock.patch.object(
+                runner.subprocess, "run", return_value=completed
+            ), mock.patch.object(
+                runner.Path, "unlink", side_effect=OSError
+            ), self.assertRaises(runner.CleanupBlocked) as raised:
+                with runner.staged_parent_auth(codex, environment):
+                    pass
+            self.assertIs(type(raised.exception), runner.CleanupBlocked)
+            self.assertEqual(
+                runner.blocked_terminal(raised.exception),
+                {
+                    "status": "blocked",
+                    "reasonCodes": ["cleanup_incomplete"],
+                    "cleanupStage": "parent_auth",
+                },
+            )
+            (isolated_home / "auth.json").unlink()
 
     def test_staged_parent_auth_rechecks_host_on_login_failure(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -2428,11 +2477,36 @@ class RuntimeV1RunnerTests(unittest.TestCase):
         ), self.assertRaisesRegex(
             runner.BenchmarkBlocked,
             "cleanup_incomplete",
-        ):
+        ) as raised:
             with runner.isolated_arm_root() as candidate:
                 root = candidate
+        self.assertIs(type(raised.exception), runner.BenchmarkBlocked)
+        self.assertEqual(
+            runner.blocked_terminal(raised.exception),
+            {
+                "status": "blocked",
+                "reasonCodes": ["cleanup_incomplete"],
+            },
+        )
         self.assertIsNotNone(root)
         runner.shutil.rmtree(root)
+        with mock.patch.object(
+            runner.shutil,
+            "rmtree",
+            side_effect=OSError,
+        ), self.assertRaisesRegex(
+            runner.CleanupBlocked,
+            "cleanup_incomplete",
+        ) as raised:
+            with runner.isolated_arm_root(
+                cleanup_stage="isolated_root"
+            ) as candidate:
+                classified_root = candidate
+        self.assertEqual("isolated_root", raised.exception.cleanup_stage)
+        runner.shutil.rmtree(classified_root)
+        with self.assertRaisesRegex(ValueError, "invalid isolated root cleanup"):
+            with runner.isolated_arm_root(cleanup_stage="parent_auth"):
+                pass
 
     def usage(self):
         return {

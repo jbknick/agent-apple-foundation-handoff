@@ -897,6 +897,31 @@ of `8e530a902241c1b50fac9ed426f102f8da2e1395` or an earlier terminal. A
 non-pass is terminal and authorizes no executable substitution, preflight
 retry, Apple attempt, or benchmark arm outside the existing gates.
 
+## 2026-08-03 closed measured-arm cleanup diagnostic
+
+The clean `c043bef06861c45dafdbdb99cc80a75269588042` candidate's one
+authorized native usage dry row progressed beyond the command-result and
+parent-outcome oracles, then stopped at `blocked:cleanup_incomplete`.
+Preserve that result in Linear history; do not retry or relabel it.
+
+For measured arms only, retain one closed `cleanupStage`: `parent_auth` for
+failure to delete and prove absence of the staged opaque authentication file,
+or `isolated_root` for failure to remove and prove absence of the temporary
+arm root. Retain no path, exception, metadata, count, credential, output, or
+host detail. Forwarding-preflight cleanup keeps its existing generic
+stage-free terminal, and the defensive missing-pending blocker remains
+generic. Cleanup still supersedes every pending arm result at the same
+boundaries; do not change cleanup execution, precedence, acceptance, or
+evidence rules.
+
+After focused and full deterministic gates, SDK compilation,
+generated-artifact checks, and a formal high-reasoning diff review pass,
+commit one new clean candidate and run exactly one native Codex `0.145.0`
+`--through usage-dry-run` row. This is a new diagnostic candidate, not a retry
+of `c043bef06861c45dafdbdb99cc80a75269588042` or an earlier terminal. A
+non-pass is terminal and authorizes no executable substitution, preflight
+retry, Apple attempt, or benchmark arm outside the existing gates.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.

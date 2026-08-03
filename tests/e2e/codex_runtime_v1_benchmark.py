@@ -117,6 +117,14 @@ class BenchmarkFailure(ValueError):
     pass
 
 
+class CleanupBlocked(BenchmarkBlocked):
+    def __init__(self, cleanup_stage: str):
+        if cleanup_stage not in {"parent_auth", "isolated_root"}:
+            raise ValueError("invalid cleanup stage")
+        super().__init__("cleanup_incomplete")
+        self.cleanup_stage = cleanup_stage
+
+
 class CorrectnessOracleFailure(BenchmarkFailure):
     def __init__(
         self, failure_stage: str, *, oracle_stage: str | None = None
@@ -950,7 +958,7 @@ def staged_parent_auth(codex, environment: dict[str, str]) -> Iterator[None]:
         except Exception as error:
             host_error = error
         if cleanup_failed:
-            raise BenchmarkBlocked("cleanup_incomplete") from None
+            raise CleanupBlocked("parent_auth") from None
         if host_error is not None:
             raise host_error
         if source_changed:
@@ -2403,7 +2411,11 @@ def _sole_forwarded_custom_tool_output(
 
 
 @contextmanager
-def isolated_arm_root() -> Iterator[Path]:
+def isolated_arm_root(
+    *, cleanup_stage: str | None = None
+) -> Iterator[Path]:
+    if cleanup_stage not in {None, "isolated_root"}:
+        raise ValueError("invalid isolated root cleanup stage")
     root = Path(
         tempfile.mkdtemp(prefix="dev255-runtime-v1-")
     ).resolve()
@@ -2413,8 +2425,12 @@ def isolated_arm_root() -> Iterator[Path]:
         try:
             shutil.rmtree(root)
         except OSError:
+            if cleanup_stage is not None:
+                raise CleanupBlocked(cleanup_stage) from None
             raise BenchmarkBlocked("cleanup_incomplete") from None
         if root.exists():
+            if cleanup_stage is not None:
+                raise CleanupBlocked(cleanup_stage)
             raise BenchmarkBlocked("cleanup_incomplete")
 
 
@@ -2633,6 +2649,8 @@ def blocked_terminal(error: BenchmarkBlocked) -> dict[str, object]:
         terminal["failureStage"] = error.failure_stage
     if isinstance(error, ProviderCounterBlocked) and error.payload_stage is not None:
         terminal["payloadStage"] = error.payload_stage
+    if isinstance(error, CleanupBlocked):
+        terminal["cleanupStage"] = error.cleanup_stage
     return terminal
 
 
@@ -2670,7 +2688,7 @@ def _execute_benchmark_arm(
         if row["id"] == coordinate["fixtureID"]
     )
     pending = None
-    with isolated_arm_root() as root:
+    with isolated_arm_root(cleanup_stage="isolated_root") as root:
         workspace, rendered = _materialize_workspace(root, case)
         command = _command_for_case(case)
         output = root / "parent-output"
