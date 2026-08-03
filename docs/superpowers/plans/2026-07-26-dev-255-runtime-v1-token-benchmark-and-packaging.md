@@ -1029,6 +1029,38 @@ commit one new clean candidate and run exactly one native Codex `0.145.0`
 retry of `f7e104e4e471e93d67203842c7742ebffeb9435f` or an earlier terminal. A
 non-pass is terminal and authorizes no executable substitution or retry.
 
+## 2026-08-03 nonreserved no-retry provider correction
+
+The clean `d819d8489490f25f00f55afbef94c13641eb1fea` candidate's one
+authorized native usage dry row stopped at
+`blocked:codex_stderr_unclassified`. Preserve that result in Linear history;
+do not retry or relabel it.
+
+Pinned Codex `0.145.0` source commit `25af12f7` rejects every configured
+`model_providers.openai` entry because `openai` is a reserved built-in ID.
+The prior retry correction therefore failed during strict configuration load
+before an arm could run. Do not inspect or retain the emitted stderr.
+
+Replace the rejected overrides with one nonreserved
+`runtime-v1-openai-no-retry` provider that exactly clones the pinned built-in
+OpenAI provider: name, Responses wire API, version header, organization and
+project environment-header mappings, OpenAI authentication, WebSocket
+support, absent explicit base URL, and absent environment key. Only its ID and
+zero request and stream retry budgets differ. Select it exactly once for the
+existing invocation. This remains the same authenticated OpenAI parent
+service and preserves auth-mode base-URL selection; it adds no endpoint,
+credential, provider service, inference fallback, command, request, turn,
+Apple attempt, telemetry field, or evidence field. Keep the raw request
+counter, exact two-request invariant, provider evidence label, correctness,
+privacy, and failure-stop rules unchanged.
+
+After focused and full deterministic gates, SDK compilation,
+generated-artifact checks, and a formal high-reasoning diff review pass,
+commit one new clean candidate and run exactly one native Codex `0.145.0`
+`--through usage-dry-run` row. This is a new source-corrected candidate, not a
+retry of `d819d8489490f25f00f55afbef94c13641eb1fea` or an earlier terminal. A
+non-pass is terminal and authorizes no executable substitution or retry.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.

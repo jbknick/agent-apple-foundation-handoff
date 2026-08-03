@@ -1379,6 +1379,15 @@ def build_exec_arguments(
     approved_task: str,
 ) -> list[str]:
     validate_parent_output_schema(output_schema)
+    provider = (
+        "model_providers.runtime-v1-openai-no-retry={"
+        'name="OpenAI",wire_api="responses",'
+        'http_headers={version="0.145.0"},'
+        'env_http_headers={"OpenAI-Organization"="OPENAI_ORGANIZATION",'
+        '"OpenAI-Project"="OPENAI_PROJECT"},'
+        "request_max_retries=0,stream_max_retries=0,"
+        "requires_openai_auth=true,supports_websockets=true}"
+    )
     return [
         "exec",
         "--ephemeral",
@@ -1398,9 +1407,9 @@ def build_exec_arguments(
         "-c",
         'model_reasoning_effort="medium"',
         "-c",
-        "model_providers.openai.request_max_retries=0",
+        provider,
         "-c",
-        "model_providers.openai.stream_max_retries=0",
+        'model_provider="runtime-v1-openai-no-retry"',
         "-m",
         "gpt-5.6-sol",
         "-s",

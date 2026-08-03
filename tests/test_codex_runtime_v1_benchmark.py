@@ -268,17 +268,36 @@ class RuntimeV1RunnerTests(unittest.TestCase):
         self.assertEqual(args[args.index("--output-schema") + 1], str(schema))
         self.assertIn("gpt-5.6-sol", args)
         self.assertIn('model_reasoning_effort="medium"', args)
+        providers = [
+            argument
+            for argument in args
+            if argument.startswith("model_providers.")
+        ]
+        self.assertEqual(len(providers), 1)
+        self.assertEqual(args[args.index(providers[0]) - 1], "-c")
         self.assertEqual(
-            [
-                argument
-                for argument in args
-                if argument.startswith("model_providers.openai.")
-            ],
-            [
-                "model_providers.openai.request_max_retries=0",
-                "model_providers.openai.stream_max_retries=0",
-            ],
+            tomllib.loads(providers[0]),
+            {
+                "model_providers": {
+                    "runtime-v1-openai-no-retry": {
+                        "name": "OpenAI",
+                        "wire_api": "responses",
+                        "http_headers": {"version": "0.145.0"},
+                        "env_http_headers": {
+                            "OpenAI-Organization": "OPENAI_ORGANIZATION",
+                            "OpenAI-Project": "OPENAI_PROJECT",
+                        },
+                        "request_max_retries": 0,
+                        "stream_max_retries": 0,
+                        "requires_openai_auth": True,
+                        "supports_websockets": True,
+                    }
+                }
+            },
         )
+        selection = 'model_provider="runtime-v1-openai-no-retry"'
+        self.assertEqual(args.count(selection), 1)
+        self.assertEqual(args[args.index(selection) - 1], "-c")
         self.assertEqual(args[-1], "approved task")
 
     def test_parent_output_schema_is_closed_and_dev142_compatible(self):
