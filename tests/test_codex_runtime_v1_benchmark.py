@@ -268,6 +268,17 @@ class RuntimeV1RunnerTests(unittest.TestCase):
         self.assertEqual(args[args.index("--output-schema") + 1], str(schema))
         self.assertIn("gpt-5.6-sol", args)
         self.assertIn('model_reasoning_effort="medium"', args)
+        self.assertEqual(
+            [
+                argument
+                for argument in args
+                if argument.startswith("model_providers.openai.")
+            ],
+            [
+                "model_providers.openai.request_max_retries=0",
+                "model_providers.openai.stream_max_retries=0",
+            ],
+        )
         self.assertEqual(args[-1], "approved task")
 
     def test_parent_output_schema_is_closed_and_dev142_compatible(self):

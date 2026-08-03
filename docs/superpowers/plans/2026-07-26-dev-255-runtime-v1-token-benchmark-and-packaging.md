@@ -1005,6 +1005,30 @@ commit one new clean candidate and run exactly one native Codex `0.145.0`
 of `1e6c6742cd119409c863e198b1e25dd150f80b3b` or an earlier terminal. A
 non-pass is terminal and authorizes no executable substitution or retry.
 
+## 2026-08-03 parent-request retry correction
+
+The clean `f7e104e4e471e93d67203842c7742ebffeb9435f` candidate's one
+authorized native usage dry row stopped at
+`blocked:arm_invariant_invalid` with `invariantStage:parent_requests`.
+Preserve that result in Linear history; do not retry or relabel it.
+
+Pinned Codex `0.145.0` source commit `25af12f7` defaults the OpenAI provider
+to four request retries and five stream retries, and native telemetry counts
+each attempt. The approved benchmark requires exactly two parent requests and
+no retry. Pass `model_providers.openai.request_max_retries=0` and
+`model_providers.openai.stream_max_retries=0` exactly once on the existing
+single native invocation. Keep the raw request counter and exact two-request
+invariant unchanged; a transient request or stream failure stops the arm.
+This adds no command, provider, Apple attempt, parent request, model turn,
+fallback, filtering, or relabeling.
+
+After focused and full deterministic gates, SDK compilation,
+generated-artifact checks, and a formal high-reasoning diff review pass,
+commit one new clean candidate and run exactly one native Codex `0.145.0`
+`--through usage-dry-run` row. This is a new source-corrected candidate, not a
+retry of `f7e104e4e471e93d67203842c7742ebffeb9435f` or an earlier terminal. A
+non-pass is terminal and authorizes no executable substitution or retry.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.
