@@ -211,7 +211,7 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             return_value=parsed,
         ), mock.patch.object(
             runner,
-            "_require_direct_exec_requests",
+            "_require_code_mode_exec_requests",
             side_effect=direct_requests_error,
         ), mock.patch.object(
             runner.production,
@@ -219,7 +219,7 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             return_value=b"original",
         ), mock.patch.object(
             runner,
-            "_sole_forwarded_function_output",
+            "_sole_forwarded_custom_tool_output",
             return_value=b"forwarded",
         ), mock.patch.object(
             runner,
@@ -2195,14 +2195,23 @@ class RuntimeV1RunnerTests(unittest.TestCase):
         first = {"input": []}
         second = {
             "input": [{
-                "type": "function_call_output",
+                "type": "custom_tool_call_output",
                 "call_id": "call-runtime-v1",
-                "output": replacement,
+                "output": [
+                    {
+                        "type": "input_text",
+                        "text": (
+                            "Script completed\nWall time 0.2 seconds\n"
+                            "Output:\n"
+                        ),
+                    },
+                    {"type": "input_text", "text": replacement},
+                ],
             }]
         }
         self.assertEqual(
             replacement.encode(),
-            runner._sole_forwarded_function_output(
+            runner._sole_forwarded_custom_tool_output(
                 first,
                 second,
                 original=b"original",
@@ -2241,138 +2250,220 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                 runner.BenchmarkBlocked,
                 "replacement_forwarding_unproven",
             ):
-                runner._sole_forwarded_function_output(
+                runner._sole_forwarded_custom_tool_output(
                     request_one,
                     request_two,
                     original=original,
                 )
-    def test_forwarding_direct_exec_contract_is_closed(self):
-        tools = [
-            {"name": name}
-            for name in runner.production.helpers.DIRECT_TOOL_NAMES
-        ]
+    def test_forwarding_code_mode_contract_is_closed(self):
+        outer_exec = {"type": "custom", "name": "exec"}
         call = {
-            "type": "function_call",
-            "call_id": runner.production.helpers.APPROVED_CALL_ID,
-            "name": "exec_command",
-            "arguments": json.dumps(
-                {"cmd": runner.production.helpers.APPROVED_COMMAND},
-                separators=(",", ":"),
-            ),
+            "type": "custom_tool_call",
+            "call_id": "call-runtime-v1",
+            "name": "exec",
+            "input": runner._CODE_MODE_INPUT,
         }
         self.assertEqual(
             call,
             next(
                 event["item"]
-                for event in runner._direct_provider_events(1)
+                for event in runner._code_mode_provider_events(1)
                 if event["type"] == "response.output_item.done"
             ),
         )
+        self.assertEqual(1, runner._CODE_MODE_INPUT.count("tools.exec_command"))
+        self.assertIn(
+            "catch (error) { text(String(error)); }",
+            runner._CODE_MODE_INPUT,
+        )
         output = {
-            "type": "function_call_output",
-            "call_id": runner.production.helpers.APPROVED_CALL_ID,
-            "output": "replacement",
+            "type": "custom_tool_call_output",
+            "call_id": "call-runtime-v1",
+            "output": [
+                {
+                    "type": "input_text",
+                    "text": (
+                        "Script completed\nWall time 0.2 seconds\nOutput:\n"
+                    ),
+                },
+                {"type": "input_text", "text": "replacement"},
+            ],
         }
         requests = [
-            {"tools": deepcopy(tools), "input": []},
-            {"tools": deepcopy(tools), "input": [call, output]},
+            {
+                "input": [{
+                    "type": "additional_tools",
+                    "role": "developer",
+                    "tools": [
+                        outer_exec,
+                        {"type": "function", "name": "update_plan"},
+                    ],
+                }],
+            },
+            {
+                "input": [
+                    {
+                        "type": "additional_tools",
+                        "role": "developer",
+                        "tools": [outer_exec],
+                    },
+                    call,
+                    output,
+                ],
+            },
         ]
-        runner._require_direct_exec_requests(requests)
+        runner._require_code_mode_exec_requests(requests)
         self.assertEqual(
             b"replacement",
-            runner._sole_forwarded_function_output(
+            runner._sole_forwarded_custom_tool_output(
                 requests[0], requests[1], original=b"original"
             ),
         )
 
+        def extra_nested_call(value):
+            value[1]["input"][1]["input"] += " text('extra');"
+
         def wrong_command(value):
-            value[1]["input"][0]["arguments"] = '{"cmd":"wrong"}'
+            value[1]["input"][1]["input"] = (
+                "const result = await tools.exec_command({cmd:\"wrong\"}); "
+                "text(result.output);"
+            )
 
-        def duplicate_argument_key(value):
-            command = runner.production.helpers.APPROVED_COMMAND
-            value[1]["input"][0]["arguments"] = json.dumps(
-                {"cmd": command}, separators=(",", ":")
-            )[:-1] + f',"cmd":{json.dumps(command)}}}'
+        def direct_function_call(value):
+            value[1]["input"].append({
+                "type": "function_call",
+                "call_id": "direct",
+                "name": "exec_command",
+                "arguments": "{}",
+            })
 
-        def extra_call_key(value):
-            value[1]["input"][0]["status"] = "completed"
+        def direct_function_output(value):
+            value[1]["input"].append({
+                "type": "function_call_output",
+                "call_id": "direct",
+                "output": "unsupported",
+            })
 
-        def call_in_request_one(value):
-            value[0]["input"].append(deepcopy(value[1]["input"][0]))
+        def missing_outer_exec(value):
+            value[0]["input"][0]["tools"].pop(0)
 
-        def output_before_call(value):
-            value[1]["input"] = list(reversed(value[1]["input"]))
-
-        def duplicate_call(value):
-            value[1]["input"].insert(1, deepcopy(value[1]["input"][0]))
-
-        def custom_call(value):
-            value[1]["input"][0]["type"] = "custom_tool_call"
-
-        def duplicate_output(value):
-            value[1]["input"].append(deepcopy(value[1]["input"][1]))
+        def duplicate_outer_exec(value):
+            value[1]["input"][0]["tools"].append(deepcopy(outer_exec))
 
         def mismatched_output(value):
-            value[1]["input"][1]["call_id"] = "mismatch"
+            value[1]["input"][2]["call_id"] = "mismatch"
 
-        def nonstring_output(value):
-            value[1]["input"][1]["output"] = []
+        def reversed_call_output(value):
+            value[1]["input"][1:] = reversed(value[1]["input"][1:])
 
-        def extra_output_key(value):
-            value[1]["input"][1]["status"] = "completed"
+        def duplicate_prefix(value):
+            value[0]["input"].append(deepcopy(value[0]["input"][0]))
 
-        def code_mode_shape(value):
-            value[0] = {
-                "input": [{
-                    "type": "additional_tools",
-                    "role": "developer",
-                    "tools": [{"type": "custom", "name": "exec"}],
-                }],
-            }
+        def missing_prefix(value):
+            value[0]["input"].pop(0)
 
-        def custom_companion(value):
-            value[1]["input"].extend((
-                {
-                    "type": "custom_tool_call",
-                    "call_id": "custom",
-                    "name": "exec",
-                    "input": "",
-                },
-                {
-                    "type": "custom_tool_call_output",
-                    "call_id": "custom",
-                    "output": [],
-                },
-            ))
+        def wrong_prefix_role(value):
+            value[0]["input"][0]["role"] = "user"
 
-        def extra_request(value):
-            value.append(deepcopy(value[1]))
+        def malformed_embedded_tools(value):
+            value[0]["input"][0]["tools"] = "not-a-list"
 
-        for mutate in (
+        def simultaneous_top_level_tools(value):
+            value[1]["tools"] = [deepcopy(outer_exec)]
+
+        def explicit_top_level_null(value):
+            value[1]["tools"] = None
+
+        def tools_elsewhere(value):
+            value[0]["input"].append({
+                "type": "message",
+                "role": "developer",
+                "tools": [],
+            })
+
+        def direct_shell_tool(value):
+            value[0]["input"][0]["tools"].append({
+                "type": "function",
+                "name": "shell_command",
+            })
+
+        def direct_exec_tool(value):
+            value[0]["input"][0]["tools"].append({
+                "type": "function",
+                "name": "exec_command",
+            })
+
+        def extra_prefix_key(value):
+            value[0]["input"][0]["id"] = "unsupported"
+
+        def nonleading_prefix(value):
+            value[0]["input"].insert(0, {
+                "type": "message",
+                "role": "developer",
+                "content": [],
+            })
+
+        mutations = (
+            extra_nested_call,
             wrong_command,
-            duplicate_argument_key,
-            extra_call_key,
-            call_in_request_one,
-            output_before_call,
-            duplicate_call,
-            custom_call,
-            duplicate_output,
+            direct_function_call,
+            direct_function_output,
+            missing_outer_exec,
+            duplicate_outer_exec,
             mismatched_output,
-            nonstring_output,
-            extra_output_key,
-            code_mode_shape,
-            custom_companion,
-            extra_request,
-        ):
+            reversed_call_output,
+            duplicate_prefix,
+            missing_prefix,
+            wrong_prefix_role,
+            malformed_embedded_tools,
+            simultaneous_top_level_tools,
+            explicit_top_level_null,
+            tools_elsewhere,
+            direct_shell_tool,
+            direct_exec_tool,
+            extra_prefix_key,
+            nonleading_prefix,
+        )
+        for mutate in mutations:
             value = deepcopy(requests)
             mutate(value)
             with self.subTest(mutation=mutate.__name__), self.assertRaises(
-                (runner.production.ProbeFailure, runner.BenchmarkBlocked)
+                runner.production.ProbeFailure
             ):
-                runner._require_direct_exec_requests(value)
-                runner._sole_forwarded_function_output(
-                    value[0], value[1], original=b"original"
-                )
+                runner._require_code_mode_exec_requests(value)
+
+        output_mutations = {
+            "failed": lambda value: value[1]["input"][2]["output"][0].update(
+                text="Script failed\nWall time 0.2 seconds\nOutput:\n"
+            ),
+            "running": lambda value: value[1]["input"][2]["output"][0].update(
+                text="Script running\nWall time 0.2 seconds\nOutput:\n"
+            ),
+            "terminated": lambda value: value[1]["input"][2]["output"][0].update(
+                text="Script terminated\nWall time 0.2 seconds\nOutput:\n"
+            ),
+            "extra": lambda value: value[1]["input"][2]["output"].append(
+                {"type": "input_text", "text": "extra"}
+            ),
+            "image": lambda value: value[1]["input"][2]["output"][1].update(
+                type="input_image"
+            ),
+            "string": lambda value: value[1]["input"][2].update(
+                output="replacement"
+            ),
+            "wall time precision": lambda value: value[1]["input"][2][
+                "output"
+            ][0].update(
+                text="Script completed\nWall time 0.25 seconds\nOutput:\n"
+            ),
+        }
+        for label, mutate in output_mutations.items():
+            value = deepcopy(requests)
+            mutate(value)
+            with self.subTest(output=label), self.assertRaises(
+                runner.production.ProbeFailure
+            ):
+                runner._require_code_mode_exec_requests(value)
 
         leaked = deepcopy(requests)
         leaked[1]["metadata"] = "original"
@@ -2380,9 +2471,10 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             runner.BenchmarkBlocked,
             "replacement_forwarding_unproven",
         ):
-            runner._sole_forwarded_function_output(
+            runner._sole_forwarded_custom_tool_output(
                 leaked[0], leaked[1], original=b"original"
             )
+
     def test_matrix_order_cancellation_resume_and_atomic_evidence(self):
         coordinates = runner.fixed_pair_coordinates()
         calls = []

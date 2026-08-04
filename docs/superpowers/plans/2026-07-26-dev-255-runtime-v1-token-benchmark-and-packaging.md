@@ -1724,6 +1724,39 @@ high-reasoning exact-diff gates, commit this plan-only successor and run its
 one native usage dry. Only a pass authorizes its one complete invocation;
 every non-pass is terminal.
 
+## 2026-08-04 native-proven code-mode preflight restoration
+
+Candidate `fc8cee0bb1234dfbf9e353ef264d7107f85d5513` stopped before its usage
+arm with `blocked:replacement_forwarding_unproven` and
+`failureStage = direct_tool_contract`. Preserve that terminal in Linear
+history; do not retry or relabel it.
+
+The first native execution of the direct-function preflight introduced by
+`c1a996236d871273e255581c94070421502f21ca` disproved that preflight shape.
+Pinned Codex `0.145.0` source identifies `gpt-5.6-sol` as
+`code_mode_only`, multi-agent v2, and Responses Lite. The earlier
+`a3923c4eafe6d2ed721ccc03cfc2bfca0aa15263` code-mode preflight already
+passed natively and its complete run reached one validated Apple replacement
+before the separate parent-quality terminal.
+
+Restore only that previously proved Responses Lite preflight: one leading
+developer `additional_tools` item with one outer custom `exec`, one exact
+nested approved `tools.exec_command`, one ordered matching custom output, two
+requests, one command counter, exact forwarded replacement bytes, and
+whole-request original exclusion. Continue rejecting top-level direct
+function calls, direct `exec_command` or `shell_command` advertisements,
+duplicates, changed input, mismatched IDs, malformed custom output, and every
+extra call. Retain the current production `continue = false` / `stopReason`
+semantics and receipt binding unchanged.
+
+Change only the outer runner, its tests, and this plan. Add no production,
+interface, evidence, fixture, ignore, privacy, security, provider, command,
+request, turn, Apple-attempt, retry, fallback, or effect change. After all
+focused and full deterministic, SDK 26.5, generated-artifact,
+evidence-safety, diff, ancestry, identity, and formal high-reasoning
+exact-diff gates, commit one successor and run its one native usage dry. Only
+a pass authorizes its one complete invocation; every non-pass is terminal.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.
