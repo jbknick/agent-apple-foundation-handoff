@@ -812,6 +812,27 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                 ),
             )
         )
+        self.assertEqual(
+            (
+                "quality_score",
+                ("summary_invention", "summary_omission"),
+            ),
+            runner._parent_outcome_assessment(
+                json.dumps(
+                    mutated,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ).encode(),
+                case=case,
+                coordinate=coordinate,
+                candidate_commit="a" * 40,
+                final_agent_message=json.dumps(
+                    mutated,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ),
+            ),
+        )
         defaults = {
             "case": case,
             "coordinate": coordinate,
@@ -881,6 +902,45 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             self.assertEqual(
                 "quality_score",
                 runner._parent_outcome_failure_stage(encoded, **defaults),
+            )
+            self.assertEqual(
+                ("quality_score", ()),
+                runner._parent_outcome_assessment(encoded, **defaults),
+            )
+        malformed_scores = (
+            type(
+                "DuckScore",
+                (),
+                {
+                    "passed": False,
+                    "reason_codes": ("summary_omission",),
+                },
+            )(),
+            runner.contract._DEV142.QualityScore(False, ([],)),
+            runner.contract._DEV142.QualityScore(
+                False,
+                ("summary_omission", 1),
+            ),
+            runner.contract._DEV142.QualityScore("private", ()),
+        )
+        for malformed_score in malformed_scores:
+            with self.subTest(score=type(malformed_score).__name__), mock.patch.object(
+                runner.contract._DEV142,
+                "score_condensation",
+                return_value=malformed_score,
+            ):
+                self.assertEqual(
+                    ("quality_score", ()),
+                    runner._parent_outcome_assessment(encoded, **defaults),
+                )
+        with mock.patch.object(
+            runner.contract._DEV142,
+            "score_condensation",
+            side_effect=RuntimeError("private scorer detail"),
+        ):
+            self.assertEqual(
+                ("quality_score", ()),
+                runner._parent_outcome_assessment(encoded, **defaults),
             )
         prompt = runner._task(case)
         self.assertNotIn(case["id"], prompt)
@@ -2657,23 +2717,89 @@ class RuntimeV1RunnerTests(unittest.TestCase):
         )
 
     def test_correctness_oracle_failure_has_closed_stage(self):
-        for stage, oracle_stage in (
-            ("command_result", "command_text"),
-            ("parent_outcome", "quality_score"),
+        self.assertEqual(
+            runner.failed_terminal(runner.CorrectnessOracleFailure(
+                "command_result", oracle_stage="command_text"
+            )),
+            {
+                "status": "fail",
+                "reasonCodes": ["correctness_oracle_failed"],
+                "failureStage": "command_result",
+                "oracleStage": "command_text",
+            },
+        )
+        fixtures = runner.contract.EXACT_DEV142_FIXTURE_IDS
+        for arm, fixture_id in (
+            ("pluginOff", fixtures[0]),
+            ("pluginOn", fixtures[-1]),
         ):
             self.assertEqual(
                 runner.failed_terminal(runner.CorrectnessOracleFailure(
-                    stage, oracle_stage=oracle_stage
+                    "parent_outcome",
+                    oracle_stage="quality_score",
+                    arm=arm,
+                    fixture_id=fixture_id,
+                    quality_reason_codes=(
+                        "summary_invention",
+                        "summary_omission",
+                    ),
                 )),
                 {
                     "status": "fail",
                     "reasonCodes": ["correctness_oracle_failed"],
-                    "failureStage": stage,
-                    **(
-                        {"oracleStage": oracle_stage}
-                        if oracle_stage is not None else {}
-                    ),
+                    "failureStage": "parent_outcome",
+                    "oracleStage": "quality_score",
+                    "arm": arm,
+                    "fixtureID": fixture_id,
+                    "qualityReasonCodes": [
+                        "summary_invention",
+                        "summary_omission",
+                    ],
                 },
+            )
+        valid = {
+            "arm": "pluginOff",
+            "fixture_id": fixtures[0],
+            "quality_reason_codes": (),
+        }
+        empty_terminal = runner.failed_terminal(
+            runner.CorrectnessOracleFailure(
+                "parent_outcome",
+                oracle_stage="quality_score",
+                **valid,
+            )
+        )
+        self.assertEqual([], empty_terminal["qualityReasonCodes"])
+        self.assertNotIn("private", json.dumps(empty_terminal))
+        invalid_diagnostics = (
+            {},
+            {**valid, "arm": None},
+            {**valid, "arm": []},
+            {**valid, "fixture_id": "private"},
+            {**valid, "fixture_id": 1},
+            {**valid, "quality_reason_codes": None},
+            {**valid, "quality_reason_codes": []},
+            {**valid, "quality_reason_codes": ([],)},
+            {**valid, "quality_reason_codes": ("summary_omission", 1)},
+            {**valid, "quality_reason_codes": ("summary_omission", "summary_invention")},
+            {**valid, "quality_reason_codes": ("summary_omission", "summary_omission")},
+            {**valid, "quality_reason_codes": ("private",)},
+        )
+        for diagnostic in invalid_diagnostics:
+            with self.subTest(diagnostic=diagnostic), self.assertRaisesRegex(
+                ValueError,
+                "invalid quality diagnostic",
+            ):
+                runner.CorrectnessOracleFailure(
+                    "parent_outcome",
+                    oracle_stage="quality_score",
+                    **diagnostic,
+                )
+        with self.assertRaisesRegex(ValueError, "unexpected quality diagnostic"):
+            runner.CorrectnessOracleFailure(
+                "command_result",
+                oracle_stage="command_text",
+                **valid,
             )
         with self.assertRaisesRegex(ValueError, "invalid correctness oracle"):
             runner.CorrectnessOracleFailure("raw_detail")

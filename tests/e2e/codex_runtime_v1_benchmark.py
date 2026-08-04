@@ -111,6 +111,27 @@ _OTEL_PAYLOAD_STAGES = {
     "discriminator",
     "unknown",
 }
+_QUALITY_REASON_CODES = frozenset({
+    "command_outcome_regression",
+    "completion_fact_invention",
+    "completion_fact_omission",
+    "condensed_output_too_large",
+    "diagnostic_invention",
+    "diagnostic_omission",
+    "exit_status_regression",
+    "interruption_regression",
+    "invalid_result",
+    "invented_fact",
+    "next_action_invention",
+    "next_action_omission",
+    "summary_fact_invention",
+    "summary_fact_omission",
+    "summary_invention",
+    "summary_omission",
+    "warning_count_regression",
+    "warning_invention",
+    "warning_omission",
+})
 
 
 def _load(path: Path, name: str):
@@ -192,7 +213,13 @@ class ArmInvariantBlocked(BenchmarkBlocked):
 
 class CorrectnessOracleFailure(BenchmarkFailure):
     def __init__(
-        self, failure_stage: str, *, oracle_stage: str | None = None
+        self,
+        failure_stage: str,
+        *,
+        oracle_stage: str | None = None,
+        arm: str | None = None,
+        fixture_id: str | None = None,
+        quality_reason_codes: tuple[str, ...] | None = None,
     ):
         if failure_stage not in {"command_result", "parent_outcome"}:
             raise ValueError("invalid correctness oracle failure stage")
@@ -211,9 +238,32 @@ class CorrectnessOracleFailure(BenchmarkFailure):
             failure_stage == "parent_outcome" and oracle_stage not in parent_stages
         ):
             raise ValueError("invalid correctness oracle substage")
+        quality_failure = (
+            failure_stage == "parent_outcome"
+            and oracle_stage == "quality_score"
+        )
+        diagnostics = (arm, fixture_id, quality_reason_codes)
+        if quality_failure:
+            if (
+                type(arm) is not str
+                or arm not in {"pluginOff", "pluginOn"}
+                or type(fixture_id) is not str
+                or fixture_id not in contract.EXACT_DEV142_FIXTURE_IDS
+                or type(quality_reason_codes) is not tuple
+                or any(type(code) is not str for code in quality_reason_codes)
+                or quality_reason_codes != tuple(sorted(quality_reason_codes))
+                or len(set(quality_reason_codes)) != len(quality_reason_codes)
+                or any(code not in _QUALITY_REASON_CODES for code in quality_reason_codes)
+            ):
+                raise ValueError("invalid quality diagnostic")
+        elif any(value is not None for value in diagnostics):
+            raise ValueError("unexpected quality diagnostic")
         super().__init__("correctness_oracle_failed")
         self.failure_stage = failure_stage
         self.oracle_stage = oracle_stage
+        self.arm = arm
+        self.fixture_id = fixture_id
+        self.quality_reason_codes = quality_reason_codes
 
 
 class ForwardingPreflightBlocked(BenchmarkBlocked):
@@ -2568,6 +2618,23 @@ def _parent_outcome_failure_stage(
     candidate_commit: str,
     final_agent_message: str,
 ) -> str | None:
+    return _parent_outcome_assessment(
+        value,
+        case=case,
+        coordinate=coordinate,
+        candidate_commit=candidate_commit,
+        final_agent_message=final_agent_message,
+    )[0]
+
+
+def _parent_outcome_assessment(
+    value: bytes,
+    *,
+    case: dict[str, object],
+    coordinate: dict[str, str],
+    candidate_commit: str,
+    final_agent_message: str,
+) -> tuple[str | None, tuple[str, ...]]:
     try:
         if (
             len(value)
@@ -2578,9 +2645,9 @@ def _parent_outcome_failure_stage(
             or coordinate["fixtureID"] != case["id"]
             or coordinate["fixtureSha256"] != case["renderedSha256"]
         ):
-            return "output_binding"
+            return "output_binding", ()
     except UnicodeError:
-        return "output_binding"
+        return "output_binding", ()
     try:
         parent = json.loads(
             value,
@@ -2588,7 +2655,7 @@ def _parent_outcome_failure_stage(
             parse_constant=lambda _value: (_ for _ in ()).throw(ValueError()),
         )
     except (ValueError, json.JSONDecodeError):
-        return "parent_json"
+        return "parent_json", ()
     if (
         type(parent) is not dict
         or set(parent) != {
@@ -2597,7 +2664,7 @@ def _parent_outcome_failure_stage(
             "completionFacts",
         }
     ):
-        return "parent_schema"
+        return "parent_schema", ()
     try:
         canonical = json.dumps(
             parent,
@@ -2606,7 +2673,7 @@ def _parent_outcome_failure_stage(
             sort_keys=True,
         ).encode("utf-8")
     except UnicodeError:
-        return "parent_json"
+        return "parent_json", ()
     outcome_sha = hashlib.sha256(canonical).hexdigest()
     binding = {
         "candidateCommit": candidate_commit,
@@ -2624,9 +2691,9 @@ def _parent_outcome_failure_stage(
             ).encode("utf-8")
         ).hexdigest()
     except (UnicodeError, ValueError):
-        return "output_binding"
+        return "output_binding", ()
     if _DIGEST.fullmatch(binding_sha256) is None:
-        return "output_binding"
+        return "output_binding", ()
     result = {
         "schemaVersion": 1,
         "policyVersion": "diagnostic-condensation-v1",
@@ -2647,14 +2714,26 @@ def _parent_outcome_failure_stage(
     try:
         contract._DEV142.validate_result(result)
     except (UnicodeError, ValueError, contract._DEV142.ContractError):
-        return "result_contract"
+        return "result_contract", ()
     try:
         score = contract._DEV142.score_condensation(case, result)
-    except (UnicodeError, ValueError, contract._DEV142.ContractError):
-        return "quality_score"
+    except Exception:
+        return "quality_score", ()
+    if type(score) is not contract._DEV142.QualityScore:
+        return "quality_score", ()
+    reason_codes = score.reason_codes
+    if (
+        type(score.passed) is not bool
+        or type(reason_codes) is not tuple
+        or any(type(code) is not str for code in reason_codes)
+        or reason_codes != tuple(sorted(reason_codes))
+        or len(set(reason_codes)) != len(reason_codes)
+        or any(code not in _QUALITY_REASON_CODES for code in reason_codes)
+    ):
+        return "quality_score", ()
     if not score.passed or score.reason_codes != ():
-        return "quality_score"
-    return None
+        return "quality_score", reason_codes
+    return None, ()
 
 
 _CODE_MODE_INPUT = (
@@ -3203,6 +3282,14 @@ def failed_terminal(error: BenchmarkFailure) -> dict[str, object]:
         terminal["failureStage"] = error.failure_stage
         if error.oracle_stage is not None:
             terminal["oracleStage"] = error.oracle_stage
+        if error.oracle_stage == "quality_score":
+            terminal.update(
+                {
+                    "arm": error.arm,
+                    "fixtureID": error.fixture_id,
+                    "qualityReasonCodes": list(error.quality_reason_codes),
+                }
+            )
     return terminal
 
 
@@ -3351,7 +3438,7 @@ def _execute_benchmark_arm(
             apple_samples = observation["appleLatencySamples"]
             observation_path.unlink()
             observation_path.parent.rmdir()
-        parent_oracle_stage = _parent_outcome_failure_stage(
+        parent_oracle_stage, quality_reason_codes = _parent_outcome_assessment(
             output.read_bytes(),
             case=case,
             coordinate=coordinate,
@@ -3361,7 +3448,17 @@ def _execute_benchmark_arm(
         correctness_passed = parent_oracle_stage is None
         if parent_oracle_stage is not None:
             raise CorrectnessOracleFailure(
-                "parent_outcome", oracle_stage=parent_oracle_stage
+                "parent_outcome",
+                oracle_stage=parent_oracle_stage,
+                **(
+                    {
+                        "arm": role,
+                        "fixture_id": coordinate["fixtureID"],
+                        "quality_reason_codes": quality_reason_codes,
+                    }
+                    if parent_oracle_stage == "quality_score"
+                    else {}
+                ),
             )
         validated_applied = derive_validated_applied(
             role=role,

@@ -1544,6 +1544,46 @@ exact-diff review, commit one clean successor and run exactly one native usage
 dry row. Only a pass authorizes its single complete execution; every non-pass
 is terminal without retry, substitution, or relabeling.
 
+## 2026-08-04 closed quality-score diagnostic correction
+
+Candidate `0990daa4589bc0dff04c7f74d3b71603a5a73e05` passed its native usage
+dry and proved zero leaked benchmark roots after cleanup. Its single complete
+invocation then stopped at the exact terminal `correctness_oracle_failed /
+parent_outcome / quality_score`, wrote no benchmark evidence, and again
+cleaned every sandbox. Preserve that terminal in Linear history; do not retry
+or relabel it.
+
+The terminal does not identify the arm, approved synthetic fixture, or fixed
+DEV-142 scorer dimension. A prior plugin-off dry pass is suggestive but does
+not prove which complete-run arm failed. Do not make another parent prompt or
+production-interface change from that incomplete attribution.
+
+Keep the strict parent oracle and its stage-only compatibility API unchanged.
+Add one internal assessment that scores exactly once in the measured arm and,
+only when the stage is `quality_score`, carries the closed runner arm, a
+fixture ID from `EXACT_DEV142_FIXTURE_IDS`, and the returned immutable
+`QualityScore.reason_codes`. Accept only a sorted, duplicate-free tuple drawn
+from the existing 19-code DEV-142 scoring vocabulary. When scoring raises or
+returns a malformed score, keep `quality_score` with an empty code tuple; do
+not invent a sentinel.
+
+Only the failed correctness terminal may serialize `arm`, `fixtureID`, and
+`qualityReasonCodes`. Do not change blocked terminals or committed evidence.
+Retain no prompt, response, expected or observed value, diagnostic identity,
+hash, command, path, JSONL, telemetry, Apple output, or transcript. Reject
+partial diagnostic bindings, unknown arms or fixtures, non-tuples, unsorted or
+duplicate codes, unknown codes, and diagnostic fields on every non-quality
+failure.
+
+This adds no model, provider, command, Apple, request, turn, cleanup, or arm
+attempt. No plugin, hash, task, corpus, oracle acceptance, evidence schema, or
+release rule changes. After focused and full deterministic gates, unchanged
+SDK 26.5 compilation, generated-artifact and evidence-safety checks, diff and
+ancestry checks, and formal high-reasoning exact-diff review, commit one clean
+successor and run exactly one native usage dry row. Only a pass authorizes its
+single complete execution; every non-pass is terminal without retry,
+substitution, or relabeling.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.
