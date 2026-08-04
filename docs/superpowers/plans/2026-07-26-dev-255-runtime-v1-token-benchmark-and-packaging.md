@@ -1701,6 +1701,29 @@ diff, ancestry, identity, and formal high-reasoning exact-diff gates, commit
 one successor and run its one native usage dry. Only a pass authorizes its one
 complete invocation; every non-pass is terminal.
 
+## 2026-08-04 candidate identity hygiene correction
+
+Candidate `c1a996236d871273e255581c94070421502f21ca` stopped before its native
+usage arm with the separate nonpassing `fail:candidate_identity_drift`
+terminal. Preserve that terminal in Linear history; do not retry or relabel
+it. Static inspection proved that an operator-side Python help inspection
+created untracked `__pycache__` directories after the clean-state check. The
+harness correctly failed closed, no usage arm ran, and no production,
+interface, harness, evidence, ignore, privacy, or security rule changes.
+
+For every successor, set `PYTHONDONTWRITEBYTECODE = 1` on every Python
+inspection or execution from candidate identity capture through native
+invocation. Immediately before invoking the native harness, require a clean
+`git status --porcelain`, and run no Python command or other worktree-mutating
+operation between that final status check and the harness command. Any drift
+remains `fail:candidate_identity_drift` and is terminal for that candidate.
+
+After the existing focused and full deterministic, SDK 26.5,
+generated-artifact, evidence-safety, diff, ancestry, identity, and formal
+high-reasoning exact-diff gates, commit this plan-only successor and run its
+one native usage dry. Only a pass authorizes its one complete invocation;
+every non-pass is terminal.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.
