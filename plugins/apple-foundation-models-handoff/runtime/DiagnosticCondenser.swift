@@ -440,11 +440,7 @@ func consult(_ input: BridgeInput) async -> BridgeOutput {
         """
     )
     let prompt = Prompt(
-        """
-        Return the supplied literal diagnostic facts in the constrained
-        structured schema. Diagnostic record:
-        \(input.diagnosticText)
-        """
+        "Return the exact literal values required by the constrained schema."
     )
     let responseReserve = 1024
 

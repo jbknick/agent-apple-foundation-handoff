@@ -1418,6 +1418,50 @@ exactly one native usage dry row. Only a pass authorizes its single complete
 execution; every non-pass is terminal without retry, substitution, or
 relabeling.
 
+## 2026-08-04 minimized Apple context correction
+
+Candidate `7b5baf194f98eb108c7580c3e93eee53e9a6370e` passed its native usage
+dry row. Its single complete 24-pair/48-arm run then failed release with
+median reduction `-18501` PPM, zero correctness regressions, zero additional
+requests or turns, zero command reruns, zero cleanup or unsafe-evidence
+findings, zero Apple attempts, and zero validated applied rows. Every one of
+the 24 plugin-on zero-attempt rows had the closed preflight attribution
+`context_budget_exceeded`. Preserve that terminal in Linear history; do not
+retry or relabel it. Its validated fail artifact is not release evidence and
+was moved recoverably out of the required output path.
+
+Static inspection proves that `makeConstrainedSchema` already binds every
+generated scalar to the exact minimized `sourceFacts` value and
+`validatedCondensation` requires the reconstructed value to equal those
+frozen facts. The Apple prompt nevertheless interpolates the entire verbose
+`diagnosticText`, duplicating context that cannot add an accepted value. The
+preflight counts fixed instructions, that verbose prompt, the constrained
+schema, and the unchanged 1024-token response reserve before enforcing the
+unchanged 75% context limit. That redundant transfer is the shared cause of
+the uniform pre-generation decline.
+
+Replace only the interpolated Apple prompt with one fixed value-free prompt:
+`Return the exact literal values required by the constrained schema.` Keep
+the bridge input shape for compatibility, but do not use `diagnosticText`
+inside `consult`. Preserve the exact schema constants and ranges, fixed
+instructions, token-count calls, response reserve, 75% guard, no-tools
+session, greedy single response with a 1024-token maximum, one-attempt rule,
+exact equality validation, error mapping, and untouched-original fallback.
+This narrows Apple context and excludes the verbose original from the
+successful path; it does not change an interface, oracle, evidence rule, or
+release threshold.
+
+Add one structural production regression for the fixed prompt, verbose-input
+exclusion, bridge-input compatibility, schema constraints, equality oracle,
+token-count path, and one-response/no-tools invariants. Mechanically refresh
+only `productionPluginSha256` and `swiftSourceSha256`. After focused and full
+deterministic gates, SDK 26.5 warnings-as-errors compilation,
+generated-artifact and evidence-safety checks, diff and ancestry checks, and
+formal high-reasoning exact-diff review, commit one clean successor and run
+exactly one native usage dry row. Only a pass authorizes its single complete
+execution; every non-pass is terminal without retry, substitution, or
+relabeling.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.

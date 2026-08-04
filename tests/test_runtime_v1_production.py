@@ -918,6 +918,38 @@ class ProductionSwiftTests(unittest.TestCase):
         self.assertEqual(1, source.count("session.respond("))
         self.assertNotIn("What was the result of this synthetic unit test?", source)
 
+    def test_swift_sends_only_minimized_facts_to_apple(self):
+        source = SWIFT.read_text()
+        bridge_input = source[
+            source.index("struct BridgeInput:"):
+            source.index("struct BridgeOutput:")
+        ]
+        consult = source[source.index("func consult("):source.index("@main")]
+        self.assertIn("let diagnosticText: String", bridge_input)
+        self.assertIn("let sourceFacts: DiagnosticCondensation", bridge_input)
+        self.assertNotIn("input.diagnosticText", consult)
+        self.assertNotIn("Diagnostic record:", consult)
+        self.assertEqual(1, consult.count("let prompt = Prompt("))
+        self.assertIn(
+            '"Return the exact literal values required by the constrained schema."',
+            consult,
+        )
+        for required in (
+            "tokenCount(for: prompt)",
+            "to: prompt",
+            "schema: constrainedSchema",
+            ".constant(value)",
+            ".range(value...value)",
+            "validatedCondensation(",
+            "generated == sourceFacts",
+            "tools: []",
+            "sampling: .greedy",
+            "maximumResponseTokens: 1024",
+            "let appleAttempts = 1",
+        ):
+            self.assertIn(required, source)
+        self.assertEqual(1, consult.count("session.respond("))
+
 
 class ProductionHarnessTests(unittest.TestCase):
     def test_production_harness_entrypoint_exists(self):

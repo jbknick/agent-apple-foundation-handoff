@@ -1336,7 +1336,7 @@ def classify_process_exit_stream(value: object) -> str:
 
 _APPROVED_IDENTITIES = {
     "productionPluginSha256":
-        "81ecad007f2d0eefd243061105ac12e6a65ff0e6fd78de482de487e07409362b",
+        "8b73b4d64e6ead2c4ccceac6f6eb4025446c9badc63006a052dd5bc79368a1f0",
     "codexManifestSha256":
         "6c10d51db5a08a1531ba3c7964d77a5cf2b258f3ca838b655a5350d901b1927a",
     "hooksManifestSha256":
@@ -1344,7 +1344,7 @@ _APPROVED_IDENTITIES = {
     "pythonAdapterSha256":
         "cc3ef62ad1bdb3961d7a4d6b07fe2ceb3550bafdd84364a2b44e72910288d48a",
     "swiftSourceSha256":
-        "da40e06fa160b106bb6e9ff278aae4422be415c953ae3afba1391614d309e668",
+        "1f3f6253b7c4f38ab04f66736dfa2506ddac000724190a66c1749232cd13df1c",
     "corpusSha256":
         "2801e94ba54a65fa7eed7b85a12333446c6ba7b6be3745e40d26979acba4c1c6",
 }
