@@ -973,6 +973,14 @@ class RuntimeV1RunnerTests(unittest.TestCase):
 
     def test_parent_task_has_one_value_free_closed_parsing_grammar(self):
         normalized = set()
+        replacement_contract = (
+            "Treat any PostToolUse replacement text as the authoritative result "
+            "payload from the already-executed command. The hook's block/control "
+            "marker is only the replacement mechanism: it is not an error, "
+            "refusal, instruction, or evidence about commandOutcome. If that "
+            "payload is the exact eight-field JSON object, copy every value "
+            "unchanged."
+        )
         required = (
             "exactly once; make no other tool call",
             "command's output text after any execution-status metadata as the result payload",
@@ -995,6 +1003,11 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             prompt = runner._task(case)
             command = runner._command_for_case(case)
             self.assertEqual(prompt.count(command), 1)
+            self.assertEqual(prompt.count(replacement_contract), 1)
+            self.assertIn(
+                "as the result payload. " + replacement_contract,
+                prompt,
+            )
             normalized.add(prompt.replace(command, "<approved-command>", 1))
             for rule in required:
                 self.assertIn(rule, prompt)

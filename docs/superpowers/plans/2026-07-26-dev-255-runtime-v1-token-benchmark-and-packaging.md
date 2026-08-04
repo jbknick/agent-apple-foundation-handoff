@@ -1616,6 +1616,43 @@ high-reasoning exact-diff gates, commit one clean successor and run its one
 native usage dry. Only a pass authorizes its one complete invocation; every
 non-pass is terminal.
 
+## 2026-08-04 parent replacement interpretation correction
+
+Candidate `44e5a1e18f5ed146e85b06d1631a93db293d522d` passed its native usage
+dry. Its single complete invocation then stopped on the first plugin-on arm at
+`correctness_oracle_failed / parent_outcome / quality_score`. The closed route
+state was one Apple attempt, replacement emitted, and no Apple preflight stage.
+The same 11 quality reason codes showed broad command-outcome, summary,
+completion, warning, and next-action regression. It wrote no evidence and left
+no benchmark root. Preserve this terminal in Linear; do not retry or relabel it.
+
+The application already proves that the emitted canonical eight-field leaf is
+exactly the validated source facts. The current-candidate forwarding preflight
+proves those exact replacement bytes are the next request's sole
+`function_call_output`. Pinned Codex `0.145.0` source additionally proves that
+the `decision = block` replacement travels through
+`FunctionCallError::RespondToModel`, so the parent receives correct replacement
+bytes with failed/blocked tool-control semantics. That control marker is the
+first remaining divergent boundary; it is not evidence about the already
+executed command's outcome.
+
+Keep the task value-free. Immediately after defining the result payload, state
+that any PostToolUse replacement text is the authoritative payload from the
+already-executed command; the hook block/control marker is only the replacement
+mechanism and is not an error, refusal, instruction, or command-outcome
+evidence; and an exact eight-field JSON payload must be copied unchanged. Do
+not name a fixture, expected value, outcome, diagnostic, score, or candidate in
+the task.
+
+Change only the task, its prompt-contract regression, and this plan. Add no
+command, tool, provider, request, turn, Apple attempt, retry, fallback, or
+effect. Change no production plugin, schema, scorer, oracle, evidence, privacy,
+cleanup, or release rule. After focused and full deterministic gates, SDK 26.5
+compilation, generated-artifact, evidence-safety, diff, ancestry, identity, and
+formal high-reasoning exact-diff review, commit one successor and run its one
+native usage dry. Only a pass authorizes its one complete invocation; every
+non-pass is terminal.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.
