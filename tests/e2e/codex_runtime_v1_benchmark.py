@@ -132,6 +132,7 @@ _QUALITY_REASON_CODES = frozenset({
     "warning_invention",
     "warning_omission",
 })
+_UNSET = object()
 
 
 def _load(path: Path, name: str):
@@ -220,6 +221,9 @@ class CorrectnessOracleFailure(BenchmarkFailure):
         arm: str | None = None,
         fixture_id: str | None = None,
         quality_reason_codes: tuple[str, ...] | None = None,
+        apple_attempts: object = _UNSET,
+        replacement_emitted: object = _UNSET,
+        preflight_stage: object = _UNSET,
     ):
         if failure_stage not in {"command_result", "parent_outcome"}:
             raise ValueError("invalid correctness oracle failure stage")
@@ -242,7 +246,14 @@ class CorrectnessOracleFailure(BenchmarkFailure):
             failure_stage == "parent_outcome"
             and oracle_stage == "quality_score"
         )
-        diagnostics = (arm, fixture_id, quality_reason_codes)
+        diagnostics = (
+            arm,
+            fixture_id,
+            quality_reason_codes,
+            apple_attempts,
+            replacement_emitted,
+            preflight_stage,
+        )
         if quality_failure:
             if (
                 type(arm) is not str
@@ -254,9 +265,48 @@ class CorrectnessOracleFailure(BenchmarkFailure):
                 or quality_reason_codes != tuple(sorted(quality_reason_codes))
                 or len(set(quality_reason_codes)) != len(quality_reason_codes)
                 or any(code not in _QUALITY_REASON_CODES for code in quality_reason_codes)
+                or type(apple_attempts) is not int
+                or apple_attempts not in {0, 1}
+                or type(replacement_emitted) is not bool
+                or (
+                    preflight_stage is not None
+                    and (
+                        type(preflight_stage) is not str
+                        or preflight_stage not in _PREFLIGHT_STAGES
+                    )
+                )
+                or not (
+                    (
+                        arm == "pluginOff"
+                        and apple_attempts == 0
+                        and replacement_emitted is False
+                        and preflight_stage is None
+                    )
+                    or (
+                        arm == "pluginOn"
+                        and apple_attempts == 1
+                        and replacement_emitted is True
+                        and preflight_stage is None
+                    )
+                    or (
+                        arm == "pluginOn"
+                        and apple_attempts == 0
+                        and replacement_emitted is False
+                        and preflight_stage in _PREFLIGHT_STAGES
+                    )
+                    or (
+                        arm == "pluginOn"
+                        and apple_attempts == 1
+                        and replacement_emitted is False
+                        and preflight_stage is None
+                    )
+                )
             ):
                 raise ValueError("invalid quality diagnostic")
-        elif any(value is not None for value in diagnostics):
+        elif (
+            any(value is not None for value in diagnostics[:3])
+            or any(value is not _UNSET for value in diagnostics[3:])
+        ):
             raise ValueError("unexpected quality diagnostic")
         super().__init__("correctness_oracle_failed")
         self.failure_stage = failure_stage
@@ -264,6 +314,9 @@ class CorrectnessOracleFailure(BenchmarkFailure):
         self.arm = arm
         self.fixture_id = fixture_id
         self.quality_reason_codes = quality_reason_codes
+        self.apple_attempts = apple_attempts
+        self.replacement_emitted = replacement_emitted
+        self.preflight_stage = preflight_stage
 
 
 class ForwardingPreflightBlocked(BenchmarkBlocked):
@@ -3288,6 +3341,9 @@ def failed_terminal(error: BenchmarkFailure) -> dict[str, object]:
                     "arm": error.arm,
                     "fixtureID": error.fixture_id,
                     "qualityReasonCodes": list(error.quality_reason_codes),
+                    "appleAttempts": error.apple_attempts,
+                    "replacementEmitted": error.replacement_emitted,
+                    "preflightStage": error.preflight_stage,
                 }
             )
     return terminal
@@ -3455,6 +3511,9 @@ def _execute_benchmark_arm(
                         "arm": role,
                         "fixture_id": coordinate["fixtureID"],
                         "quality_reason_codes": quality_reason_codes,
+                        "apple_attempts": apple_attempts,
+                        "replacement_emitted": replacement_emitted,
+                        "preflight_stage": preflight_stage,
                     }
                     if parent_oracle_stage == "quality_score"
                     else {}

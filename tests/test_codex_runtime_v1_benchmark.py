@@ -49,6 +49,30 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             calls["derive_validated_applied"],
         )
         self.assertIn("preflight_stage", calls["ArmObservation"])
+        quality_failure_mappings = [
+            {
+                key.value: value.id
+                for keyword in node.keywords
+                if keyword.arg is None and isinstance(keyword.value, ast.IfExp)
+                for key, value in zip(
+                    keyword.value.body.keys,
+                    keyword.value.body.values,
+                    strict=True,
+                )
+                if isinstance(key, ast.Constant) and isinstance(key.value, str)
+                and isinstance(value, ast.Name)
+            }
+            for node in ast.walk(function)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "CorrectnessOracleFailure"
+        ]
+        self.assertTrue(any(
+            all(mapping.get(name) == name for name in (
+                "apple_attempts", "replacement_emitted", "preflight_stage",
+            ))
+            for mapping in quality_failure_mappings
+        ))
 
     def _forwarding_boundary_failure(
         self,
@@ -2729,10 +2753,16 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             },
         )
         fixtures = runner.contract.EXACT_DEV142_FIXTURE_IDS
-        for arm, fixture_id in (
-            ("pluginOff", fixtures[0]),
-            ("pluginOn", fixtures[-1]),
+        valid_states = (
+            ("pluginOff", 0, False, None),
+            ("pluginOn", 1, True, None),
+            ("pluginOn", 1, False, None),
+            *(("pluginOn", 0, False, stage) for stage in runner._PREFLIGHT_STAGES),
+        )
+        for index, (arm, apple_attempts, replacement_emitted, preflight_stage) in enumerate(
+            valid_states
         ):
+            fixture_id = fixtures[0] if index == 0 else fixtures[-1]
             self.assertEqual(
                 runner.failed_terminal(runner.CorrectnessOracleFailure(
                     "parent_outcome",
@@ -2743,6 +2773,9 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                         "summary_invention",
                         "summary_omission",
                     ),
+                    apple_attempts=apple_attempts,
+                    replacement_emitted=replacement_emitted,
+                    preflight_stage=preflight_stage,
                 )),
                 {
                     "status": "fail",
@@ -2755,13 +2788,22 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                         "summary_invention",
                         "summary_omission",
                     ],
+                    "appleAttempts": apple_attempts,
+                    "replacementEmitted": replacement_emitted,
+                    "preflightStage": preflight_stage,
                 },
             )
         valid = {
             "arm": "pluginOff",
             "fixture_id": fixtures[0],
             "quality_reason_codes": (),
+            "apple_attempts": 0,
+            "replacement_emitted": False,
+            "preflight_stage": None,
         }
+        class PreflightStage(str):
+            pass
+
         empty_terminal = runner.failed_terminal(
             runner.CorrectnessOracleFailure(
                 "parent_outcome",
@@ -2784,6 +2826,12 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             {**valid, "quality_reason_codes": ("summary_omission", "summary_invention")},
             {**valid, "quality_reason_codes": ("summary_omission", "summary_omission")},
             {**valid, "quality_reason_codes": ("private",)},
+            {**valid, "apple_attempts": True},
+            {**valid, "apple_attempts": "0"},
+            {**valid, "replacement_emitted": 0},
+            {**valid, "preflight_stage": "private"},
+            {**valid, "preflight_stage": PreflightStage(sorted(runner._PREFLIGHT_STAGES)[0])},
+            {**valid, "preflight_stage": []},
         )
         for diagnostic in invalid_diagnostics:
             with self.subTest(diagnostic=diagnostic), self.assertRaisesRegex(
@@ -2795,11 +2843,55 @@ class RuntimeV1RunnerTests(unittest.TestCase):
                     oracle_stage="quality_score",
                     **diagnostic,
                 )
+        allowed_states = set(valid_states)
+        for state in (
+            (arm, attempts, emitted, stage)
+            for arm in ("pluginOff", "pluginOn")
+            for attempts in (0, 1)
+            for emitted in (False, True)
+            for stage in (None, *runner._PREFLIGHT_STAGES)
+            if (arm, attempts, emitted, stage) not in allowed_states
+        ):
+            with self.subTest(state=state), self.assertRaisesRegex(
+                ValueError,
+                "invalid quality diagnostic",
+            ):
+                runner.CorrectnessOracleFailure(
+                    "parent_outcome",
+                    oracle_stage="quality_score",
+                    **{
+                        **valid,
+                        "arm": state[0],
+                        "apple_attempts": state[1],
+                        "replacement_emitted": state[2],
+                        "preflight_stage": state[3],
+                    },
+                )
+        for omitted in (
+            "apple_attempts", "replacement_emitted", "preflight_stage",
+        ):
+            partial = dict(valid)
+            del partial[omitted]
+            with self.subTest(omitted=omitted), self.assertRaisesRegex(
+                ValueError,
+                "invalid quality diagnostic",
+            ):
+                runner.CorrectnessOracleFailure(
+                    "parent_outcome",
+                    oracle_stage="quality_score",
+                    **partial,
+                )
         with self.assertRaisesRegex(ValueError, "unexpected quality diagnostic"):
             runner.CorrectnessOracleFailure(
                 "command_result",
                 oracle_stage="command_text",
                 **valid,
+            )
+        with self.assertRaisesRegex(ValueError, "unexpected quality diagnostic"):
+            runner.CorrectnessOracleFailure(
+                "parent_outcome",
+                oracle_stage="parent_json",
+                apple_attempts=0,
             )
         with self.assertRaisesRegex(ValueError, "invalid correctness oracle"):
             runner.CorrectnessOracleFailure("raw_detail")

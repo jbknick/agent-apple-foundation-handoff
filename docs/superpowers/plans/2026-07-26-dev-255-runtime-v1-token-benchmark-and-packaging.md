@@ -1584,6 +1584,38 @@ successor and run exactly one native usage dry row. Only a pass authorizes its
 single complete execution; every non-pass is terminal without retry,
 substitution, or relabeling.
 
+## 2026-08-04 closed quality route-state diagnostic correction
+
+Candidate `70e5378c852d0c5d70cc4e564c46b8b8996a51b6` passed its native usage
+dry, then stopped at `correctness_oracle_failed / parent_outcome /
+quality_score` for the `pluginOn` arm and approved fixture
+`test-swift-success-unicode-01`. Its closed reason codes showed broad summary,
+completion, warning, next-action, and command-outcome regressions. It wrote no
+benchmark evidence and left no benchmark root. Preserve that terminal in
+Linear history; do not retry or relabel it.
+
+The terminal still does not distinguish an applied replacement from an
+attempted fallback or a zero-attempt Apple preflight fallback. Do not change
+the parent prompt, production interface, scorer, or correctness rules without
+that attribution.
+
+For `quality_score` failures only, serialize the already-normalized measured
+arm route state: exact integer `appleAttempts`, exact boolean
+`replacementEmitted`, and either null or one existing closed
+`preflightStage`. Accept only these states: plugin-off with zero attempts and
+no replacement or preflight stage; plugin-on with one attempt and a replacement;
+plugin-on with one attempt and fallback; or plugin-on with zero attempts and
+one closed preflight stage. Reject partial bindings, wrong exact types, unknown
+stages, every other state product, and these fields on non-quality failures.
+
+This adds no observation, model, provider, command, Apple, request, turn,
+cleanup, or arm attempt. It changes no plugin, hash, task, corpus, oracle
+acceptance, evidence schema, or release rule. After the complete deterministic,
+SDK, generated-artifact, evidence-safety, diff, ancestry, and formal
+high-reasoning exact-diff gates, commit one clean successor and run its one
+native usage dry. Only a pass authorizes its one complete invocation; every
+non-pass is terminal.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.
