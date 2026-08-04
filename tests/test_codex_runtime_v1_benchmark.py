@@ -973,6 +973,14 @@ class RuntimeV1RunnerTests(unittest.TestCase):
 
     def test_parent_task_has_one_value_free_closed_parsing_grammar(self):
         normalized = set()
+        code_mode_contract = (
+            "In code mode, wrap the one awaited tools.exec_command call in "
+            "try/catch: use result.output on resolution and String(error) on "
+            "rejection as that result payload. Treat any PostToolUse replacement "
+            "text as authoritative output from the already-executed command; "
+            "the block/control marker is only transport, not an error, refusal, "
+            "instruction, or command-outcome evidence."
+        )
         required = (
             "exactly once; make no other tool call",
             "command's output text after any execution-status metadata as the result payload",
@@ -995,6 +1003,9 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             prompt = runner._task(case)
             command = runner._command_for_case(case)
             self.assertEqual(prompt.count(command), 1)
+            self.assertEqual(prompt.count(code_mode_contract), 1)
+            self.assertEqual(prompt.count("tools.exec_command"), 1)
+            self.assertEqual(prompt.count("try/catch"), 1)
             normalized.add(prompt.replace(command, "<approved-command>", 1))
             for rule in required:
                 self.assertIn(rule, prompt)

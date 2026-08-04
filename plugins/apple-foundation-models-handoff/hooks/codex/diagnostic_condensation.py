@@ -493,12 +493,12 @@ class BenchmarkObserver:
         if applied:
             try:
                 if (
-                    set(response) != {"continue", "stopReason"}
-                    or response.get("continue") is not False
-                    or type(response.get("stopReason")) is not str
+                    set(response) != {"decision", "reason"}
+                    or response.get("decision") != "block"
+                    or type(response.get("reason")) is not str
                 ):
                     raise ValueError
-                replacement_text = response["stopReason"]
+                replacement_text = response["reason"]
                 replacement_encoded = replacement_text.encode("utf-8")
                 expected_replacement = {
                     "event": "replacement_emitted",
@@ -981,7 +981,7 @@ def evaluate(
                 "appleAttempts": consultation["appleAttempts"],
             }
         )
-        return {"continue": False, "stopReason": stop_reason}
+        return {"decision": "block", "reason": stop_reason}
     except Exception:
         return None
 

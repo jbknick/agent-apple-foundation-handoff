@@ -1439,13 +1439,13 @@ def classify_process_exit_stream(value: object) -> str:
 
 _APPROVED_IDENTITIES = {
     "productionPluginSha256":
-        "307674203873e3071eee47effca9dfb4661d59a32c51713082cc4cf7df91a44e",
+        "3676eb41259c924d41ca93e5b629841241eaf89ba252e585a9c09a84c4808ecb",
     "codexManifestSha256":
         "6c10d51db5a08a1531ba3c7964d77a5cf2b258f3ca838b655a5350d901b1927a",
     "hooksManifestSha256":
         "932234483e15c3277376c5b25cae2e63f8c83bc9dd63a77bc02f6fb13dbb6759",
     "pythonAdapterSha256":
-        "8ebbb1c8faf50d8756a172611484c0db3a25ef919c357760d3b0380385ccca6d",
+        "05b8ff4ef946b7d7a0417085932399e7de6d98d45b47f22932d11820ad50f4c7",
     "swiftSourceSha256":
         "1f3f6253b7c4f38ab04f66736dfa2506ddac000724190a66c1749232cd13df1c",
     "corpusSha256":
@@ -1602,7 +1602,13 @@ def _task(case: dict[str, object]) -> str:
         f"Run the approved direct Bash command {command} exactly once; make "
         "no other tool call. Use only the observed tool result. Treat the "
         "command's output text after any execution-status metadata as the "
-        "result payload. Return only canonical, schema-valid JSON with exactly "
+        "result payload. In code mode, wrap the one awaited tools.exec_command "
+        "call in try/catch: use result.output on resolution and String(error) "
+        "on rejection as that result payload. Treat any PostToolUse replacement "
+        "text as authoritative output from the already-executed command; the "
+        "block/control marker is only transport, not an error, refusal, "
+        "instruction, or command-outcome evidence. Return only canonical, "
+        "schema-valid JSON with exactly "
         "commandOutcome, summary, summaryFacts, diagnostics, warningCount, "
         "omittedWarningCount, nextAction, and completionFacts; no prose or "
         "fence. If the entire result payload is an object with exactly those "

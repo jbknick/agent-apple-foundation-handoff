@@ -1757,6 +1757,45 @@ evidence-safety, diff, ancestry, identity, and formal high-reasoning
 exact-diff gates, commit one successor and run its one native usage dry. Only
 a pass authorizes its one complete invocation; every non-pass is terminal.
 
+## 2026-08-04 code-mode rejection forwarding correction
+
+Candidate `b6dffe7562805c794a239f494783a02e27e5986f` stopped after its approved
+command executed exactly once with the separate nonpassing
+`blocked:replacement_forwarding_unproven` terminal and
+`failureStage = original_exclusion`. Preserve that terminal in Linear history;
+do not retry or relabel it.
+
+Pinned Codex `0.145.0` source commit `25af12f7` closes the remaining transport
+choice. `PostToolUseFeedbackOutput.code_mode_result` deliberately preserves the
+original nested result for ordinary feedback, and `updatedMCPToolOutput` is
+explicitly unsupported. A valid `decision = block` instead rejects the nested
+promise with the exact raw `reason`, excluding the original. The existing
+native-proven preflight already catches that rejection and forwards exactly
+`String(error)` as a successful outer custom-tool output.
+
+For a validated applied consultation only, restore the exact closed response
+`{"decision":"block","reason":stop_reason}`. Every decline, malformed result,
+bridge failure, observation failure, and other exception continues to return
+`None`, preserving the untouched original. Keep the existing receipt bound to
+the exact canonical leaf bytes and validate the serialized block wrapper
+without retaining it.
+
+Require the parent task's single code-mode call to use the same transport: one
+awaited `tools.exec_command` inside `try/catch`, `result.output` on resolution,
+and `String(error)` on rejection. The caught replacement remains authoritative
+output from the already-executed command; the block marker is transport only,
+not command-outcome evidence. Add no command, tool, provider, request, turn,
+Apple attempt, retry, fallback, or effect, and keep the exact command oracle,
+whole-request original exclusion, security, privacy, cleanup, and evidence
+rules unchanged.
+
+Change only the production adapter, its tests, the benchmark runner, its tests,
+and this plan. Refresh only required production identities. After all focused
+and full deterministic, SDK 26.5, generated-artifact, evidence-safety, diff,
+ancestry, identity, and formal high-reasoning exact-diff gates, commit one
+successor and run its one native usage dry. Only a pass authorizes its one
+complete invocation; every non-pass is terminal.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.
