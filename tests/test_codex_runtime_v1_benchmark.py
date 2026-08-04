@@ -446,6 +446,81 @@ class RuntimeV1RunnerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid Codex stderr stage"):
             runner.CodexStderrBlocked("private")
 
+    def test_codex_stderr_classifies_only_one_authorized_notice_prefix(self):
+        notice = b"Reading additional input from stdin...\n"
+        suffixes = (
+            ("override", b"Error parsing -c overrides:"),
+            ("codex_home", b"Error finding codex home:"),
+            ("rules", b"Error loading rules:\n"),
+            ("config_load", b"Error loading config.toml:"),
+            ("login_restriction", b"API key login is required,"),
+            ("login_restriction", b"ChatGPT login is required,"),
+            ("login_restriction", b"Failed to load ChatGPT credentials "),
+            ("login_restriction", b"Login is restricted to workspace(s) "),
+            ("otel_exporter", b"Could not create otel exporter:"),
+            ("output_schema", b"Failed to read output schema file "),
+            ("output_schema", b"Output schema file "),
+            ("output_file", b"Warning: no last agent message;"),
+            ("output_file", b"Failed to write last message file "),
+            ("stdin", b"No prompt provided."),
+            ("stdin", b"Reading prompt from stdin..."),
+            ("stdin", b"Reading additional input from stdin..."),
+            ("stdin", b"Failed to read prompt from stdin:"),
+            ("stdin", b"No prompt provided via stdin."),
+            ("unknown", b"private arbitrary detail"),
+        )
+        for expected, suffix in suffixes:
+            with self.subTest(expected=expected):
+                completed = subprocess.CompletedProcess(
+                    [], 1, b"", notice + suffix + b" secret"
+                )
+                with self.assertRaises(runner.CodexStderrBlocked) as caught:
+                    runner.discard_classified_codex_stderr(
+                        completed,
+                        codex_version="0.145.0",
+                        source_commit=runner.CODEX_SOURCE_COMMIT,
+                        stdin_nonterminal=True,
+                    )
+                self.assertEqual(caught.exception.stderr_stage, expected)
+                self.assertEqual(completed.stderr, b"")
+
+        composite = notice + b"Warning: no last agent message; private"
+        for version, source, stdin_nonterminal in (
+            ("0.146.0", runner.CODEX_SOURCE_COMMIT, True),
+            ("0.145.0", "unapproved", True),
+            ("0.145.0", runner.CODEX_SOURCE_COMMIT, False),
+        ):
+            completed = subprocess.CompletedProcess([], 1, b"", composite)
+            with self.assertRaises(runner.CodexStderrBlocked) as caught:
+                runner.discard_classified_codex_stderr(
+                    completed,
+                    codex_version=version,
+                    source_commit=source,
+                    stdin_nonterminal=stdin_nonterminal,
+                )
+            self.assertEqual(caught.exception.stderr_stage, "unknown")
+            self.assertEqual(completed.stderr, b"")
+
+        completed = subprocess.CompletedProcess(
+            [], 1, b"", notice + notice + b"Warning: no last agent message; private"
+        )
+        with self.assertRaises(runner.CodexStderrBlocked) as caught:
+            runner.discard_classified_codex_stderr(
+                completed,
+                codex_version="0.145.0",
+                source_commit=runner.CODEX_SOURCE_COMMIT,
+                stdin_nonterminal=True,
+            )
+        self.assertEqual(
+            runner.blocked_terminal(caught.exception),
+            {
+                "status": "blocked",
+                "reasonCodes": ["codex_stderr_unclassified"],
+                "stderrStage": "stdin",
+            },
+        )
+        self.assertEqual(completed.stderr, b"")
+
     def test_codex_stderr_precedes_provider_counter_failure(self):
         completed = subprocess.CompletedProcess(
             [], 1, b"", b"Could not create otel exporter: private"

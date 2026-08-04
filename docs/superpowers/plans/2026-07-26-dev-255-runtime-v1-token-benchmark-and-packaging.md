@@ -1382,6 +1382,42 @@ execution. This is a new prompt-corrected candidate, not a retry of
 `4700074fd34383c03f1c25de1103bd632f327e7b` or an earlier terminal. A
 non-pass is terminal and authorizes no executable substitution or retry.
 
+## 2026-08-04 composite Codex stderr attribution correction
+
+Candidate `06103a54008ef85f67fc60a6785552f3100ac6d7` passed its native
+usage dry row. Its single complete run stopped at
+`blocked:provider_request_counter_invalid / process_exit /
+error_then_turn_failed`; one explicitly authorized exceptional unchanged
+complete execution later stopped at `blocked:codex_stderr_unclassified /
+stdin`. Preserve both terminals in Linear history; do not retry or relabel
+either execution.
+
+Pinned Codex `0.145.0` source commit `25af12f7` proves that a positional
+prompt with non-terminal stdin first emits the exact accepted 39-byte
+OptionalAppend notice, and a later failure can append another stderr producer.
+The current first-prefix diagnostic therefore attributes a composite buffer
+to the benign `stdin` prefix and hides the later producer.
+
+After clearing captured stderr, when and only when the transient value is
+bytes and the exact Codex version, source commit, and non-terminal-stdin
+bindings match, remove exactly one leading exact 39-byte notice from a larger
+transient value solely for closed stage attribution. The larger value remains
+blocked. Empty stderr and the exact standalone notice remain the only accepted
+values. Do not decode, trim, normalize, search, use regular expressions,
+recursively remove notices, retain a suffix, add a stage, or change evidence.
+Wrong version, source, or stdin-mode composite values map to `unknown`; a
+second notice remains `stdin` after the single removal.
+
+Add regressions for every existing known suffix, an unknown suffix, all three
+authorization-guard failures, duplicate notices followed by another known
+prefix, unconditional buffer clearing, and closed terminal serialization.
+After focused and full deterministic gates, SDK compilation,
+generated-artifact and evidence-safety checks, ancestry and diff checks, and
+formal high-reasoning exact-diff review, commit one clean successor and run
+exactly one native usage dry row. Only a pass authorizes its single complete
+execution; every non-pass is terminal without retry, substitution, or
+relabeling.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.

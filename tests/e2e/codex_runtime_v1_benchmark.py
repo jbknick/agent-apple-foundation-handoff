@@ -1155,21 +1155,34 @@ def discard_classified_codex_stderr(
 ) -> int:
     value = completed.stderr
     completed.stderr = b""
+    notice = b"Reading additional input from stdin...\n"
     if value == b"":
         return 0
     if (
-        value == b"Reading additional input from stdin...\n"
+        value == notice
         and codex_version == "0.145.0"
         and source_commit == CODEX_SOURCE_COMMIT
         and stdin_nonterminal is True
     ):
         return 39
-    stage = "unknown"
-    if (
+    classified_value = value
+    composite_notice = (
+        type(value) is bytes
+        and value != notice
+        and value.startswith(notice)
+    )
+    classification_allowed = (
         type(value) is bytes
         and codex_version == "0.145.0"
         and source_commit == CODEX_SOURCE_COMMIT
-    ):
+    )
+    if composite_notice:
+        if classification_allowed and stdin_nonterminal is True:
+            classified_value = value[len(notice):]
+        else:
+            classification_allowed = False
+    stage = "unknown"
+    if classification_allowed:
         for prefix, candidate in (
             (b"Error parsing -c overrides:", "override"),
             (b"Error finding codex home:", "codex_home"),
@@ -1190,7 +1203,7 @@ def discard_classified_codex_stderr(
             (b"Failed to read prompt from stdin:", "stdin"),
             (b"No prompt provided via stdin.", "stdin"),
         ):
-            if value.startswith(prefix):
+            if classified_value.startswith(prefix):
                 stage = candidate
                 break
     raise CodexStderrBlocked(stage)
