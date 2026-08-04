@@ -1653,6 +1653,54 @@ formal high-reasoning exact-diff review, commit one successor and run its one
 native usage dry. Only a pass authorizes its one complete invocation; every
 non-pass is terminal.
 
+## 2026-08-04 non-failing direct replacement correction
+
+Candidate `a3923c4eafe6d2ed721ccc03cfc2bfca0aa15263` passed its native usage
+dry, but its single complete invocation reproduced the exact first plugin-on
+quality terminal from `44e5a1e18f5ed146e85b06d1631a93db293d522d`:
+one Apple attempt, replacement emitted, no Apple preflight stage, and the same
+11 quality reason codes. It wrote no evidence and left no benchmark root.
+Preserve this terminal in Linear; do not retry or relabel it. Revert the
+ineffective prompt-only correction in the next successor while preserving this
+historical plan record.
+
+Pinned Codex `0.145.0` source proves the lower divergence. A PostToolUse
+`decision = block` sets `should_block`, returns
+`FunctionCallError::RespondToModel`, and records the tool as failed. A valid
+`continue = false` plus `stopReason` instead records stopped hook processing,
+keeps `should_block = false`, and supplies `stopReason` as model-visible
+feedback with unspecified success. The official direct-shell integration test
+then proves exactly two provider requests and exact `stopReason` replacement in
+the second request.
+
+For a validated applied consultation only, emit exactly `continue = false` and
+the canonical condensation leaf as `stopReason`. Bind the observation receipt
+to the `stopReason` bytes, not wrapper bytes. Every decline, malformed result,
+bridge failure, pre-emission observation validation failure, and other
+pre-emission exception still emits nothing and preserves the untouched
+original. A receipt-write failure after the replacement stdout flush remains a
+terminal measurement blocker and makes no fallback or original-preservation
+claim.
+
+Replace the historical code-mode forwarding preflight with the same direct
+exec surface used by the actual benchmark. Prove exactly two requests, exactly
+one approved direct command, exactly one matching `function_call_output`, exact
+replacement bytes, whole-request original exclusion, one command counter,
+unchanged identities and trust, source-bound stderr, and complete cleanup.
+Reject code-mode/custom-call shapes, duplicates, mismatched call IDs or
+arguments, malformed outputs, and extra requests. Code-mode local result
+handling is outside this direct Runtime V1 surface and cannot substitute.
+
+Change only the production adapter, production adapter tests, outer runner,
+runner tests, and this plan. Refresh the plugin-tree and Python-adapter hashes;
+all other identities remain unchanged. Add no provider, command, request, turn,
+Apple attempt, retry, fallback, or effect. Change no Apple input, schema,
+equality check, scorer, oracle, evidence, privacy, cleanup, or release rule.
+After the complete deterministic, SDK, generated-artifact, evidence-safety,
+diff, ancestry, identity, and formal high-reasoning exact-diff gates, commit
+one successor and run its one native usage dry. Only a pass authorizes its one
+complete invocation; every non-pass is terminal.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.

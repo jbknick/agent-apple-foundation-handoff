@@ -205,9 +205,9 @@ class ProductionAdapterTests(unittest.TestCase):
 
         self.assertEqual(1, len(calls))
         self.assertEqual({"diagnosticText", "sourceFacts"}, set(calls[0]))
-        self.assertEqual({"decision", "reason"}, set(response))
-        self.assertEqual("block", response["decision"])
-        result = json.loads(response["reason"])
+        self.assertEqual({"continue", "stopReason"}, set(response))
+        self.assertIs(response["continue"], False)
+        result = json.loads(response["stopReason"])
         expected = adapter.source_facts(diagnostic_text())
         self.assertEqual(expected, result)
         self.assertEqual(
@@ -217,7 +217,7 @@ class ProductionAdapterTests(unittest.TestCase):
                 separators=(",", ":"),
                 sort_keys=True,
             ),
-            response["reason"],
+            response["stopReason"],
         )
         self.assertTrue(any(
             value.get("outcome") == "applied"
@@ -330,7 +330,7 @@ class ProductionAdapterTests(unittest.TestCase):
     def test_failure_preserves_exact_semantics(self):
         response, _ = self.evaluate(payload(diagnostic_text(exit_status=65)))
 
-        result = json.loads(response["reason"])
+        result = json.loads(response["stopReason"])
         self.assertEqual("failure", result["commandOutcome"])
 
     def test_source_facts_match_all_twenty_four_reviewed_cases(self):
@@ -399,7 +399,7 @@ class ProductionAdapterTests(unittest.TestCase):
                         candidate,
                         repo_root=repo_root,
                     )
-                    result = json.loads(response["reason"])
+                    result = json.loads(response["stopReason"])
                     self.assertEqual(
                         adapter.source_facts(
                             contract.render_case(case).decode("utf-8")
@@ -525,12 +525,12 @@ class ProductionPathTests(unittest.TestCase):
             self.assertTrue(decoded["replacementEmitted"])
             self.assertEqual(
                 hashlib.sha256(
-                    response["reason"].encode("utf-8")
+                    response["stopReason"].encode("utf-8")
                 ).hexdigest(),
                 decoded["replacementSha256"],
             )
             self.assertEqual(
-                len(response["reason"].encode("utf-8")),
+                len(response["stopReason"].encode("utf-8")),
                 decoded["replacementBytes"],
             )
             self.assertEqual(1, decoded["appleLatencySamples"])
@@ -549,10 +549,10 @@ class ProductionPathTests(unittest.TestCase):
         self.assertEqual("blocked", malformed["status"])
         self.assertFalse(malformed["replacementEmitted"])
         for changed in (
-            {**response, "decision": "continue"},
-            {"decision": "block"},
+            {**response, "continue": True},
+            {"continue": False},
             {**response, "extra": True},
-            {**response, "reason": 1},
+            {**response, "stopReason": 1},
         ):
             with self.subTest(response=changed):
                 malformed = observer.finish(
@@ -919,7 +919,7 @@ class ProductionPathTests(unittest.TestCase):
             response = json.loads(completed.stdout)
             self.assertEqual(
                 adapter.source_facts(diagnostic_text()),
-                json.loads(response["reason"]),
+                json.loads(response["stopReason"]),
             )
             observed = json.loads(observation.read_text())
             self.assertEqual("replacement_emitted", observed["status"])
@@ -1028,7 +1028,7 @@ class ProductionHarnessTests(unittest.TestCase):
         )
         candidate["tool_use_id"] = "call-runtime-v1"
         response, _ = ProductionAdapterTests().evaluate(candidate)
-        encoded = response["reason"].encode("utf-8")
+        encoded = response["stopReason"].encode("utf-8")
 
         original = harness.stimulus_bytes("C0")
         digest = harness._validated_applied_output(encoded, original)

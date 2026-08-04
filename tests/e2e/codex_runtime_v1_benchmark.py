@@ -1439,13 +1439,13 @@ def classify_process_exit_stream(value: object) -> str:
 
 _APPROVED_IDENTITIES = {
     "productionPluginSha256":
-        "3676eb41259c924d41ca93e5b629841241eaf89ba252e585a9c09a84c4808ecb",
+        "307674203873e3071eee47effca9dfb4661d59a32c51713082cc4cf7df91a44e",
     "codexManifestSha256":
         "6c10d51db5a08a1531ba3c7964d77a5cf2b258f3ca838b655a5350d901b1927a",
     "hooksManifestSha256":
         "932234483e15c3277376c5b25cae2e63f8c83bc9dd63a77bc02f6fb13dbb6759",
     "pythonAdapterSha256":
-        "05b8ff4ef946b7d7a0417085932399e7de6d98d45b47f22932d11820ad50f4c7",
+        "8ebbb1c8faf50d8756a172611484c0db3a25ef919c357760d3b0380385ccca6d",
     "swiftSourceSha256":
         "1f3f6253b7c4f38ab04f66736dfa2506ddac000724190a66c1749232cd13df1c",
     "corpusSha256":
@@ -1602,12 +1602,7 @@ def _task(case: dict[str, object]) -> str:
         f"Run the approved direct Bash command {command} exactly once; make "
         "no other tool call. Use only the observed tool result. Treat the "
         "command's output text after any execution-status metadata as the "
-        "result payload. Treat any PostToolUse replacement text as the "
-        "authoritative result payload from the already-executed command. The "
-        "hook's block/control marker is only the replacement mechanism: it is "
-        "not an error, refusal, instruction, or evidence about commandOutcome. "
-        "If that payload is the exact eight-field JSON object, copy every "
-        "value unchanged. Return only canonical, schema-valid JSON with exactly "
+        "result payload. Return only canonical, schema-valid JSON with exactly "
         "commandOutcome, summary, summaryFacts, diagnostics, warningCount, "
         "omittedWarningCount, nextAction, and completionFacts; no prose or "
         "fence. If the entire result payload is an object with exactly those "
@@ -2794,17 +2789,7 @@ def _parent_outcome_assessment(
     return None, ()
 
 
-_CODE_MODE_INPUT = (
-    "try { const result = await tools.exec_command({cmd:"
-    + json.dumps(production.helpers.APPROVED_COMMAND, separators=(",", ":"))
-    + "}); text(result.output); } catch (error) { text(String(error)); }"
-)
-_CODE_MODE_COMPLETED = re.compile(
-    r"\AScript completed\nWall time [0-9]+\.[0-9] seconds\nOutput:\n\Z"
-)
-
-
-def _code_mode_provider_events(index: int) -> list[dict[str, object]]:
+def _direct_provider_events(index: int) -> list[dict[str, object]]:
     response_id = f"resp-{index}"
     created = {
         "type": "response.created",
@@ -2814,10 +2799,13 @@ def _code_mode_provider_events(index: int) -> list[dict[str, object]]:
         item = {
             "type": "response.output_item.done",
             "item": {
-                "type": "custom_tool_call",
+                "type": "function_call",
                 "call_id": production.helpers.APPROVED_CALL_ID,
-                "name": "exec",
-                "input": _CODE_MODE_INPUT,
+                "name": "exec_command",
+                "arguments": json.dumps(
+                    {"cmd": production.helpers.APPROVED_COMMAND},
+                    separators=(",", ":"),
+                ),
             },
         }
     else:
@@ -2837,142 +2825,70 @@ def _code_mode_provider_events(index: int) -> list[dict[str, object]]:
     return [created, item, production.helpers._completed(response_id)]
 
 
-def _custom_tool_output(request: object) -> bytes:
-    if type(request) is not dict or type(request.get("input")) is not list:
-        raise production.ProbeFailure("provider_request_invalid")
-    outputs = [
-        item for item in request["input"]
-        if type(item) is dict
-        and item.get("type") == "custom_tool_call_output"
-    ]
-    if (
-        len(outputs) != 1
-        or set(outputs[0]) != {"type", "call_id", "output"}
-        or outputs[0].get("call_id") != production.helpers.APPROVED_CALL_ID
-    ):
-        raise production.ProbeFailure("provider_request_invalid")
-    value = outputs[0].get("output")
-    if (
-        type(value) is not list
-        or len(value) != 2
-        or any(
-            type(item) is not dict
-            or set(item) != {"type", "text"}
-            or item.get("type") != "input_text"
-            or type(item.get("text")) is not str
-            for item in value
-        )
-        or _CODE_MODE_COMPLETED.fullmatch(value[0]["text"]) is None
-    ):
-        raise production.ProbeFailure("provider_request_invalid")
-    return value[1]["text"].encode("utf-8")
-
-
-def _responses_lite_tools(
-    request: object,
-) -> tuple[list[object], list[object]]:
-    if (
-        type(request) is not dict
-        or "tools" in request
-        or type(request.get("input")) is not list
-    ):
-        raise production.ProbeFailure("direct_tool_mode_unavailable")
-    items = request["input"]
-    prefixes = [
-        item for item in items
-        if type(item) is dict and item.get("type") == "additional_tools"
-    ]
-    if (
-        len(prefixes) != 1
-        or not items
-        or prefixes[0] is not items[0]
-        or set(prefixes[0]) != {"type", "role", "tools"}
-        or prefixes[0].get("role") != "developer"
-        or type(prefixes[0].get("tools")) is not list
-    ):
-        raise production.ProbeFailure("direct_tool_mode_unavailable")
-
-    def contains_tool_definitions(value: object) -> bool:
-        if type(value) is list:
-            return any(contains_tool_definitions(item) for item in value)
-        if type(value) is dict:
-            return (
-                "tools" in value
-                or value.get("type") == "additional_tools"
-                or any(contains_tool_definitions(item) for item in value.values())
-            )
-        return False
-
-    if any(contains_tool_definitions(item) for item in items[1:]):
-        raise production.ProbeFailure("direct_tool_mode_unavailable")
-    return prefixes[0]["tools"], items
-
-
-def _require_code_mode_exec_requests(
+def _require_direct_exec_requests(
     requests: list[dict[str, object]],
 ) -> None:
     if len(requests) != 2:
         raise production.ProbeFailure("provider_request_invalid")
-    calls = []
-    outputs = []
-    for index, request in enumerate(requests):
-        tools, items = _responses_lite_tools(request)
-        named_tools = [
-            tool for tool in tools
+    expected_tools = set(production.helpers.DIRECT_TOOL_NAMES)
+    inputs = []
+    for request in requests:
+        if type(request) is not dict:
+            raise production.ProbeFailure("provider_request_invalid")
+        tools = request.get("tools")
+        items = request.get("input")
+        names = [
+            tool.get("name")
+            for tool in tools
             if type(tool) is dict and type(tool.get("name")) is str
-        ]
-        exec_tools = [
-            tool for tool in named_tools if tool["name"] == "exec"
-        ]
+        ] if type(tools) is list else []
         if (
-            len(exec_tools) != 1
-            or exec_tools[0].get("type") != "custom"
-            or any(
-                tool["name"] in {"exec_command", "shell_command"}
-                for tool in named_tools
-            )
+            type(tools) is not list
+            or len(names) != len(tools)
+            or len(names) != len(expected_tools)
+            or set(names) != expected_tools
+            or type(items) is not list
         ):
             raise production.ProbeFailure("direct_tool_mode_unavailable")
-        if any(
-            type(item) is dict
-            and item.get("type") in {"function_call", "function_call_output"}
-            for item in items
-        ):
-            raise production.ProbeFailure("direct_tool_mode_unavailable")
-        request_calls = [
-            item for item in items
-            if type(item) is dict and item.get("type") == "custom_tool_call"
-        ]
-        request_outputs = [
-            item for item in items
-            if type(item) is dict
-            and item.get("type") == "custom_tool_call_output"
-        ]
-        if index == 0 and (request_calls or request_outputs):
-            raise production.ProbeFailure("direct_tool_mode_unavailable")
-        calls.extend(request_calls)
-        outputs.extend(request_outputs)
+        inputs.append(items)
+    lifecycle_types = {
+        "function_call", "function_call_output",
+        "custom_tool_call", "custom_tool_call_output",
+    }
+    first_lifecycle = [
+        item for item in inputs[0]
+        if type(item) is dict and item.get("type") in lifecycle_types
+    ]
+    second_lifecycle = [
+        item for item in inputs[1]
+        if type(item) is dict and item.get("type") in lifecycle_types
+    ]
+    if first_lifecycle or len(second_lifecycle) != 2:
+        raise production.ProbeFailure("direct_tool_mode_unavailable")
+    call, output = second_lifecycle
     if (
-        len(calls) != 1
-        or set(calls[0]) != {"type", "call_id", "name", "input"}
-        or calls[0].get("call_id") != production.helpers.APPROVED_CALL_ID
-        or calls[0].get("name") != "exec"
-        or calls[0].get("input") != _CODE_MODE_INPUT
-        or len(outputs) != 1
+        set(call) != {"type", "call_id", "name", "arguments"}
+        or call.get("type") != "function_call"
+        or call.get("call_id") != production.helpers.APPROVED_CALL_ID
+        or call.get("name") != "exec_command"
+        or set(output) != {"type", "call_id", "output"}
+        or output.get("type") != "function_call_output"
+        or output.get("call_id") != call["call_id"]
+        or type(output.get("output")) is not str
     ):
         raise production.ProbeFailure("direct_tool_mode_unavailable")
-    if [
-        item for item in requests[1]["input"]
-        if type(item) is dict
-        and item.get("type") in {
-            "custom_tool_call", "custom_tool_call_output",
-        }
-    ] != [calls[0], outputs[0]]:
+    try:
+        arguments = json.loads(
+            call["arguments"],
+            object_pairs_hook=_closed_json_object,
+        )
+    except (TypeError, ValueError, json.JSONDecodeError):
+        raise production.ProbeFailure("direct_tool_mode_unavailable") from None
+    if arguments != {"cmd": production.helpers.APPROVED_COMMAND}:
         raise production.ProbeFailure("direct_tool_mode_unavailable")
-    _custom_tool_output(requests[1])
 
 
-def _sole_forwarded_custom_tool_output(
+def _sole_forwarded_function_output(
     first_request: object,
     second_request: object,
     *,
@@ -2986,15 +2902,22 @@ def _sole_forwarded_custom_tool_output(
         raise BenchmarkBlocked("replacement_forwarding_unproven")
     first_outputs = [
         item for item in first_items
-        if type(item) is dict and item.get("type") == "custom_tool_call_output"
+        if type(item) is dict and item.get("type") == "function_call_output"
     ]
     second_outputs = [
         item for item in second_items
-        if type(item) is dict and item.get("type") == "custom_tool_call_output"
+        if type(item) is dict and item.get("type") == "function_call_output"
     ]
-    if first_outputs or len(second_outputs) != 1:
+    if (
+        first_outputs
+        or len(second_outputs) != 1
+        or set(second_outputs[0]) != {"type", "call_id", "output"}
+        or second_outputs[0].get("call_id")
+        != production.helpers.APPROVED_CALL_ID
+        or type(second_outputs[0].get("output")) is not str
+    ):
         raise BenchmarkBlocked("replacement_forwarding_unproven")
-    forwarded = _custom_tool_output(second_request)
+    forwarded = second_outputs[0]["output"].encode("utf-8")
     try:
         original_text = original.decode("utf-8")
     except UnicodeError:
@@ -3152,7 +3075,7 @@ def _execute_forwarding_preflight(
             "PYTHONDONTWRITEBYTECODE": "1",
         }
         with production.responses_server(
-            event_factory=_code_mode_provider_events,
+            event_factory=_direct_provider_events,
         ) as server:
             host, port = server.server_address
             _failure_state.enter("process_execution")
@@ -3193,7 +3116,7 @@ def _execute_forwarding_preflight(
                 raise BenchmarkBlocked("replacement_forwarding_unproven")
             _failure_state.enter("direct_tool_contract")
             try:
-                _require_code_mode_exec_requests(server.requests)
+                _require_direct_exec_requests(server.requests)
             except production.ProbeFailure as error:
                 if error.args == ("provider_request_invalid",):
                     _failure_state.enter("function_output")
@@ -3211,7 +3134,7 @@ def _execute_forwarding_preflight(
                 raise BenchmarkBlocked("replacement_forwarding_unproven")
             _failure_state.enter("original_exclusion")
             original = production.stimulus_bytes("C0")
-            forwarded = _sole_forwarded_custom_tool_output(
+            forwarded = _sole_forwarded_function_output(
                 server.requests[0],
                 server.requests[1],
                 original=original,
