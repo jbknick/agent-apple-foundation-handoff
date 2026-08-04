@@ -188,21 +188,46 @@ class ProductionAdapterTests(unittest.TestCase):
 
     def test_success_emits_only_validated_replacement(self):
         calls = []
+        validated = []
 
         def consult(request):
             calls.append(request)
             return consultation_for(request)
 
-        response, observations = self.evaluate(payload(), consult)
+        original_validate = contract.validate_result
+
+        def validate(result):
+            validated.append(json.loads(json.dumps(result)))
+            return original_validate(result)
+
+        with mock.patch.object(contract, "validate_result", side_effect=validate):
+            response, observations = self.evaluate(payload(), consult)
 
         self.assertEqual(1, len(calls))
         self.assertEqual({"diagnosticText", "sourceFacts"}, set(calls[0]))
         self.assertEqual({"decision", "reason"}, set(response))
         self.assertEqual("block", response["decision"])
         result = json.loads(response["reason"])
-        contract.validate_result(result)
-        self.assertEqual("applied", result["outcome"])
-        self.assertEqual(0, result["exitStatus"])
+        expected = adapter.source_facts(diagnostic_text())
+        self.assertEqual(expected, result)
+        self.assertEqual(
+            json.dumps(
+                expected,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ),
+            response["reason"],
+        )
+        self.assertTrue(any(
+            value.get("outcome") == "applied"
+            and value.get("condensation") == expected
+            for value in validated
+        ))
+        self.assertTrue(
+            {"schemaVersion", "outcome", "resultType", "condensation"}
+            .isdisjoint(result)
+        )
         self.assertEqual(
             {"consultation_completed", "replacement_emitted"},
             {row["event"] for row in observations},
@@ -302,12 +327,11 @@ class ProductionAdapterTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     adapter.source_facts(mutation)
 
-    def test_failure_preserves_exact_exit_status(self):
+    def test_failure_preserves_exact_semantics(self):
         response, _ = self.evaluate(payload(diagnostic_text(exit_status=65)))
 
         result = json.loads(response["reason"])
-        self.assertEqual("applied", result["outcome"])
-        self.assertEqual(65, result["exitStatus"])
+        self.assertEqual("failure", result["commandOutcome"])
 
     def test_source_facts_match_all_twenty_four_reviewed_cases(self):
         corpus = json.loads(
@@ -376,10 +400,11 @@ class ProductionAdapterTests(unittest.TestCase):
                         repo_root=repo_root,
                     )
                     result = json.loads(response["reason"])
-                    self.assertEqual("applied", result["outcome"])
                     self.assertEqual(
-                        case["expected"]["exitStatus"],
-                        result["exitStatus"],
+                        adapter.source_facts(
+                            contract.render_case(case).decode("utf-8")
+                        ),
+                        result,
                     )
 
     def test_same_class_cross_form_and_self_classification_are_denied(self):
@@ -892,7 +917,10 @@ class ProductionPathTests(unittest.TestCase):
             self.assertEqual(0, completed.returncode)
             self.assertEqual(b"", completed.stderr)
             response = json.loads(completed.stdout)
-            contract.validate_result(json.loads(response["reason"]))
+            self.assertEqual(
+                adapter.source_facts(diagnostic_text()),
+                json.loads(response["reason"]),
+            )
             observed = json.loads(observation.read_text())
             self.assertEqual("replacement_emitted", observed["status"])
             self.assertTrue(observed["replacementEmitted"])
@@ -1009,8 +1037,46 @@ class ProductionHarnessTests(unittest.TestCase):
             __import__("hashlib").sha256(encoded).hexdigest(),
             digest,
         )
-        with self.assertRaises(harness.ProbeFailure):
-            harness._validated_applied_output(encoded + b"\n", original)
+        facts = json.loads(encoded)
+        prior_wrapper = {
+            "schemaVersion": 1,
+            "policyVersion": "diagnostic-condensation-v1",
+            "callID": "call-runtime-v1",
+            "toolName": "Bash",
+            "toolVersion": "codex-cli-0.145.0",
+            "stateVersion": "runtime-v1-direct-consultation-v1",
+            "action": "condense_diagnostic_output",
+            "commandClass": "test",
+            "originalResultType": "string",
+            "originalResultDigest": hashlib.sha256(original).hexdigest(),
+            "outcome": "applied",
+            "exitStatus": 0,
+            "interrupted": False,
+            "resultType": "diagnostic_condensation",
+            "condensation": facts,
+        }
+        missing = dict(facts)
+        missing.pop("summary")
+        extra = {**facts, "unexpected": True}
+        altered = {**facts, "summary": "altered"}
+        duplicate = (
+            b'{"commandOutcome":"success",'
+            + encoded[1:]
+        )
+        invalid = (
+            encoded + b"\n",
+            json.dumps(facts, indent=2).encode("utf-8"),
+            json.dumps(prior_wrapper, separators=(",", ":"), sort_keys=True).encode(),
+            json.dumps(missing, separators=(",", ":"), sort_keys=True).encode(),
+            json.dumps(extra, separators=(",", ":"), sort_keys=True).encode(),
+            json.dumps(altered, separators=(",", ":"), sort_keys=True).encode(),
+            duplicate,
+            b"\xff",
+        )
+        for candidate_output in invalid:
+            with self.subTest(candidate_output=candidate_output[:20]):
+                with self.assertRaises(harness.ProbeFailure):
+                    harness._validated_applied_output(candidate_output, original)
 
     def test_harness_evidence_scan_detects_raw_and_private_content(self):
         self.assertEqual(

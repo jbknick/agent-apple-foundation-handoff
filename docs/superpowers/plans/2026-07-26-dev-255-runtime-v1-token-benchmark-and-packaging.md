@@ -1462,6 +1462,50 @@ exactly one native usage dry row. Only a pass authorizes its single complete
 execution; every non-pass is terminal without retry, substitution, or
 relabeling.
 
+## 2026-08-04 parent-boundary condensation correction
+
+Candidate `ba56a20f3df9b658bc950578987178c0202a5676` passed its native usage
+dry with one observed plugin-off arm and supported parent usage. Its single
+complete invocation then stopped with the exact terminal
+`correctness_oracle_failed / parent_outcome / quality_score`, wrote no
+benchmark evidence, and cleaned its isolated host and run roots. Preserve
+that terminal in Linear history; do not retry or relabel it.
+
+The terminal does not identify the failing arm. The prior plugin-off dry pass,
+the deterministic plugin-off-then-plugin-on execution order, and the static
+interface mismatch make the plugin-on boundary the strongest inference, not
+observed proof. Independently, static inspection proves that the application
+validates a full applied DEV-142 result whose condensation exactly equals the
+frozen `sourceFacts`, but then forwards the entire nested control-plane
+envelope. The parent must unwrap that envelope to produce the strict
+eight-field outcome even though the value-free task already accepts a bare
+eight-field object unchanged.
+
+Keep full DEV-142 result construction, routing, binding validation, exact
+source-fact equality, size and savings gates, and every fallback application-
+side. Only after `contract.validate_result(routed)` succeeds, serialize
+`routed["condensation"]` as canonical UTF-8 JSON and use those exact bytes as
+the block reason and replacement observation binding. Forward no wrapper
+metadata or verbose original. Every decline, failure, malformed result, or
+exception continues to return `None` and preserve the exact untouched
+original.
+
+Update the installed production proof to accept only a duplicate-free,
+canonical eight-field condensation equal to `source_facts` derived from its
+exact original input. It must reject the former full wrapper, altered facts,
+missing or extra keys, duplicate keys, invalid UTF-8, noncanonical bytes, and
+trailing content. Do not change the parent task, Swift bridge or hash, corpus,
+scorer, correctness oracle, evidence schema, release arithmetic, command,
+request, turn, Apple-attempt, or retry rules. Mechanically refresh only
+`productionPluginSha256` and `pythonAdapterSha256`.
+
+After focused and full deterministic gates, SDK 26.5 warnings-as-errors
+compilation, generated-artifact and evidence-safety checks, diff and ancestry
+checks, and formal high-reasoning exact-diff review, commit one clean
+successor and run exactly one native usage dry row. Only a pass authorizes its
+single complete execution; every non-pass is terminal without retry,
+substitution, or relabeling.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.

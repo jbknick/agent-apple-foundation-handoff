@@ -316,31 +316,19 @@ def _exec_arguments(server_url: str, workspace: Path) -> list[str]:
 def _validated_applied_output(output: bytes, original: bytes) -> str:
     try:
         decoded = output.decode("utf-8")
-        result = json.loads(decoded)
-    except (UnicodeError, json.JSONDecodeError):
+        result = json.loads(
+            decoded,
+            object_pairs_hook=adapter._pairs_without_duplicates,
+        )
+        original_text = original.decode("utf-8")
+    except (UnicodeError, ValueError, json.JSONDecodeError):
         raise ProbeFailure("replacement_result_invalid") from None
-    contract.validate_result(result)
-    expected_facts = adapter.source_facts(_record("C0"))
-    expected_bindings = {
-        "schemaVersion": 1,
-        "policyVersion": "diagnostic-condensation-v1",
-        "callID": "call-runtime-v1",
-        "toolName": "Bash",
-        "toolVersion": "codex-cli-0.145.0",
-        "stateVersion": "runtime-v1-direct-consultation-v1",
-        "action": "condense_diagnostic_output",
-        "commandClass": "test",
-        "originalResultType": "string",
-        "originalResultDigest": hashlib.sha256(original).hexdigest(),
-        "exitStatus": 0,
-        "interrupted": False,
-        "outcome": "applied",
-        "resultType": "diagnostic_condensation",
-    }
-    if (
-        any(result.get(key) != value for key, value in expected_bindings.items())
-        or result.get("condensation") != expected_facts
-    ):
+    try:
+        contract._validate_condensation(result)
+        expected_facts = adapter.source_facts(original_text)
+    except (TypeError, ValueError, contract.ContractError):
+        raise ProbeFailure("replacement_result_invalid") from None
+    if result != expected_facts:
         raise ProbeFailure("replacement_semantics_invalid")
     canonical = json.dumps(
         result,

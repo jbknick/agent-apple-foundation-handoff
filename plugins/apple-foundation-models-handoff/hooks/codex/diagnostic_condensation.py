@@ -950,8 +950,9 @@ def evaluate(
             )
             return None
         contract.validate_result(routed)
+        condensation = routed["condensation"]
         stop_reason = json.dumps(
-            routed,
+            condensation,
             ensure_ascii=False,
             separators=(",", ":"),
             sort_keys=True,

@@ -1336,13 +1336,13 @@ def classify_process_exit_stream(value: object) -> str:
 
 _APPROVED_IDENTITIES = {
     "productionPluginSha256":
-        "8b73b4d64e6ead2c4ccceac6f6eb4025446c9badc63006a052dd5bc79368a1f0",
+        "3676eb41259c924d41ca93e5b629841241eaf89ba252e585a9c09a84c4808ecb",
     "codexManifestSha256":
         "6c10d51db5a08a1531ba3c7964d77a5cf2b258f3ca838b655a5350d901b1927a",
     "hooksManifestSha256":
         "932234483e15c3277376c5b25cae2e63f8c83bc9dd63a77bc02f6fb13dbb6759",
     "pythonAdapterSha256":
-        "cc3ef62ad1bdb3961d7a4d6b07fe2ceb3550bafdd84364a2b44e72910288d48a",
+        "05b8ff4ef946b7d7a0417085932399e7de6d98d45b47f22932d11820ad50f4c7",
     "swiftSourceSha256":
         "1f3f6253b7c4f38ab04f66736dfa2506ddac000724190a66c1749232cd13df1c",
     "corpusSha256":
