@@ -1506,6 +1506,44 @@ successor and run exactly one native usage dry row. Only a pass authorizes its
 single complete execution; every non-pass is terminal without retry,
 substitution, or relabeling.
 
+## 2026-08-04 bounded temporary-root cleanup correction
+
+Candidate `8c0f28f555d9f7cf5affd65ae566a2651bfc48e4` stopped at the exact
+normalized usage-dry terminal `blocked / cleanup_incomplete`. The privacy
+wrapper did not retain the optional cleanup substage, so none is inferred or
+reconstructed. Preserve that terminal in Linear history; do not retry or
+relabel it.
+
+Content-free filesystem inspection found seven leaked DEV-255 temporary roots,
+including the newest forwarding root with only the closed `codex-home`,
+`marketplace`, `staged-plugin`, and `workspace` component classes. All files
+were owner-writable, and one later whole-root `shutil.rmtree` removed the
+newest root cleanly. This proves transient recoverability but not a persistent
+permission or path failure. The six older task-owned roots were then removed
+and absence verified without inspecting contents.
+
+The shared `isolated_arm_root` currently makes one whole-root deletion call and
+immediately blocks when it raises while the root remains. Keep the same exact
+captured root and closed forwarding classifier, but after the first `OSError`
+and only when that root still exists, make exactly one immediate second
+whole-root deletion attempt. Do not sleep, loop, ignore errors, swallow child
+failures, broaden the path, or retain raw diagnostics. The final root-absence
+oracle remains authoritative: absence is success even if a remover raised;
+persistent presence remains the unchanged cleanup blocker and supersedes the
+body result.
+
+Add regressions for first-error/second-success, first-error-after-removal,
+first-return-without-removal, two persistent errors with the same closed
+forwarding classification, and body-result precedence in both retry outcomes.
+No original command, Apple consultation, model request, parent turn, provider,
+or benchmark arm is retried. No production plugin, hash, task, corpus, scorer,
+oracle, evidence schema, or release rule changes. After focused and full
+deterministic gates, unchanged SDK 26.5 compilation, generated-artifact and
+evidence-safety checks, diff and ancestry checks, and formal high-reasoning
+exact-diff review, commit one clean successor and run exactly one native usage
+dry row. Only a pass authorizes its single complete execution; every non-pass
+is terminal without retry, substitution, or relabeling.
+
 ## File structure
 
 - Create `fixtures/runtime-v1-benchmark/README.md` — exact profile, denominators, privacy, blocker, and release rules.

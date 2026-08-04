@@ -2900,13 +2900,17 @@ def isolated_arm_root(
     try:
         yield root
     finally:
-        try:
-            if cleanup_stage == "forwarding_root":
-                shutil.rmtree(root, onexc=classify_cleanup_failure)
-            else:
-                shutil.rmtree(root)
-        except OSError:
-            remove_failed = True
+        for attempt in range(2):
+            try:
+                if cleanup_stage == "forwarding_root":
+                    shutil.rmtree(root, onexc=classify_cleanup_failure)
+                else:
+                    shutil.rmtree(root)
+            except OSError:
+                remove_failed = True
+                if attempt == 0 and root.exists():
+                    continue
+            break
         if root.exists():
             if cleanup_stage is not None:
                 raise CleanupBlocked(

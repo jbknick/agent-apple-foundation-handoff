@@ -3325,10 +3325,12 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             runner.shutil.rmtree(forwarding_root)
         real_rmtree = runner.shutil.rmtree
         removed_root = None
+        removal_calls = 0
 
         def remove_then_report_error(root, **_kwargs):
-            nonlocal removed_root
+            nonlocal removed_root, removal_calls
             removed_root = root
+            removal_calls += 1
             real_rmtree(root)
             raise OSError
 
@@ -3342,7 +3344,60 @@ class RuntimeV1RunnerTests(unittest.TestCase):
             ):
                 pass
         self.assertIsNotNone(removed_root)
+        self.assertEqual(1, removal_calls)
         self.assertFalse(removed_root.exists())
+
+        retry_calls = []
+
+        def fail_then_remove(root, **_kwargs):
+            retry_calls.append(root)
+            if len(retry_calls) == 1:
+                raise OSError
+            real_rmtree(root)
+
+        with mock.patch.object(
+            runner.shutil,
+            "rmtree",
+            side_effect=fail_then_remove,
+        ):
+            with runner.isolated_arm_root(
+                cleanup_stage="forwarding_root"
+            ) as retried_root:
+                pass
+        self.assertEqual([retried_root, retried_root], retry_calls)
+        self.assertFalse(retried_root.exists())
+
+        retry_calls = []
+        with mock.patch.object(
+            runner.shutil,
+            "rmtree",
+            side_effect=fail_then_remove,
+        ), self.assertRaisesRegex(
+            runner.BenchmarkFailure,
+            "body_failure",
+        ):
+            with runner.isolated_arm_root(
+                cleanup_stage="forwarding_root"
+            ) as retried_root:
+                raise runner.BenchmarkFailure("body_failure")
+        self.assertEqual([retried_root, retried_root], retry_calls)
+        self.assertFalse(retried_root.exists())
+
+        remover = mock.Mock(return_value=None)
+        with mock.patch.object(
+            runner.shutil,
+            "rmtree",
+            remover,
+        ), self.assertRaises(runner.CleanupBlocked):
+            with runner.isolated_arm_root(
+                cleanup_stage="forwarding_root"
+            ) as retained_root:
+                pass
+        remover.assert_called_once_with(
+            retained_root,
+            onexc=mock.ANY,
+        )
+        real_rmtree(retained_root)
         for stage in ("parent_auth", "arm_pending"):
             with self.assertRaisesRegex(
                 ValueError, "invalid isolated root cleanup"
@@ -3405,7 +3460,7 @@ class RuntimeV1RunnerTests(unittest.TestCase):
         ), self.assertRaises(runner.CleanupBlocked) as raised:
             with runner.isolated_arm_root(cleanup_stage="forwarding_root"):
                 raise runner.BenchmarkFailure("body_failure")
-        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(calls), 2)
         self.assertEqual(
             runner.blocked_terminal(raised.exception),
             {
