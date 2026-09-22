@@ -53,7 +53,16 @@ const ModelEvidenceSchema = z.object({
   excerpt: z.string().max(2_048)
 }).strict();
 
-const ModelDiagnosticsSchema = DiagnosticsPayloadSchema.extend({
+const ModelDiagnosticsSchema = z.object({
+  diagnostics: z.array(z.object({
+    id: z.string().min(1),
+    message: z.string().min(1),
+    severity: z.enum(['error', 'warning', 'note', 'unknown']),
+    path: z.string().nullable().optional(),
+    line: z.number().int().min(1).nullable().optional(),
+    column: z.number().int().min(1).nullable().optional(),
+    evidenceId: z.string().min(1)
+  }).strict()).max(200),
   evidence: z.array(ModelEvidenceSchema)
 }).strict();
 const ModelDiffSchema = DiffPayloadSchema.extend({
@@ -495,7 +504,17 @@ export class AppleOffloadRuntime {
       : task === 'diff_summary'
         ? ModelDiffSchema.parse(generated)
         : ModelIssueSchema.parse(generated);
-    const { evidence: rawEvidence, ...payload } = parsed;
+    const { evidence: rawEvidence, ...rawPayload } = parsed;
+    const payload = task === 'diagnostics' && 'diagnostics' in rawPayload
+      ? {
+          diagnostics: rawPayload.diagnostics.map(item => ({
+            ...item,
+            path: item.path ?? null,
+            line: item.line ?? null,
+            column: item.column ?? null
+          }))
+        }
+      : rawPayload;
     return {
       payload: payload as Payload,
       evidence: rawEvidence.map(item => ({ ...item, artifactId })),

@@ -1,6 +1,6 @@
 {
   "name": "apple-offload",
-  "version": "0.1.0+codex.20260922085006",
+  "version": "0.1.0+codex.20260922090456",
   "description": "Process saved local development artifacts with Apple on-device Foundation Models before Codex reads them.",
   "author": {
     "name": "Joseph Knickerbocker",
