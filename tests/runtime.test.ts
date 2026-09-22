@@ -83,6 +83,29 @@ describe('runtime', () => {
     runtime.close();
   });
 
+  it('makes license acceptance an explicit doctor next step', async () => {
+    const stateDir = await temporary();
+    const provider: Provider = {
+      probe: async () => ({
+        available: false,
+        reason: 'fm_license_not_accepted',
+        osVersion: '27.0',
+        providerVersion: null,
+        structuredOutput: false,
+        localModelVerified: false,
+        argvPromptExposure: true
+      }),
+      generate: async () => { throw new Error('not called'); }
+    };
+    const runtime = new AppleOffloadRuntime({ stateDir, provider });
+    await runtime.initialize();
+    expect(await runtime.doctor()).toMatchObject({
+      setupRequired: true,
+      setupCommand: 'node dist/cli.js setup'
+    });
+    runtime.close();
+  });
+
   it('withholds candidates in shadow mode', async () => {
     const root = await temporary();
     const stateDir = await temporary();

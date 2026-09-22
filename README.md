@@ -15,7 +15,8 @@ telemetry, OAuth, model-requested tool use, or automatic fallback model.
 - pnpm 10
 
 Apple's machine-wide `fm` terms must be accepted by the user before live model
-checks can run. The project never accepts them on the user's behalf.
+checks can run. `apple-offload setup` makes that an explicit interactive stage;
+it never runs from MCP or as a background side effect.
 
 ## Develop
 
@@ -32,6 +33,7 @@ once in local SQLite.
 
 ```bash
 pnpm build
+node dist/cli.js setup
 node dist/cli.js doctor
 APPLE_OFFLOAD_MODE=on node dist/cli.js process diagnostics ./test.log
 node dist/cli.js read <artifact-id> 1 20
@@ -69,10 +71,12 @@ the cited 1-based line range.
 
 ## Live Apple verification
 
-After accepting Apple's terms separately, run `node dist/cli.js doctor`. A live
-result is valid only when the installed `/usr/bin/fm` help, default on-device
-selection, schema generation, structured response, and offline run are actually
-executed. Otherwise those rows remain blocked or unrun.
+Run `node dist/cli.js setup` in an interactive terminal. It explains the
+machine-wide effect, requires the exact confirmation `ACCEPT`, launches Apple's
+own privileged `fm license` flow, and then runs `doctor`. The setup command is
+the only project path allowed to invoke license acceptance. A live result is
+valid only when installed help, default on-device selection, schema generation,
+structured response, and the offline run are actually executed.
 
 The current verification record is in [docs/benchmark.md](docs/benchmark.md).
 

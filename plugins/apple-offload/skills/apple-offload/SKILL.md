@@ -22,6 +22,10 @@ another tool.
 3. If status is `shadow`, `needs_codex`, or `blocked`, continue in the current
    Codex session using the original artifact path. Do not invoke another model or
    claim that offloading saved context.
+   If the reason is `fm_license_not_accepted`, tell the user to run
+   `node ~/plugins/apple-offload/dist/cli.js setup` themselves in an interactive
+   terminal, then retry.
+   Never run or approve the machine-wide license flow through MCP.
 4. Call `offload_feedback` only when the user or completed workflow establishes
    `accepted`, `corrected`, or `rejected`.
 5. Use `offload_stats` only for local aggregate metrics. Never describe estimates

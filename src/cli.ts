@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { createInterface } from 'node:readline/promises';
+import { stdin, stderr } from 'node:process';
 import type { Task } from './schemas.js';
 import { TaskSchema } from './schemas.js';
 import { AppleOffloadRuntime } from './runtime.js';
+import { acceptFmTerms } from './setup.js';
 
 function usage(): never {
-  throw new Error('usage: apple-offload <doctor|process|read|feedback|stats|eval|purge> [arguments]');
+  throw new Error('usage: apple-offload <setup|doctor|process|read|feedback|stats|eval|purge> [arguments]');
 }
 
 function print(value: unknown): void {
@@ -52,7 +55,23 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
   const runtime = new AppleOffloadRuntime();
   await runtime.initialize();
   try {
-    if (command === 'doctor' && args.length === 0) print(await runtime.doctor());
+    if (command === 'setup' && args.length === 0) {
+      if (!stdin.isTTY) throw new Error('setup requires an interactive terminal');
+      const prompt = createInterface({ input: stdin, output: stderr });
+      const answer = await prompt.question(
+        'This launches machine-wide `/usr/bin/sudo /usr/bin/fm license`. Type ACCEPT to continue: '
+      );
+      prompt.close();
+      const terms = await acceptFmTerms(answer.trim());
+      if (terms.status !== 'accepted') {
+        print({ terms });
+        if (terms.status === 'failed') process.exitCode = 1;
+      } else {
+        const doctor = await runtime.doctor();
+        print({ terms, doctor });
+        if (!doctor.available) process.exitCode = 1;
+      }
+    } else if (command === 'doctor' && args.length === 0) print(await runtime.doctor());
     else if (command === 'process' && args.length === 2) {
       print(await runtime.process({ task: TaskSchema.parse(args[0]), path: args[1] }));
     } else if (command === 'read' && args.length === 3) {

@@ -34906,7 +34906,15 @@ var AppleOffloadRuntime = class {
   }
   async doctor() {
     const probe = await this.provider.probe();
-    return { ...probe, stateDir: this.stateDir, roots: this.roots, mode: this.mode };
+    const setupRequired = probe.reason === "fm_license_not_accepted";
+    return {
+      ...probe,
+      stateDir: this.stateDir,
+      roots: this.roots,
+      mode: this.mode,
+      setupRequired,
+      setupCommand: setupRequired ? "node dist/cli.js setup" : null
+    };
   }
   process(input2) {
     const parsed = ProcessInputSchema.parse(input2);

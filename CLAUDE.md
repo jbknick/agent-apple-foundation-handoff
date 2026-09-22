@@ -33,7 +33,9 @@ is generated from this bounded section by `scripts/sync_generated_artifacts.py`.
 - Hardware-dependent checks are pass only when actually executed. Missing
   Apple terms, model availability, structured output, or offline proof is
   blocked or unrun, never inferred.
-- Do not run `sudo fm license`; license acceptance is user-owned.
+- License acceptance is user-owned and may run only through the interactive CLI
+  `setup` command after the user types `ACCEPT`. Never invoke it from MCP,
+  processing, tests, installation, or a background task.
 
 ### Canonical checks
 
