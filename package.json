@@ -1,0 +1,36 @@
+{
+  "name": "apple-offload",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24.15.0" },
+  "packageManager": "pnpm@10.31.0",
+  "bin": {
+    "apple-offload": "./dist/cli.js",
+    "apple-offload-mcp": "./dist/mcp.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "build:plugin": "esbuild src/mcp.ts --bundle --platform=node --format=esm --target=node24 --outfile=plugins/apple-offload/dist/mcp.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:cli": "node scripts/test-cli.mjs",
+    "test:stdio": "node scripts/test-stdio.mjs",
+    "test:policy": "node scripts/check-boundaries.mjs",
+    "check:generated": "python3 scripts/sync_generated_artifacts.py --check",
+    "check": "pnpm check:generated && pnpm typecheck && pnpm test && pnpm build && pnpm build:plugin && pnpm test:cli && pnpm test:stdio && pnpm test:policy",
+    "start:mcp": "node dist/mcp.js",
+    "cli": "node dist/cli.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.0.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.0.0",
+    "@types/node": "26.6.2",
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2",
+    "vitest": "5.0.1"
+  }
+}

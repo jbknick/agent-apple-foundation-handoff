@@ -1,19 +1,82 @@
-# agent-apple-foundation-handoff
+# apple-offload
 
-An early project foundation owned and maintained by
-[Joseph Knickerbocker](https://github.com/jbknick).
+Local-only preprocessing for saved development artifacts using Apple Foundation
+Models on macOS 27. Codex can call the runtime over STDIO MCP; the standalone
+CLI uses the same runtime.
 
-The repository is being prepared for its first implementation. It does not yet
-promise a stable API, packaged release, or production-ready functionality.
+The v0 operations are diagnostic extraction, Git diff summarization, and issue
+requirements extraction. There is no cloud provider, HTTP listener, remote
+telemetry, OAuth, model-requested tool use, or automatic fallback model.
 
-Repository:
-[jbknick/agent-apple-foundation-handoff](https://github.com/jbknick/agent-apple-foundation-handoff)
+## Requirements
+
+- macOS 27 and Apple Intelligence for live `fm` processing
+- Node.js 24.15 or newer
+- pnpm 10
+
+Apple's machine-wide `fm` terms must be accepted by the user before live model
+checks can run. The project never accepts them on the user's behalf.
+
+## Develop
+
+```bash
+pnpm install --frozen-lockfile
+pnpm check
+```
+
+The first milestone is covered by `tests/runtime.test.ts`: a saved test log is
+snapshotted, converted to validated diagnostics with line evidence, and recorded
+once in local SQLite.
+
+## CLI
+
+```bash
+pnpm build
+node dist/cli.js doctor
+APPLE_OFFLOAD_MODE=on node dist/cli.js process diagnostics ./test.log
+node dist/cli.js read <artifact-id> 1 20
+node dist/cli.js stats
+node dist/cli.js purge
+```
+
+`APPLE_OFFLOAD_ROOTS` is a path-delimited allowlist and defaults to the launch
+directory. `APPLE_OFFLOAD_STATE_DIR` defaults to the XDG state directory or
+`~/.local/state/apple-offload`. `APPLE_OFFLOAD_MODE` defaults to `shadow`.
+
+## MCP
+
+```bash
+node dist/mcp.js
+```
+
+The MCP process reserves stdout for JSON-RPC. Operational messages go to stderr.
+
+## Personal plugin
+
+The canonical package is `plugins/apple-offload`. The staged personal copy is
+`~/plugins/apple-offload` and is listed by the personal marketplace at
+`~/.agents/plugins/marketplace.json`.
+
+```bash
+codex plugin add apple-offload@personal
+codex plugin uninstall apple-offload@personal
+```
+
+In a fresh Codex task, save a test log with an already-approved shell command,
+then ask the routing skill to call `offload_process` with task `diagnostics` and
+that saved path. Evidence can be fetched with `offload_read` by artifact ID and
+the cited 1-based line range.
+
+## Live Apple verification
+
+After accepting Apple's terms separately, run `node dist/cli.js doctor`. A live
+result is valid only when the installed `/usr/bin/fm` help, default on-device
+selection, schema generation, structured response, and offline run are actually
+executed. Otherwise those rows remain blocked or unrun.
+
+The current verification record is in [docs/benchmark.md](docs/benchmark.md).
 
 ## License
 
-Noncommercial use is licensed under the
-[PolyForm Noncommercial License 1.0.0](LICENSE). Where an SPDX-style identifier
-is required, use `LicenseRef-PolyForm-Noncommercial-1.0.0`.
-
-Companies seeking commercial-use rights must obtain a separate proprietary
-license. See [Commercial Licensing](COMMERCIAL-LICENSE.md).
+Noncommercial use is licensed under the PolyForm Noncommercial License 1.0.0.
+See [LICENSE](LICENSE) and [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md).

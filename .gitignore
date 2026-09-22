@@ -1,0 +1,8 @@
+node_modules/
+dist/
+!plugins/apple-offload/dist/
+!plugins/apple-offload/dist/mcp.js
+*.tsbuildinfo
+.DS_Store
+.apple-offload/
+coverage/
