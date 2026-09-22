@@ -7,9 +7,10 @@ import type { Task } from './schemas.js';
 import { TaskSchema } from './schemas.js';
 import { AppleOffloadRuntime } from './runtime.js';
 import { acceptFmTerms } from './setup.js';
+import { writeDashboard } from './dashboard.js';
 
 function usage(): never {
-  throw new Error('usage: apple-offload <setup|doctor|process|read|feedback|stats|eval|purge> [arguments]');
+  throw new Error('usage: apple-offload <setup|doctor|process|read|feedback|stats|dashboard|eval|purge> [arguments]');
 }
 
 function print(value: unknown): void {
@@ -80,6 +81,11 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
       print(runtime.feedback({ runId: args[0], outcome: args[1] }));
     } else if (command === 'stats' && args.length <= 1) {
       print(runtime.stats(args[0] ? { since: args[0] } : {}));
+    } else if (command === 'dashboard' && args.length <= 1) {
+      const outputDir = args[0] ?? path.join(process.cwd(), '.apple-offload', 'dashboard-site');
+      const snapshot = runtime.dashboard();
+      const output = await writeDashboard(outputDir, snapshot);
+      print({ output, ...snapshot });
     } else if (command === 'eval' && args.length === 1) {
       print(await evaluate(args[0]!, runtime));
     } else if (command === 'purge' && args.length <= 1 && (!args[0] || args[0] === '--all')) {

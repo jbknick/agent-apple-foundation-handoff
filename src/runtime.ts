@@ -37,7 +37,7 @@ import {
 } from './schemas.js';
 import { AppleLocalProvider } from './apple-local.js';
 import type { ProbeResult, Provider } from './provider.js';
-import { Store } from './store.js';
+import { Store, type DashboardSnapshot } from './store.js';
 
 const MAX_SOURCE_BYTES = 4 * 1024 * 1024;
 const MAX_CHUNKS = 8;
@@ -84,6 +84,7 @@ export interface RuntimeOptions {
   stateDir?: string;
   provider?: Provider;
   deadlineMs?: number;
+  workspace?: string;
 }
 
 export interface DoctorResult extends ProbeResult {
@@ -271,6 +272,7 @@ export class AppleOffloadRuntime {
   readonly roots: string[];
   readonly provider: Provider;
   readonly store: Store;
+  readonly workspace: string;
   private readonly deadlineMs: number;
   // ponytail: process-local queue; add a filesystem lock only if concurrent CLI processes become a real workload.
   private queue: Promise<void> = Promise.resolve();
@@ -280,6 +282,9 @@ export class AppleOffloadRuntime {
     this.stateDir = path.resolve(options.stateDir ?? process.env.APPLE_OFFLOAD_STATE_DIR ?? defaultStateDir());
     const configuredRoots = options.roots ?? process.env.APPLE_OFFLOAD_ROOTS?.split(path.delimiter).filter(Boolean) ?? [process.cwd()];
     this.roots = configuredRoots.map(root => path.resolve(root));
+    this.workspace = (options.workspace ?? process.env.APPLE_OFFLOAD_WORKSPACE ?? path.basename(this.roots[0]!))
+      .replace(/[\u0000-\u001f\u007f]/g, '')
+      .slice(0, 120) || 'unattributed';
     this.provider = options.provider ?? new AppleLocalProvider();
     this.deadlineMs = options.deadlineMs ?? DEADLINE_MS;
     this.store = new Store(this.stateDir);
@@ -404,6 +409,10 @@ export class AppleOffloadRuntime {
   stats(input: unknown = {}): z.infer<typeof StatsResultSchema> {
     const parsed = StatsInputSchema.parse(input);
     return StatsResultSchema.parse(this.store.stats(parsed.since));
+  }
+
+  dashboard(): DashboardSnapshot {
+    return this.store.dashboard();
   }
 
   async purge(all = false): Promise<{ removed: number }> {
@@ -562,6 +571,7 @@ export class AppleOffloadRuntime {
   ): void {
     const output = candidate ? JSON.stringify(candidate) : JSON.stringify(result);
     this.store.recordRun({
+      workspace: this.workspace,
       runId,
       artifactId,
       task,

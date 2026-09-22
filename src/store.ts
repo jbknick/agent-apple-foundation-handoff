@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import type { Mode, ProcessResult, StatsResult, Task } from './schemas.js';
 
 export interface RunRecord {
+  workspace: string;
   runId: string;
   artifactId: string | null;
   task: Task;
@@ -17,6 +18,39 @@ export interface RunRecord {
   validation: 'passed' | 'failed' | 'not_run';
   providerVersion: string | null;
   osVersion: string | null;
+}
+
+export interface DashboardSnapshot {
+  generatedAt: string;
+  totals: {
+    runs: number;
+    ready: number;
+    shadow: number;
+    needsCodex: number;
+    blocked: number;
+    local: number;
+    inputTokens: number;
+    outputTokens: number;
+    averageLatencyMs: number | null;
+  };
+  workspaces: Array<{
+    name: string;
+    runs: number;
+    ready: number;
+    shadow: number;
+    needsCodex: number;
+    local: number;
+    averageLatencyMs: number | null;
+  }>;
+  recent: Array<{
+    workspace: string;
+    task: string;
+    mode: string;
+    route: string | null;
+    status: string;
+    latencyMs: number;
+    createdAt: string;
+  }>;
 }
 
 export class Store {
@@ -53,6 +87,7 @@ export class Store {
         os_version TEXT,
         provider_version TEXT,
         prompt_version TEXT NOT NULL,
+        workspace TEXT NOT NULL DEFAULT 'unattributed',
         created_at TEXT NOT NULL
       ) STRICT;
       CREATE TABLE IF NOT EXISTS feedback (
@@ -61,6 +96,11 @@ export class Store {
         created_at TEXT NOT NULL
       ) STRICT;
     `);
+    const columns = this.database.prepare('PRAGMA table_info(runs)').all() as Array<{ name: string }>;
+    if (!columns.some(column => column.name === 'workspace')) {
+      this.database.exec("ALTER TABLE runs ADD COLUMN workspace TEXT NOT NULL DEFAULT 'unattributed'");
+    }
+    this.database.exec('DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES (2)');
   }
 
   recordRun(record: RunRecord): void {
@@ -69,8 +109,8 @@ export class Store {
         run_id, artifact_id, task, mode, route_used, status, coverage, reason,
         source_bytes, output_bytes, estimate_method, estimated_input_tokens,
         estimated_output_tokens, latency_ms, validation, os_version,
-        provider_version, prompt_version, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        provider_version, prompt_version, workspace, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       record.runId,
       record.artifactId,
@@ -90,8 +130,62 @@ export class Store {
       record.osVersion,
       record.providerVersion,
       'apple-offload-v0',
+      record.workspace,
       new Date().toISOString()
     );
+  }
+
+  dashboard(): DashboardSnapshot {
+    const totals = this.database.prepare(`
+      SELECT COUNT(*) runs,
+        SUM(status = 'ready') ready,
+        SUM(status = 'shadow') shadow,
+        SUM(status = 'needs_codex') needs_codex,
+        SUM(status = 'blocked') blocked,
+        SUM(route_used = 'local') local,
+        COALESCE(SUM(estimated_input_tokens), 0) input_tokens,
+        COALESCE(SUM(estimated_output_tokens), 0) output_tokens,
+        AVG(latency_ms) average_latency_ms
+      FROM runs
+    `).get() as Record<string, number | null>;
+    const workspaces = this.database.prepare(`
+      SELECT workspace name, COUNT(*) runs,
+        SUM(status = 'ready') ready,
+        SUM(status = 'shadow') shadow,
+        SUM(status = 'needs_codex') needs_codex,
+        SUM(route_used = 'local') local,
+        AVG(latency_ms) average_latency_ms
+      FROM runs GROUP BY workspace ORDER BY runs DESC, workspace
+    `).all() as Array<Record<string, string | number | null>>;
+    const recent = this.database.prepare(`
+      SELECT workspace, task, mode, route_used route, status,
+        latency_ms latency_ms, created_at created_at
+      FROM runs ORDER BY created_at DESC LIMIT 40
+    `).all() as Array<Record<string, string | number | null>>;
+    return {
+      generatedAt: new Date().toISOString(),
+      totals: {
+        runs: totals.runs ?? 0,
+        ready: totals.ready ?? 0,
+        shadow: totals.shadow ?? 0,
+        needsCodex: totals.needs_codex ?? 0,
+        blocked: totals.blocked ?? 0,
+        local: totals.local ?? 0,
+        inputTokens: totals.input_tokens ?? 0,
+        outputTokens: totals.output_tokens ?? 0,
+        averageLatencyMs: totals.average_latency_ms ?? null
+      },
+      workspaces: workspaces.map(row => ({
+        name: String(row.name), runs: Number(row.runs), ready: Number(row.ready),
+        shadow: Number(row.shadow), needsCodex: Number(row.needs_codex), local: Number(row.local),
+        averageLatencyMs: row.average_latency_ms === null ? null : Number(row.average_latency_ms)
+      })),
+      recent: recent.map(row => ({
+        workspace: String(row.workspace), task: String(row.task), mode: String(row.mode),
+        route: row.route === null ? null : String(row.route), status: String(row.status),
+        latencyMs: Number(row.latency_ms), createdAt: String(row.created_at)
+      }))
+    };
   }
 
   recordFeedback(runId: string, outcome: string): void {

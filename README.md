@@ -38,12 +38,22 @@ node dist/cli.js doctor
 APPLE_OFFLOAD_MODE=on node dist/cli.js process diagnostics ./test.log
 node dist/cli.js read <artifact-id> 1 20
 node dist/cli.js stats
+node dist/cli.js dashboard
 node dist/cli.js purge
 ```
 
 `APPLE_OFFLOAD_ROOTS` is a path-delimited allowlist and defaults to the launch
 directory. `APPLE_OFFLOAD_STATE_DIR` defaults to the XDG state directory or
 `~/.local/state/apple-offload`. `APPLE_OFFLOAD_MODE` defaults to `shadow`.
+Runs share that state database across projects and worktrees. Each new run is
+grouped by the launch directory name; set `APPLE_OFFLOAD_WORKSPACE` to choose a
+stable display label.
+
+`dashboard` writes a metadata-only static Site checkout to
+`.apple-offload/dashboard-site`. It includes aggregate and recent run metadata,
+but excludes prompts, artifacts, evidence, paths, run IDs, and model responses.
+It never uploads automatically: publishing or refreshing the private Site is a
+separate user-triggered Sites action.
 
 ## MCP
 

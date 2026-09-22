@@ -34744,6 +34744,7 @@ var Store = class {
         os_version TEXT,
         provider_version TEXT,
         prompt_version TEXT NOT NULL,
+        workspace TEXT NOT NULL DEFAULT 'unattributed',
         created_at TEXT NOT NULL
       ) STRICT;
       CREATE TABLE IF NOT EXISTS feedback (
@@ -34752,6 +34753,11 @@ var Store = class {
         created_at TEXT NOT NULL
       ) STRICT;
     `);
+    const columns = this.database.prepare("PRAGMA table_info(runs)").all();
+    if (!columns.some((column) => column.name === "workspace")) {
+      this.database.exec("ALTER TABLE runs ADD COLUMN workspace TEXT NOT NULL DEFAULT 'unattributed'");
+    }
+    this.database.exec("DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES (2)");
   }
   recordRun(record2) {
     this.database.prepare(`
@@ -34759,8 +34765,8 @@ var Store = class {
         run_id, artifact_id, task, mode, route_used, status, coverage, reason,
         source_bytes, output_bytes, estimate_method, estimated_input_tokens,
         estimated_output_tokens, latency_ms, validation, os_version,
-        provider_version, prompt_version, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        provider_version, prompt_version, workspace, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       record2.runId,
       record2.artifactId,
@@ -34780,8 +34786,69 @@ var Store = class {
       record2.osVersion,
       record2.providerVersion,
       "apple-offload-v0",
+      record2.workspace,
       (/* @__PURE__ */ new Date()).toISOString()
     );
+  }
+  dashboard() {
+    const totals = this.database.prepare(`
+      SELECT COUNT(*) runs,
+        SUM(status = 'ready') ready,
+        SUM(status = 'shadow') shadow,
+        SUM(status = 'needs_codex') needs_codex,
+        SUM(status = 'blocked') blocked,
+        SUM(route_used = 'local') local,
+        COALESCE(SUM(estimated_input_tokens), 0) input_tokens,
+        COALESCE(SUM(estimated_output_tokens), 0) output_tokens,
+        AVG(latency_ms) average_latency_ms
+      FROM runs
+    `).get();
+    const workspaces = this.database.prepare(`
+      SELECT workspace name, COUNT(*) runs,
+        SUM(status = 'ready') ready,
+        SUM(status = 'shadow') shadow,
+        SUM(status = 'needs_codex') needs_codex,
+        SUM(route_used = 'local') local,
+        AVG(latency_ms) average_latency_ms
+      FROM runs GROUP BY workspace ORDER BY runs DESC, workspace
+    `).all();
+    const recent = this.database.prepare(`
+      SELECT workspace, task, mode, route_used route, status,
+        latency_ms latency_ms, created_at created_at
+      FROM runs ORDER BY created_at DESC LIMIT 40
+    `).all();
+    return {
+      generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      totals: {
+        runs: totals.runs ?? 0,
+        ready: totals.ready ?? 0,
+        shadow: totals.shadow ?? 0,
+        needsCodex: totals.needs_codex ?? 0,
+        blocked: totals.blocked ?? 0,
+        local: totals.local ?? 0,
+        inputTokens: totals.input_tokens ?? 0,
+        outputTokens: totals.output_tokens ?? 0,
+        averageLatencyMs: totals.average_latency_ms ?? null
+      },
+      workspaces: workspaces.map((row) => ({
+        name: String(row.name),
+        runs: Number(row.runs),
+        ready: Number(row.ready),
+        shadow: Number(row.shadow),
+        needsCodex: Number(row.needs_codex),
+        local: Number(row.local),
+        averageLatencyMs: row.average_latency_ms === null ? null : Number(row.average_latency_ms)
+      })),
+      recent: recent.map((row) => ({
+        workspace: String(row.workspace),
+        task: String(row.task),
+        mode: String(row.mode),
+        route: row.route === null ? null : String(row.route),
+        status: String(row.status),
+        latencyMs: Number(row.latency_ms),
+        createdAt: String(row.created_at)
+      }))
+    };
   }
   recordFeedback(runId, outcome) {
     const exists = this.database.prepare("SELECT 1 FROM runs WHERE run_id = ?").get(runId);
@@ -35014,6 +35081,7 @@ var AppleOffloadRuntime = class {
   roots;
   provider;
   store;
+  workspace;
   deadlineMs;
   // ponytail: process-local queue; add a filesystem lock only if concurrent CLI processes become a real workload.
   queue = Promise.resolve();
@@ -35022,6 +35090,7 @@ var AppleOffloadRuntime = class {
     this.stateDir = path3.resolve(options.stateDir ?? process.env.APPLE_OFFLOAD_STATE_DIR ?? defaultStateDir());
     const configuredRoots = options.roots ?? process.env.APPLE_OFFLOAD_ROOTS?.split(path3.delimiter).filter(Boolean) ?? [process.cwd()];
     this.roots = configuredRoots.map((root) => path3.resolve(root));
+    this.workspace = (options.workspace ?? process.env.APPLE_OFFLOAD_WORKSPACE ?? path3.basename(this.roots[0])).replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 120) || "unattributed";
     this.provider = options.provider ?? new AppleLocalProvider();
     this.deadlineMs = options.deadlineMs ?? DEADLINE_MS;
     this.store = new Store(this.stateDir);
@@ -35132,6 +35201,9 @@ var AppleOffloadRuntime = class {
   stats(input2 = {}) {
     const parsed = StatsInputSchema.parse(input2);
     return StatsResultSchema.parse(this.store.stats(parsed.since));
+  }
+  dashboard() {
+    return this.store.dashboard();
   }
   async purge(all = false) {
     let removed = 0;
@@ -35259,6 +35331,7 @@ var AppleOffloadRuntime = class {
   record(task, runId, artifactId, result, sourceBytes, started, probe, candidate) {
     const output2 = candidate ? JSON.stringify(candidate) : JSON.stringify(result);
     this.store.recordRun({
+      workspace: this.workspace,
       runId,
       artifactId,
       task,

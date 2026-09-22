@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { MockProvider, type GenerateRequest, type ProbeResult, type Provider } from '../src/provider.js';
 import { ProcessInputSchema } from '../src/schemas.js';
 import { AppleOffloadRuntime } from '../src/runtime.js';
+import { renderDashboard } from '../src/dashboard.js';
 
 const cleanups: string[] = [];
 
@@ -40,6 +41,25 @@ describe('runtime', () => {
     const evidence = await runtime.read({ artifactId: result.artifactId, startLine: 2, endLine: 2 });
     expect(evidence.text).toContain('TS2322');
     expect(runtime.stats({}).runs).toBe(1);
+    runtime.close();
+  });
+
+  it('aggregates workspaces into a metadata-only dashboard', async () => {
+    const root = await temporary();
+    const stateDir = await temporary();
+    const log = path.join(root, 'private.log');
+    await writeFile(log, 'src/math.ts:12:7: error TS2322: private detail');
+    const runtime = new AppleOffloadRuntime({ mode: 'on', roots: [root], stateDir, workspace: 'worktree-one' });
+    await runtime.initialize();
+    const result = await runtime.process({ task: 'diagnostics', path: log });
+
+    const html = renderDashboard(runtime.dashboard());
+
+    expect(html).toContain('worktree-one');
+    expect(html).not.toContain(result.runId);
+    expect(html).not.toContain(result.artifactId!);
+    expect(html).not.toContain('private detail');
+    expect(html).not.toContain(root);
     runtime.close();
   });
 

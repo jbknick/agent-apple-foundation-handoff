@@ -6,8 +6,8 @@ var __export = (target, all) => {
 };
 
 // src/cli.ts
-import { mkdtemp as mkdtemp2, readFile as readFile2, rm as rm2, writeFile as writeFile3 } from "node:fs/promises";
-import path4 from "node:path";
+import { mkdtemp as mkdtemp2, readFile as readFile2, rm as rm2, writeFile as writeFile4 } from "node:fs/promises";
+import path5 from "node:path";
 import { createInterface } from "node:readline/promises";
 import { stdin, stderr } from "node:process";
 
@@ -827,10 +827,10 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path5) {
-  if (!path5)
+function getElementAtPath(obj, path6) {
+  if (!path6)
     return obj;
-  return path5.reduce((acc, key) => acc?.[key], obj);
+  return path6.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -1170,11 +1170,11 @@ function explicitlyAborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path5, issues) {
+function prefixIssues(path6, issues) {
   return issues.map((iss) => {
     var _a3;
     (_a3 = iss).path ?? (_a3.path = []);
-    iss.path.unshift(path5);
+    iss.path.unshift(path6);
     return iss;
   });
 }
@@ -1624,16 +1624,16 @@ function flattenError(error62, mapper = (issue2) => issue2.message) {
 }
 function formatError(error62, mapper = (issue2) => issue2.message) {
   const fieldErrors = { _errors: [] };
-  const processError = (error63, path5 = []) => {
+  const processError = (error63, path6 = []) => {
     for (const issue2 of error63.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path5, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path6, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path5, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path6, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path5, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path6, ...issue2.path]);
       } else {
-        const fullpath = [...path5, ...issue2.path];
+        const fullpath = [...path6, ...issue2.path];
         if (fullpath.length === 0) {
           fieldErrors._errors.push(mapper(issue2));
         } else {
@@ -1672,17 +1672,17 @@ function formatError(error62, mapper = (issue2) => issue2.message) {
 }
 function treeifyError(error62, mapper = (issue2) => issue2.message) {
   const result = { errors: [] };
-  const processError = (error63, path5 = []) => {
+  const processError = (error63, path6 = []) => {
     var _a3;
     for (const issue2 of error63.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path5, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path6, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path5, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path6, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path5, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path6, ...issue2.path]);
       } else {
-        const fullpath = [...path5, ...issue2.path];
+        const fullpath = [...path6, ...issue2.path];
         if (fullpath.length === 0) {
           result.errors.push(mapper(issue2));
           continue;
@@ -1721,8 +1721,8 @@ function treeifyError(error62, mapper = (issue2) => issue2.message) {
 }
 function toDotPath(_path) {
   const segs = [];
-  const path5 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
-  for (const seg of path5) {
+  const path6 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
+  for (const seg of path6) {
     if (typeof seg === "number")
       segs.push(`[${seg}]`);
     else if (typeof seg === "symbol")
@@ -18824,13 +18824,13 @@ function resolveRef(ref, ctx) {
   if (!ref.startsWith("#")) {
     throw new Error("External $ref is not supported, only local refs (#/...) are allowed");
   }
-  const path5 = ref.slice(1).split("/").filter(Boolean);
-  if (path5.length === 0) {
+  const path6 = ref.slice(1).split("/").filter(Boolean);
+  if (path6.length === 0) {
     return ctx.rootSchema;
   }
   const defsKey = ctx.version === "draft-2020-12" ? "$defs" : "definitions";
-  if (path5[0] === defsKey) {
-    const key = path5[1] === void 0 ? void 0 : decodeJSONPointerSegment(path5[1]);
+  if (path6[0] === defsKey) {
+    const key = path6[1] === void 0 ? void 0 : decodeJSONPointerSegment(path6[1]);
     if (!key || !ctx.defs[key]) {
       throw new Error(`Reference not found: ${ref}`);
     }
@@ -20108,6 +20108,7 @@ var Store = class {
         os_version TEXT,
         provider_version TEXT,
         prompt_version TEXT NOT NULL,
+        workspace TEXT NOT NULL DEFAULT 'unattributed',
         created_at TEXT NOT NULL
       ) STRICT;
       CREATE TABLE IF NOT EXISTS feedback (
@@ -20116,6 +20117,11 @@ var Store = class {
         created_at TEXT NOT NULL
       ) STRICT;
     `);
+    const columns = this.database.prepare("PRAGMA table_info(runs)").all();
+    if (!columns.some((column) => column.name === "workspace")) {
+      this.database.exec("ALTER TABLE runs ADD COLUMN workspace TEXT NOT NULL DEFAULT 'unattributed'");
+    }
+    this.database.exec("DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES (2)");
   }
   recordRun(record2) {
     this.database.prepare(`
@@ -20123,8 +20129,8 @@ var Store = class {
         run_id, artifact_id, task, mode, route_used, status, coverage, reason,
         source_bytes, output_bytes, estimate_method, estimated_input_tokens,
         estimated_output_tokens, latency_ms, validation, os_version,
-        provider_version, prompt_version, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        provider_version, prompt_version, workspace, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       record2.runId,
       record2.artifactId,
@@ -20144,8 +20150,69 @@ var Store = class {
       record2.osVersion,
       record2.providerVersion,
       "apple-offload-v0",
+      record2.workspace,
       (/* @__PURE__ */ new Date()).toISOString()
     );
+  }
+  dashboard() {
+    const totals = this.database.prepare(`
+      SELECT COUNT(*) runs,
+        SUM(status = 'ready') ready,
+        SUM(status = 'shadow') shadow,
+        SUM(status = 'needs_codex') needs_codex,
+        SUM(status = 'blocked') blocked,
+        SUM(route_used = 'local') local,
+        COALESCE(SUM(estimated_input_tokens), 0) input_tokens,
+        COALESCE(SUM(estimated_output_tokens), 0) output_tokens,
+        AVG(latency_ms) average_latency_ms
+      FROM runs
+    `).get();
+    const workspaces = this.database.prepare(`
+      SELECT workspace name, COUNT(*) runs,
+        SUM(status = 'ready') ready,
+        SUM(status = 'shadow') shadow,
+        SUM(status = 'needs_codex') needs_codex,
+        SUM(route_used = 'local') local,
+        AVG(latency_ms) average_latency_ms
+      FROM runs GROUP BY workspace ORDER BY runs DESC, workspace
+    `).all();
+    const recent = this.database.prepare(`
+      SELECT workspace, task, mode, route_used route, status,
+        latency_ms latency_ms, created_at created_at
+      FROM runs ORDER BY created_at DESC LIMIT 40
+    `).all();
+    return {
+      generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      totals: {
+        runs: totals.runs ?? 0,
+        ready: totals.ready ?? 0,
+        shadow: totals.shadow ?? 0,
+        needsCodex: totals.needs_codex ?? 0,
+        blocked: totals.blocked ?? 0,
+        local: totals.local ?? 0,
+        inputTokens: totals.input_tokens ?? 0,
+        outputTokens: totals.output_tokens ?? 0,
+        averageLatencyMs: totals.average_latency_ms ?? null
+      },
+      workspaces: workspaces.map((row) => ({
+        name: String(row.name),
+        runs: Number(row.runs),
+        ready: Number(row.ready),
+        shadow: Number(row.shadow),
+        needsCodex: Number(row.needs_codex),
+        local: Number(row.local),
+        averageLatencyMs: row.average_latency_ms === null ? null : Number(row.average_latency_ms)
+      })),
+      recent: recent.map((row) => ({
+        workspace: String(row.workspace),
+        task: String(row.task),
+        mode: String(row.mode),
+        route: row.route === null ? null : String(row.route),
+        status: String(row.status),
+        latencyMs: Number(row.latency_ms),
+        createdAt: String(row.created_at)
+      }))
+    };
   }
   recordFeedback(runId, outcome) {
     const exists = this.database.prepare("SELECT 1 FROM runs WHERE run_id = ?").get(runId);
@@ -20378,6 +20445,7 @@ var AppleOffloadRuntime = class {
   roots;
   provider;
   store;
+  workspace;
   deadlineMs;
   // ponytail: process-local queue; add a filesystem lock only if concurrent CLI processes become a real workload.
   queue = Promise.resolve();
@@ -20386,6 +20454,7 @@ var AppleOffloadRuntime = class {
     this.stateDir = path3.resolve(options.stateDir ?? process.env.APPLE_OFFLOAD_STATE_DIR ?? defaultStateDir());
     const configuredRoots = options.roots ?? process.env.APPLE_OFFLOAD_ROOTS?.split(path3.delimiter).filter(Boolean) ?? [process.cwd()];
     this.roots = configuredRoots.map((root) => path3.resolve(root));
+    this.workspace = (options.workspace ?? process.env.APPLE_OFFLOAD_WORKSPACE ?? path3.basename(this.roots[0])).replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 120) || "unattributed";
     this.provider = options.provider ?? new AppleLocalProvider();
     this.deadlineMs = options.deadlineMs ?? DEADLINE_MS;
     this.store = new Store(this.stateDir);
@@ -20496,6 +20565,9 @@ var AppleOffloadRuntime = class {
   stats(input2 = {}) {
     const parsed = StatsInputSchema.parse(input2);
     return StatsResultSchema.parse(this.store.stats(parsed.since));
+  }
+  dashboard() {
+    return this.store.dashboard();
   }
   async purge(all = false) {
     let removed = 0;
@@ -20623,6 +20695,7 @@ var AppleOffloadRuntime = class {
   record(task, runId, artifactId, result, sourceBytes, started, probe, candidate) {
     const output2 = candidate ? JSON.stringify(candidate) : JSON.stringify(result);
     this.store.recordRun({
+      workspace: this.workspace,
       runId,
       artifactId,
       task,
@@ -20671,26 +20744,63 @@ async function acceptFmTerms(confirmation, run2 = runPrivileged) {
   return { status: exitCode === 0 ? "accepted" : "failed", exitCode };
 }
 
+// src/dashboard.ts
+import { mkdir as mkdir2, writeFile as writeFile3 } from "node:fs/promises";
+import path4 from "node:path";
+function safeJson(value) {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
+}
+function renderDashboard(data) {
+  const initial = safeJson(data);
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark"><title>Apple Offload Usage</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23070a0e'/%3E%3Cpath d='M18 43 31 14h5l11 29h-8l-2-6H27l-2 6zm11-12h6l-3-9z' fill='%236de8ff'/%3E%3C/svg%3E">
+<style>
+:root{--bg:#070a0e;--panel:#0d131a;--line:#26323e;--ink:#edf7ff;--muted:#8ba0b2;--cyan:#6de8ff;--lime:#b9ff66;--amber:#ffcc66;--red:#ff7383}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 85% -10%,#163544 0,transparent 34rem),var(--bg);color:var(--ink);font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}main{width:min(1180px,calc(100% - 32px));margin:auto;padding:40px 0 72px}header{display:flex;justify-content:space-between;gap:24px;align-items:flex-end;border-bottom:1px solid var(--line);padding-bottom:24px}h1{font:700 clamp(32px,6vw,68px)/.95 system-ui,sans-serif;letter-spacing:-.055em;margin:8px 0}.eyebrow,.label{color:var(--cyan);text-transform:uppercase;letter-spacing:.14em;font-size:11px}.muted{color:var(--muted)}button{border:1px solid var(--line);border-radius:99px;background:#111a23;color:var(--ink);padding:9px 14px;font:inherit;cursor:pointer}button:hover{border-color:var(--cyan)}.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:12px;margin-top:24px}.metric,.panel{background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--line);border-radius:14px}.metric{grid-column:span 3;padding:18px;min-height:126px;display:flex;flex-direction:column;justify-content:space-between}.value{font:650 34px/1 system-ui,sans-serif;letter-spacing:-.04em}.panel{grid-column:span 12;padding:20px;overflow:auto}h2{font:650 19px system-ui,sans-serif;margin:0 0 14px}table{width:100%;border-collapse:collapse;min-width:700px;text-align:left}th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.08em}th,td{padding:11px 10px;border-bottom:1px solid var(--line)}tbody tr:last-child td{border-bottom:0}.status{display:inline-flex;align-items:center;gap:7px}.status:before{content:'';width:7px;height:7px;border-radius:50%;background:var(--amber)}.status.ready:before{background:var(--lime)}.status.needs_codex:before,.status.blocked:before{background:var(--red)}.bar{height:5px;background:#1b2732;border-radius:9px;overflow:hidden;margin-top:7px}.bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--cyan),var(--lime))}.empty{padding:36px 10px;color:var(--muted);text-align:center}footer{margin-top:18px;color:var(--muted);font-size:12px}@media(max-width:760px){main{width:min(100% - 20px,1180px);padding-top:24px}header{align-items:flex-start;flex-direction:column}.metric{grid-column:span 6}.value{font-size:28px}}@media(max-width:420px){.metric{grid-column:span 12}}
+</style></head><body><main><header><div><div class="eyebrow">Local Foundation Models / private snapshot</div><h1>Apple Offload<br>Usage</h1><div class="muted" id="stamp"></div></div><button onclick="location.reload()" aria-label="Reload this published snapshot">Reload snapshot</button></header>
+<section class="grid" aria-label="Usage summary"><article class="metric"><span class="label">Total runs</span><strong class="value" id="runs"></strong><span class="muted">Across recorded workspaces</span></article><article class="metric"><span class="label">Ready rate</span><strong class="value" id="rate"></strong><span class="muted">Validated results</span></article><article class="metric"><span class="label">Local model</span><strong class="value" id="local"></strong><span class="muted">On-device route</span></article><article class="metric"><span class="label">Avg latency</span><strong class="value" id="latency"></strong><span class="muted">End-to-end</span></article>
+<article class="panel"><h2>Workspaces &amp; worktrees</h2><div id="workspaces"></div></article><article class="panel"><h2>Recent activity</h2><div id="recent"></div></article></section><footer>Aggregated metadata only. No prompts, artifacts, evidence, paths, run IDs, or model responses are included. Refresh requires a new local export and private Site publish.</footer></main>
+<script>const d=${initial};const n=new Intl.NumberFormat();const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+stamp.textContent='Generated '+new Date(d.generatedAt).toLocaleString();runs.textContent=n.format(d.totals.runs);rate.textContent=d.totals.runs?Math.round(d.totals.ready/d.totals.runs*100)+'%':'\u2014';local.textContent=n.format(d.totals.local);latency.textContent=d.totals.averageLatencyMs===null?'\u2014':(d.totals.averageLatencyMs/1000).toFixed(1)+'s';
+workspaces.innerHTML=d.workspaces.length?'<table><thead><tr><th>Workspace</th><th>Runs</th><th>Ready</th><th>Local</th><th>Shadow</th><th>Needs Codex</th><th>Avg latency</th></tr></thead><tbody>'+d.workspaces.map(w=>'<tr><td><strong>'+esc(w.name)+'</strong><div class="bar"><i style="width:'+(d.totals.runs?w.runs/d.totals.runs*100:0)+'%"></i></div></td><td>'+n.format(w.runs)+'</td><td>'+n.format(w.ready)+'</td><td>'+n.format(w.local)+'</td><td>'+n.format(w.shadow)+'</td><td>'+n.format(w.needsCodex)+'</td><td>'+(w.averageLatencyMs===null?'\u2014':(w.averageLatencyMs/1000).toFixed(1)+'s')+'</td></tr>').join('')+'</tbody></table>':'<div class="empty">No usage recorded yet.</div>';
+recent.innerHTML=d.recent.length?'<table><thead><tr><th>When</th><th>Workspace</th><th>Task</th><th>Mode</th><th>Route</th><th>Status</th><th>Latency</th></tr></thead><tbody>'+d.recent.map(r=>'<tr><td>'+esc(new Date(r.createdAt).toLocaleString())+'</td><td>'+esc(r.workspace)+'</td><td>'+esc(r.task)+'</td><td>'+esc(r.mode)+'</td><td>'+esc(r.route||'\u2014')+'</td><td><span class="status '+esc(r.status)+'">'+esc(r.status)+'</span></td><td>'+(r.latencyMs/1000).toFixed(1)+'s</td></tr>').join('')+'</tbody></table>':'<div class="empty">No recent activity.</div>';</script></body></html>`;
+}
+async function writeDashboard(outputDir, data) {
+  const root = path4.resolve(outputDir);
+  await mkdir2(path4.join(root, "dist"), { recursive: true, mode: 448 });
+  await mkdir2(path4.join(root, ".openai"), { recursive: true, mode: 448 });
+  const manifest = path4.join(root, ".openai", "hosting.json");
+  try {
+    await writeFile3(path4.join(root, "dist", "index.html"), renderDashboard(data), { mode: 384 });
+    await writeFile3(manifest, JSON.stringify({ static: { directory: "dist" } }, null, 2) + "\n", { flag: "wx", mode: 384 });
+  } catch (error62) {
+    if (!(error62 instanceof Error) || !("code" in error62) || error62.code !== "EEXIST") throw error62;
+    await writeFile3(path4.join(root, "dist", "index.html"), renderDashboard(data), { mode: 384 });
+  }
+  return path4.join(root, "dist", "index.html");
+}
+
 // src/cli.ts
 function usage() {
-  throw new Error("usage: apple-offload <setup|doctor|process|read|feedback|stats|eval|purge> [arguments]");
+  throw new Error("usage: apple-offload <setup|doctor|process|read|feedback|stats|dashboard|eval|purge> [arguments]");
 }
 function print(value) {
   process.stdout.write(`${JSON.stringify(value, null, 2)}
 `);
 }
 async function evaluate(manifestPath, parent) {
-  const manifest = JSON.parse(await readFile2(path4.resolve(manifestPath), "utf8"));
+  const manifest = JSON.parse(await readFile2(path5.resolve(manifestPath), "utf8"));
   if (!Array.isArray(manifest)) throw new Error("eval manifest must be an array");
-  const temporary = await mkdtemp2(path4.join(parent.stateDir, "eval-"));
+  const temporary = await mkdtemp2(path5.join(parent.stateDir, "eval-"));
   const runtime = new AppleOffloadRuntime({ mode: "on", roots: [temporary], stateDir: parent.stateDir });
   let passed = 0;
   try {
     await runtime.initialize();
     for (const [index, item] of manifest.entries()) {
       TaskSchema.parse(item.task);
-      const file2 = path4.join(temporary, `${index}.txt`);
-      await writeFile3(file2, item.input, { mode: 384 });
+      const file2 = path5.join(temporary, `${index}.txt`);
+      await writeFile4(file2, item.input, { mode: 384 });
       const result = await runtime.process({ task: item.task, path: file2 });
       const facts = result.payload && "diagnostics" in result.payload ? result.payload.diagnostics.length : result.payload && "files" in result.payload ? result.payload.files.length : result.payload ? result.payload.requirements.length + result.payload.acceptanceCriteria.length : 0;
       if (result.status === "ready" && facts >= item.minimumFacts) passed += 1;
@@ -20732,6 +20842,11 @@ async function main(argv = process.argv.slice(2)) {
       print(runtime.feedback({ runId: args[0], outcome: args[1] }));
     } else if (command === "stats" && args.length <= 1) {
       print(runtime.stats(args[0] ? { since: args[0] } : {}));
+    } else if (command === "dashboard" && args.length <= 1) {
+      const outputDir = args[0] ?? path5.join(process.cwd(), ".apple-offload", "dashboard-site");
+      const snapshot = runtime.dashboard();
+      const output2 = await writeDashboard(outputDir, snapshot);
+      print({ output: output2, ...snapshot });
     } else if (command === "eval" && args.length === 1) {
       print(await evaluate(args[0], runtime));
     } else if (command === "purge" && args.length <= 1 && (!args[0] || args[0] === "--all")) {
