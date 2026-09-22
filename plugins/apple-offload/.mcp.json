@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "apple_offload": {
+      "title": "Apple Offload",
+      "description": "Process saved local artifacts with deterministic extraction or Apple on-device Foundation Models.",
+      "cwd": ".",
+      "command": "node",
+      "args": ["./dist/mcp.js"],
+      "env": {
+        "APPLE_OFFLOAD_MODE": "shadow"
+      }
+    }
+  }
+}
