@@ -1,0 +1,30 @@
+name: Bug report
+description: Something in apple-offload does not work as documented
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: Include the command or MCP tool call and the result (status, reason).
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps. Do not paste credentials or private artifact contents.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Output of `node dist/cli.js doctor`, plus Node and pnpm versions.
+      render: text
