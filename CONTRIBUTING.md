@@ -1,7 +1,8 @@
 # Contributing to apple-offload
 
 Thanks for helping. This guide covers local setup, checks, conventions, and
-review. Read [CLAUDE.md](CLAUDE.md) first: it is the authority for the product
+review. New to the project's terms? See [docs/glossary.md](docs/glossary.md).
+Read [CLAUDE.md](CLAUDE.md) first: it is the authority for the product
 and safety boundary, and a change that crosses it will not be merged.
 
 ## Set up locally

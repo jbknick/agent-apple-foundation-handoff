@@ -110,7 +110,7 @@ spending agent context on it.
 | `plugins/apple-offload/` | Packaged plugin: manifest, `.mcp.json`, skill, bundled `dist/` |
 | `scripts/` | Generated-artifact sync, boundary policy check, CLI and STDIO smoke tests |
 | `tests/` | Vitest suites and fixtures |
-| `docs/` | Design notes and the live verification record |
+| `docs/` | Design notes, [glossary](docs/glossary.md), and the live verification record |
 
 ## Contributing
 
