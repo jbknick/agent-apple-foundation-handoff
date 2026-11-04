@@ -119,5 +119,4 @@ and [AI_POLICY.md](AI_POLICY.md).
 
 ## License
 
-Noncommercial use is licensed under the PolyForm Noncommercial License 1.0.0.
-See [LICENSE](LICENSE) and [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md).
+[MIT](LICENSE).
