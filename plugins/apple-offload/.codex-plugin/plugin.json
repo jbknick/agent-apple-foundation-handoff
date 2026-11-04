@@ -1,0 +1,36 @@
+{
+  "name": "apple-offload",
+  "version": "0.1.0+codex.20260922090456",
+  "description": "Process saved local development artifacts with Apple on-device Foundation Models before Codex reads them.",
+  "author": {
+    "name": "Joseph Knickerbocker",
+    "url": "https://github.com/jbknick"
+  },
+  "homepage": "https://github.com/jbknick/agent-apple-foundation-handoff",
+  "repository": "https://github.com/jbknick/agent-apple-foundation-handoff",
+  "license": "LicenseRef-PolyForm-Noncommercial-1.0.0",
+  "keywords": [
+    "apple",
+    "foundation-models",
+    "local",
+    "diagnostics",
+    "mcp"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Apple Offload",
+    "shortDescription": "Condense saved logs, diffs, and issues locally.",
+    "longDescription": "Apple Offload validates and condenses saved development artifacts with deterministic processing or Apple's on-device model, retaining source-line evidence and local metrics.",
+    "developerName": "Joseph Knickerbocker",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Read",
+      "Local processing"
+    ],
+    "websiteURL": "https://github.com/jbknick/agent-apple-foundation-handoff",
+    "defaultPrompt": [
+      "Process this saved test log with Apple Offload."
+    ]
+  },
+  "mcpServers": "./.mcp.json"
+}

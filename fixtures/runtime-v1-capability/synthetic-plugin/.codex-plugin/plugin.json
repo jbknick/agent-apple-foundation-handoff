@@ -1,6 +1,0 @@
-{
-  "name": "runtime-v1-capability-probe",
-  "version": "0.0.1",
-  "description": "Repository-only Runtime V1 direct diagnostic consultation capability gate.",
-  "hooks": "./hooks/codex/hooks.json"
-}
