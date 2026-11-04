@@ -90,6 +90,33 @@ structured response, and the offline run are actually executed.
 
 The current verification record is in [docs/benchmark.md](docs/benchmark.md).
 
+## Who uses it
+
+Developers who run coding agents on a Mac and want routine artifact reading
+(test logs, diffs, issue text) handled by the on-device Apple model instead of
+spending agent context on it.
+
+## Code layout
+
+| Path | Contents |
+| --- | --- |
+| `src/runtime.ts` | `AppleOffloadRuntime`: snapshotting, root and symlink policy, deterministic extraction, chunked local generation, evidence validation |
+| `src/apple-local.ts` | `AppleLocalProvider`: probes and calls `/usr/bin/fm` |
+| `src/provider.ts` | `Provider` interface and `MockProvider` for tests |
+| `src/store.ts` | SQLite metadata store: runs, feedback, stats, dashboard snapshot |
+| `src/schemas.ts` | Zod schemas for MCP inputs and results |
+| `src/mcp.ts`, `src/cli.ts` | STDIO MCP server and CLI entry points |
+| `src/dashboard.ts`, `src/setup.ts` | Static dashboard export and interactive license setup |
+| `plugins/apple-offload/` | Packaged plugin: manifest, `.mcp.json`, skill, bundled `dist/` |
+| `scripts/` | Generated-artifact sync, boundary policy check, CLI and STDIO smoke tests |
+| `tests/` | Vitest suites and fixtures |
+| `docs/` | Design notes and the live verification record |
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md),
+and [AI_POLICY.md](AI_POLICY.md).
+
 ## License
 
 Noncommercial use is licensed under the PolyForm Noncommercial License 1.0.0.
