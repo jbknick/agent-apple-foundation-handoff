@@ -34318,7 +34318,8 @@ function toError(value) {
 // src/schemas.ts
 var TaskSchema2 = external_exports.enum(["diagnostics", "diff_summary", "issue_extract"]);
 var ModeSchema = external_exports.enum(["off", "shadow", "on"]);
-var StatusSchema = external_exports.enum(["ready", "shadow", "needs_codex", "blocked"]);
+var StatusSchema = external_exports.enum(["ready", "shadow", "needs_agent", "blocked"]);
+var LegacyStatusSchema = external_exports.literal("needs_codex");
 var RouteSchema = external_exports.enum(["deterministic", "local"]);
 var ModelRouteSchema = external_exports.enum(["on_device", "pcc"]);
 var RoutePreferenceSchema = external_exports.enum(["on_device", "pcc_preferred"]);
@@ -34394,8 +34395,14 @@ var ProcessResultSchema = external_exports.object({
   payload: PayloadSchema.nullable(),
   evidence: external_exports.array(EvidenceSchema),
   coverage: CoverageSchema,
-  reason: external_exports.string().nullable()
-}).strict();
+  reason: external_exports.string().nullable(),
+  legacyStatus: LegacyStatusSchema.optional().describe(
+    "Deprecated: present only when status is needs_agent; removed after one minor release."
+  )
+}).strict().refine(({ status, legacyStatus }) => status === "needs_agent" === (legacyStatus !== void 0), {
+  message: "legacyStatus is required for needs_agent and forbidden otherwise",
+  path: ["legacyStatus"]
+});
 var ReadResultSchema = external_exports.object({
   artifactId: external_exports.string().uuid(),
   startLine: external_exports.number().int().min(1),
@@ -34412,7 +34419,8 @@ var StatsResultSchema = external_exports.object({
   runs: external_exports.number().int().min(0),
   ready: external_exports.number().int().min(0),
   shadow: external_exports.number().int().min(0),
-  needsCodex: external_exports.number().int().min(0),
+  needsAgent: external_exports.number().int().min(0),
+  needsCodex: external_exports.number().int().min(0).describe("Deprecated alias of needsAgent; removed after one minor release."),
   blocked: external_exports.number().int().min(0),
   sourceBytes: external_exports.number().int().min(0),
   outputBytes: external_exports.number().int().min(0),
@@ -34891,12 +34899,13 @@ var Store = class {
       (/* @__PURE__ */ new Date()).toISOString()
     );
   }
+  // Rows written before the #34 rename store `needs_codex`; reads count and report them as `needs_agent`.
   dashboard() {
     const totals = this.database.prepare(`
       SELECT COUNT(*) runs,
         SUM(status = 'ready') ready,
         SUM(status = 'shadow') shadow,
-        SUM(status = 'needs_codex') needs_codex,
+        SUM(status IN ('needs_agent', 'needs_codex')) needs_agent,
         SUM(status = 'blocked') blocked,
         SUM(model_route = 'on_device') on_device,
         SUM(model_route = 'pcc') pcc,
@@ -34909,7 +34918,7 @@ var Store = class {
       SELECT workspace name, COUNT(*) runs,
         SUM(status = 'ready') ready,
         SUM(status = 'shadow') shadow,
-        SUM(status = 'needs_codex') needs_codex,
+        SUM(status IN ('needs_agent', 'needs_codex')) needs_agent,
         SUM(model_route = 'on_device') on_device,
         SUM(model_route = 'pcc') pcc,
         AVG(latency_ms) average_latency_ms
@@ -34919,7 +34928,7 @@ var Store = class {
       SELECT workspace, task, mode,
         CASE WHEN model_route IS NOT NULL THEN model_route
           WHEN route_used = 'deterministic' THEN 'deterministic' END route,
-        status,
+        CASE WHEN status = 'needs_codex' THEN 'needs_agent' ELSE status END status,
         latency_ms latency_ms, created_at created_at
       FROM runs ORDER BY created_at DESC LIMIT 40
     `).all();
@@ -34929,7 +34938,7 @@ var Store = class {
         runs: totals.runs ?? 0,
         ready: totals.ready ?? 0,
         shadow: totals.shadow ?? 0,
-        needsCodex: totals.needs_codex ?? 0,
+        needsAgent: totals.needs_agent ?? 0,
         blocked: totals.blocked ?? 0,
         onDevice: totals.on_device ?? 0,
         pcc: totals.pcc ?? 0,
@@ -34942,7 +34951,7 @@ var Store = class {
         runs: Number(row.runs),
         ready: Number(row.ready),
         shadow: Number(row.shadow),
-        needsCodex: Number(row.needs_codex),
+        needsAgent: Number(row.needs_agent),
         onDevice: Number(row.on_device),
         pcc: Number(row.pcc),
         averageLatencyMs: row.average_latency_ms === null ? null : Number(row.average_latency_ms)
@@ -34974,7 +34983,7 @@ var Store = class {
         COUNT(*) AS runs,
         SUM(CASE WHEN status = 'ready' THEN 1 ELSE 0 END) AS ready,
         SUM(CASE WHEN status = 'shadow' THEN 1 ELSE 0 END) AS shadow,
-        SUM(CASE WHEN status = 'needs_codex' THEN 1 ELSE 0 END) AS needs_codex,
+        SUM(CASE WHEN status IN ('needs_agent', 'needs_codex') THEN 1 ELSE 0 END) AS needs_agent,
         SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END) AS blocked,
         COALESCE(SUM(source_bytes), 0) AS source_bytes,
         COALESCE(SUM(output_bytes), 0) AS output_bytes,
@@ -34995,7 +35004,8 @@ var Store = class {
       runs: aggregate.runs ?? 0,
       ready: aggregate.ready ?? 0,
       shadow: aggregate.shadow ?? 0,
-      needsCodex: aggregate.needs_codex ?? 0,
+      needsAgent: aggregate.needs_agent ?? 0,
+      needsCodex: aggregate.needs_agent ?? 0,
       blocked: aggregate.blocked ?? 0,
       sourceBytes: aggregate.source_bytes ?? 0,
       outputBytes: aggregate.output_bytes ?? 0,
@@ -35246,7 +35256,7 @@ var AppleOffloadRuntime = class {
     const started = Date.now();
     const runId = randomUUID();
     if (this.mode === "off") {
-      const result2 = this.result(runId, "needs_codex", null, null, null, [], "complete", "mode_off");
+      const result2 = this.result(runId, "needs_agent", null, null, null, [], "complete", "mode_off");
       this.record(task, runId, null, result2, 0, started, null);
       return result2;
     }
@@ -35255,7 +35265,7 @@ var AppleOffloadRuntime = class {
       snapshot = await this.snapshot(requestedPath);
     } catch (error62) {
       const reason2 = error62 instanceof PolicyError ? error62.message : "snapshot_failed";
-      const status = reason2 === "source_too_large" ? "needs_codex" : "blocked";
+      const status = reason2 === "source_too_large" ? "needs_agent" : "blocked";
       const result2 = this.result(runId, status, null, null, null, [], "complete", reason2);
       this.record(task, runId, null, result2, 0, started, null);
       return result2;
@@ -35280,14 +35290,14 @@ var AppleOffloadRuntime = class {
       } else reason = this.routes.describeFailures(outcome.failures);
     }
     if (!candidate) {
-      const result2 = this.result(runId, "needs_codex", route, snapshot.artifactId, null, [], "complete", reason ?? "no_supported_facts");
+      const result2 = this.result(runId, "needs_agent", route, snapshot.artifactId, null, [], "complete", reason ?? "no_supported_facts");
       this.record(task, runId, snapshot.artifactId, result2, snapshot.bytes, started, probe);
       return result2;
     }
     try {
       this.validateCandidate(candidate, lines);
     } catch {
-      const result2 = this.result(runId, "needs_codex", route, snapshot.artifactId, null, [], candidate.coverage, "invalid_evidence", modelRoute);
+      const result2 = this.result(runId, "needs_agent", route, snapshot.artifactId, null, [], candidate.coverage, "invalid_evidence", modelRoute);
       this.record(task, runId, snapshot.artifactId, result2, snapshot.bytes, started, probe);
       return result2;
     }
@@ -35453,7 +35463,8 @@ var AppleOffloadRuntime = class {
     if (estimateTokens(serialized) > RESPONSE_TOKEN_BUDGET) throw new Error("response_budget_exceeded");
   }
   result(runId, status, routeUsed, artifactId, payload, evidence, coverage, reason, modelRoute = null) {
-    return ProcessResultSchema.parse({ runId, status, routeUsed, modelRoute, artifactId, payload, evidence, coverage, reason });
+    const legacy = status === "needs_agent" ? { legacyStatus: "needs_codex" } : {};
+    return ProcessResultSchema.parse({ runId, status, routeUsed, modelRoute, artifactId, payload, evidence, coverage, reason, ...legacy });
   }
   record(task, runId, artifactId, result, sourceBytes, started, probe, candidate) {
     const output2 = candidate ? JSON.stringify(candidate) : JSON.stringify(result);

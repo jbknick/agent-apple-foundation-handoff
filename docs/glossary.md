@@ -14,8 +14,9 @@ Terms used in the code, issues, and docs.
 | **Deterministic extraction** | Regex-based parsing in `src/runtime.ts` that handles well-known formats without a model. It runs first. |
 | **Handoff** | Sending an artifact to the local model instead of having the agent read it. |
 | **Mode** | `off` (do nothing), `shadow` (process and record, but don't return results), `on` (return results). Set by `APPLE_OFFLOAD_MODE`; default `shadow`. |
-| **Status** | Result of a run: `ready` (here is the summary), `shadow` (recorded only), `needs_codex` (the agent should read the artifact itself), `blocked` (refused for policy reasons). |
-| **`needs_codex`** | The "fall back to the agent" status. Named before Claude Code support; #34 renames it. |
+| **Status** | Result of a run: `ready` (here is the summary), `shadow` (recorded only), `needs_agent` (the agent should read the artifact itself), `blocked` (refused for policy reasons). |
+| **`needs_agent`** | The "fall back to the agent" status. Formerly `needs_codex`; stored `needs_codex` rows are counted as `needs_agent`. |
+| **`legacyStatus`** | Deprecated. Set to `needs_codex` on every `needs_agent` result for one minor release, then removed. The stats field `needsCodex` is likewise a deprecated alias of `needsAgent`. |
 | **Reason** | Short code saying why a run fell back or was blocked, such as `no_supported_facts` or `fm_license_not_accepted`. |
 | **Evidence** | Line ranges in the artifact that back up each extracted fact. Checked before results are returned. |
 | **Coverage** | Whether the result covers the whole artifact (`complete`) or only part of it (`partial`). |

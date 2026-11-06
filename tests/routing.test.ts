@@ -118,14 +118,15 @@ describe('model routes', () => {
     runtime.close();
   });
 
-  it('returns needs_codex with every route reason when both routes fail', async () => {
+  it('returns needs_agent with every route reason when both routes fail', async () => {
     const { runtime, result } = await runOpaque({
       routePreference: 'pcc_preferred',
       pccProvider: new MockProvider({}, false),
       provider: failing('fm_generation_failed')
     });
     expect(result).toMatchObject({
-      status: 'needs_codex',
+      status: 'needs_agent',
+      legacyStatus: 'needs_codex',
       routeUsed: 'local',
       modelRoute: null,
       reason: 'pcc:mock_unavailable;on_device:fm_generation_failed'
@@ -200,6 +201,40 @@ describe('model routes', () => {
     expect(store.stats().modelRoutes).toEqual({ on_device: 1, pcc: 0 });
     expect(store.dashboard().recent.map(row => row.route)).toEqual(['on_device', null, 'deterministic']);
     store.close();
+  });
+
+  it('counts stored needs_codex rows and new needs_agent rows as one needs_agent total', async () => {
+    const stateDir = await temporary();
+    const root = await temporary();
+    const runtime = new AppleOffloadRuntime({ mode: 'off', roots: [root], stateDir, workspace: 'mixed' });
+    await runtime.initialize();
+    await runtime.process({ task: 'diagnostics', path: path.join(root, 'unused.log') });
+    await runtime.process({ task: 'diagnostics', path: path.join(root, 'unused.log') });
+    runtime.store.database.prepare(`
+      INSERT INTO runs (run_id, task, mode, route_used, status, coverage, source_bytes, output_bytes,
+        estimate_method, latency_ms, validation, prompt_version, workspace, created_at)
+      VALUES (?, 'diagnostics', 'on', 'local', ?, 'complete', 1, 1, 'chars_div_4_v1', 1, 'passed',
+        'apple-offload-v0', 'mixed', ?)
+    `).run('legacy-needs-codex', 'needs_codex', '2026-01-01T00:00:00.000Z');
+    runtime.store.database.prepare(`
+      INSERT INTO runs (run_id, task, mode, route_used, status, coverage, source_bytes, output_bytes,
+        estimate_method, latency_ms, validation, prompt_version, workspace, created_at)
+      VALUES (?, 'diagnostics', 'on', 'deterministic', 'ready', 'complete', 1, 1, 'chars_div_4_v1', 1, 'passed',
+        'apple-offload-v0', 'mixed', ?)
+    `).run('legacy-ready', '2026-01-01T00:00:01.000Z');
+    const statuses = runtime.store.database.prepare('SELECT status, COUNT(*) count FROM runs GROUP BY status ORDER BY status').all();
+    expect(statuses).toEqual([
+      { status: 'needs_agent', count: 2 },
+      { status: 'needs_codex', count: 1 },
+      { status: 'ready', count: 1 }
+    ]);
+
+    expect(runtime.stats({})).toMatchObject({ runs: 4, ready: 1, needsAgent: 3, needsCodex: 3, blocked: 0 });
+    const dashboard = runtime.dashboard();
+    expect(dashboard.totals).toMatchObject({ runs: 4, ready: 1, needsAgent: 3 });
+    expect(dashboard.workspaces).toEqual([expect.objectContaining({ name: 'mixed', runs: 4, needsAgent: 3 })]);
+    expect(dashboard.recent.map(row => row.status).sort()).toEqual(['needs_agent', 'needs_agent', 'needs_agent', 'ready']);
+    runtime.close();
   });
 });
 

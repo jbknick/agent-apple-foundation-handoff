@@ -21,6 +21,12 @@ try {
   }
   const stats = JSON.parse(execFileSync(process.execPath, ['dist/cli.js', 'stats'], { env, encoding: 'utf8' }));
   if (stats.runs !== 1) throw new Error('CLI stats did not persist one run');
+  const offResult = JSON.parse(execFileSync(process.execPath, ['dist/cli.js', 'process', 'diagnostics', artifact], {
+    env: { ...env, APPLE_OFFLOAD_MODE: 'off' }, encoding: 'utf8'
+  }));
+  if (offResult.status !== 'needs_agent' || offResult.legacyStatus !== 'needs_codex') {
+    throw new Error('CLI fallback did not return needs_agent with legacyStatus');
+  }
 } finally {
   rmSync(root, { recursive: true, force: true });
   rmSync(state, { recursive: true, force: true });

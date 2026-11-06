@@ -19682,7 +19682,8 @@ function date4(params) {
 // src/schemas.ts
 var TaskSchema = external_exports.enum(["diagnostics", "diff_summary", "issue_extract"]);
 var ModeSchema = external_exports.enum(["off", "shadow", "on"]);
-var StatusSchema = external_exports.enum(["ready", "shadow", "needs_codex", "blocked"]);
+var StatusSchema = external_exports.enum(["ready", "shadow", "needs_agent", "blocked"]);
+var LegacyStatusSchema = external_exports.literal("needs_codex");
 var RouteSchema = external_exports.enum(["deterministic", "local"]);
 var ModelRouteSchema = external_exports.enum(["on_device", "pcc"]);
 var RoutePreferenceSchema = external_exports.enum(["on_device", "pcc_preferred"]);
@@ -19758,8 +19759,14 @@ var ProcessResultSchema = external_exports.object({
   payload: PayloadSchema.nullable(),
   evidence: external_exports.array(EvidenceSchema),
   coverage: CoverageSchema,
-  reason: external_exports.string().nullable()
-}).strict();
+  reason: external_exports.string().nullable(),
+  legacyStatus: LegacyStatusSchema.optional().describe(
+    "Deprecated: present only when status is needs_agent; removed after one minor release."
+  )
+}).strict().refine(({ status, legacyStatus }) => status === "needs_agent" === (legacyStatus !== void 0), {
+  message: "legacyStatus is required for needs_agent and forbidden otherwise",
+  path: ["legacyStatus"]
+});
 var ReadResultSchema = external_exports.object({
   artifactId: external_exports.string().uuid(),
   startLine: external_exports.number().int().min(1),
@@ -19776,7 +19783,8 @@ var StatsResultSchema = external_exports.object({
   runs: external_exports.number().int().min(0),
   ready: external_exports.number().int().min(0),
   shadow: external_exports.number().int().min(0),
-  needsCodex: external_exports.number().int().min(0),
+  needsAgent: external_exports.number().int().min(0),
+  needsCodex: external_exports.number().int().min(0).describe("Deprecated alias of needsAgent; removed after one minor release."),
   blocked: external_exports.number().int().min(0),
   sourceBytes: external_exports.number().int().min(0),
   outputBytes: external_exports.number().int().min(0),
@@ -20255,12 +20263,13 @@ var Store = class {
       (/* @__PURE__ */ new Date()).toISOString()
     );
   }
+  // Rows written before the #34 rename store `needs_codex`; reads count and report them as `needs_agent`.
   dashboard() {
     const totals = this.database.prepare(`
       SELECT COUNT(*) runs,
         SUM(status = 'ready') ready,
         SUM(status = 'shadow') shadow,
-        SUM(status = 'needs_codex') needs_codex,
+        SUM(status IN ('needs_agent', 'needs_codex')) needs_agent,
         SUM(status = 'blocked') blocked,
         SUM(model_route = 'on_device') on_device,
         SUM(model_route = 'pcc') pcc,
@@ -20273,7 +20282,7 @@ var Store = class {
       SELECT workspace name, COUNT(*) runs,
         SUM(status = 'ready') ready,
         SUM(status = 'shadow') shadow,
-        SUM(status = 'needs_codex') needs_codex,
+        SUM(status IN ('needs_agent', 'needs_codex')) needs_agent,
         SUM(model_route = 'on_device') on_device,
         SUM(model_route = 'pcc') pcc,
         AVG(latency_ms) average_latency_ms
@@ -20283,7 +20292,7 @@ var Store = class {
       SELECT workspace, task, mode,
         CASE WHEN model_route IS NOT NULL THEN model_route
           WHEN route_used = 'deterministic' THEN 'deterministic' END route,
-        status,
+        CASE WHEN status = 'needs_codex' THEN 'needs_agent' ELSE status END status,
         latency_ms latency_ms, created_at created_at
       FROM runs ORDER BY created_at DESC LIMIT 40
     `).all();
@@ -20293,7 +20302,7 @@ var Store = class {
         runs: totals.runs ?? 0,
         ready: totals.ready ?? 0,
         shadow: totals.shadow ?? 0,
-        needsCodex: totals.needs_codex ?? 0,
+        needsAgent: totals.needs_agent ?? 0,
         blocked: totals.blocked ?? 0,
         onDevice: totals.on_device ?? 0,
         pcc: totals.pcc ?? 0,
@@ -20306,7 +20315,7 @@ var Store = class {
         runs: Number(row.runs),
         ready: Number(row.ready),
         shadow: Number(row.shadow),
-        needsCodex: Number(row.needs_codex),
+        needsAgent: Number(row.needs_agent),
         onDevice: Number(row.on_device),
         pcc: Number(row.pcc),
         averageLatencyMs: row.average_latency_ms === null ? null : Number(row.average_latency_ms)
@@ -20338,7 +20347,7 @@ var Store = class {
         COUNT(*) AS runs,
         SUM(CASE WHEN status = 'ready' THEN 1 ELSE 0 END) AS ready,
         SUM(CASE WHEN status = 'shadow' THEN 1 ELSE 0 END) AS shadow,
-        SUM(CASE WHEN status = 'needs_codex' THEN 1 ELSE 0 END) AS needs_codex,
+        SUM(CASE WHEN status IN ('needs_agent', 'needs_codex') THEN 1 ELSE 0 END) AS needs_agent,
         SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END) AS blocked,
         COALESCE(SUM(source_bytes), 0) AS source_bytes,
         COALESCE(SUM(output_bytes), 0) AS output_bytes,
@@ -20359,7 +20368,8 @@ var Store = class {
       runs: aggregate.runs ?? 0,
       ready: aggregate.ready ?? 0,
       shadow: aggregate.shadow ?? 0,
-      needsCodex: aggregate.needs_codex ?? 0,
+      needsAgent: aggregate.needs_agent ?? 0,
+      needsCodex: aggregate.needs_agent ?? 0,
       blocked: aggregate.blocked ?? 0,
       sourceBytes: aggregate.source_bytes ?? 0,
       outputBytes: aggregate.output_bytes ?? 0,
@@ -20610,7 +20620,7 @@ var AppleOffloadRuntime = class {
     const started = Date.now();
     const runId = randomUUID();
     if (this.mode === "off") {
-      const result2 = this.result(runId, "needs_codex", null, null, null, [], "complete", "mode_off");
+      const result2 = this.result(runId, "needs_agent", null, null, null, [], "complete", "mode_off");
       this.record(task, runId, null, result2, 0, started, null);
       return result2;
     }
@@ -20619,7 +20629,7 @@ var AppleOffloadRuntime = class {
       snapshot = await this.snapshot(requestedPath);
     } catch (error62) {
       const reason2 = error62 instanceof PolicyError ? error62.message : "snapshot_failed";
-      const status = reason2 === "source_too_large" ? "needs_codex" : "blocked";
+      const status = reason2 === "source_too_large" ? "needs_agent" : "blocked";
       const result2 = this.result(runId, status, null, null, null, [], "complete", reason2);
       this.record(task, runId, null, result2, 0, started, null);
       return result2;
@@ -20644,14 +20654,14 @@ var AppleOffloadRuntime = class {
       } else reason = this.routes.describeFailures(outcome.failures);
     }
     if (!candidate) {
-      const result2 = this.result(runId, "needs_codex", route, snapshot.artifactId, null, [], "complete", reason ?? "no_supported_facts");
+      const result2 = this.result(runId, "needs_agent", route, snapshot.artifactId, null, [], "complete", reason ?? "no_supported_facts");
       this.record(task, runId, snapshot.artifactId, result2, snapshot.bytes, started, probe);
       return result2;
     }
     try {
       this.validateCandidate(candidate, lines);
     } catch {
-      const result2 = this.result(runId, "needs_codex", route, snapshot.artifactId, null, [], candidate.coverage, "invalid_evidence", modelRoute);
+      const result2 = this.result(runId, "needs_agent", route, snapshot.artifactId, null, [], candidate.coverage, "invalid_evidence", modelRoute);
       this.record(task, runId, snapshot.artifactId, result2, snapshot.bytes, started, probe);
       return result2;
     }
@@ -20817,7 +20827,8 @@ var AppleOffloadRuntime = class {
     if (estimateTokens(serialized) > RESPONSE_TOKEN_BUDGET) throw new Error("response_budget_exceeded");
   }
   result(runId, status, routeUsed, artifactId, payload, evidence, coverage, reason, modelRoute = null) {
-    return ProcessResultSchema.parse({ runId, status, routeUsed, modelRoute, artifactId, payload, evidence, coverage, reason });
+    const legacy = status === "needs_agent" ? { legacyStatus: "needs_codex" } : {};
+    return ProcessResultSchema.parse({ runId, status, routeUsed, modelRoute, artifactId, payload, evidence, coverage, reason, ...legacy });
   }
   record(task, runId, artifactId, result, sourceBytes, started, probe, candidate) {
     const output2 = candidate ? JSON.stringify(candidate) : JSON.stringify(result);
@@ -20884,13 +20895,13 @@ function renderDashboard(data) {
 <meta name="color-scheme" content="dark"><title>Apple Offload Usage</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23070a0e'/%3E%3Cpath d='M18 43 31 14h5l11 29h-8l-2-6H27l-2 6zm11-12h6l-3-9z' fill='%236de8ff'/%3E%3C/svg%3E">
 <style>
-:root{--bg:#070a0e;--panel:#0d131a;--line:#26323e;--ink:#edf7ff;--muted:#8ba0b2;--cyan:#6de8ff;--lime:#b9ff66;--amber:#ffcc66;--red:#ff7383}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 85% -10%,#163544 0,transparent 34rem),var(--bg);color:var(--ink);font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}main{width:min(1180px,calc(100% - 32px));margin:auto;padding:40px 0 72px}header{display:flex;justify-content:space-between;gap:24px;align-items:flex-end;border-bottom:1px solid var(--line);padding-bottom:24px}h1{font:700 clamp(32px,6vw,68px)/.95 system-ui,sans-serif;letter-spacing:-.055em;margin:8px 0}.eyebrow,.label{color:var(--cyan);text-transform:uppercase;letter-spacing:.14em;font-size:11px}.muted{color:var(--muted)}button{border:1px solid var(--line);border-radius:99px;background:#111a23;color:var(--ink);padding:9px 14px;font:inherit;cursor:pointer}button:hover{border-color:var(--cyan)}.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:12px;margin-top:24px}.metric,.panel{background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--line);border-radius:14px}.metric{grid-column:span 3;padding:18px;min-height:126px;display:flex;flex-direction:column;justify-content:space-between}.value{font:650 34px/1 system-ui,sans-serif;letter-spacing:-.04em}.panel{grid-column:span 12;padding:20px;overflow:auto}h2{font:650 19px system-ui,sans-serif;margin:0 0 14px}table{width:100%;border-collapse:collapse;min-width:700px;text-align:left}th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.08em}th,td{padding:11px 10px;border-bottom:1px solid var(--line)}tbody tr:last-child td{border-bottom:0}.status{display:inline-flex;align-items:center;gap:7px}.status:before{content:'';width:7px;height:7px;border-radius:50%;background:var(--amber)}.status.ready:before{background:var(--lime)}.status.needs_codex:before,.status.blocked:before{background:var(--red)}.bar{height:5px;background:#1b2732;border-radius:9px;overflow:hidden;margin-top:7px}.bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--cyan),var(--lime))}.empty{padding:36px 10px;color:var(--muted);text-align:center}footer{margin-top:18px;color:var(--muted);font-size:12px}@media(max-width:760px){main{width:min(100% - 20px,1180px);padding-top:24px}header{align-items:flex-start;flex-direction:column}.metric{grid-column:span 6}.value{font-size:28px}}@media(max-width:420px){.metric{grid-column:span 12}}
+:root{--bg:#070a0e;--panel:#0d131a;--line:#26323e;--ink:#edf7ff;--muted:#8ba0b2;--cyan:#6de8ff;--lime:#b9ff66;--amber:#ffcc66;--red:#ff7383}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 85% -10%,#163544 0,transparent 34rem),var(--bg);color:var(--ink);font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}main{width:min(1180px,calc(100% - 32px));margin:auto;padding:40px 0 72px}header{display:flex;justify-content:space-between;gap:24px;align-items:flex-end;border-bottom:1px solid var(--line);padding-bottom:24px}h1{font:700 clamp(32px,6vw,68px)/.95 system-ui,sans-serif;letter-spacing:-.055em;margin:8px 0}.eyebrow,.label{color:var(--cyan);text-transform:uppercase;letter-spacing:.14em;font-size:11px}.muted{color:var(--muted)}button{border:1px solid var(--line);border-radius:99px;background:#111a23;color:var(--ink);padding:9px 14px;font:inherit;cursor:pointer}button:hover{border-color:var(--cyan)}.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:12px;margin-top:24px}.metric,.panel{background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--line);border-radius:14px}.metric{grid-column:span 3;padding:18px;min-height:126px;display:flex;flex-direction:column;justify-content:space-between}.value{font:650 34px/1 system-ui,sans-serif;letter-spacing:-.04em}.panel{grid-column:span 12;padding:20px;overflow:auto}h2{font:650 19px system-ui,sans-serif;margin:0 0 14px}table{width:100%;border-collapse:collapse;min-width:700px;text-align:left}th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.08em}th,td{padding:11px 10px;border-bottom:1px solid var(--line)}tbody tr:last-child td{border-bottom:0}.status{display:inline-flex;align-items:center;gap:7px}.status:before{content:'';width:7px;height:7px;border-radius:50%;background:var(--amber)}.status.ready:before{background:var(--lime)}.status.needs_agent:before,.status.blocked:before{background:var(--red)}.bar{height:5px;background:#1b2732;border-radius:9px;overflow:hidden;margin-top:7px}.bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--cyan),var(--lime))}.empty{padding:36px 10px;color:var(--muted);text-align:center}footer{margin-top:18px;color:var(--muted);font-size:12px}@media(max-width:760px){main{width:min(100% - 20px,1180px);padding-top:24px}header{align-items:flex-start;flex-direction:column}.metric{grid-column:span 6}.value{font-size:28px}}@media(max-width:420px){.metric{grid-column:span 12}}
 </style></head><body><main><header><div><div class="eyebrow">Local Foundation Models / private snapshot</div><h1>Apple Offload<br>Usage</h1><div class="muted" id="stamp"></div></div><button onclick="location.reload()" aria-label="Reload this published snapshot">Reload snapshot</button></header>
 <section class="grid" aria-label="Usage summary"><article class="metric"><span class="label">Total runs</span><strong class="value" id="runs"></strong><span class="muted">Across recorded workspaces</span></article><article class="metric"><span class="label">Ready rate</span><strong class="value" id="rate"></strong><span class="muted">Validated results</span></article><article class="metric"><span class="label">On-device / PCC</span><strong class="value" id="local"></strong><span class="muted">Runs served per model route</span></article><article class="metric"><span class="label">Avg latency</span><strong class="value" id="latency"></strong><span class="muted">End-to-end</span></article>
 <article class="panel"><h2>Workspaces &amp; worktrees</h2><div id="workspaces"></div></article><article class="panel"><h2>Recent activity</h2><div id="recent"></div></article></section><footer>Aggregated metadata only. No prompts, artifacts, evidence, paths, run IDs, or model responses are included. Refresh requires a new local export and private Site publish.</footer></main>
 <script>const d=${initial};const n=new Intl.NumberFormat();const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 stamp.textContent='Generated '+new Date(d.generatedAt).toLocaleString();runs.textContent=n.format(d.totals.runs);rate.textContent=d.totals.runs?Math.round(d.totals.ready/d.totals.runs*100)+'%':'\u2014';local.textContent=n.format(d.totals.onDevice)+' / '+n.format(d.totals.pcc);latency.textContent=d.totals.averageLatencyMs===null?'\u2014':(d.totals.averageLatencyMs/1000).toFixed(1)+'s';
-workspaces.innerHTML=d.workspaces.length?'<table><thead><tr><th>Workspace</th><th>Runs</th><th>Ready</th><th>On-device</th><th>PCC</th><th>Shadow</th><th>Needs Codex</th><th>Avg latency</th></tr></thead><tbody>'+d.workspaces.map(w=>'<tr><td><strong>'+esc(w.name)+'</strong><div class="bar"><i style="width:'+(d.totals.runs?w.runs/d.totals.runs*100:0)+'%"></i></div></td><td>'+n.format(w.runs)+'</td><td>'+n.format(w.ready)+'</td><td>'+n.format(w.onDevice)+'</td><td>'+n.format(w.pcc)+'</td><td>'+n.format(w.shadow)+'</td><td>'+n.format(w.needsCodex)+'</td><td>'+(w.averageLatencyMs===null?'\u2014':(w.averageLatencyMs/1000).toFixed(1)+'s')+'</td></tr>').join('')+'</tbody></table>':'<div class="empty">No usage recorded yet.</div>';
+workspaces.innerHTML=d.workspaces.length?'<table><thead><tr><th>Workspace</th><th>Runs</th><th>Ready</th><th>On-device</th><th>PCC</th><th>Shadow</th><th>Needs agent</th><th>Avg latency</th></tr></thead><tbody>'+d.workspaces.map(w=>'<tr><td><strong>'+esc(w.name)+'</strong><div class="bar"><i style="width:'+(d.totals.runs?w.runs/d.totals.runs*100:0)+'%"></i></div></td><td>'+n.format(w.runs)+'</td><td>'+n.format(w.ready)+'</td><td>'+n.format(w.onDevice)+'</td><td>'+n.format(w.pcc)+'</td><td>'+n.format(w.shadow)+'</td><td>'+n.format(w.needsAgent)+'</td><td>'+(w.averageLatencyMs===null?'\u2014':(w.averageLatencyMs/1000).toFixed(1)+'s')+'</td></tr>').join('')+'</tbody></table>':'<div class="empty">No usage recorded yet.</div>';
 recent.innerHTML=d.recent.length?'<table><thead><tr><th>When</th><th>Workspace</th><th>Task</th><th>Mode</th><th>Route</th><th>Status</th><th>Latency</th></tr></thead><tbody>'+d.recent.map(r=>'<tr><td>'+esc(new Date(r.createdAt).toLocaleString())+'</td><td>'+esc(r.workspace)+'</td><td>'+esc(r.task)+'</td><td>'+esc(r.mode)+'</td><td>'+esc(r.route||'\u2014')+'</td><td><span class="status '+esc(r.status)+'">'+esc(r.status)+'</span></td><td>'+(r.latencyMs/1000).toFixed(1)+'s</td></tr>').join('')+'</tbody></table>':'<div class="empty">No recent activity.</div>';</script></body></html>`;
 }
 async function writeDashboard(outputDir, data) {

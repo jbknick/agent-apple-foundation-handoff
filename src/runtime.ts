@@ -344,7 +344,7 @@ export class AppleOffloadRuntime {
     const started = Date.now();
     const runId = randomUUID();
     if (this.mode === 'off') {
-      const result = this.result(runId, 'needs_codex', null, null, null, [], 'complete', 'mode_off');
+      const result = this.result(runId, 'needs_agent', null, null, null, [], 'complete', 'mode_off');
       this.record(task, runId, null, result, 0, started, null);
       return result;
     }
@@ -354,7 +354,7 @@ export class AppleOffloadRuntime {
       snapshot = await this.snapshot(requestedPath);
     } catch (error) {
       const reason = error instanceof PolicyError ? error.message : 'snapshot_failed';
-      const status = reason === 'source_too_large' ? 'needs_codex' : 'blocked';
+      const status = reason === 'source_too_large' ? 'needs_agent' : 'blocked';
       const result = this.result(runId, status, null, null, null, [], 'complete', reason);
       this.record(task, runId, null, result, 0, started, null);
       return result;
@@ -384,7 +384,7 @@ export class AppleOffloadRuntime {
     }
 
     if (!candidate) {
-      const result = this.result(runId, 'needs_codex', route, snapshot.artifactId, null, [], 'complete', reason ?? 'no_supported_facts');
+      const result = this.result(runId, 'needs_agent', route, snapshot.artifactId, null, [], 'complete', reason ?? 'no_supported_facts');
       this.record(task, runId, snapshot.artifactId, result, snapshot.bytes, started, probe);
       return result;
     }
@@ -392,7 +392,7 @@ export class AppleOffloadRuntime {
     try {
       this.validateCandidate(candidate, lines);
     } catch {
-      const result = this.result(runId, 'needs_codex', route, snapshot.artifactId, null, [], candidate.coverage, 'invalid_evidence', modelRoute);
+      const result = this.result(runId, 'needs_agent', route, snapshot.artifactId, null, [], candidate.coverage, 'invalid_evidence', modelRoute);
       this.record(task, runId, snapshot.artifactId, result, snapshot.bytes, started, probe);
       return result;
     }
@@ -586,7 +586,9 @@ export class AppleOffloadRuntime {
     reason: string | null,
     modelRoute: ModelRoute | null = null
   ): ProcessResult {
-    return ProcessResultSchema.parse({ runId, status, routeUsed, modelRoute, artifactId, payload, evidence, coverage, reason });
+    // Deprecated: echo the old status name for one minor release.
+    const legacy = status === 'needs_agent' ? { legacyStatus: 'needs_codex' as const } : {};
+    return ProcessResultSchema.parse({ runId, status, routeUsed, modelRoute, artifactId, payload, evidence, coverage, reason, ...legacy });
   }
 
   private record(
