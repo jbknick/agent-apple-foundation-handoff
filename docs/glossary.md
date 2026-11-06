@@ -8,7 +8,7 @@ Terms used in the code, issues, and docs.
 | **Agent** | The coding assistant calling apple-offload, such as Codex or Claude Code. |
 | **MCP** | Model Context Protocol. How the agent calls apple-offload's tools (`offload_process`, `offload_read`, `offload_feedback`, `offload_stats`). |
 | **Local model** | Apple's on-device Foundation Model, called through the `/usr/bin/fm` command. |
-| **PCC** | Apple Private Cloud Compute: Apple's server-side model service. Not used yet (milestone M3). |
+| **PCC** | Apple Private Cloud Compute: Apple's server-side model service. Not used yet (milestone M3). What it takes to reach it: [PCC research](pcc-research.md). |
 | **Route** | Which path handled a run: `deterministic` (pattern matching, no model) or `local` (the local model). |
 | **Deterministic extraction** | Regex-based parsing in `src/runtime.ts` that handles well-known formats without a model. It runs first. |
 | **Handoff** | Sending an artifact to the local model instead of having the agent read it. |
