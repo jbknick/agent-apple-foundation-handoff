@@ -16,11 +16,18 @@ is generated from this bounded section by `scripts/sync_generated_artifacts.py`.
   and `offload_stats`.
 - Only saved local artifacts are processed. The runtime never executes the
   source command or edits repository source files.
-- Apple on-device inference through the installed `/usr/bin/fm` is the only
-  model route. Never add PCC, remote providers, HTTP, OAuth, remote telemetry,
-  model-requested tools, or automatic cloud fallback.
-- Provider or validation failures return `needs_codex`; they do not invoke a
-  second model.
+- Two Apple model routes are allowed: on-device inference through the
+  installed `/usr/bin/fm` (`on_device`, the default) and Apple Private Cloud
+  Compute (`pcc`). PCC is opt-in per user configuration and must be probed as
+  available before use; see `docs/pcc-research.md` for what that requires.
+- Route order: when the user has opted into PCC, try `pcc` first and fall back
+  to `on_device`; otherwise use `on_device` only. Every run records the route
+  that served it, or that none did.
+- Never add third-party or non-Apple providers, HTTP listeners, OAuth, remote
+  telemetry, or model-requested tools. PCC code lives only in `src/pcc-*.ts`.
+- A failure on one route falls back to the next allowed route. `needs_codex`
+  is returned only when every allowed route failed or validation failed; it
+  never invokes a non-Apple model.
 - MCP stdout is protocol-only. All operational logging uses stderr.
 
 ### Safety and evidence
