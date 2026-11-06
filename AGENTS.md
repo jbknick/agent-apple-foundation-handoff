@@ -24,7 +24,7 @@ is generated from this bounded section by `scripts/sync_generated_artifacts.py`.
   that served it, or that none did.
 - Never add third-party or non-Apple providers, HTTP listeners, OAuth, remote
   telemetry, or model-requested tools. PCC code lives only in `src/pcc-*.ts`.
-- A failure on one route falls back to the next allowed route. `needs_codex`
+- A failure on one route falls back to the next allowed route. `needs_agent`
   is returned only when every allowed route failed or validation failed; it
   never invokes a non-Apple model.
 - MCP stdout is protocol-only. All operational logging uses stderr.

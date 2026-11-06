@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MockProvider, type GenerateRequest, type ProbeResult, type Provider } from '../src/provider.js';
-import { ProcessInputSchema } from '../src/schemas.js';
+import { ProcessInputSchema, ProcessResultSchema, StatusSchema } from '../src/schemas.js';
 import { AppleOffloadRuntime } from '../src/runtime.js';
 import { renderDashboard } from '../src/dashboard.js';
 
@@ -35,6 +35,7 @@ describe('runtime', () => {
     const result = await runtime.process({ task: 'diagnostics', path: log });
 
     expect(result.status).toBe('ready');
+    expect(result).not.toHaveProperty('legacyStatus');
     expect(result.routeUsed).toBe('deterministic');
     expect(result.payload && 'diagnostics' in result.payload ? result.payload.diagnostics : []).toHaveLength(2);
     expect(result.evidence.map(item => item.startLine)).toEqual([2, 3]);
@@ -63,6 +64,30 @@ describe('runtime', () => {
     runtime.close();
   });
 
+  it('accepts needs_agent and allows legacyStatus only alongside it', () => {
+    const base = {
+      runId: '00000000-0000-4000-8000-000000000000', routeUsed: null, modelRoute: null,
+      artifactId: null, payload: null, evidence: [], coverage: 'complete', reason: 'mode_off'
+    };
+    expect(StatusSchema.parse('needs_agent')).toBe('needs_agent');
+    expect(StatusSchema.safeParse('needs_codex').success).toBe(false);
+    expect(ProcessResultSchema.safeParse({ ...base, status: 'needs_agent', legacyStatus: 'needs_codex' }).success).toBe(true);
+    expect(ProcessResultSchema.safeParse({ ...base, status: 'needs_agent' }).success).toBe(false);
+    expect(ProcessResultSchema.safeParse({ ...base, status: 'needs_agent', legacyStatus: 'needs_agent' }).success).toBe(false);
+    expect(ProcessResultSchema.safeParse({ ...base, status: 'blocked', legacyStatus: 'needs_codex' }).success).toBe(false);
+  });
+
+  it('returns needs_agent with the deprecated legacyStatus when mode is off', async () => {
+    const stateDir = await temporary();
+    const runtime = new AppleOffloadRuntime({ mode: 'off', roots: [stateDir], stateDir });
+    await runtime.initialize();
+    const result = await runtime.process({ task: 'diagnostics', path: path.join(stateDir, 'unused.log') });
+    expect(result).toMatchObject({ status: 'needs_agent', legacyStatus: 'needs_codex', reason: 'mode_off' });
+    expect(runtime.stats({})).toMatchObject({ runs: 1, needsAgent: 1, needsCodex: 1 });
+    expect(runtime.dashboard().recent[0]?.status).toBe('needs_agent');
+    runtime.close();
+  });
+
   it('rejects unknown request fields', () => {
     expect(ProcessInputSchema.safeParse({ task: 'diagnostics', path: 'x', model: 'anything' }).success).toBe(false);
     expect(ProcessInputSchema.safeParse({ task: 'diagnostics', path: 'x', route: 'local' }).success).toBe(false);
@@ -88,7 +113,7 @@ describe('runtime', () => {
     runtime.close();
   });
 
-  it('returns needs_codex without another provider when local inference is unavailable', async () => {
+  it('returns needs_agent without another provider when local inference is unavailable', async () => {
     const root = await temporary();
     const stateDir = await temporary();
     const artifact = path.join(root, 'opaque.log');
@@ -98,7 +123,8 @@ describe('runtime', () => {
     });
     await runtime.initialize();
     const result = await runtime.process({ task: 'diagnostics', path: artifact });
-    expect(result.status).toBe('needs_codex');
+    expect(result.status).toBe('needs_agent');
+    expect(result.legacyStatus).toBe('needs_codex');
     expect(result.reason).toBe('mock_unavailable');
     runtime.close();
   });
@@ -187,7 +213,7 @@ describe('runtime', () => {
     runtime.close();
   });
 
-  it('allows only one retry and then hands back to Codex', async () => {
+  it('allows only one retry and then hands back to the agent', async () => {
     const root = await temporary();
     const stateDir = await temporary();
     const artifact = path.join(root, 'opaque.log');
@@ -203,7 +229,8 @@ describe('runtime', () => {
     const runtime = new AppleOffloadRuntime({ mode: 'on', roots: [root], stateDir, provider });
     await runtime.initialize();
     const result = await runtime.process({ task: 'diagnostics', path: artifact });
-    expect(result.status).toBe('needs_codex');
+    expect(result.status).toBe('needs_agent');
+    expect(result.legacyStatus).toBe('needs_codex');
     expect(attempts).toBe(2);
     runtime.close();
   });
@@ -220,7 +247,8 @@ describe('runtime', () => {
     const runtime = new AppleOffloadRuntime({ mode: 'on', roots: [root], stateDir, provider, deadlineMs: 25 });
     await runtime.initialize();
     const result = await runtime.process({ task: 'diagnostics', path: artifact });
-    expect(result.status).toBe('needs_codex');
+    expect(result.status).toBe('needs_agent');
+    expect(result.legacyStatus).toBe('needs_codex');
     expect(result.reason).toBe('deadline_exceeded');
     runtime.close();
   });
@@ -263,7 +291,8 @@ describe('runtime', () => {
     const runtime = new AppleOffloadRuntime({ mode: 'on', roots: [root], stateDir });
     await runtime.initialize();
     const result = await runtime.process({ task: 'diagnostics', path: artifact });
-    expect(result.status).toBe('needs_codex');
+    expect(result.status).toBe('needs_agent');
+    expect(result.legacyStatus).toBe('needs_codex');
     expect(result.reason).toBe('source_too_large');
     runtime.close();
   });

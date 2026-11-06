@@ -20,10 +20,11 @@ another tool.
    opted in) comes from the user's configuration, not from the agent.
 2. If status is `ready`, use the bounded payload. Call `offload_read` only for
    specific cited lines needed to answer.
-3. If status is `shadow`, `needs_codex`, or `blocked`, continue in the current
-   agent session using the original artifact path. (`needs_codex` is the current
-   status name for any agent; it does not mean Codex specifically.) Do not invoke
-   another model or claim that offloading saved context.
+3. If status is `shadow`, `needs_agent`, or `blocked`, continue in the current
+   agent session using the original artifact path. Do not invoke another model
+   or claim that offloading saved context.
+   (Deprecated: `needs_agent` was `needs_codex`; results still carry
+   `legacyStatus: "needs_codex"` for one minor release.)
    If the reason is `fm_license_not_accepted`, tell the user to run the plugin's
    `dist/cli.js setup` themselves in an interactive terminal, then retry. Codex
    personal install: `node ~/plugins/apple-offload/dist/cli.js setup`. Claude Code:

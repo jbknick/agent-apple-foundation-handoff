@@ -34,11 +34,40 @@ it('exposes the four tools over the official protocol transport', async () => {
     arguments: { task: 'diagnostics', path: log }
   });
   expect(result.structuredContent).toMatchObject({ status: 'ready', routeUsed: 'deterministic' });
+  expect(result.structuredContent).not.toHaveProperty('legacyStatus');
   const rejected = await client.callTool({
     name: 'offload_process',
     arguments: { task: 'diagnostics', path: log, model: 'pcc' }
   });
   expect(rejected.isError).toBe(true);
+
+  await client.close();
+  await server.close();
+  runtime.close();
+});
+
+it('returns needs_agent with the deprecated legacyStatus over the protocol transport', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'apple-offload-mcp-'));
+  const stateDir = await mkdtemp(path.join(os.tmpdir(), 'apple-offload-state-'));
+  cleanups.push(root, stateDir);
+  const runtime = new AppleOffloadRuntime({ mode: 'off', roots: [root], stateDir });
+  await runtime.initialize();
+  const server = createServer(runtime);
+  const client = new Client({ name: 'test-client', version: '1.0.0' });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+
+  const result = await client.callTool({
+    name: 'offload_process',
+    arguments: { task: 'diagnostics', path: path.join(root, 'test.log') }
+  });
+  expect(result.isError).toBeFalsy();
+  expect(result.structuredContent).toMatchObject({
+    status: 'needs_agent', legacyStatus: 'needs_codex', reason: 'mode_off'
+  });
+  const stats = await client.callTool({ name: 'offload_stats', arguments: {} });
+  expect(stats.structuredContent).toMatchObject({ runs: 1, needsAgent: 1, needsCodex: 1 });
 
   await client.close();
   await server.close();

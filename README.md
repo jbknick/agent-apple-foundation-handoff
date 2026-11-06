@@ -75,6 +75,14 @@ node dist/mcp.js
 
 The MCP process reserves stdout for JSON-RPC. Operational messages go to stderr.
 
+A run's `status` is `ready`, `shadow`, `needs_agent` (the calling agent should
+read the artifact itself), or `blocked`. MCP and CLI results are the same.
+
+**Deprecated:** `needs_agent` was called `needs_codex`. For one minor release,
+every `needs_agent` result also carries `legacyStatus: "needs_codex"`, and
+stats report `needsCodex` as an alias of `needsAgent`. Both are then removed.
+Older stored `needs_codex` runs are counted as `needs_agent`.
+
 ## Install the plugin
 
 The canonical package is `plugins/apple-offload`. It ships one MCP server and

@@ -2,7 +2,9 @@ import { z } from 'zod';
 
 export const TaskSchema = z.enum(['diagnostics', 'diff_summary', 'issue_extract']);
 export const ModeSchema = z.enum(['off', 'shadow', 'on']);
-export const StatusSchema = z.enum(['ready', 'shadow', 'needs_codex', 'blocked']);
+export const StatusSchema = z.enum(['ready', 'shadow', 'needs_agent', 'blocked']);
+// Deprecated: the old name of `needs_agent` (renamed in #34), echoed as `legacyStatus` for one minor release.
+export const LegacyStatusSchema = z.literal('needs_codex');
 export const RouteSchema = z.enum(['deterministic', 'local']);
 // Which Apple model route served a `local` run; null when no model route served it.
 export const ModelRouteSchema = z.enum(['on_device', 'pcc']);
@@ -93,8 +95,14 @@ export const ProcessResultSchema = z.object({
   payload: PayloadSchema.nullable(),
   evidence: z.array(EvidenceSchema),
   coverage: CoverageSchema,
-  reason: z.string().nullable()
-}).strict();
+  reason: z.string().nullable(),
+  legacyStatus: LegacyStatusSchema.optional().describe(
+    'Deprecated: present only when status is needs_agent; removed after one minor release.'
+  )
+}).strict().refine(({ status, legacyStatus }) => (status === 'needs_agent') === (legacyStatus !== undefined), {
+  message: 'legacyStatus is required for needs_agent and forbidden otherwise',
+  path: ['legacyStatus']
+});
 
 export const ReadResultSchema = z.object({
   artifactId: z.string().uuid(),
@@ -114,7 +122,8 @@ export const StatsResultSchema = z.object({
   runs: z.number().int().min(0),
   ready: z.number().int().min(0),
   shadow: z.number().int().min(0),
-  needsCodex: z.number().int().min(0),
+  needsAgent: z.number().int().min(0),
+  needsCodex: z.number().int().min(0).describe('Deprecated alias of needsAgent; removed after one minor release.'),
   blocked: z.number().int().min(0),
   sourceBytes: z.number().int().min(0),
   outputBytes: z.number().int().min(0),

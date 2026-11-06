@@ -26,7 +26,7 @@ export interface DashboardSnapshot {
     runs: number;
     ready: number;
     shadow: number;
-    needsCodex: number;
+    needsAgent: number;
     blocked: number;
     onDevice: number;
     pcc: number;
@@ -39,7 +39,7 @@ export interface DashboardSnapshot {
     runs: number;
     ready: number;
     shadow: number;
-    needsCodex: number;
+    needsAgent: number;
     onDevice: number;
     pcc: number;
     averageLatencyMs: number | null;
@@ -147,12 +147,13 @@ export class Store {
     );
   }
 
+  // Rows written before the #34 rename store `needs_codex`; reads count and report them as `needs_agent`.
   dashboard(): DashboardSnapshot {
     const totals = this.database.prepare(`
       SELECT COUNT(*) runs,
         SUM(status = 'ready') ready,
         SUM(status = 'shadow') shadow,
-        SUM(status = 'needs_codex') needs_codex,
+        SUM(status IN ('needs_agent', 'needs_codex')) needs_agent,
         SUM(status = 'blocked') blocked,
         SUM(model_route = 'on_device') on_device,
         SUM(model_route = 'pcc') pcc,
@@ -165,7 +166,7 @@ export class Store {
       SELECT workspace name, COUNT(*) runs,
         SUM(status = 'ready') ready,
         SUM(status = 'shadow') shadow,
-        SUM(status = 'needs_codex') needs_codex,
+        SUM(status IN ('needs_agent', 'needs_codex')) needs_agent,
         SUM(model_route = 'on_device') on_device,
         SUM(model_route = 'pcc') pcc,
         AVG(latency_ms) average_latency_ms
@@ -175,7 +176,7 @@ export class Store {
       SELECT workspace, task, mode,
         CASE WHEN model_route IS NOT NULL THEN model_route
           WHEN route_used = 'deterministic' THEN 'deterministic' END route,
-        status,
+        CASE WHEN status = 'needs_codex' THEN 'needs_agent' ELSE status END status,
         latency_ms latency_ms, created_at created_at
       FROM runs ORDER BY created_at DESC LIMIT 40
     `).all() as Array<Record<string, string | number | null>>;
@@ -185,7 +186,7 @@ export class Store {
         runs: totals.runs ?? 0,
         ready: totals.ready ?? 0,
         shadow: totals.shadow ?? 0,
-        needsCodex: totals.needs_codex ?? 0,
+        needsAgent: totals.needs_agent ?? 0,
         blocked: totals.blocked ?? 0,
         onDevice: totals.on_device ?? 0,
         pcc: totals.pcc ?? 0,
@@ -195,7 +196,7 @@ export class Store {
       },
       workspaces: workspaces.map(row => ({
         name: String(row.name), runs: Number(row.runs), ready: Number(row.ready),
-        shadow: Number(row.shadow), needsCodex: Number(row.needs_codex),
+        shadow: Number(row.shadow), needsAgent: Number(row.needs_agent),
         onDevice: Number(row.on_device), pcc: Number(row.pcc),
         averageLatencyMs: row.average_latency_ms === null ? null : Number(row.average_latency_ms)
       })),
@@ -224,7 +225,7 @@ export class Store {
         COUNT(*) AS runs,
         SUM(CASE WHEN status = 'ready' THEN 1 ELSE 0 END) AS ready,
         SUM(CASE WHEN status = 'shadow' THEN 1 ELSE 0 END) AS shadow,
-        SUM(CASE WHEN status = 'needs_codex' THEN 1 ELSE 0 END) AS needs_codex,
+        SUM(CASE WHEN status IN ('needs_agent', 'needs_codex') THEN 1 ELSE 0 END) AS needs_agent,
         SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END) AS blocked,
         COALESCE(SUM(source_bytes), 0) AS source_bytes,
         COALESCE(SUM(output_bytes), 0) AS output_bytes,
@@ -245,7 +246,8 @@ export class Store {
       runs: aggregate.runs ?? 0,
       ready: aggregate.ready ?? 0,
       shadow: aggregate.shadow ?? 0,
-      needsCodex: aggregate.needs_codex ?? 0,
+      needsAgent: aggregate.needs_agent ?? 0,
+      needsCodex: aggregate.needs_agent ?? 0,
       blocked: aggregate.blocked ?? 0,
       sourceBytes: aggregate.source_bytes ?? 0,
       outputBytes: aggregate.output_bytes ?? 0,
