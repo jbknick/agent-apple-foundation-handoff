@@ -91,6 +91,33 @@ then ask the routing skill to call `offload_process` with task `diagnostics` and
 that saved path. Evidence can be fetched with `offload_read` by artifact ID and
 the cited 1-based line range.
 
+## Claude Code plugin
+
+The same package installs in Claude Code. It reuses the bundled MCP server and
+skill; `.claude-plugin/plugin.json` only adds Claude Code's launch settings.
+
+Install from this repository's marketplace (Claude Code 2.1.275 or later):
+
+```text
+/plugin install apple-offload --marketplace jbknick/agent-apple-foundation-handoff
+```
+
+Or add the marketplace first, then install:
+
+```text
+/plugin marketplace add jbknick/agent-apple-foundation-handoff
+/plugin install apple-offload@apple-offload
+```
+
+For a local checkout, run `pnpm build:plugin`, then start Claude Code with
+`claude --plugin-dir ./plugins/apple-offload`.
+
+The tools appear as `mcp__plugin_apple-offload_apple_offload__offload_process`
+and its three siblings. Approved folders default to the Claude Code project
+directory only (`APPLE_OFFLOAD_ROOTS=${CLAUDE_PROJECT_DIR}`); files elsewhere
+return `blocked`. Processing starts in `shadow` mode, as with Codex. Run
+`apple-offload setup` yourself before any live `fm` processing.
+
 ## Live Apple verification
 
 Run `node dist/cli.js setup` in an interactive terminal. It explains the
@@ -119,8 +146,8 @@ spending agent context on it.
 | `src/schemas.ts` | Zod schemas for MCP inputs and results |
 | `src/mcp.ts`, `src/cli.ts` | STDIO MCP server and CLI entry points |
 | `src/dashboard.ts`, `src/setup.ts` | Static dashboard export and interactive license setup |
-| `plugins/apple-offload/` | Packaged plugin: manifest, `.mcp.json`, skill, bundled `dist/` |
-| `scripts/` | Generated-artifact sync, boundary policy check, CLI and STDIO smoke tests |
+| `plugins/apple-offload/` | Packaged plugin: Codex and Claude Code manifests, `.mcp.json`, skill, bundled `dist/` |
+| `scripts/` | Generated-artifact sync, boundary policy check, CLI, STDIO and Claude Code plugin smoke tests |
 | `tests/` | Vitest suites and fixtures |
 | `docs/` | Design notes, [glossary](docs/glossary.md), and the live verification record |
 
