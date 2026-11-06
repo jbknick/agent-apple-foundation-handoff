@@ -84,8 +84,9 @@ Do not build #31 as written yet. Build it in two steps:
 1. **Now:** make the route explicit in the runtime. Add a `route` field to runs (`on_device`
    today) and a provider interface that can hold more than one route, with fallback order from
    #29 and tests using `MockProvider` for success, fallback and both-failed. Report PCC as
-   `unavailable: fm_has_no_pcc_model` from a real probe of `fm --help`, not a hard-coded
-   value. This is useful whatever Apple does next.
+   unavailable from a real probe of `fm --help`, not a hard-coded value. Proposed reason
+   code: `fm_has_no_pcc_model` (a proposal; naming follows the boundary settled in #29).
+   This is useful whatever Apple does next.
 2. **Later, only if both hold:** Apple confirms the entitlement covers a non-App-Store CLI, and
    the maintainer accepts shipping a signed Swift helper. Then the helper owns PCC calls,
    records which model object served each request, and apple-offload treats it as a second
