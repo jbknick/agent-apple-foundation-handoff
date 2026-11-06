@@ -10,6 +10,7 @@ Terms used in the code, issues, and docs.
 | **Local model** | Apple's on-device Foundation Model, called through the `/usr/bin/fm` command. |
 | **PCC** | Apple Private Cloud Compute: Apple's server-side model service. Not used yet (milestone M3). What it takes to reach it: [PCC research](pcc-research.md). |
 | **Route** | Which path handled a run: `deterministic` (pattern matching, no model) or `local` (the local model). |
+| **Model route** | Which Apple model served a `local` run: `on_device` (default) or `pcc` (opt-in with `APPLE_OFFLOAD_ROUTE=pcc_preferred`, falling back to `on_device`). Recorded as `modelRoute`; `null` when no route served the run. |
 | **Deterministic extraction** | Regex-based parsing in `src/runtime.ts` that handles well-known formats without a model. It runs first. |
 | **Handoff** | Sending an artifact to the local model instead of having the agent read it. |
 | **Mode** | `off` (do nothing), `shadow` (process and record, but don't return results), `on` (return results). Set by `APPLE_OFFLOAD_MODE`; default `shadow`. |

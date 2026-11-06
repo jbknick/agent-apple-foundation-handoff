@@ -28,7 +28,8 @@ export interface DashboardSnapshot {
     shadow: number;
     needsCodex: number;
     blocked: number;
-    local: number;
+    onDevice: number;
+    pcc: number;
     inputTokens: number;
     outputTokens: number;
     averageLatencyMs: number | null;
@@ -39,7 +40,8 @@ export interface DashboardSnapshot {
     ready: number;
     shadow: number;
     needsCodex: number;
-    local: number;
+    onDevice: number;
+    pcc: number;
     averageLatencyMs: number | null;
   }>;
   recent: Array<{
@@ -74,6 +76,7 @@ export class Store {
         task TEXT NOT NULL,
         mode TEXT NOT NULL,
         route_used TEXT,
+        model_route TEXT,
         status TEXT NOT NULL,
         coverage TEXT NOT NULL,
         reason TEXT,
@@ -100,23 +103,32 @@ export class Store {
     if (!columns.some(column => column.name === 'workspace')) {
       this.database.exec("ALTER TABLE runs ADD COLUMN workspace TEXT NOT NULL DEFAULT 'unattributed'");
     }
-    this.database.exec('DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES (2)');
+    if (!columns.some(column => column.name === 'model_route')) {
+      // Before routes existed, every model-served run was on-device; unserved runs stay null.
+      this.database.exec(`
+        ALTER TABLE runs ADD COLUMN model_route TEXT;
+        UPDATE runs SET model_route = 'on_device'
+          WHERE route_used = 'local' AND status IN ('ready', 'shadow');
+      `);
+    }
+    this.database.exec('DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES (3)');
   }
 
   recordRun(record: RunRecord): void {
     this.database.prepare(`
       INSERT INTO runs (
-        run_id, artifact_id, task, mode, route_used, status, coverage, reason,
-        source_bytes, output_bytes, estimate_method, estimated_input_tokens,
+        run_id, artifact_id, task, mode, route_used, model_route, status, coverage,
+        reason, source_bytes, output_bytes, estimate_method, estimated_input_tokens,
         estimated_output_tokens, latency_ms, validation, os_version,
         provider_version, prompt_version, workspace, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       record.runId,
       record.artifactId,
       record.task,
       record.mode,
       record.result.routeUsed,
+      record.result.modelRoute,
       record.result.status,
       record.result.coverage,
       record.result.reason,
@@ -142,7 +154,8 @@ export class Store {
         SUM(status = 'shadow') shadow,
         SUM(status = 'needs_codex') needs_codex,
         SUM(status = 'blocked') blocked,
-        SUM(route_used = 'local') local,
+        SUM(model_route = 'on_device') on_device,
+        SUM(model_route = 'pcc') pcc,
         COALESCE(SUM(estimated_input_tokens), 0) input_tokens,
         COALESCE(SUM(estimated_output_tokens), 0) output_tokens,
         AVG(latency_ms) average_latency_ms
@@ -153,12 +166,16 @@ export class Store {
         SUM(status = 'ready') ready,
         SUM(status = 'shadow') shadow,
         SUM(status = 'needs_codex') needs_codex,
-        SUM(route_used = 'local') local,
+        SUM(model_route = 'on_device') on_device,
+        SUM(model_route = 'pcc') pcc,
         AVG(latency_ms) average_latency_ms
       FROM runs GROUP BY workspace ORDER BY runs DESC, workspace
     `).all() as Array<Record<string, string | number | null>>;
     const recent = this.database.prepare(`
-      SELECT workspace, task, mode, route_used route, status,
+      SELECT workspace, task, mode,
+        CASE WHEN model_route IS NOT NULL THEN model_route
+          WHEN route_used = 'deterministic' THEN 'deterministic' END route,
+        status,
         latency_ms latency_ms, created_at created_at
       FROM runs ORDER BY created_at DESC LIMIT 40
     `).all() as Array<Record<string, string | number | null>>;
@@ -170,14 +187,16 @@ export class Store {
         shadow: totals.shadow ?? 0,
         needsCodex: totals.needs_codex ?? 0,
         blocked: totals.blocked ?? 0,
-        local: totals.local ?? 0,
+        onDevice: totals.on_device ?? 0,
+        pcc: totals.pcc ?? 0,
         inputTokens: totals.input_tokens ?? 0,
         outputTokens: totals.output_tokens ?? 0,
         averageLatencyMs: totals.average_latency_ms ?? null
       },
       workspaces: workspaces.map(row => ({
         name: String(row.name), runs: Number(row.runs), ready: Number(row.ready),
-        shadow: Number(row.shadow), needsCodex: Number(row.needs_codex), local: Number(row.local),
+        shadow: Number(row.shadow), needsCodex: Number(row.needs_codex),
+        onDevice: Number(row.on_device), pcc: Number(row.pcc),
         averageLatencyMs: row.average_latency_ms === null ? null : Number(row.average_latency_ms)
       })),
       recent: recent.map(row => ({
@@ -209,7 +228,9 @@ export class Store {
         SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END) AS blocked,
         COALESCE(SUM(source_bytes), 0) AS source_bytes,
         COALESCE(SUM(output_bytes), 0) AS output_bytes,
-        AVG(latency_ms) AS average_latency_ms
+        AVG(latency_ms) AS average_latency_ms,
+        SUM(CASE WHEN model_route = 'on_device' THEN 1 ELSE 0 END) AS on_device,
+        SUM(CASE WHEN model_route = 'pcc' THEN 1 ELSE 0 END) AS pcc
       FROM runs ${filter}
     `).get(...args) as Record<string, number | null>;
     const feedback = this.database.prepare(`
@@ -229,6 +250,10 @@ export class Store {
       sourceBytes: aggregate.source_bytes ?? 0,
       outputBytes: aggregate.output_bytes ?? 0,
       averageLatencyMs: aggregate.average_latency_ms ?? null,
+      modelRoutes: {
+        on_device: aggregate.on_device ?? 0,
+        pcc: aggregate.pcc ?? 0
+      },
       feedback: {
         accepted: feedback.accepted ?? 0,
         corrected: feedback.corrected ?? 0,
