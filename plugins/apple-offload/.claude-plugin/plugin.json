@@ -1,0 +1,31 @@
+{
+  "name": "apple-offload",
+  "version": "0.1.0",
+  "description": "Process saved local development artifacts with Apple on-device Foundation Models before your coding agent reads them.",
+  "author": {
+    "name": "Joseph Knickerbocker",
+    "url": "https://github.com/jbknick"
+  },
+  "homepage": "https://github.com/jbknick/agent-apple-foundation-handoff",
+  "repository": "https://github.com/jbknick/agent-apple-foundation-handoff",
+  "license": "MIT",
+  "keywords": [
+    "apple",
+    "foundation-models",
+    "local",
+    "diagnostics",
+    "mcp"
+  ],
+  "mcpServers": {
+    "apple_offload": {
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/dist/mcp.js"
+      ],
+      "env": {
+        "APPLE_OFFLOAD_MODE": "shadow",
+        "APPLE_OFFLOAD_ROOTS": "${CLAUDE_PROJECT_DIR}"
+      }
+    }
+  }
+}

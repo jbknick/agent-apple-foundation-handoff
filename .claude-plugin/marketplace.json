@@ -1,0 +1,17 @@
+{
+  "name": "apple-offload",
+  "owner": {
+    "name": "Joseph Knickerbocker",
+    "url": "https://github.com/jbknick"
+  },
+  "metadata": {
+    "description": "Apple Offload: local preprocessing of saved development artifacts with Apple Foundation Models."
+  },
+  "plugins": [
+    {
+      "name": "apple-offload",
+      "source": "./plugins/apple-offload",
+      "description": "Condense saved logs, diffs, and issue text locally with Apple's on-device model."
+    }
+  ]
+}
