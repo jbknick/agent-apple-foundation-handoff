@@ -5,8 +5,10 @@ Models on macOS 27. Codex can call the runtime over STDIO MCP; the standalone
 CLI uses the same runtime.
 
 The v0 operations are diagnostic extraction, Git diff summarization, and issue
-requirements extraction. There is no cloud provider, HTTP listener, remote
-telemetry, OAuth, model-requested tool use, or automatic fallback model.
+requirements extraction. Processing runs on-device by default. Apple Private
+Cloud Compute is an opt-in route that falls back to on-device; there is no
+third-party provider, HTTP listener, remote telemetry, OAuth, or model-requested
+tool use.
 
 ## Requirements
 

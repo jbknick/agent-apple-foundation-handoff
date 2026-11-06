@@ -16,7 +16,8 @@ operation. This skill never executes the source command, edits code, or intercep
 another tool.
 
 1. Call `offload_process` with the exact task and saved path. Never add `route`,
-   `model`, cloud, or provider fields.
+   `model`, or provider fields: the route (on-device, or Apple PCC when the user
+   opted in) comes from the user's configuration, not from the agent.
 2. If status is `ready`, use the bounded payload. Call `offload_read` only for
    specific cited lines needed to answer.
 3. If status is `shadow`, `needs_codex`, or `blocked`, continue in the current

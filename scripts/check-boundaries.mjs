@@ -3,7 +3,6 @@ import path from 'node:path';
 
 const forbidden = [
   /--model\b/i,
-  /privatecloudcomput/i,
   /node:http/,
   /https?:\/\//,
   /requestSampling/,
@@ -25,6 +24,10 @@ for (const file of await files('src')) {
   const source = await readFile(file, 'utf8');
   for (const pattern of forbidden) {
     if (pattern.test(source)) violations.push(`${file}: ${pattern}`);
+  }
+  // PCC is an allowed route, but only inside its own provider files.
+  if (/privatecloudcomput/i.test(source) && !/^pcc-.*\.ts$/.test(path.basename(file))) {
+    violations.push(`${file}: PCC code outside src/pcc-*.ts`);
   }
 }
 
