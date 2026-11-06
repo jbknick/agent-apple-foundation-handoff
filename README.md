@@ -1,8 +1,8 @@
 # apple-offload
 
 Local-only preprocessing for saved development artifacts using Apple Foundation
-Models on macOS 27. Codex can call the runtime over STDIO MCP; the standalone
-CLI uses the same runtime.
+Models on macOS 27. Coding agents such as Codex and Claude Code call the
+runtime over STDIO MCP; the standalone CLI uses the same runtime.
 
 The v0 operations are diagnostic extraction, Git diff summarization, and issue
 requirements extraction. Processing runs on-device by default. Apple Private
@@ -75,9 +75,14 @@ node dist/mcp.js
 
 The MCP process reserves stdout for JSON-RPC. Operational messages go to stderr.
 
-## Personal plugin
+## Install the plugin
 
-The canonical package is `plugins/apple-offload`. The staged personal copy is
+The canonical package is `plugins/apple-offload`. It ships one MCP server and
+one skill, with a manifest per agent. Pick your agent below.
+
+### Codex
+
+The Codex manifest is `.codex-plugin/plugin.json`. The staged personal copy is
 `~/plugins/apple-offload` and is listed by the personal marketplace at
 `~/.agents/plugins/marketplace.json`.
 
@@ -86,12 +91,12 @@ codex plugin add apple-offload@personal
 codex plugin uninstall apple-offload@personal
 ```
 
-In a fresh Codex task, save a test log with an already-approved shell command,
+In a fresh task, save a test log with an already-approved shell command,
 then ask the routing skill to call `offload_process` with task `diagnostics` and
 that saved path. Evidence can be fetched with `offload_read` by artifact ID and
 the cited 1-based line range.
 
-## Claude Code plugin
+### Claude Code
 
 The same package installs in Claude Code. It reuses the bundled MCP server and
 skill; `.claude-plugin/plugin.json` only adds Claude Code's launch settings.
@@ -115,8 +120,14 @@ For a local checkout, run `pnpm build:plugin`, then start Claude Code with
 The tools appear as `mcp__plugin_apple-offload_apple_offload__offload_process`
 and its three siblings. Approved folders default to the Claude Code project
 directory only (`APPLE_OFFLOAD_ROOTS=${CLAUDE_PROJECT_DIR}`); files elsewhere
-return `blocked`. Processing starts in `shadow` mode, as with Codex. Run
+return `blocked`. Processing starts in `shadow` mode, as in Codex. Run
 `apple-offload setup` yourself before any live `fm` processing.
+
+### Other MCP clients
+
+Any agent that speaks STDIO MCP can run `node plugins/apple-offload/dist/mcp.js`
+with `APPLE_OFFLOAD_ROOTS` set to the folders it may read. Point it at
+`skills/apple-offload/SKILL.md` if it supports skills.
 
 ## Live Apple verification
 
