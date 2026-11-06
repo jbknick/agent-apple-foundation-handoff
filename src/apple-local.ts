@@ -13,13 +13,13 @@ export function hasUnacceptedLicenseNotice(output: string): boolean {
   return output.includes(UNACCEPTED_NOTICE);
 }
 
-interface CommandResult {
+export interface CommandResult {
   code: number;
   stdout: string;
   stderr: string;
 }
 
-function run(command: string, args: string[], timeoutMs: number, input?: string): Promise<CommandResult> {
+export function run(command: string, args: string[], timeoutMs: number, input?: string): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       shell: false,

@@ -27,16 +27,20 @@ import {
   ProcessResultSchema,
   ReadInputSchema,
   ReadResultSchema,
+  RoutePreferenceSchema,
   StatsInputSchema,
   StatsResultSchema,
   type Evidence,
   type Mode,
+  type ModelRoute,
   type Payload,
   type ProcessResult,
+  type RoutePreference,
   type Task
 } from './schemas.js';
 import { AppleLocalProvider } from './apple-local.js';
-import type { ProbeResult, Provider } from './provider.js';
+import { PccProvider } from './pcc-provider.js';
+import { RouteChain, type ProbeResult, type Provider, type RouteProvider } from './provider.js';
 import { Store, type DashboardSnapshot } from './store.js';
 
 const MAX_SOURCE_BYTES = 4 * 1024 * 1024;
@@ -82,7 +86,11 @@ export interface RuntimeOptions {
   mode?: Mode;
   roots?: string[];
   stateDir?: string;
+  /** The on-device route provider. */
   provider?: Provider;
+  /** The PCC route provider, used only when routePreference is `pcc_preferred`. */
+  pccProvider?: Provider;
+  routePreference?: RoutePreference;
   deadlineMs?: number;
   workspace?: string;
 }
@@ -91,6 +99,8 @@ export interface DoctorResult extends ProbeResult {
   stateDir: string;
   roots: string[];
   mode: Mode;
+  routePreference: RoutePreference;
+  routes: Array<{ route: ModelRoute; available: boolean; reason: string | null }>;
   setupRequired: boolean;
   setupCommand: string | null;
 }
@@ -271,6 +281,8 @@ export class AppleOffloadRuntime {
   readonly stateDir: string;
   readonly roots: string[];
   readonly provider: Provider;
+  readonly routePreference: RoutePreference;
+  readonly routes: RouteChain;
   readonly store: Store;
   readonly workspace: string;
   private readonly deadlineMs: number;
@@ -286,6 +298,13 @@ export class AppleOffloadRuntime {
       .replace(/[\u0000-\u001f\u007f]/g, '')
       .slice(0, 120) || 'unattributed';
     this.provider = options.provider ?? new AppleLocalProvider();
+    this.routePreference = options.routePreference ??
+      RoutePreferenceSchema.parse(process.env.APPLE_OFFLOAD_ROUTE ?? 'on_device');
+    const onDevice: RouteProvider = { route: 'on_device', provider: this.provider };
+    // PCC is opt-in: when preferred it is tried first, with on-device as the fallback.
+    this.routes = new RouteChain(this.routePreference === 'pcc_preferred'
+      ? [{ route: 'pcc', provider: options.pccProvider ?? new PccProvider() }, onDevice]
+      : [onDevice]);
     this.deadlineMs = options.deadlineMs ?? DEADLINE_MS;
     this.store = new Store(this.stateDir);
   }
@@ -300,11 +319,17 @@ export class AppleOffloadRuntime {
   async doctor(): Promise<DoctorResult> {
     const probe = await this.provider.probe();
     const setupRequired = probe.reason === 'fm_license_not_accepted';
+    const routes = await Promise.all(this.routes.routes.map(async ({ route, provider }) => {
+      const routeProbe = await provider.probe();
+      return { route, available: routeProbe.available, reason: routeProbe.reason };
+    }));
     return {
       ...probe,
       stateDir: this.stateDir,
       roots: this.roots,
       mode: this.mode,
+      routePreference: this.routePreference,
+      routes,
       setupRequired,
       setupCommand: setupRequired ? 'node dist/cli.js setup' : null
     };
@@ -340,18 +365,22 @@ export class AppleOffloadRuntime {
     let candidate = deterministic(task, lines, snapshot.artifactId);
     let probe: ProbeResult | null = null;
     let reason: string | null = null;
+    let modelRoute: ModelRoute | null = null;
 
     if (!candidate) {
       route = 'local';
-      probe = await this.provider.probe();
-      if (!probe.available) reason = probe.reason ?? 'local_model_unavailable';
-      else {
-        try {
-          candidate = await this.generate(task, lines, snapshot.artifactId, started + this.deadlineMs);
-        } catch (error) {
-          reason = error instanceof Error ? error.message : 'generation_failed';
-        }
-      }
+      const deadline = started + this.deadlineMs;
+      const outcome = await this.routes.serve((provider, isLastRoute) => {
+        // A route with a fallback behind it gets half the remaining budget, so a
+        // slow route times out while the next one still has time to serve.
+        const routeDeadline = isLastRoute ? deadline : Date.now() + Math.floor((deadline - Date.now()) / 2);
+        return this.generate(provider, task, lines, snapshot.artifactId, routeDeadline);
+      });
+      probe = outcome.probe;
+      if (outcome.route) {
+        candidate = outcome.value;
+        modelRoute = outcome.route;
+      } else reason = this.routes.describeFailures(outcome.failures);
     }
 
     if (!candidate) {
@@ -363,7 +392,7 @@ export class AppleOffloadRuntime {
     try {
       this.validateCandidate(candidate, lines);
     } catch {
-      const result = this.result(runId, 'needs_codex', route, snapshot.artifactId, null, [], candidate.coverage, 'invalid_evidence');
+      const result = this.result(runId, 'needs_codex', route, snapshot.artifactId, null, [], candidate.coverage, 'invalid_evidence', modelRoute);
       this.record(task, runId, snapshot.artifactId, result, snapshot.bytes, started, probe);
       return result;
     }
@@ -374,12 +403,12 @@ export class AppleOffloadRuntime {
         JSON.stringify(candidate),
         { mode: 0o600 }
       );
-      const result = this.result(runId, 'shadow', route, snapshot.artifactId, null, [], candidate.coverage, null);
+      const result = this.result(runId, 'shadow', route, snapshot.artifactId, null, [], candidate.coverage, null, modelRoute);
       this.record(task, runId, snapshot.artifactId, result, snapshot.bytes, started, probe, candidate);
       return result;
     }
 
-    const result = this.result(runId, 'ready', route, snapshot.artifactId, candidate.payload, candidate.evidence, candidate.coverage, null);
+    const result = this.result(runId, 'ready', route, snapshot.artifactId, candidate.payload, candidate.evidence, candidate.coverage, null, modelRoute);
     this.record(task, runId, snapshot.artifactId, result, snapshot.bytes, started, probe);
     return result;
   }
@@ -462,7 +491,7 @@ export class AppleOffloadRuntime {
     }
   }
 
-  private async generate(task: Task, lines: string[], artifactId: string, deadline: number): Promise<Candidate> {
+  private async generate(provider: Provider, task: Task, lines: string[], artifactId: string, deadline: number): Promise<Candidate> {
     const chunks: Array<{ start: number; lines: string[] }> = [];
     let current: string[] = [];
     let start = 1;
@@ -489,7 +518,7 @@ export class AppleOffloadRuntime {
         if (deadline - Date.now() < 1_000) throw new Error('deadline_exceeded');
         try {
           const generated = await beforeDeadline(
-            this.provider.generate({ task, content: numbered, deadline }),
+            provider.generate({ task, content: numbered, deadline }),
             deadline
           );
           const candidate = this.parseGenerated(task, generated, artifactId);
@@ -554,9 +583,10 @@ export class AppleOffloadRuntime {
     payload: Payload | null,
     evidence: Evidence[],
     coverage: ProcessResult['coverage'],
-    reason: string | null
+    reason: string | null,
+    modelRoute: ModelRoute | null = null
   ): ProcessResult {
-    return ProcessResultSchema.parse({ runId, status, routeUsed, artifactId, payload, evidence, coverage, reason });
+    return ProcessResultSchema.parse({ runId, status, routeUsed, modelRoute, artifactId, payload, evidence, coverage, reason });
   }
 
   private record(

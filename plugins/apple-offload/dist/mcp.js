@@ -34320,6 +34320,8 @@ var TaskSchema2 = external_exports.enum(["diagnostics", "diff_summary", "issue_e
 var ModeSchema = external_exports.enum(["off", "shadow", "on"]);
 var StatusSchema = external_exports.enum(["ready", "shadow", "needs_codex", "blocked"]);
 var RouteSchema = external_exports.enum(["deterministic", "local"]);
+var ModelRouteSchema = external_exports.enum(["on_device", "pcc"]);
+var RoutePreferenceSchema = external_exports.enum(["on_device", "pcc_preferred"]);
 var CoverageSchema = external_exports.enum(["complete", "partial"]);
 var ProcessInputSchema = external_exports.object({
   task: TaskSchema2,
@@ -34387,6 +34389,7 @@ var ProcessResultSchema = external_exports.object({
   runId: external_exports.string().uuid(),
   status: StatusSchema,
   routeUsed: RouteSchema.nullable(),
+  modelRoute: ModelRouteSchema.nullable(),
   artifactId: external_exports.string().uuid().nullable(),
   payload: PayloadSchema.nullable(),
   evidence: external_exports.array(EvidenceSchema),
@@ -34414,6 +34417,10 @@ var StatsResultSchema = external_exports.object({
   sourceBytes: external_exports.number().int().min(0),
   outputBytes: external_exports.number().int().min(0),
   averageLatencyMs: external_exports.number().min(0).nullable(),
+  modelRoutes: external_exports.object({
+    on_device: external_exports.number().int().min(0),
+    pcc: external_exports.number().int().min(0)
+  }).strict(),
   feedback: external_exports.object({
     accepted: external_exports.number().int().min(0),
     corrected: external_exports.number().int().min(0),
@@ -34707,6 +34714,91 @@ ${respondHelp.stderr}`;
   }
 };
 
+// src/pcc-provider.ts
+var FM_PATH2 = "/usr/bin/fm";
+var PCC_IN_HELP = /private[\s-]*cloud|\bpcc\b/i;
+var runFmHelp = (args) => run(FM_PATH2, args, 3e3);
+function fmHelpAdvertisesPcc(helpText) {
+  return PCC_IN_HELP.test(helpText);
+}
+var PccProvider = class {
+  constructor(runHelp = runFmHelp, platform = process.platform) {
+    this.runHelp = runHelp;
+    this.platform = platform;
+  }
+  runHelp;
+  platform;
+  probePromise;
+  probe() {
+    this.probePromise ??= this.probeOnce();
+    return this.probePromise;
+  }
+  async generate(_request) {
+    const probe = await this.probe();
+    throw new Error(probe.reason ?? "pcc_unavailable");
+  }
+  async probeOnce() {
+    if (this.platform !== "darwin") return this.blocked("macos_27_required");
+    try {
+      const [help, respondHelp] = await Promise.all([
+        this.runHelp(["--help"]),
+        this.runHelp(["respond", "--help"])
+      ]);
+      const combined = [help.stdout, help.stderr, respondHelp.stdout, respondHelp.stderr].join("\n");
+      if (hasUnacceptedLicenseNotice(combined)) return this.blocked("fm_license_not_accepted");
+      if (help.code !== 0 || respondHelp.code !== 0) return this.blocked("fm_interface_unavailable");
+      if (!fmHelpAdvertisesPcc(combined)) return this.blocked("fm_has_no_pcc_model");
+      return this.blocked("pcc_invocation_not_implemented");
+    } catch {
+      return this.blocked("fm_probe_failed");
+    }
+  }
+  blocked(reason) {
+    return {
+      available: false,
+      reason,
+      osVersion: null,
+      providerVersion: null,
+      structuredOutput: false,
+      localModelVerified: false,
+      argvPromptExposure: false
+    };
+  }
+};
+
+// src/provider.ts
+var RouteChain = class {
+  constructor(routes) {
+    this.routes = routes;
+    if (!routes.length) throw new Error("at least one model route is required");
+  }
+  routes;
+  async serve(attempt) {
+    const failures = [];
+    let probe = null;
+    for (const [index, { route, provider }] of this.routes.entries()) {
+      probe = await provider.probe();
+      if (!probe.available) {
+        failures.push({ route, reason: probe.reason ?? `${route}_unavailable` });
+        continue;
+      }
+      try {
+        const value = await attempt(provider, index === this.routes.length - 1);
+        return { route, value, probe, failures };
+      } catch (error62) {
+        failures.push({ route, reason: error62 instanceof Error ? error62.message : "generation_failed" });
+      }
+    }
+    return { route: null, probe, failures };
+  }
+  // A single-route chain keeps the bare reason; otherwise every route is named.
+  describeFailures(failures) {
+    if (!failures.length) return null;
+    if (this.routes.length === 1) return failures[0].reason;
+    return failures.map((failure2) => `${failure2.route}:${failure2.reason}`).join(";");
+  }
+};
+
 // src/store.ts
 import { mkdirSync } from "node:fs";
 import path2 from "node:path";
@@ -34731,6 +34823,7 @@ var Store = class {
         task TEXT NOT NULL,
         mode TEXT NOT NULL,
         route_used TEXT,
+        model_route TEXT,
         status TEXT NOT NULL,
         coverage TEXT NOT NULL,
         reason TEXT,
@@ -34757,22 +34850,30 @@ var Store = class {
     if (!columns.some((column) => column.name === "workspace")) {
       this.database.exec("ALTER TABLE runs ADD COLUMN workspace TEXT NOT NULL DEFAULT 'unattributed'");
     }
-    this.database.exec("DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES (2)");
+    if (!columns.some((column) => column.name === "model_route")) {
+      this.database.exec(`
+        ALTER TABLE runs ADD COLUMN model_route TEXT;
+        UPDATE runs SET model_route = 'on_device'
+          WHERE route_used = 'local' AND status IN ('ready', 'shadow');
+      `);
+    }
+    this.database.exec("DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES (3)");
   }
   recordRun(record2) {
     this.database.prepare(`
       INSERT INTO runs (
-        run_id, artifact_id, task, mode, route_used, status, coverage, reason,
-        source_bytes, output_bytes, estimate_method, estimated_input_tokens,
+        run_id, artifact_id, task, mode, route_used, model_route, status, coverage,
+        reason, source_bytes, output_bytes, estimate_method, estimated_input_tokens,
         estimated_output_tokens, latency_ms, validation, os_version,
         provider_version, prompt_version, workspace, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       record2.runId,
       record2.artifactId,
       record2.task,
       record2.mode,
       record2.result.routeUsed,
+      record2.result.modelRoute,
       record2.result.status,
       record2.result.coverage,
       record2.result.reason,
@@ -34797,7 +34898,8 @@ var Store = class {
         SUM(status = 'shadow') shadow,
         SUM(status = 'needs_codex') needs_codex,
         SUM(status = 'blocked') blocked,
-        SUM(route_used = 'local') local,
+        SUM(model_route = 'on_device') on_device,
+        SUM(model_route = 'pcc') pcc,
         COALESCE(SUM(estimated_input_tokens), 0) input_tokens,
         COALESCE(SUM(estimated_output_tokens), 0) output_tokens,
         AVG(latency_ms) average_latency_ms
@@ -34808,12 +34910,16 @@ var Store = class {
         SUM(status = 'ready') ready,
         SUM(status = 'shadow') shadow,
         SUM(status = 'needs_codex') needs_codex,
-        SUM(route_used = 'local') local,
+        SUM(model_route = 'on_device') on_device,
+        SUM(model_route = 'pcc') pcc,
         AVG(latency_ms) average_latency_ms
       FROM runs GROUP BY workspace ORDER BY runs DESC, workspace
     `).all();
     const recent = this.database.prepare(`
-      SELECT workspace, task, mode, route_used route, status,
+      SELECT workspace, task, mode,
+        CASE WHEN model_route IS NOT NULL THEN model_route
+          WHEN route_used = 'deterministic' THEN 'deterministic' END route,
+        status,
         latency_ms latency_ms, created_at created_at
       FROM runs ORDER BY created_at DESC LIMIT 40
     `).all();
@@ -34825,7 +34931,8 @@ var Store = class {
         shadow: totals.shadow ?? 0,
         needsCodex: totals.needs_codex ?? 0,
         blocked: totals.blocked ?? 0,
-        local: totals.local ?? 0,
+        onDevice: totals.on_device ?? 0,
+        pcc: totals.pcc ?? 0,
         inputTokens: totals.input_tokens ?? 0,
         outputTokens: totals.output_tokens ?? 0,
         averageLatencyMs: totals.average_latency_ms ?? null
@@ -34836,7 +34943,8 @@ var Store = class {
         ready: Number(row.ready),
         shadow: Number(row.shadow),
         needsCodex: Number(row.needs_codex),
-        local: Number(row.local),
+        onDevice: Number(row.on_device),
+        pcc: Number(row.pcc),
         averageLatencyMs: row.average_latency_ms === null ? null : Number(row.average_latency_ms)
       })),
       recent: recent.map((row) => ({
@@ -34870,7 +34978,9 @@ var Store = class {
         SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END) AS blocked,
         COALESCE(SUM(source_bytes), 0) AS source_bytes,
         COALESCE(SUM(output_bytes), 0) AS output_bytes,
-        AVG(latency_ms) AS average_latency_ms
+        AVG(latency_ms) AS average_latency_ms,
+        SUM(CASE WHEN model_route = 'on_device' THEN 1 ELSE 0 END) AS on_device,
+        SUM(CASE WHEN model_route = 'pcc' THEN 1 ELSE 0 END) AS pcc
       FROM runs ${filter}
     `).get(...args);
     const feedback = this.database.prepare(`
@@ -34890,6 +35000,10 @@ var Store = class {
       sourceBytes: aggregate.source_bytes ?? 0,
       outputBytes: aggregate.output_bytes ?? 0,
       averageLatencyMs: aggregate.average_latency_ms ?? null,
+      modelRoutes: {
+        on_device: aggregate.on_device ?? 0,
+        pcc: aggregate.pcc ?? 0
+      },
       feedback: {
         accepted: feedback.accepted ?? 0,
         corrected: feedback.corrected ?? 0,
@@ -35080,6 +35194,8 @@ var AppleOffloadRuntime = class {
   stateDir;
   roots;
   provider;
+  routePreference;
+  routes;
   store;
   workspace;
   deadlineMs;
@@ -35092,6 +35208,9 @@ var AppleOffloadRuntime = class {
     this.roots = configuredRoots.map((root) => path3.resolve(root));
     this.workspace = (options.workspace ?? process.env.APPLE_OFFLOAD_WORKSPACE ?? path3.basename(this.roots[0])).replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 120) || "unattributed";
     this.provider = options.provider ?? new AppleLocalProvider();
+    this.routePreference = options.routePreference ?? RoutePreferenceSchema.parse(process.env.APPLE_OFFLOAD_ROUTE ?? "on_device");
+    const onDevice = { route: "on_device", provider: this.provider };
+    this.routes = new RouteChain(this.routePreference === "pcc_preferred" ? [{ route: "pcc", provider: options.pccProvider ?? new PccProvider() }, onDevice] : [onDevice]);
     this.deadlineMs = options.deadlineMs ?? DEADLINE_MS;
     this.store = new Store(this.stateDir);
   }
@@ -35104,11 +35223,17 @@ var AppleOffloadRuntime = class {
   async doctor() {
     const probe = await this.provider.probe();
     const setupRequired = probe.reason === "fm_license_not_accepted";
+    const routes = await Promise.all(this.routes.routes.map(async ({ route, provider }) => {
+      const routeProbe = await provider.probe();
+      return { route, available: routeProbe.available, reason: routeProbe.reason };
+    }));
     return {
       ...probe,
       stateDir: this.stateDir,
       roots: this.roots,
       mode: this.mode,
+      routePreference: this.routePreference,
+      routes,
       setupRequired,
       setupCommand: setupRequired ? "node dist/cli.js setup" : null
     };
@@ -35140,17 +35265,19 @@ var AppleOffloadRuntime = class {
     let candidate = deterministic(task, lines, snapshot.artifactId);
     let probe = null;
     let reason = null;
+    let modelRoute = null;
     if (!candidate) {
       route = "local";
-      probe = await this.provider.probe();
-      if (!probe.available) reason = probe.reason ?? "local_model_unavailable";
-      else {
-        try {
-          candidate = await this.generate(task, lines, snapshot.artifactId, started + this.deadlineMs);
-        } catch (error62) {
-          reason = error62 instanceof Error ? error62.message : "generation_failed";
-        }
-      }
+      const deadline = started + this.deadlineMs;
+      const outcome = await this.routes.serve((provider, isLastRoute) => {
+        const routeDeadline = isLastRoute ? deadline : Date.now() + Math.floor((deadline - Date.now()) / 2);
+        return this.generate(provider, task, lines, snapshot.artifactId, routeDeadline);
+      });
+      probe = outcome.probe;
+      if (outcome.route) {
+        candidate = outcome.value;
+        modelRoute = outcome.route;
+      } else reason = this.routes.describeFailures(outcome.failures);
     }
     if (!candidate) {
       const result2 = this.result(runId, "needs_codex", route, snapshot.artifactId, null, [], "complete", reason ?? "no_supported_facts");
@@ -35160,7 +35287,7 @@ var AppleOffloadRuntime = class {
     try {
       this.validateCandidate(candidate, lines);
     } catch {
-      const result2 = this.result(runId, "needs_codex", route, snapshot.artifactId, null, [], candidate.coverage, "invalid_evidence");
+      const result2 = this.result(runId, "needs_codex", route, snapshot.artifactId, null, [], candidate.coverage, "invalid_evidence", modelRoute);
       this.record(task, runId, snapshot.artifactId, result2, snapshot.bytes, started, probe);
       return result2;
     }
@@ -35170,11 +35297,11 @@ var AppleOffloadRuntime = class {
         JSON.stringify(candidate),
         { mode: 384 }
       );
-      const result2 = this.result(runId, "shadow", route, snapshot.artifactId, null, [], candidate.coverage, null);
+      const result2 = this.result(runId, "shadow", route, snapshot.artifactId, null, [], candidate.coverage, null, modelRoute);
       this.record(task, runId, snapshot.artifactId, result2, snapshot.bytes, started, probe, candidate);
       return result2;
     }
-    const result = this.result(runId, "ready", route, snapshot.artifactId, candidate.payload, candidate.evidence, candidate.coverage, null);
+    const result = this.result(runId, "ready", route, snapshot.artifactId, candidate.payload, candidate.evidence, candidate.coverage, null, modelRoute);
     this.record(task, runId, snapshot.artifactId, result, snapshot.bytes, started, probe);
     return result;
   }
@@ -35250,7 +35377,7 @@ var AppleOffloadRuntime = class {
       await handle.close();
     }
   }
-  async generate(task, lines, artifactId, deadline) {
+  async generate(provider, task, lines, artifactId, deadline) {
     const chunks = [];
     let current = [];
     let start = 1;
@@ -35277,7 +35404,7 @@ var AppleOffloadRuntime = class {
         if (deadline - Date.now() < 1e3) throw new Error("deadline_exceeded");
         try {
           const generated = await beforeDeadline(
-            this.provider.generate({ task, content: numbered, deadline }),
+            provider.generate({ task, content: numbered, deadline }),
             deadline
           );
           const candidate = this.parseGenerated(task, generated, artifactId);
@@ -35325,8 +35452,8 @@ var AppleOffloadRuntime = class {
     const serialized = JSON.stringify(candidate);
     if (estimateTokens(serialized) > RESPONSE_TOKEN_BUDGET) throw new Error("response_budget_exceeded");
   }
-  result(runId, status, routeUsed, artifactId, payload, evidence, coverage, reason) {
-    return ProcessResultSchema.parse({ runId, status, routeUsed, artifactId, payload, evidence, coverage, reason });
+  result(runId, status, routeUsed, artifactId, payload, evidence, coverage, reason, modelRoute = null) {
+    return ProcessResultSchema.parse({ runId, status, routeUsed, modelRoute, artifactId, payload, evidence, coverage, reason });
   }
   record(task, runId, artifactId, result, sourceBytes, started, probe, candidate) {
     const output2 = candidate ? JSON.stringify(candidate) : JSON.stringify(result);

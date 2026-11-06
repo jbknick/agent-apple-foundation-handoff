@@ -51,6 +51,16 @@ Runs share that state database across projects and worktrees. Each new run is
 grouped by the launch directory name; set `APPLE_OFFLOAD_WORKSPACE` to choose a
 stable display label.
 
+`APPLE_OFFLOAD_ROUTE` picks the Apple model routes. It defaults to `on_device`
+(the installed `/usr/bin/fm`). `pcc_preferred` opts into Apple Private Cloud
+Compute: each model run tries `pcc` first and falls back to `on_device` if PCC
+is unavailable, fails, or uses up half the remaining deadline. Today `fm` has no
+PCC model, so the PCC probe reports `fm_has_no_pcc_model` and runs fall back
+(see `docs/pcc-research.md`). Results carry `modelRoute` (`on_device`, `pcc`, or
+`null` when no model route served the run); `stats` counts runs per route,
+`doctor` lists each configured route's probe, and the dashboard shows the route
+for each recent run.
+
 `dashboard` writes a metadata-only static Site checkout to
 `.apple-offload/dashboard-site`. It includes aggregate and recent run metadata,
 but excludes prompts, artifacts, evidence, paths, run IDs, and model responses.

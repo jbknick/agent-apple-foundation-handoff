@@ -4,6 +4,10 @@ export const TaskSchema = z.enum(['diagnostics', 'diff_summary', 'issue_extract'
 export const ModeSchema = z.enum(['off', 'shadow', 'on']);
 export const StatusSchema = z.enum(['ready', 'shadow', 'needs_codex', 'blocked']);
 export const RouteSchema = z.enum(['deterministic', 'local']);
+// Which Apple model route served a `local` run; null when no model route served it.
+export const ModelRouteSchema = z.enum(['on_device', 'pcc']);
+// User configuration only (APPLE_OFFLOAD_ROUTE); never a request field.
+export const RoutePreferenceSchema = z.enum(['on_device', 'pcc_preferred']);
 export const CoverageSchema = z.enum(['complete', 'partial']);
 
 export const ProcessInputSchema = z.object({
@@ -84,6 +88,7 @@ export const ProcessResultSchema = z.object({
   runId: z.string().uuid(),
   status: StatusSchema,
   routeUsed: RouteSchema.nullable(),
+  modelRoute: ModelRouteSchema.nullable(),
   artifactId: z.string().uuid().nullable(),
   payload: PayloadSchema.nullable(),
   evidence: z.array(EvidenceSchema),
@@ -114,6 +119,10 @@ export const StatsResultSchema = z.object({
   sourceBytes: z.number().int().min(0),
   outputBytes: z.number().int().min(0),
   averageLatencyMs: z.number().min(0).nullable(),
+  modelRoutes: z.object({
+    on_device: z.number().int().min(0),
+    pcc: z.number().int().min(0)
+  }).strict(),
   feedback: z.object({
     accepted: z.number().int().min(0),
     corrected: z.number().int().min(0),
@@ -123,6 +132,8 @@ export const StatsResultSchema = z.object({
 
 export type Task = z.infer<typeof TaskSchema>;
 export type Mode = z.infer<typeof ModeSchema>;
+export type ModelRoute = z.infer<typeof ModelRouteSchema>;
+export type RoutePreference = z.infer<typeof RoutePreferenceSchema>;
 export type Evidence = z.infer<typeof EvidenceSchema>;
 export type Payload = z.infer<typeof PayloadSchema>;
 export type ProcessResult = z.infer<typeof ProcessResultSchema>;
