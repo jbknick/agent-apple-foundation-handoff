@@ -1,5 +1,7 @@
 # Apple Offload — Local-Only v0
 
+> **Historical brief.** This is the original v0 implementation brief written for Codex, kept as a record. Routing has since changed: Apple PCC is an opt-in route with on-device fallback (see `CLAUDE.md` and [pcc-research.md](pcc-research.md)), and the plugin also ships for Claude Code. Where this brief says "no cloud" or names Codex as the only host, the current docs win.
+
 PRD, HLD & Technical Design
 
 Version: v0.2 | 2026-09-22 | Implementation brief for Codex
